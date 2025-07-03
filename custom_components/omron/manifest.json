@@ -1,0 +1,17 @@
+{
+  "domain": "omron",
+  "name": "Omron",
+  "bluetooth": [
+    {
+      "service_uuid": "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b",
+      "connectable": true
+    }
+  ],
+  "codeowners": ["@eigger"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/eigger/hass-omron",
+  "issue_tracker": "https://github.com/eigger/hass-omron/issues",
+  "iot_class": "local_push",
+  "version": "1.0.0"
+}
