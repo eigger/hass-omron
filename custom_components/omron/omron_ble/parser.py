@@ -15,7 +15,7 @@ from sensor_state_data import (
 from sensor_state_data.description import (
     BaseSensorDescription,
 )
-from .const import SERVICE_WP6003, TIMEOUT_1DAY, TIMEOUT_5MIN
+from .const import TIMEOUT_1DAY, TIMEOUT_5MIN
 from .writer import get_sensor_data
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,9 +55,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         """Update from BLE advertisement data."""
         #_LOGGER.debug(f"service_info: {service_info}")
         for uuid in service_info.service_uuids:
-            if uuid == SERVICE_WP6003:
-                if self._parse_hem_7142(service_info):
-                    self.last_service_info = service_info
+            if self._parse_hem_7142(service_info):
+                self.last_service_info = service_info
         return None
 
     def _parse_hem_7142(
