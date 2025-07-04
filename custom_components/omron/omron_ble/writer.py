@@ -48,8 +48,8 @@ async def get_sensor_data(
             for c in svc.characteristics:
                 _LOGGER.debug(f"uuid: {svc.uuid}, char: {c}")
 
-        omron = OmronClient(client)
-        return await omron.request_data()
+        # omron = OmronClient(client)
+        # return await omron.request_data()
     except Exception as e:
         _LOGGER.error(f"Fail get data: {e}")
         _LOGGER.error(traceback.print_exc())

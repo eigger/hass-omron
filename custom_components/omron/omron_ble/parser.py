@@ -53,8 +53,9 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
-        #_LOGGER.debug(f"service_info: {service_info}")
+        _LOGGER.debug(f"service_info: {service_info}")
         for uuid in service_info.service_uuids:
+            _LOGGER.debug(f"uuid: {uuid}")
             if self._parse_hem_7142(service_info):
                 self.last_service_info = service_info
         return None
@@ -82,15 +83,15 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._events_updates.clear()
         data = await get_sensor_data(ble_device)
         #0a0001010e02010908000065000f01000251
-        if len(data) == 18:
-            temperature = ((data[6] << 8) + data[7]) / 10
-            tvoc = ((data[10] << 8) + data[11]) / 1000
-            hcho = ((data[12] << 8) + data[13]) / 1000
-            co2 = ((data[16] << 8) + data[17])
+        # if len(data) == 18:
+        #     temperature = ((data[6] << 8) + data[7]) / 10
+        #     tvoc = ((data[10] << 8) + data[11]) / 1000
+        #     hcho = ((data[12] << 8) + data[13]) / 1000
+        #     co2 = ((data[16] << 8) + data[17])
             
-            self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, round(temperature, 2))
-            self.update_predefined_sensor(TVOC__CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, round(tvoc, 2))
-            self.update_predefined_sensor(HCHO__CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, round(hcho, 2))
-            self.update_predefined_sensor(SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2)
+        #     self.update_predefined_sensor(SensorLibrary.TEMPERATURE__CELSIUS, round(temperature, 2))
+        #     self.update_predefined_sensor(TVOC__CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, round(tvoc, 2))
+        #     self.update_predefined_sensor(HCHO__CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, round(hcho, 2))
+        #     self.update_predefined_sensor(SensorLibrary.CO2__CONCENTRATION_PARTS_PER_MILLION, co2)
 
         return self._finish_update()
