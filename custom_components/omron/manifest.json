@@ -7,7 +7,11 @@
       "connectable": true
     },
     {
-      "service_uuid": "31eee064-23c3-2e31-c75c-6cc27c02b4c1",
+      "manufacturer_id": 526,
+      "connectable": true
+    },
+    {
+      "manufacturer_id": 76,
       "connectable": true
     }
   ],
