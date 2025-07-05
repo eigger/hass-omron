@@ -9,10 +9,6 @@
     {
       "manufacturer_id": 526,
       "connectable": true
-    },
-    {
-      "manufacturer_id": 76,
-      "connectable": true
     }
   ],
   "codeowners": ["@eigger"],
