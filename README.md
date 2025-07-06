@@ -1,3 +1,8 @@
+## 🚫 Device Support
+
+**⚠️ No devices are supported at this time.**  
+**Implementation plans are _yet to be determined_.**
+
 # hass-omron
 Omron BLE Sensor Home Assistant Integration
 
