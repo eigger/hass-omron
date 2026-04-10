@@ -6,7 +6,7 @@
 ![integration usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=usage&suffix=%20installs&cacheSeconds=15600&query=%24.omron.total&url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="600" alt="Omron BPM Integration">
+  <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="400" alt="Omron BPM Integration">
 </p>
 
 A custom integration for Home Assistant to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors.
