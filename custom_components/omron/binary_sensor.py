@@ -17,10 +17,14 @@ from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothProcessorEntity,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.const import EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .coordinator import OmronPassiveBluetoothDataProcessor
+from .const import DOMAIN
 from .device import device_key_to_bluetooth_entity_key
 from .types import OmronConfigEntry
 
@@ -29,112 +33,9 @@ BINARY_SENSOR_DESCRIPTIONS = {
         key=OmronBinarySensorDeviceClass.BATTERY,
         device_class=BinarySensorDeviceClass.BATTERY,
     ),
-    OmronBinarySensorDeviceClass.BATTERY_CHARGING: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.BATTERY_CHARGING,
-        device_class=BinarySensorDeviceClass.BATTERY_CHARGING,
-    ),
-    OmronBinarySensorDeviceClass.CO: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.CO,
-        device_class=BinarySensorDeviceClass.CO,
-    ),
-    OmronBinarySensorDeviceClass.COLD: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.COLD,
-        device_class=BinarySensorDeviceClass.COLD,
-    ),
-    OmronBinarySensorDeviceClass.CONNECTIVITY: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.CONNECTIVITY,
-        device_class=BinarySensorDeviceClass.CONNECTIVITY,
-    ),
-    OmronBinarySensorDeviceClass.DOOR: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.DOOR,
-        device_class=BinarySensorDeviceClass.DOOR,
-    ),
-    OmronBinarySensorDeviceClass.HEAT: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.HEAT,
-        device_class=BinarySensorDeviceClass.HEAT,
-    ),
-    OmronBinarySensorDeviceClass.GARAGE_DOOR: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.GARAGE_DOOR,
-        device_class=BinarySensorDeviceClass.GARAGE_DOOR,
-    ),
-    OmronBinarySensorDeviceClass.GAS: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.GAS,
-        device_class=BinarySensorDeviceClass.GAS,
-    ),
-    OmronBinarySensorDeviceClass.GENERIC: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.GENERIC,
-    ),
-    OmronBinarySensorDeviceClass.LIGHT: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.LIGHT,
-        device_class=BinarySensorDeviceClass.LIGHT,
-    ),
-    OmronBinarySensorDeviceClass.LOCK: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.LOCK,
-        device_class=BinarySensorDeviceClass.LOCK,
-    ),
-    OmronBinarySensorDeviceClass.MOISTURE: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.MOISTURE,
-        device_class=BinarySensorDeviceClass.MOISTURE,
-    ),
-    OmronBinarySensorDeviceClass.MOTION: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.MOTION,
-        device_class=BinarySensorDeviceClass.MOTION,
-    ),
-    OmronBinarySensorDeviceClass.MOVING: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.MOVING,
-        device_class=BinarySensorDeviceClass.MOVING,
-    ),
-    OmronBinarySensorDeviceClass.OCCUPANCY: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.OCCUPANCY,
-        device_class=BinarySensorDeviceClass.OCCUPANCY,
-    ),
-    OmronBinarySensorDeviceClass.OPENING: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.OPENING,
-        device_class=BinarySensorDeviceClass.OPENING,
-    ),
-    OmronBinarySensorDeviceClass.PLUG: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.PLUG,
-        device_class=BinarySensorDeviceClass.PLUG,
-    ),
-    OmronBinarySensorDeviceClass.POWER: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.POWER,
-        device_class=BinarySensorDeviceClass.POWER,
-    ),
-    OmronBinarySensorDeviceClass.PRESENCE: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.PRESENCE,
-        device_class=BinarySensorDeviceClass.PRESENCE,
-    ),
     OmronBinarySensorDeviceClass.PROBLEM: BinarySensorEntityDescription(
         key=OmronBinarySensorDeviceClass.PROBLEM,
         device_class=BinarySensorDeviceClass.PROBLEM,
-    ),
-    OmronBinarySensorDeviceClass.RUNNING: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.RUNNING,
-        device_class=BinarySensorDeviceClass.RUNNING,
-    ),
-    OmronBinarySensorDeviceClass.SAFETY: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.SAFETY,
-        device_class=BinarySensorDeviceClass.SAFETY,
-    ),
-    OmronBinarySensorDeviceClass.SMOKE: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.SMOKE,
-        device_class=BinarySensorDeviceClass.SMOKE,
-    ),
-    OmronBinarySensorDeviceClass.SOUND: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.SOUND,
-        device_class=BinarySensorDeviceClass.SOUND,
-    ),
-    OmronBinarySensorDeviceClass.TAMPER: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.TAMPER,
-        device_class=BinarySensorDeviceClass.TAMPER,
-    ),
-    OmronBinarySensorDeviceClass.VIBRATION: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.VIBRATION,
-        device_class=BinarySensorDeviceClass.VIBRATION,
-    ),
-    OmronBinarySensorDeviceClass.WINDOW: BinarySensorEntityDescription(
-        key=OmronBinarySensorDeviceClass.WINDOW,
-        device_class=BinarySensorDeviceClass.WINDOW,
     ),
 }
 
@@ -184,6 +85,13 @@ async def async_setup_entry(
     entry.async_on_unload(
         coordinator.async_register_processor(processor, BinarySensorEntityDescription)
     )
+    connection_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("connection_coordinator")
+    )
+    if connection_coordinator is not None:
+        async_add_entities(
+            [OmronConnectionBinarySensorEntity(hass, entry, connection_coordinator)]
+        )
 
 
 class OmronBluetoothBinarySensorEntity(
@@ -201,3 +109,44 @@ class OmronBluetoothBinarySensorEntity(
     def available(self) -> bool:
         """Return True if entity is available."""
         return super().available
+
+
+class OmronConnectionBinarySensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator[bool]],
+    BinarySensorEntity,
+):
+    """Diagnostic binary sensor for active BLE poll connection."""
+
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[bool],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Connection"
+        self._attr_unique_id = f"{model_slug}_{identifier}_connection"
+
+    @property
+    def is_on(self) -> bool:
+        """Return true while active BLE polling connection is open."""
+        return bool(self.coordinator.data)
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on connection state."""
+        return "mdi:bluetooth-connect" if self.is_on else "mdi:bluetooth-off"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )

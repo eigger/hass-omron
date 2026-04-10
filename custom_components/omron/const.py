@@ -5,29 +5,11 @@ from __future__ import annotations
 from typing import Final, TypedDict
 
 DOMAIN = "omron"
-LOCK = "lock"
 CONF_BINDKEY: Final = "bindkey"
-CONF_DISCOVERED_EVENT_CLASSES: Final = "known_events"
+CONF_DEVICE_MODEL: Final = "device_model"
 CONF_SUBTYPE: Final = "subtype"
 
-EVENT_TYPE: Final = "event_type"
-EVENT_CLASS: Final = "event_class"
-EVENT_PROPERTIES: Final = "event_properties"
-OMRON_BLE_EVENT: Final = "omron_ble_event"
 
-
-EVENT_CLASS_BUTTON: Final = "button"
-EVENT_CLASS_DIMMER: Final = "dimmer"
-
-CONF_EVENT_CLASS: Final = "event_class"
-CONF_EVENT_PROPERTIES: Final = "event_properties"
-
-
-class OmronBleEvent(TypedDict):
-    """Omron BLE event data."""
-
-    device_id: str
-    address: str
-    event_class: str  # ie 'button'
-    event_type: str  # ie 'press'
-    event_properties: dict[str, str | int | float | None] | None
+# BLE Service UUIDs for device detection
+OMRON_LEGACY_SERVICE_UUID = "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b"
+OMRON_NEW_SERVICE_UUID = "0000fe4a-0000-1000-8000-00805f9b34fb"

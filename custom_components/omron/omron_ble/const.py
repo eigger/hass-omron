@@ -1,16 +1,14 @@
-from sensor_state_data import (
-    BaseDeviceClass,
-)
+"""Constants for the Omron BLE module."""
+from sensor_state_data import BaseDeviceClass
+
 TIMEOUT_1DAY = 86400
 TIMEOUT_5MIN = 5 * 60
 
-CHAR_CMD = "0000fff1-0000-1000-8000-00805f9b34fb"
-CHAR_NOTI = "0000fff4-0000-1000-8000-00805f9b34fb"
 
 class ExtendedSensorDeviceClass(BaseDeviceClass):
     """Device class for additional sensors (compared to sensor-state-data)."""
 
-    # Data channel
+    # Channel
     CHANNEL = "channel"
 
     # Raw hex data
@@ -27,4 +25,17 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
 
     # Precipitation
     PRECIPITATION = "precipitation"
+
+    # Movement detected during measurement
+    MOVEMENT = "movement"
+
+    # Irregular heartbeat detected
+    IRREGULAR_HEARTBEAT = "irregular_heartbeat"
+
+    # Blood Pressure (Systolic & Diastolic)
+    BLOOD_PRESSURE_SYSTOLIC = "blood_pressure_systolic"
+    BLOOD_PRESSURE_DIASTOLIC = "blood_pressure_diastolic"
+
+    # Heart Rate
+    HEART_RATE = "heart_rate"
 

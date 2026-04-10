@@ -5,6 +5,14 @@
     {
       "manufacturer_id": 526,
       "connectable": true
+    },
+    {
+      "service_uuid": "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b",
+      "connectable": true
+    },
+    {
+      "service_uuid": "0000fe4a-0000-1000-8000-00805f9b34fb",
+      "connectable": true
     }
   ],
   "codeowners": ["@eigger"],
@@ -12,6 +20,6 @@
   "dependencies": ["bluetooth_adapters"],
   "documentation": "https://github.com/eigger/hass-omron",
   "issue_tracker": "https://github.com/eigger/hass-omron/issues",
-  "iot_class": "local_push",
+  "iot_class": "local_polling",
   "version": "1.0.0"
 }

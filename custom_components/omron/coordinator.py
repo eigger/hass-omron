@@ -32,13 +32,11 @@ class OmronPassiveBluetoothProcessorCoordinator(
         mode: BluetoothScanningMode,
         update_method: Callable[[BluetoothServiceInfoBleak], SensorUpdate],
         device_data: OmronBluetoothDeviceData,
-        discovered_event_classes: set[str],
         entry: OmronConfigEntry,
         connectable: bool = True,
     ) -> None:
         """Initialize the Omron Bluetooth Passive Update Processor Coordinator."""
         super().__init__(hass, logger, address, mode, update_method, connectable)
-        self.discovered_event_classes = discovered_event_classes
         self.device_data = device_data
         self.entry = entry
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import cast
-from functools import partial
+import datetime as dt
+import logging
+from typing import Any
 from .omron_ble import SensorDeviceClass as OmronSensorDeviceClass, SensorUpdate, Units
 from .omron_ble.const import (
     ExtendedSensorDeviceClass as OmronExtendedSensorDeviceClass,
@@ -22,254 +23,67 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     ATTR_SW_VERSION,
     ATTR_HW_VERSION,
-    CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    CONCENTRATION_PARTS_PER_MILLION,
-    DEGREE,
-    LIGHT_LUX,
-    PERCENTAGE,
-    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     EntityCategory,
-    UnitOfConductivity,
-    UnitOfElectricCurrent,
-    UnitOfElectricPotential,
-    UnitOfEnergy,
-    UnitOfLength,
-    UnitOfMass,
-    UnitOfPower,
-    UnitOfPressure,
-    UnitOfSpeed,
-    UnitOfTemperature,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfTime,
-    UnitOfVolume,
-    UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
+from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
+from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .coordinator import OmronPassiveBluetoothDataProcessor
+from .const import DOMAIN
 from .device import device_key_to_bluetooth_entity_key
 from .types import OmronConfigEntry
 
+_LOGGER = logging.getLogger(__name__)
+
 SENSOR_DESCRIPTIONS = {
-    # Acceleration (m/s²)
+    # ---- Blood Pressure / Heart Rate (primary sensors) ----
+
+    # Blood Pressure System (mmHg)
     (
-        OmronSensorDeviceClass.ACCELERATION,
-        Units.ACCELERATION_METERS_PER_SQUARE_SECOND,
+        OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
+        "mmHg",
     ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.ACCELERATION}_{Units.ACCELERATION_METERS_PER_SQUARE_SECOND}",
-        native_unit_of_measurement=Units.ACCELERATION_METERS_PER_SQUARE_SECOND,
+        key=f"{OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC}_mmHg",
+        native_unit_of_measurement="mmHg",
         state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:heart-plus",
     ),
-    # Battery (percent)
-    (OmronSensorDeviceClass.BATTERY, Units.PERCENTAGE): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.BATTERY}_{Units.PERCENTAGE}",
-        device_class=SensorDeviceClass.BATTERY,
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-    ),
-    # Channel (-)
-    (OmronExtendedSensorDeviceClass.CHANNEL, None): SensorEntityDescription(
-        key=str(OmronExtendedSensorDeviceClass.CHANNEL),
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Conductivity (µS/cm)
     (
-        OmronSensorDeviceClass.CONDUCTIVITY,
-        Units.CONDUCTIVITY,
+        OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
+        "mmHg",
     ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.CONDUCTIVITY}_{Units.CONDUCTIVITY}",
-        device_class=SensorDeviceClass.CONDUCTIVITY,
-        native_unit_of_measurement=UnitOfConductivity.MICROSIEMENS_PER_CM,
+        key=f"{OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC}_mmHg",
+        native_unit_of_measurement="mmHg",
         state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:heart-minus",
     ),
-    # Count (-)
-    (OmronSensorDeviceClass.COUNT, None): SensorEntityDescription(
-        key=str(OmronSensorDeviceClass.COUNT),
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # CO2 (parts per million)
+
+    # Heart Rate (beats per minute)
     (
-        OmronSensorDeviceClass.CO2,
-        Units.CONCENTRATION_PARTS_PER_MILLION,
+        OmronExtendedSensorDeviceClass.HEART_RATE,
+        "bpm",
     ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.CO2}_{Units.CONCENTRATION_PARTS_PER_MILLION}",
-        device_class=SensorDeviceClass.CO2,
-        native_unit_of_measurement=CONCENTRATION_PARTS_PER_MILLION,
+        key=f"{OmronExtendedSensorDeviceClass.HEART_RATE}_bpm",
+        device_class=SensorDeviceClass.HEART_RATE
+        if hasattr(SensorDeviceClass, "HEART_RATE")
+        else None,
+        native_unit_of_measurement="bpm",
         state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:pulse",
     ),
-    # Current (Ampere)
+    # Timestamp (datetime object)
     (
-        OmronSensorDeviceClass.CURRENT,
-        Units.ELECTRIC_CURRENT_AMPERE,
+        OmronSensorDeviceClass.TIMESTAMP,
+        None,
     ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.CURRENT}_{Units.ELECTRIC_CURRENT_AMPERE}",
-        device_class=SensorDeviceClass.CURRENT,
-        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Dew Point (°C)
-    (OmronSensorDeviceClass.DEW_POINT, Units.TEMP_CELSIUS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.DEW_POINT}_{Units.TEMP_CELSIUS}",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Directions (°)
-    (OmronExtendedSensorDeviceClass.DIRECTION, Units.DEGREE): SensorEntityDescription(
-        key=f"{OmronExtendedSensorDeviceClass.DIRECTION}_{Units.DEGREE}",
-        native_unit_of_measurement=DEGREE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Distance (mm)
-    (
-        OmronSensorDeviceClass.DISTANCE,
-        Units.LENGTH_MILLIMETERS,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.DISTANCE}_{Units.LENGTH_MILLIMETERS}",
-        device_class=SensorDeviceClass.DISTANCE,
-        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Distance (m)
-    (OmronSensorDeviceClass.DISTANCE, Units.LENGTH_METERS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.DISTANCE}_{Units.LENGTH_METERS}",
-        device_class=SensorDeviceClass.DISTANCE,
-        native_unit_of_measurement=UnitOfLength.METERS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Duration (seconds)
-    (OmronSensorDeviceClass.DURATION, Units.TIME_SECONDS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.DURATION}_{Units.TIME_SECONDS}",
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Energy (kWh)
-    (
-        OmronSensorDeviceClass.ENERGY,
-        Units.ENERGY_KILO_WATT_HOUR,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.ENERGY}_{Units.ENERGY_KILO_WATT_HOUR}",
-        device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    # Gas (m3)
-    (
-        OmronSensorDeviceClass.GAS,
-        Units.VOLUME_CUBIC_METERS,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.GAS}_{Units.VOLUME_CUBIC_METERS}",
-        device_class=SensorDeviceClass.GAS,
-        native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    # Gyroscope (°/s)
-    (
-        OmronSensorDeviceClass.GYROSCOPE,
-        Units.GYROSCOPE_DEGREES_PER_SECOND,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.GYROSCOPE}_{Units.GYROSCOPE_DEGREES_PER_SECOND}",
-        native_unit_of_measurement=Units.GYROSCOPE_DEGREES_PER_SECOND,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Humidity in (percent)
-    (OmronSensorDeviceClass.HUMIDITY, Units.PERCENTAGE): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.HUMIDITY}_{Units.PERCENTAGE}",
-        device_class=SensorDeviceClass.HUMIDITY,
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Illuminance (lux)
-    (OmronSensorDeviceClass.ILLUMINANCE, Units.LIGHT_LUX): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.ILLUMINANCE}_{Units.LIGHT_LUX}",
-        device_class=SensorDeviceClass.ILLUMINANCE,
-        native_unit_of_measurement=LIGHT_LUX,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Mass sensor (kg)
-    (OmronSensorDeviceClass.MASS, Units.MASS_KILOGRAMS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.MASS}_{Units.MASS_KILOGRAMS}",
-        device_class=SensorDeviceClass.WEIGHT,
-        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Mass sensor (lb)
-    (OmronSensorDeviceClass.MASS, Units.MASS_POUNDS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.MASS}_{Units.MASS_POUNDS}",
-        device_class=SensorDeviceClass.WEIGHT,
-        native_unit_of_measurement=UnitOfMass.POUNDS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Moisture (percent)
-    (OmronSensorDeviceClass.MOISTURE, Units.PERCENTAGE): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.MOISTURE}_{Units.PERCENTAGE}",
-        device_class=SensorDeviceClass.MOISTURE,
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Packet Id (-)
-    (OmronSensorDeviceClass.PACKET_ID, None): SensorEntityDescription(
-        key=str(OmronSensorDeviceClass.PACKET_ID),
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=False,
-    ),
-    # PM10 (µg/m3)
-    (
-        OmronSensorDeviceClass.PM10,
-        Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.PM10}_{Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER}",
-        device_class=SensorDeviceClass.PM10,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # PM2.5 (µg/m3)
-    (
-        OmronSensorDeviceClass.PM25,
-        Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.PM25}_{Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER}",
-        device_class=SensorDeviceClass.PM25,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Power (Watt)
-    (OmronSensorDeviceClass.POWER, Units.POWER_WATT): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.POWER}_{Units.POWER_WATT}",
-        device_class=SensorDeviceClass.POWER,
-        native_unit_of_measurement=UnitOfPower.WATT,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Precipitation (mm)
-    (
-        OmronExtendedSensorDeviceClass.PRECIPITATION,
-        Units.LENGTH_MILLIMETERS,
-    ): SensorEntityDescription(
-        key=f"{OmronExtendedSensorDeviceClass.PRECIPITATION}_{Units.LENGTH_MILLIMETERS}",
-        device_class=SensorDeviceClass.PRECIPITATION,
-        native_unit_of_measurement=UnitOfLength.MILLIMETERS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Pressure (mbar)
-    (OmronSensorDeviceClass.PRESSURE, Units.PRESSURE_MBAR): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.PRESSURE}_{Units.PRESSURE_MBAR}",
-        device_class=SensorDeviceClass.PRESSURE,
-        native_unit_of_measurement=UnitOfPressure.MBAR,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Raw (-)
-    (OmronExtendedSensorDeviceClass.RAW, None): SensorEntityDescription(
-        key=str(OmronExtendedSensorDeviceClass.RAW),
-    ),
-    # Rotation (°)
-    (OmronSensorDeviceClass.ROTATION, Units.DEGREE): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.ROTATION}_{Units.DEGREE}",
-        native_unit_of_measurement=DEGREE,
-        state_class=SensorStateClass.MEASUREMENT,
+        key=str(OmronSensorDeviceClass.TIMESTAMP),
+        device_class=SensorDeviceClass.TIMESTAMP,
     ),
     # Signal Strength (RSSI) (dB)
     (
@@ -283,133 +97,6 @@ SENSOR_DESCRIPTIONS = {
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
-    # Speed (m/s)
-    (
-        OmronSensorDeviceClass.SPEED,
-        Units.SPEED_METERS_PER_SECOND,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.SPEED}_{Units.SPEED_METERS_PER_SECOND}",
-        device_class=SensorDeviceClass.SPEED,
-        native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Temperature (°C)
-    (OmronSensorDeviceClass.TEMPERATURE, Units.TEMP_CELSIUS): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.TEMPERATURE}_{Units.TEMP_CELSIUS}",
-        device_class=SensorDeviceClass.TEMPERATURE,
-        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Text (-)
-    (OmronExtendedSensorDeviceClass.TEXT, None): SensorEntityDescription(
-        key=str(OmronExtendedSensorDeviceClass.TEXT),
-    ),
-    # Timestamp (datetime object)
-    (
-        OmronSensorDeviceClass.TIMESTAMP,
-        None,
-    ): SensorEntityDescription(
-        key=str(OmronSensorDeviceClass.TIMESTAMP),
-        device_class=SensorDeviceClass.TIMESTAMP,
-    ),
-    # UV index (-)
-    (
-        OmronSensorDeviceClass.UV_INDEX,
-        None,
-    ): SensorEntityDescription(
-        key=str(OmronSensorDeviceClass.UV_INDEX),
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Volatile organic Compounds (VOC) (µg/m3)
-    (
-        OmronSensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-        Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS}_{Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER}",
-        device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Voltage (volt)
-    (
-        OmronSensorDeviceClass.VOLTAGE,
-        Units.ELECTRIC_POTENTIAL_VOLT,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.VOLTAGE}_{Units.ELECTRIC_POTENTIAL_VOLT}",
-        device_class=SensorDeviceClass.VOLTAGE,
-        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Volume (L)
-    (
-        OmronSensorDeviceClass.VOLUME,
-        Units.VOLUME_LITERS,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.VOLUME}_{Units.VOLUME_LITERS}",
-        device_class=SensorDeviceClass.VOLUME,
-        native_unit_of_measurement=UnitOfVolume.LITERS,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    # Volume (mL)
-    (
-        OmronSensorDeviceClass.VOLUME,
-        Units.VOLUME_MILLILITERS,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.VOLUME}_{Units.VOLUME_MILLILITERS}",
-        device_class=SensorDeviceClass.VOLUME,
-        native_unit_of_measurement=UnitOfVolume.MILLILITERS,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    # Volume Flow Rate (m3/hour)
-    (
-        OmronSensorDeviceClass.VOLUME_FLOW_RATE,
-        Units.VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.VOLUME_FLOW_RATE}_{Units.VOLUME_FLOW_RATE_CUBIC_METERS_PER_HOUR}",
-        device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
-        native_unit_of_measurement=UnitOfVolumeFlowRate.CUBIC_METERS_PER_HOUR,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Volume Storage (L)
-    (
-        OmronExtendedSensorDeviceClass.VOLUME_STORAGE,
-        Units.VOLUME_LITERS,
-    ): SensorEntityDescription(
-        key=f"{OmronExtendedSensorDeviceClass.VOLUME_STORAGE}_{Units.VOLUME_LITERS}",
-        device_class=SensorDeviceClass.VOLUME_STORAGE,
-        native_unit_of_measurement=UnitOfVolume.LITERS,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
-    # Water (L)
-    (
-        OmronSensorDeviceClass.WATER,
-        Units.VOLUME_LITERS,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.WATER}_{Units.VOLUME_LITERS}",
-        device_class=SensorDeviceClass.WATER,
-        native_unit_of_measurement=UnitOfVolume.LITERS,
-        state_class=SensorStateClass.TOTAL,
-    ),
-    # # TVOC (µg/m3)
-    # (
-    #     OmronSensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-    #     Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    # ): SensorEntityDescription(
-    #     key=f"{OmronSensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS}_{Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER}",
-    #     device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-    #     native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    #     state_class=SensorStateClass.MEASUREMENT,
-    # ),
-    # HCHO (µg/m3)
-    (
-        OmronSensorDeviceClass.FORMALDEHYDE,
-        Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.FORMALDEHYDE}_{Units.CONCENTRATION_MICROGRAMS_PER_CUBIC_METER}",
-        device_class=SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-        native_unit_of_measurement=CONCENTRATION_MICROGRAMS_PER_CUBIC_METER,
-        state_class=SensorStateClass.MEASUREMENT,
-    ),
 }
 
 def hass_device_info(sensor_device_info):
@@ -422,7 +109,7 @@ def hass_device_info(sensor_device_info):
     
 def sensor_update_to_bluetooth_data_update(
     sensor_update: SensorUpdate,
-) -> PassiveBluetoothDataUpdate[float | None]:
+) -> PassiveBluetoothDataUpdate[Any]:
     """Convert a sensor update to a bluetooth data update."""
     return PassiveBluetoothDataUpdate(
         devices={
@@ -430,16 +117,17 @@ def sensor_update_to_bluetooth_data_update(
             for device_id, device_info in sensor_update.devices.items()
         },
         entity_descriptions={
-            device_key_to_bluetooth_entity_key(device_key): SENSOR_DESCRIPTIONS[
-                (description.device_class, description.native_unit_of_measurement)
-            ]
+            device_key_to_bluetooth_entity_key(device_key): descriptor
             for device_key, description in sensor_update.entity_descriptions.items()
             if description.device_class
+            and (
+                descriptor := SENSOR_DESCRIPTIONS.get(
+                    (description.device_class, description.native_unit_of_measurement)
+                )
+            )
         },
         entity_data={
-            device_key_to_bluetooth_entity_key(device_key): cast(
-                float | None, sensor_values.native_value
-            )
+            device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.entity_values.items()
         },
         entity_names={
@@ -467,6 +155,14 @@ async def async_setup_entry(
     entry.async_on_unload(
         coordinator.async_register_processor(processor, SensorEntityDescription)
     )
+    duration_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("duration_coordinator")
+    )
+    extra_entities: list[SensorEntity] = []
+    if duration_coordinator is not None:
+        extra_entities.append(OmronPollDurationSensorEntity(hass, entry, duration_coordinator))
+    if extra_entities:
+        async_add_entities(extra_entities)
 
 
 class OmronBluetoothSensorEntity(
@@ -476,9 +172,23 @@ class OmronBluetoothSensorEntity(
     """Representation of a Omron BLE sensor."""
 
     @property
-    def native_value(self) -> int | float | None:
+    def native_value(self) -> Any:
         """Return the native value."""
-        return self.processor.entity_data.get(self.entity_key)
+        value = self.processor.entity_data.get(self.entity_key)
+        if (
+            self.entity_description.device_class == SensorDeviceClass.TIMESTAMP
+            and isinstance(value, str)
+        ):
+            parsed = dt_util.parse_datetime(value)
+            if parsed is None:
+                try:
+                    parsed = dt.datetime.fromisoformat(value)
+                except ValueError:
+                    return None
+            if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+                parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            return parsed
+        return value
 
     @property
     def available(self) -> bool:
@@ -488,5 +198,56 @@ class OmronBluetoothSensorEntity(
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         poll_coordinator = self.processor.coordinator.poll_coordinator
-        remove = poll_coordinator.async_add_listener(partial(self.processor.async_handle_update, poll_coordinator.data))
+
+        @callback
+        def _handle_poll_update() -> None:
+            """Forward the latest poll coordinator payload to the processor."""
+            self.processor.async_handle_update(poll_coordinator.data)
+            _LOGGER.debug(
+                "Applied poll update to entity %s (%s): value=%s",
+                self.entity_id,
+                self.entity_key,
+                self.processor.entity_data.get(self.entity_key),
+            )
+
+        remove = poll_coordinator.async_add_listener(_handle_poll_update)
         self.async_on_remove(remove)
+
+
+class OmronPollDurationSensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator[float | None]],
+    SensorEntity,
+):
+    """Diagnostic sensor for latest poll duration."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[float | None],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Duration"
+        self._attr_unique_id = f"{model_slug}_{identifier}_duration"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return last successful poll duration in seconds."""
+        return self.coordinator.data
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
