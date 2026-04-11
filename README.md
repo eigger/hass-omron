@@ -72,4 +72,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
 - **Sensor values not updating**: The device turns off its Bluetooth radio to save battery. It turns on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
 - **Data doesn't show up after changing batteries**: Changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
 
+## References
+
+- [omblepy (userx14)](https://github.com/userx14/omblepy)
 
