@@ -34,7 +34,7 @@ from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
-from .coordinator import OmronPassiveBluetoothDataProcessor
+from .coordinator import OmronBluetoothDataProcessor
 from .const import DOMAIN
 from .device import device_key_to_bluetooth_entity_key
 from .types import OmronConfigEntry
@@ -144,7 +144,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Omron BLE sensors."""
     coordinator = entry.runtime_data
-    processor = OmronPassiveBluetoothDataProcessor(
+    processor = OmronBluetoothDataProcessor(
         sensor_update_to_bluetooth_data_update
     )
     entry.async_on_unload(
@@ -166,7 +166,7 @@ async def async_setup_entry(
 
 
 class OmronBluetoothSensorEntity(
-    PassiveBluetoothProcessorEntity[OmronPassiveBluetoothDataProcessor[float | None]],
+    PassiveBluetoothProcessorEntity[OmronBluetoothDataProcessor[float | None]],
     SensorEntity,
 ):
     """Representation of a Omron BLE sensor."""
