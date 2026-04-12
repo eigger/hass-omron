@@ -37,6 +37,13 @@ def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x82 and resp[1] in (0x00, 0x08)
 
 
+def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: new pairing key accepted (e.g. HEM-7150T-Z uses 8004, omblepy 8000)."""
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
+
+
 class GattTransport:
     """BLE GATT read/write and notify handling for Omron measurement memory access.
 
@@ -466,7 +473,7 @@ class GattTransport:
         except Exception:
             pass
 
-        if resp is None or resp[:2] != bytearray.fromhex("8000"):
+        if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         await self._client.stop_notify(self._config.unlock_uuid)
