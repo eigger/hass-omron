@@ -30,6 +30,13 @@ def _hex(data: bytes | bytearray) -> str:
     return bytes(data).hex()
 
 
+def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: key programming mode ready (e.g. HEM-7150T-Z uses 8208, others 8200)."""
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x82 and resp[1] in (0x00, 0x08)
+
+
 class GattTransport:
     """BLE GATT read/write and notify handling for Omron measurement memory access.
 
@@ -375,7 +382,7 @@ class GattTransport:
         write_failures = 0
         for attempt in range(max_retries):
             resp = response_holder[0]
-            if resp and resp[:2] == bytearray.fromhex("8200"):
+            if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt)
                 entered_programming = True
                 break
@@ -402,7 +409,7 @@ class GattTransport:
                     notify_samples.append(
                         f"#{attempt + 1}:{_hex(resp)}"
                     )
-            if resp and resp[:2] == bytearray.fromhex("8200"):
+            if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
                 entered_programming = True
                 break
@@ -423,7 +430,7 @@ class GattTransport:
             _LOGGER.error(
                 "Key programming mode not reached: model=%s legacy_workarounds=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
-                "expected_notify_prefix=8200 last_notify_hex=%s samples=%s",
+                "expected_notify_prefix=8200_or_8208 last_notify_hex=%s samples=%s",
                 self._config.model,
                 legacy,
                 self._config.unlock_uuid,
