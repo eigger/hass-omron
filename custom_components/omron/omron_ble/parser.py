@@ -359,7 +359,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
                 return self._finish_update()
 
-            if self.last_service_info and not self._device_config.is_service_compatible(
+            if self.last_service_info and not self._device_config.is_advertisement_compatible(
                 self.last_service_info.service_uuids
             ):
                 prof = resolve_profile_model_id(self._device_model)

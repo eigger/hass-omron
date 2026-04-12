@@ -12,6 +12,8 @@ _LOGGER = logging.getLogger(__name__)
 # --- BLE UUID Constants ---
 CLASSIC_STACK_PARENT_SERVICE_UUID = "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b"
 MODERN_STACK_PARENT_SERVICE_UUID = "0000fe4a-0000-1000-8000-00805f9b34fb"
+# Bluetooth SIG Blood Pressure Service — often the only UUID in passive scan advertisements.
+STANDARD_BLOOD_PRESSURE_SERVICE_UUID = "00001810-0000-1000-8000-00805f9b34fb"
 
 CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS = [
     "49123040-aee8-11e1-a74d-0002a5d5c51b",
@@ -332,6 +334,21 @@ class DeviceConfig:
         if self.parent_service_stack() == "modern":
             return MODERN_STACK_PARENT_SERVICE_UUID in service_uuids
         return CLASSIC_STACK_PARENT_SERVICE_UUID in service_uuids
+
+    def is_advertisement_compatible(self, service_uuids: list[str] | None) -> bool:
+        """Whether scan-time service UUIDs are consistent enough to attempt pairing/poll.
+
+        Passive advertisements often list only the standard Blood Pressure service (0x1810);
+        the Omron parent service may appear only after GATT service discovery post-connection.
+        """
+        if not service_uuids:
+            return True
+        if self.is_service_compatible(service_uuids):
+            return True
+        advertised = {str(u).lower() for u in service_uuids}
+        if STANDARD_BLOOD_PRESSURE_SERVICE_UUID.lower() in advertised:
+            return True
+        return False
 
 
 # --- Canonical device profiles (one EEPROM layout per key; catalog variants map here) ---
