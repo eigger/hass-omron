@@ -370,6 +370,9 @@ class GattTransport:
         # Step 3: Enter key programming mode (0x02 prefix writes)
         max_retries = key_max_retries
         entered_programming = False
+        last_notify: bytes | None = None
+        notify_samples: list[str] = []
+        write_failures = 0
         for attempt in range(max_retries):
             resp = response_holder[0]
             if resp and resp[:2] == bytearray.fromhex("8200"):
@@ -384,6 +387,7 @@ class GattTransport:
                     self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
                 )
             except Exception as exc:
+                write_failures += 1
                 _LOGGER.debug("Key programming write attempt %d failed: %s", attempt + 1, exc)
 
             try:
@@ -392,6 +396,12 @@ class GattTransport:
                 pass
 
             resp = response_holder[0]
+            if resp:
+                last_notify = bytes(resp)
+                if len(notify_samples) < 10:
+                    notify_samples.append(
+                        f"#{attempt + 1}:{_hex(resp)}"
+                    )
             if resp and resp[:2] == bytearray.fromhex("8200"):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
                 entered_programming = True
@@ -410,6 +420,18 @@ class GattTransport:
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception:
                 pass
+            _LOGGER.error(
+                "Key programming mode not reached: model=%s legacy_workarounds=%s "
+                "unlock_uuid=%s attempts=%s write_failures=%s "
+                "expected_notify_prefix=8200 last_notify_hex=%s samples=%s",
+                self._config.model,
+                legacy,
+                self._config.unlock_uuid,
+                max_retries,
+                write_failures,
+                _hex(last_notify) if last_notify else "None",
+                notify_samples or ["(no notifications)"],
+            )
             raise ConnectionError(
                 "Could not enter key programming mode. "
                 "Is the device in pairing mode? (hold bluetooth button until -P- appears)"
