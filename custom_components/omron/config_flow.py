@@ -206,10 +206,19 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         address = self._discovery_info.address
         advertised_services = self._discovery_info.service_uuids
 
-        if advertised_services and not config.is_service_compatible(advertised_services):
+        if advertised_services and not config.is_advertisement_compatible(
+            advertised_services
+        ):
             raise ConnectionError(
-                f"Selected model {model} does not match advertised BLE service family "
+                f"Selected model {model} does not match advertised BLE services "
                 f"(services={advertised_services})"
+            )
+        if advertised_services and not config.is_service_compatible(advertised_services):
+            _LOGGER.info(
+                "Advertisement lists standard BP service only; Omron service may appear "
+                "after connect (model=%s ads=%s)",
+                model,
+                advertised_services,
             )
 
         # Get BLE device from HA's bluetooth stack
