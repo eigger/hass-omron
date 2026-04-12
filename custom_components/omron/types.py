@@ -1,10 +1,9 @@
-"""The Omron Bluetooth integration."""
+"""Shared typing helpers for the Omron integration."""
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TypeAlias
 
 from homeassistant.config_entries import ConfigEntry
 
-if TYPE_CHECKING:
-    from .coordinator import OmronPassiveBluetoothProcessorCoordinator
-
-type OmronConfigEntry = ConfigEntry[OmronPassiveBluetoothProcessorCoordinator]
+OmronConfigEntry: TypeAlias = ConfigEntry["OmronBluetoothProcessorCoordinator"]

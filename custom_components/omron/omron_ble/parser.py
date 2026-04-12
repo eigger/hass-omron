@@ -27,18 +27,22 @@ from homeassistant.util import dt as dt_util
 
 from .const import TIMEOUT_5MIN
 from .devices import (
-    ALL_SERVICE_UUIDS,
+    DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
     DEFAULT_DEVICE_MODEL,
+    MODEL_VARIANT_MAP,
     get_device_config,
+    resolve_profile_model_id,
 )
-from .omron_driver import BluetoothTxRxHandler, OmronDeviceDriver
+from .omron_driver import GattTransport, OmronDeviceDriver
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
 VERBOSE_BLS_LOG = os.getenv("OMRON_VERBOSE_BLS_LOG", "0") == "1"
+# Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
+OMRON_MANUFACTURER_ID = 526
 
 
 class OmronBluetoothDeviceData(BluetoothData):
@@ -54,6 +58,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._last_record_signature: tuple[Any, ...] | None = None
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
+        self._unvalidated_variant_warning_logged = False
 
     @property
     def device_model(self) -> str:
@@ -66,27 +71,53 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._device_model = model
         self._device_config = get_device_config(model)
         self._driver = OmronDeviceDriver(self._device_config)
+        self._unvalidated_variant_warning_logged = False
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
-        if not super().supported(data):
-            return False
-        return True
+        if super().supported(data):
+            return True
+        for uuid in DISCOVERABLE_PARENT_SERVICE_UUIDS:
+            if uuid in data.service_uuids:
+                return True
+        md = getattr(data, "manufacturer_data", None) or {}
+        if OMRON_MANUFACTURER_ID in md:
+            return True
+        name = (data.name or "").strip()
+        if name:
+            if "omron" in name.lower():
+                return True
+            if name.upper().startswith("HEM-"):
+                return True
+        return False
 
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
         _LOGGER.debug("service_info: %s", service_info)
 
         # Check if any known Omron service UUID is present
-        for uuid in ALL_SERVICE_UUIDS:
+        for uuid in DISCOVERABLE_PARENT_SERVICE_UUIDS:
             if uuid in service_info.service_uuids:
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
                 return
 
-        # Fallback: try to match by manufacturer data or name
-        if service_info.name and "omron" in service_info.name.lower():
+        # Omron manufacturer company id (manifest manufacturer_id 526)
+        md = getattr(service_info, "manufacturer_data", None) or {}
+        if OMRON_MANUFACTURER_ID in md:
             self._setup_device_info(service_info)
             self.last_service_info = service_info
+            return
+
+        # Fallback: device name (align with manifest bluetooth local_name matchers)
+        name = (service_info.name or "").strip()
+        if name:
+            if "omron" in name.lower():
+                self._setup_device_info(service_info)
+                self.last_service_info = service_info
+                return
+            if name.upper().startswith("HEM-"):
+                self._setup_device_info(service_info)
+                self.last_service_info = service_info
 
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
@@ -248,6 +279,26 @@ class OmronBluetoothDeviceData(BluetoothData):
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
+        variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+        if variant_entry:
+            profile_key, variant = variant_entry
+            _LOGGER.debug(
+                "Catalog variant: %s -> profile %s (unverified=%s, reason=%s)",
+                self._device_model,
+                profile_key,
+                variant.unverified,
+                variant.reason,
+            )
+            if variant.unverified and not self._unvalidated_variant_warning_logged:
+                _LOGGER.warning(
+                    "Unverified catalog variant: %s -> profile %s (reason=%s). "
+                    "If sync fails or values look wrong, choose another registry profile.",
+                    self._device_model,
+                    profile_key,
+                    variant.reason,
+                )
+                self._unvalidated_variant_warning_logged = True
+
         self._events_updates.clear()
 
         client: BleakClient | None = None
@@ -290,26 +341,35 @@ class OmronBluetoothDeviceData(BluetoothData):
                 await asyncio.sleep(0.25)
 
             if not service_found:
+                prof = resolve_profile_model_id(self._device_model)
+                variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
                 _LOGGER.error(
                     "Required service %s not found on device %s",
-                    parent_uuid, ble_device.address,
+                    parent_uuid,
+                    ble_device.address,
                 )
                 _LOGGER.error(
-                    "poll_failed: model/service mismatch likely (model=%s, expected_family=%s)",
+                    "poll_failed: model/service mismatch (model=%s profile=%s "
+                    "variant_unverified=%s variant_reason=%s expected_stack=%s)",
                     self._device_model,
-                    self._device_config.expected_service_family(),
+                    prof,
+                    variant_entry[1].unverified if variant_entry else False,
+                    variant_entry[1].reason if variant_entry else None,
+                    self._device_config.parent_service_stack(),
                 )
                 return self._finish_update()
 
             if self.last_service_info and not self._device_config.is_service_compatible(
                 self.last_service_info.service_uuids
             ):
+                prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.warning(
-                    "Configured model %s may not match advertised service family. "
-                    "advertised=%s expected_family=%s",
+                    "Configured model %s (profile %s) may not match advertised service family. "
+                    "advertised=%s expected_stack=%s",
                     self._device_model,
+                    prof,
                     self.last_service_info.service_uuids,
-                    self._device_config.expected_service_family(),
+                    self._device_config.parent_service_stack(),
                 )
 
             missing_rx = [
@@ -321,10 +381,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                 if client.services.get_characteristic(uuid) is None
             ]
             if missing_rx or missing_tx:
+                prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.warning(
-                    "Potential model/stack mismatch: missing expected characteristics for model=%s "
-                    "missing_rx=%s missing_tx=%s",
+                    "Potential model/stack mismatch: missing expected characteristics "
+                    "for model=%s profile=%s missing_rx=%s missing_tx=%s",
                     self._device_model,
+                    prof,
                     missing_rx,
                     missing_tx,
                 )
@@ -333,8 +395,8 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "driver command path will determine actual compatibility."
                 )
 
-            txrx = BluetoothTxRxHandler(client, self._device_config)
-            record = await self._driver.get_latest_record(txrx)
+            transport = GattTransport(client, self._device_config)
+            record = await self._driver.get_latest_record(transport)
             live_record: dict[str, Any] | None = None
             # Preferred live path for BLS devices: request latest via RACP indications.
             live_record = await self._read_latest_via_bls_racp(client)
@@ -483,15 +545,34 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
             else:
                 poll_status = "no_new_valid_record"
+                prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.debug("No records found on device")
                 _LOGGER.debug(
-                    "no_new_valid_record: no valid parsed records (model=%s)",
+                    "no_new_valid_record: no valid parsed records (model=%s profile=%s)",
                     self._device_model,
+                    prof,
                 )
 
         except Exception as exc:
-            _LOGGER.error("Error polling device: %s", exc)
-            _LOGGER.error("poll_failed: %s", type(exc).__name__)
+            prof = resolve_profile_model_id(self._device_model)
+            variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+            _LOGGER.error(
+                "Error polling device model=%s profile=%s address=%s: %s",
+                self._device_model,
+                prof,
+                ble_device.address,
+                exc,
+                exc_info=exc,
+            )
+            _LOGGER.error(
+                "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
+                "variant_reason=%s",
+                type(exc).__name__,
+                self._device_model,
+                prof,
+                variant_entry[1].unverified if variant_entry else False,
+                variant_entry[1].reason if variant_entry else None,
+            )
         finally:
             if client and client.is_connected:
                 try:

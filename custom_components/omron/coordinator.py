@@ -1,8 +1,8 @@
-"""The Omron Bluetooth integration."""
+"""Bluetooth passive-update coordinator and data processor for Omron."""
 
 from collections.abc import Callable, Coroutine
 from logging import Logger
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 
@@ -18,11 +18,13 @@ from homeassistant.core import HomeAssistant
 
 from .types import OmronConfigEntry
 
+_T = TypeVar("_T")
 
-class OmronPassiveBluetoothProcessorCoordinator(
+
+class OmronBluetoothProcessorCoordinator(
     PassiveBluetoothProcessorCoordinator[SensorUpdate]
 ):
-    """Define a Omron Bluetooth Passive Update Processor Coordinator."""
+    """Coordinates passive BLE advertisements and forwards them to Omron device state."""
 
     def __init__(
         self,
@@ -35,15 +37,16 @@ class OmronPassiveBluetoothProcessorCoordinator(
         entry: OmronConfigEntry,
         connectable: bool = True,
     ) -> None:
-        """Initialize the Omron Bluetooth Passive Update Processor Coordinator."""
+        """Initialize the BLE advertisement coordinator for this device."""
         super().__init__(hass, logger, address, mode, update_method, connectable)
         self.device_data = device_data
         self.entry = entry
 
 
-class OmronPassiveBluetoothDataProcessor[_T](
-    PassiveBluetoothDataProcessor[_T, SensorUpdate]
+class OmronBluetoothDataProcessor(
+    Generic[_T],
+    PassiveBluetoothDataProcessor[_T, SensorUpdate],
 ):
-    """Define a Omron Bluetooth Passive Update Data Processor."""
+    """Bridges Home Assistant passive BLE updates to Omron sensor payloads."""
 
-    coordinator: OmronPassiveBluetoothProcessorCoordinator
+    coordinator: OmronBluetoothProcessorCoordinator

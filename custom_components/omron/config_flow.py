@@ -9,7 +9,14 @@ import logging
 from typing import Any
 
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
-from .omron_ble.devices import get_supported_models, get_device_config, DEFAULT_DEVICE_MODEL
+from .omron_ble.devices import (
+    DEFAULT_DEVICE_MODEL,
+    MODEL_VARIANT_MAP,
+    get_device_config,
+    get_supported_model_stats,
+    get_supported_models,
+    infer_model_id_from_local_name,
+)
 import voluptuous as vol
 
 from bleak import BleakClient
@@ -22,11 +29,17 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
 )
 from homeassistant.core import callback
-from homeassistant.config_entries import SOURCE_REAUTH, ConfigFlow, ConfigFlowResult, OptionsFlow
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, DOMAIN
-from .omron_ble.omron_driver import BluetoothTxRxHandler
+from .omron_ble.omron_driver import GattTransport
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
@@ -56,6 +69,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_device: DeviceData | None = None
         self._discovered_devices: dict[str, Discovery] = {}
         self._selected_model: str | None = None
+        self._scan_interval: int = 300
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -92,26 +106,50 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         models = get_supported_models()
         model_dict = {m: m for m in models}
+        stats = get_supported_model_stats()
+        default_model = DEFAULT_DEVICE_MODEL
+        if self._discovery_info:
+            inferred = infer_model_id_from_local_name(self._discovery_info.name)
+            if inferred is not None:
+                default_model = inferred
+        desc_ph = {
+            **self.context.get("title_placeholders", {}),
+            "model_total": str(stats["total"]),
+            "profile_count": str(stats["profiles"]),
+            "variant_count": str(stats["extra_variants"]),
+        }
 
         return self.async_show_form(
             step_id="select_model",
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_DEVICE_MODEL, default=DEFAULT_DEVICE_MODEL
+                        CONF_DEVICE_MODEL, default=default_model
                     ): vol.In(model_dict),
                     vol.Optional(
                         CONF_SCAN_INTERVAL, default=300
                     ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
                 }
             ),
-            description_placeholders=self.context.get("title_placeholders", {}),
+            description_placeholders=desc_ph,
         )
 
     async def async_step_pairing(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle device pairing step."""
+        """Handle device pairing step (classic -P- pairing flow)."""
+        return await self._async_step_pairing(user_input)
+
+    async def async_step_pairing_os(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle device pairing step (OS-level bonding; same logic, different UI strings)."""
+        return await self._async_step_pairing(user_input)
+
+    async def _async_step_pairing(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Shared pairing: form step_id must match async_step_<step_id> on the next POST."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -128,20 +166,24 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
+        step_id = "pairing_os" if config.supports_os_bonding_only else "pairing"
 
-        # Choose description based on pairing type
-        if config.supports_os_bonding_only:
-            description_key = "pairing_os"
-        else:
-            description_key = "pairing_custom"
+        title_ph = self.context.get("title_placeholders") or {}
+        device_name = str(title_ph.get("name") or model)
+        interval_seconds = int(self._scan_interval)
+        device_address = ""
+        if self._discovery_info:
+            device_address = self._discovery_info.address
 
         return self.async_show_form(
-            step_id="pairing",
+            step_id=step_id,
             data_schema=vol.Schema({}),
             errors=errors,
             description_placeholders={
                 "model": model,
-                "pairing_type": description_key,
+                "device_name": device_name,
+                "interval_seconds": str(interval_seconds),
+                "device_address": device_address,
             },
         )
 
@@ -152,6 +194,15 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
+        variant_entry = MODEL_VARIANT_MAP.get(model)
+        if variant_entry:
+            profile_key, variant = variant_entry
+            _LOGGER.info(
+                "Catalog variant %s -> profile %s (unverified=%s)",
+                model,
+                profile_key,
+                variant.unverified,
+            )
         address = self._discovery_info.address
         advertised_services = self._discovery_info.service_uuids
 
@@ -176,8 +227,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                     break
                 await asyncio.sleep(0.25)
 
-            txrx = BluetoothTxRxHandler(client, config)
-            await txrx.pair()
+            transport = GattTransport(client, config)
+            await transport.pair()
             await self._async_try_sync_current_time(client, model)
             _LOGGER.info("Successfully paired with %s (%s)", model, address)
         finally:
@@ -307,10 +358,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             data["bindkey"] = bindkey
         if model:
             data[CONF_DEVICE_MODEL] = model
-        
-        # Save scan_interval in data
-        if hasattr(self, "_scan_interval") and self._scan_interval:
-            data[CONF_SCAN_INTERVAL] = self._scan_interval
+
+        data[CONF_SCAN_INTERVAL] = int(
+            getattr(self, "_scan_interval", 300)
+        )
 
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(

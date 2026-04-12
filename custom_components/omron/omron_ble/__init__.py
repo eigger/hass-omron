@@ -14,8 +14,6 @@ from sensor_state_data import (
 
 from .parser import OmronBluetoothDeviceData
 
-__version__ = "1.0.0"
-
 __all__ = [
     "BinarySensorDeviceClass",
     "OmronBluetoothDeviceData",

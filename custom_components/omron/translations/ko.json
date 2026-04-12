@@ -1,0 +1,25 @@
+{
+  "config": {
+    "step": {
+      "select_model": {
+        "title": "기기 모델 선택",
+        "description": "광고 이름에 알려진 코드(예: HEM-7600T)가 있으면 기본으로 선택됩니다. 맞는지 확인하거나 목록에서 고르세요. 목록은 총 **{model_total}**개(프로필 **{profile_count}** + 변형 **{variant_count}**)입니다. 정확한 코드가 없으면 가장 가까운 모델을 선택하세요. EEPROM 레이아웃이 맞지 않으면 측정값이 비거나 이상합니다. 로그의 **profile=** 줄을 확인하세요.",
+        "data": {
+          "device_model": "모델",
+          "scan_interval": "갱신 주기(초)"
+        }
+      },
+      "pairing": {
+        "title": "{model} 페어링",
+        "description": "**확인**을 누르면 Home Assistant에서 페어링이 진행됩니다. 먼저 혈압계를 페어링 모드로 두세요(대개 블루투스 버튼을 길게 눌러 **-P-** 표시). 그다음 확인을 누르세요."
+      },
+      "pairing_os": {
+        "title": "{model} 페어링",
+        "description": "**확인**을 누르면 Home Assistant에서 페어링이 진행됩니다. 사용 설명서대로 기기를 페어링·검색 가능 상태로 만든 뒤 확인을 누르세요."
+      }
+    },
+    "error": {
+      "pairing_failed": "페어링에 실패했습니다. -P-가 표시 중인지 확인한 뒤 다시 시도하세요."
+    }
+  }
+}

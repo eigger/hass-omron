@@ -26,7 +26,7 @@ from .const import (
     CONF_DEVICE_MODEL,
     DOMAIN,
 )
-from .coordinator import OmronPassiveBluetoothProcessorCoordinator
+from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
 
 PLATFORMS: list[Platform] = [
@@ -70,7 +70,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]['data'] = data
 
     device_registry = dr.async_get(hass)
-    bt_coordinator = OmronPassiveBluetoothProcessorCoordinator(
+    bt_coordinator = OmronBluetoothProcessorCoordinator(
         hass,
         _LOGGER,
         address=address,

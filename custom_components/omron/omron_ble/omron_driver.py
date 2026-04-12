@@ -19,168 +19,170 @@ def _hex(data: bytes | bytearray) -> str:
     return bytes(data).hex()
 
 
-class BluetoothTxRxHandler:
-    """Handles BLE GATT TX/RX communication with Omron devices.
+class GattTransport:
+    """BLE GATT read/write and notify handling for Omron measurement memory access.
 
-    Supports both single-channel (HEM-7380T1) and multi-channel (legacy) devices.
+    Supports single-channel (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
     def __init__(self, client: BleakClient, device_config: DeviceConfig) -> None:
         self._client = client
         self._config = device_config
-        self._rx_notify_active = False
-        self._rx_packet_type: bytes | None = None
-        self._rx_eeprom_address: bytes | None = None
-        self._rx_data_bytes: bytes | None = None
-        self._rx_finished = asyncio.Event()
-        self._rx_raw_channel_buffer: list[bytes | None] = [None] * 4
-        self._rx_handle_to_channel: dict[int, int] = {}
+        self._notify_subscribed = False
+        self._last_reply_packet_type: bytes | None = None
+        self._last_reply_memory_address: bytes | None = None
+        self._last_reply_payload: bytes | None = None
+        self._reply_ready = asyncio.Event()
+        self._channel_fragments: list[bytes | None] = [None] * 4
+        self._notify_handle_to_channel: dict[int, int] = {}
 
-    def _build_rx_handle_map(self) -> None:
-        """Build mapping from GATT characteristic handles to channel indices."""
-        self._rx_handle_to_channel = {}
+    def _rebuild_notify_handle_index_map(self) -> None:
+        """Build mapping from GATT characteristic handles to notify channel indices."""
+        self._notify_handle_to_channel = {}
         for idx, uuid in enumerate(self._config.rx_channel_uuids):
             char = self._client.services.get_characteristic(uuid)
             if char is not None:
-                self._rx_handle_to_channel[char.handle] = idx
+                self._notify_handle_to_channel[char.handle] = idx
 
-    async def _enable_rx_notify(self) -> None:
+    async def _subscribe_notify_channels(self) -> None:
         """Enable notifications on all RX channels."""
-        if not self._rx_notify_active:
-            self._build_rx_handle_map()
+        if not self._notify_subscribed:
+            self._rebuild_notify_handle_index_map()
             for uuid in self._config.rx_channel_uuids:
-                await self._client.start_notify(uuid, self._rx_callback)
-            self._rx_notify_active = True
+                await self._client.start_notify(uuid, self._on_notify_channel_data)
+            self._notify_subscribed = True
 
-    async def _disable_rx_notify(self) -> None:
+    async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
-        if self._rx_notify_active:
+        if self._notify_subscribed:
             for uuid in self._config.rx_channel_uuids:
                 await self._client.stop_notify(uuid)
-            self._rx_notify_active = False
+            self._notify_subscribed = False
 
-    def _rx_callback(self, char: Any, rx_bytes: bytearray) -> None:
+    def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
         # Determine which channel this notification came from
         if self._config.is_single_channel:
-            rx_channel_id = 0
+            channel_index = 0
         elif isinstance(char, int):
-            rx_channel_id = self._rx_handle_to_channel.get(char, -1)
+            channel_index = self._notify_handle_to_channel.get(char, -1)
         else:
             # Try UUID-based mapping first, then handle-based
             if char.uuid in self._config.rx_channel_uuids:
-                rx_channel_id = self._config.rx_channel_uuids.index(char.uuid)
+                channel_index = self._config.rx_channel_uuids.index(char.uuid)
             else:
-                rx_channel_id = self._rx_handle_to_channel.get(char.handle, -1)
+                channel_index = self._notify_handle_to_channel.get(char.handle, -1)
 
-        if rx_channel_id < 0:
+        if channel_index < 0:
             _LOGGER.warning("Received data on unknown handle/uuid: %s", char)
             return
 
-        self._rx_raw_channel_buffer[rx_channel_id] = rx_bytes
-        _LOGGER.debug("rx ch%d < %s", rx_channel_id, _hex(rx_bytes))
+        self._channel_fragments[channel_index] = rx_bytes
+        _LOGGER.debug("rx ch%d < %s", channel_index, _hex(rx_bytes))
 
         # Check if we can assemble a complete packet
-        if not self._rx_raw_channel_buffer[0]:
+        if not self._channel_fragments[0]:
             return
 
         if self._config.is_single_channel:
-            combined = bytearray(self._rx_raw_channel_buffer[0])
-            self._rx_raw_channel_buffer = [None] * 4
+            frame_bytes = bytearray(self._channel_fragments[0])
+            self._channel_fragments = [None] * 4
         else:
-            packet_size = self._rx_raw_channel_buffer[0][0]
+            packet_size = self._channel_fragments[0][0]
             required_channels = range((packet_size + 15) // 16)
             # Check all required channels are received
             for ch in required_channels:
-                if self._rx_raw_channel_buffer[ch] is None:
+                if self._channel_fragments[ch] is None:
                     return
             # Combine channels
-            combined = bytearray()
+            frame_bytes = bytearray()
             for ch in required_channels:
-                combined += self._rx_raw_channel_buffer[ch]
-            combined = combined[:packet_size]
-            self._rx_raw_channel_buffer = [None] * 4
+                frame_bytes += self._channel_fragments[ch]
+            frame_bytes = frame_bytes[:packet_size]
+            self._channel_fragments = [None] * 4
 
         # Verify XOR CRC
         xor_crc = 0
-        for byte in combined:
+        for byte in frame_bytes:
             xor_crc ^= byte
         if xor_crc:
             _LOGGER.error(
-                "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(combined)
+                "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
             )
             return
 
         # Extract packet fields
-        self._rx_packet_type = combined[1:3]
-        self._rx_eeprom_address = combined[3:5]
-        expected_data_len = combined[5]
-        if expected_data_len > (len(combined) - 8):
-            self._rx_data_bytes = bytes(b'\xff') * expected_data_len
+        self._last_reply_packet_type = frame_bytes[1:3]
+        self._last_reply_memory_address = frame_bytes[3:5]
+        expected_data_len = frame_bytes[5]
+        if expected_data_len > (len(frame_bytes) - 8):
+            self._last_reply_payload = bytes(b'\xff') * expected_data_len
         else:
-            if self._rx_packet_type == bytearray.fromhex("8f00"):
+            if self._last_reply_packet_type == bytearray.fromhex("8f00"):
                 # End-of-transmission packet: error code is in byte 6
-                self._rx_data_bytes = combined[6:7]
+                self._last_reply_payload = frame_bytes[6:7]
             else:
-                self._rx_data_bytes = combined[6:6 + expected_data_len]
+                self._last_reply_payload = frame_bytes[6:6 + expected_data_len]
 
-        self._rx_finished.set()
+        self._reply_ready.set()
 
-    async def _send_and_wait(self, command: bytearray, timeout: float = 2.0) -> None:
+    async def _write_command_and_wait_reply(
+        self, command: bytearray, timeout: float = 2.0
+    ) -> None:
         """Send a command and wait for response with retry logic."""
         for retry in range(5):
-            self._rx_finished.clear()
+            self._reply_ready.clear()
 
             # Split command across TX channels
-            cmd_copy = command
+            remaining_cmd = command
             channel_width = 16
             if self._config.is_single_channel:
                 channel_width = max(channel_width, len(command))
 
             num_tx_channels = (len(command) + channel_width - 1) // channel_width
             for ch_idx in range(num_tx_channels):
-                chunk = cmd_copy[:channel_width]
-                _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(chunk))
+                tx_segment = remaining_cmd[:channel_width]
+                _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
                 if self._config.is_single_channel:
                     await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], chunk, response=False
+                        self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
                     )
                 else:
                     await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], chunk
+                        self._config.tx_channel_uuids[ch_idx], tx_segment
                     )
-                cmd_copy = cmd_copy[channel_width:]
+                remaining_cmd = remaining_cmd[channel_width:]
 
             # Wait for response
             try:
-                await asyncio.wait_for(self._rx_finished.wait(), timeout=timeout)
+                await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
                 _LOGGER.warning("TX timeout, retry %d/5", retry + 1)
 
         raise ConnectionError("Failed to receive response after 5 retries")
 
-    async def start_transmission(self) -> None:
+    async def open_memory_session(self) -> None:
         """Start a data readout session."""
-        await self._enable_rx_notify()
+        await self._subscribe_notify_channels()
         start_cmd = bytearray.fromhex("0800000000100018")
-        await self._send_and_wait(start_cmd)
-        if self._rx_packet_type != bytearray.fromhex("8000"):
+        await self._write_command_and_wait_reply(start_cmd)
+        if self._last_reply_packet_type != bytearray.fromhex("8000"):
             raise ConnectionError("Invalid response to data readout start")
 
-    async def end_transmission(self) -> None:
+    async def close_memory_session(self) -> None:
         """End a data readout session."""
         stop_cmd = bytearray.fromhex("080f000000000007")
-        await self._send_and_wait(stop_cmd)
-        if self._rx_packet_type != bytearray.fromhex("8f00"):
+        await self._write_command_and_wait_reply(stop_cmd)
+        if self._last_reply_packet_type != bytearray.fromhex("8f00"):
             raise ConnectionError("Invalid response to data readout end")
-        if self._rx_data_bytes and self._rx_data_bytes[0]:
+        if self._last_reply_payload and self._last_reply_payload[0]:
             raise ConnectionError(
-                f"Device reported error code {self._rx_data_bytes[0]}"
+                f"Device reported error code {self._last_reply_payload[0]}"
             )
-        await self._disable_rx_notify()
+        await self._unsubscribe_notify_channels()
 
-    async def read_eeprom_block(self, address: int, blocksize: int) -> bytes:
+    async def read_memory_block(self, address: int, blocksize: int) -> bytes:
         """Read a block of data from device EEPROM."""
         cmd = bytearray.fromhex("080100")
         cmd += address.to_bytes(2, "big")
@@ -192,16 +194,16 @@ class BluetoothTxRxHandler:
         cmd += b'\x00'
         cmd.append(xor_crc)
 
-        await self._send_and_wait(cmd)
-        if self._rx_eeprom_address != address.to_bytes(2, "big"):
+        await self._write_command_and_wait_reply(cmd)
+        if self._last_reply_memory_address != address.to_bytes(2, "big"):
             raise ConnectionError(
-                f"Address mismatch: got {self._rx_eeprom_address}, expected {address:#06x}"
+                f"Address mismatch: got {self._last_reply_memory_address}, expected {address:#06x}"
             )
-        if self._rx_packet_type != bytearray.fromhex("8100"):
+        if self._last_reply_packet_type != bytearray.fromhex("8100"):
             raise ConnectionError("Invalid packet type in EEPROM read")
-        return self._rx_data_bytes
+        return self._last_reply_payload
 
-    async def write_eeprom_block(self, address: int, data: bytearray) -> None:
+    async def write_memory_block(self, address: int, data: bytearray) -> None:
         """Write a block of data to device EEPROM."""
         cmd = bytearray()
         cmd += (len(data) + 8).to_bytes(1, "big")
@@ -216,15 +218,15 @@ class BluetoothTxRxHandler:
         cmd += b'\x00'
         cmd.append(xor_crc)
 
-        await self._send_and_wait(cmd)
-        if self._rx_eeprom_address != address.to_bytes(2, "big"):
+        await self._write_command_and_wait_reply(cmd)
+        if self._last_reply_memory_address != address.to_bytes(2, "big"):
             raise ConnectionError(
-                f"Address mismatch in write: got {self._rx_eeprom_address}, expected {address:#06x}"
+                f"Address mismatch in write: got {self._last_reply_memory_address}, expected {address:#06x}"
             )
-        if self._rx_packet_type != bytearray.fromhex("81c0"):
+        if self._last_reply_packet_type != bytearray.fromhex("81c0"):
             raise ConnectionError("Invalid packet type in EEPROM write")
 
-    async def read_continuous(
+    async def read_memory_range(
         self, start_address: int, bytes_to_read: int, block_size: int = 0x10
     ) -> bytearray:
         """Read a continuous range from EEPROM in blocks."""
@@ -232,19 +234,19 @@ class BluetoothTxRxHandler:
         while bytes_to_read > 0:
             chunk_size = min(bytes_to_read, block_size)
             _LOGGER.debug("read %#06x size %#04x", start_address, chunk_size)
-            result += await self.read_eeprom_block(start_address, chunk_size)
+            result += await self.read_memory_block(start_address, chunk_size)
             start_address += chunk_size
             bytes_to_read -= chunk_size
         return result
 
-    async def write_continuous(
+    async def write_memory_range(
         self, start_address: int, data: bytearray, block_size: int = 0x08
     ) -> None:
         """Write continuous data to EEPROM in blocks."""
         while len(data) > 0:
             chunk_size = min(len(data), block_size)
             _LOGGER.debug("write %#06x size %#04x", start_address, chunk_size)
-            await self.write_eeprom_block(start_address, data[:chunk_size])
+            await self.write_memory_block(start_address, data[:chunk_size])
             data = data[chunk_size:]
             start_address += chunk_size
 
@@ -293,7 +295,7 @@ class BluetoothTxRxHandler:
             _LOGGER.info("OS-level BLE bonding completed")
             return
 
-        # Custom key pairing (most legacy devices)
+        # Custom pairing key (most classic-stack devices)
         if not self._config.supports_pairing:
             raise ConnectionError("Pairing is not supported for this device")
 
@@ -412,8 +414,8 @@ class BluetoothTxRxHandler:
 
         # Step 4: Initial handshake (required after first pairing)
         try:
-            await self.start_transmission()
-            await self.end_transmission()
+            await self.open_memory_session()
+            await self.close_memory_session()
         except Exception as exc:
             _LOGGER.warning("Post-pairing handshake failed (may be normal): %s", exc)
 
@@ -431,7 +433,7 @@ class OmronDeviceDriver:
         self._counter_probe_logged = False
 
     async def _probe_7142_counter_candidates(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> None:
         """Log potential unread-counter regions for HEM-7142T2 analysis."""
         if not self._config.use_layout_fallback_scan or self._counter_probe_logged:
@@ -448,7 +450,7 @@ class OmronDeviceDriver:
         ]
         try:
             for addr, size, label in probe_regions:
-                raw = await btobj.read_continuous(addr, size, size)
+                raw = await transport.read_memory_range(addr, size, size)
                 hex_raw = bytes(raw).hex()
                 _LOGGER.debug(
                     "7142 counter-probe %s addr=%#06x size=%#04x raw=%s",
@@ -488,14 +490,14 @@ class OmronDeviceDriver:
             _LOGGER.debug("7142 counter-probe skipped: %s", exc)
 
     async def get_all_records(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> list[list[dict[str, Any]]]:
         """Read all records from all users.
 
         Returns a list of lists: [[user1_records], [user2_records], ...]
         """
-        await btobj.unlock()
-        await btobj.start_transmission()
+        await transport.unlock()
+        await transport.open_memory_session()
 
         try:
             all_user_records = []
@@ -506,18 +508,18 @@ class OmronDeviceDriver:
                     * self._config.record_byte_size
                 )
 
-                raw_data = await btobj.read_continuous(
+                raw_data = await transport.read_memory_range(
                     start_addr, total_bytes, self._config.transmission_block_size
                 )
 
                 records = self._parse_user_records(raw_data, user_idx)
                 all_user_records.append(records)
 
-            await btobj.end_transmission()
+            await transport.close_memory_session()
         except Exception:
             # Try to cleanly end if possible
             try:
-                await btobj.end_transmission()
+                await transport.close_memory_session()
             except Exception:
                 pass
             raise
@@ -525,11 +527,11 @@ class OmronDeviceDriver:
         return all_user_records
 
     async def get_latest_record(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> dict[str, Any] | None:
         """Read latest record using index first, then fallback to full scan."""
         layout = self._config.index_pointer_layout or {}
-        indexed = await self._get_latest_via_index(btobj)
+        indexed = await self._get_latest_via_index(transport)
         if indexed is not None:
             return indexed
         if bool(layout.get("skip_full_scan_fallback_when_index_empty")):
@@ -547,16 +549,16 @@ class OmronDeviceDriver:
             "Falling back to full scan latest selection for model=%s",
             self._config.model,
         )
-        return await self._get_latest_via_full_scan(btobj)
+        return await self._get_latest_via_full_scan(transport)
 
     async def _get_latest_via_full_scan(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> dict[str, Any] | None:
         """Existing full EEPROM scan path."""
         if self._config.use_layout_fallback_scan:
-            all_user_records = await self._get_all_records_with_format_c_fallback(btobj)
+            all_user_records = await self._get_all_records_with_format_c_fallback(transport)
         else:
-            all_user_records = await self.get_all_records(btobj)
+            all_user_records = await self.get_all_records(transport)
         candidates: list[tuple[int, dict[str, Any]]] = []
         for user_idx, user_records in enumerate(all_user_records):
             for record in user_records:
@@ -577,7 +579,7 @@ class OmronDeviceDriver:
 
     @staticmethod
     def _wrap_pointer_to_range(pointer: int, pointer_min: int, pointer_max: int) -> int | None:
-        """Wrap pointer into [min, max] range like APK memory-map logic."""
+        """Wrap pointer into [min, max] range (device index window semantics)."""
         if pointer_max < pointer_min:
             return None
         span = (pointer_max - pointer_min) + 1
@@ -590,7 +592,7 @@ class OmronDeviceDriver:
         return pointer
 
     async def _get_latest_via_index(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> dict[str, Any] | None:
         """Read index block and fetch only the latest slot per configured user."""
         layout = self._config.index_pointer_layout
@@ -601,9 +603,9 @@ class OmronDeviceDriver:
         ):
             return None
 
-        pointer_unsend_size = int(layout.get("pointer_unsend_size", 0))
+        index_region_byte_size = int(layout.get("index_region_byte_size", 0))
         user_layouts = layout.get("users", [])
-        if pointer_unsend_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
+        if index_region_byte_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
             return None
 
         record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
@@ -611,7 +613,7 @@ class OmronDeviceDriver:
         record_step = int(layout.get("record_step", record_byte_size))
         backtrack_slots = int(layout.get("backtrack_slots", 0))
         collect_all_valid = bool(layout.get("collect_all_valid_in_index_window", False))
-        ptr_endian = str(layout.get("endianess", self._config.endianess))
+        ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
         if self._config.enable_index_debug_logs:
@@ -619,16 +621,16 @@ class OmronDeviceDriver:
                 "%s index path start: read_addr=%#06x size=%d record_size=%d record_step=%d",
                 self._config.model,
                 self._config.settings_read_address,
-                pointer_unsend_size,
+                index_region_byte_size,
                 record_byte_size,
                 record_step,
             )
-        await btobj.unlock()
-        await btobj.start_transmission()
+        await transport.unlock()
+        await transport.open_memory_session()
         try:
-            index_bytes = await btobj.read_continuous(
+            index_bytes = await transport.read_memory_range(
                 self._config.settings_read_address,
-                pointer_unsend_size,
+                index_region_byte_size,
                 self._config.transmission_block_size,
             )
             if self._config.enable_index_debug_logs:
@@ -636,19 +638,24 @@ class OmronDeviceDriver:
             for idx, user_cfg in enumerate(user_layouts):
                 if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
                     continue
-                pointer_offset = int(user_cfg.get("pointer_offset", -1))
-                if pointer_offset < 0 or pointer_offset + 2 > len(index_bytes):
+                write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
+                if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
                     continue
 
                 raw_pointer = int.from_bytes(
-                    index_bytes[pointer_offset:pointer_offset + 2], ptr_endian, signed=False
+                    index_bytes[write_cursor_offset:write_cursor_offset + 2],
+                    ptr_endian,
+                    signed=False,
                 )
-                pointer_mask = int(user_cfg.get("pointer_mask", 0xFF))
-                pointer_min = int(user_cfg.get("pointer_min", 0))
+                pointer_mask = int(user_cfg.get("write_cursor_mask", 0xFF))
+                pointer_min = int(user_cfg.get("slot_index_min", 0))
                 pointer_max = int(
-                    user_cfg.get("pointer_max", self._config.per_user_records_count[idx] - 1)
+                    user_cfg.get(
+                        "slot_index_max",
+                        self._config.per_user_records_count[idx] - 1,
+                    )
                 )
-                correction = int(user_cfg.get("latest_pos_correction", -1))
+                correction = int(user_cfg.get("slot_index_bias", -1))
                 pointer_masked = raw_pointer & pointer_mask
                 pointer_corrected = pointer_masked + correction
                 pointer_wrapped = self._wrap_pointer_to_range(
@@ -698,7 +705,7 @@ class OmronDeviceDriver:
                             probe_slot,
                             probe_addr,
                         )
-                    raw_record = await btobj.read_continuous(
+                    raw_record = await transport.read_memory_range(
                         probe_addr,
                         record_byte_size,
                         self._config.transmission_block_size,
@@ -793,7 +800,7 @@ class OmronDeviceDriver:
             return None
         finally:
             try:
-                await btobj.end_transmission()
+                await transport.close_memory_session()
             except Exception:
                 pass
 
@@ -852,10 +859,10 @@ class OmronDeviceDriver:
         )
 
     async def get_all_records_flat(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> list[dict[str, Any]]:
         """Read all records, adding user index, and return a flat sorted list."""
-        all_user_records = await self.get_all_records(btobj)
+        all_user_records = await self.get_all_records(transport)
 
         flat = []
         for user_idx, user_records in enumerate(all_user_records):
@@ -1131,9 +1138,9 @@ class OmronDeviceDriver:
         return True
 
     async def _get_all_records_with_format_c_fallback(
-        self, btobj: BluetoothTxRxHandler
+        self, transport: GattTransport
     ) -> list[list[dict[str, Any]]]:
-        """Try APK-aligned layouts with early-stop to avoid excessive retries."""
+        """Try EEPROM-aligned layout candidates with early-stop to limit retries."""
         default_size = self._config.record_byte_size
         alt_size = 0x0E if default_size == 0x10 else 0x10
         # Keep attempts intentionally short: configured layout first, then minimal fallbacks.
@@ -1153,10 +1160,10 @@ class OmronDeviceDriver:
                 ]
             )
 
-        await btobj.unlock()
-        await btobj.start_transmission()
+        await transport.unlock()
+        await transport.open_memory_session()
         try:
-            await self._probe_7142_counter_candidates(btobj)
+            await self._probe_7142_counter_candidates(transport)
             best_records: list[list[dict[str, Any]]] | None = None
             best_latest: dt.datetime | None = None
             best_layout: tuple[list[int], list[int], int] | None = None
@@ -1167,7 +1174,7 @@ class OmronDeviceDriver:
                 all_user_records: list[list[dict[str, Any]]] = []
                 for user_idx, (start_addr, count) in enumerate(zip(starts, counts)):
                     total_bytes = count * record_size
-                    raw_data = await btobj.read_continuous(
+                    raw_data = await transport.read_memory_range(
                         start_addr, total_bytes, self._config.transmission_block_size
                     )
                     records = self._parse_user_records_best_alignment(
@@ -1257,7 +1264,7 @@ class OmronDeviceDriver:
                     )
                     break
 
-            await btobj.end_transmission()
+            await transport.close_memory_session()
             if best_records is not None and best_layout is not None:
                 starts, counts, record_size = best_layout
                 _LOGGER.info(
@@ -1273,7 +1280,7 @@ class OmronDeviceDriver:
             return [[]]
         except Exception:
             try:
-                await btobj.end_transmission()
+                await transport.close_memory_session()
             except Exception:
                 pass
             raise

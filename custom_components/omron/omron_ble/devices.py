@@ -3,39 +3,43 @@ from __future__ import annotations
 
 import datetime
 import logging
-from dataclasses import dataclass, field
-from typing import Any
+import re
+from dataclasses import dataclass, field, replace
+from typing import Any, NamedTuple
 
 _LOGGER = logging.getLogger(__name__)
 
 # --- BLE UUID Constants ---
-LEGACY_PARENT_SERVICE_UUID = "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b"
-NEW_PARENT_SERVICE_UUID = "0000fe4a-0000-1000-8000-00805f9b34fb"
+CLASSIC_STACK_PARENT_SERVICE_UUID = "ecbe3980-c9a2-11e1-b1bd-0002a5d5c51b"
+MODERN_STACK_PARENT_SERVICE_UUID = "0000fe4a-0000-1000-8000-00805f9b34fb"
 
-LEGACY_RX_CHANNEL_UUIDS = [
+CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS = [
     "49123040-aee8-11e1-a74d-0002a5d5c51b",
     "4d0bf320-aee8-11e1-a0d9-0002a5d5c51b",
     "5128ce60-aee8-11e1-b84b-0002a5d5c51b",
     "560f1420-aee8-11e1-8184-0002a5d5c51b",
 ]
-LEGACY_TX_CHANNEL_UUIDS = [
+CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS = [
     "db5b55e0-aee7-11e1-965e-0002a5d5c51b",
     "e0b8a060-aee7-11e1-92f4-0002a5d5c51b",
     "0ae12b00-aee8-11e1-a192-0002a5d5c51b",
     "10e1ba60-aee8-11e1-89e5-0002a5d5c51b",
 ]
-LEGACY_UNLOCK_UUID = "b305b680-aee7-11e1-a730-0002a5d5c51b"
+CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID = "b305b680-aee7-11e1-a730-0002a5d5c51b"
 
-ALL_SERVICE_UUIDS = [LEGACY_PARENT_SERVICE_UUID, NEW_PARENT_SERVICE_UUID]
+DISCOVERABLE_PARENT_SERVICE_UUIDS = [
+    CLASSIC_STACK_PARENT_SERVICE_UUID,
+    MODERN_STACK_PARENT_SERVICE_UUID,
+]
 
 
 # --- Bit-level parsing utility ---
 def bytearray_bits_to_int(
-    bytes_array: bytes | bytearray, endianess: str,
+    bytes_array: bytes | bytearray, endianness: str,
     first_bit: int, last_bit: int,
 ) -> int:
     """Extract an integer from a bit range within a byte array."""
-    big_int = int.from_bytes(bytes_array, endianess)
+    big_int = int.from_bytes(bytes_array, endianness)
     num_valid_bits = (last_bit - first_bit) + 1
     shifted = big_int >> (len(bytes_array) * 8 - (last_bit + 1))
     bitmask = (2 ** num_valid_bits) - 1
@@ -43,7 +47,7 @@ def bytearray_bits_to_int(
 
 
 # --- Record Parsers ---
-def parse_record_format_a(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_a(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format A: HEM-7322T, HEM-7600T, HEM-6232T style (big-endian).
 
     Bit layout:
@@ -60,62 +64,62 @@ def parse_record_format_a(data: bytes | bytearray, endianess: str) -> dict[str, 
       [58:63] second
     """
     record = {}
-    record["dia"] = bytearray_bits_to_int(data, endianess, 0, 7)
-    record["sys"] = bytearray_bits_to_int(data, endianess, 8, 15) + 25
-    year = bytearray_bits_to_int(data, endianess, 16, 23) + 2000
-    record["bpm"] = bytearray_bits_to_int(data, endianess, 24, 31)
-    record["mov"] = bytearray_bits_to_int(data, endianess, 32, 32)
-    record["ihb"] = bytearray_bits_to_int(data, endianess, 33, 33)
-    month = bytearray_bits_to_int(data, endianess, 34, 37)
-    day = bytearray_bits_to_int(data, endianess, 38, 42)
-    hour = bytearray_bits_to_int(data, endianess, 43, 47)
-    minute = bytearray_bits_to_int(data, endianess, 52, 57)
-    second = min(bytearray_bits_to_int(data, endianess, 58, 63), 59)
+    record["dia"] = bytearray_bits_to_int(data, endianness, 0, 7)
+    record["sys"] = bytearray_bits_to_int(data, endianness, 8, 15) + 25
+    year = bytearray_bits_to_int(data, endianness, 16, 23) + 2000
+    record["bpm"] = bytearray_bits_to_int(data, endianness, 24, 31)
+    record["mov"] = bytearray_bits_to_int(data, endianness, 32, 32)
+    record["ihb"] = bytearray_bits_to_int(data, endianness, 33, 33)
+    month = bytearray_bits_to_int(data, endianness, 34, 37)
+    day = bytearray_bits_to_int(data, endianness, 38, 42)
+    hour = bytearray_bits_to_int(data, endianness, 43, 47)
+    minute = bytearray_bits_to_int(data, endianness, 52, 57)
+    second = min(bytearray_bits_to_int(data, endianness, 58, 63), 59)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
 
-def parse_record_format_a_alt(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_a_alt(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format A-alt: HEM-7530T, HEM-6232T style.
 
     Same as format A but year bits are [18:23] instead of [16:23],
     and ihb/mov may be swapped for HEM-6232T.
     """
     record = {}
-    record["dia"] = bytearray_bits_to_int(data, endianess, 0, 7)
-    record["sys"] = bytearray_bits_to_int(data, endianess, 8, 15) + 25
-    year = bytearray_bits_to_int(data, endianess, 18, 23) + 2000
-    record["bpm"] = bytearray_bits_to_int(data, endianess, 24, 31)
-    record["mov"] = bytearray_bits_to_int(data, endianess, 32, 32)
-    record["ihb"] = bytearray_bits_to_int(data, endianess, 33, 33)
-    month = bytearray_bits_to_int(data, endianess, 34, 37)
-    day = bytearray_bits_to_int(data, endianess, 38, 42)
-    hour = bytearray_bits_to_int(data, endianess, 43, 47)
-    minute = bytearray_bits_to_int(data, endianess, 52, 57)
-    second = min(bytearray_bits_to_int(data, endianess, 58, 63), 59)
+    record["dia"] = bytearray_bits_to_int(data, endianness, 0, 7)
+    record["sys"] = bytearray_bits_to_int(data, endianness, 8, 15) + 25
+    year = bytearray_bits_to_int(data, endianness, 18, 23) + 2000
+    record["bpm"] = bytearray_bits_to_int(data, endianness, 24, 31)
+    record["mov"] = bytearray_bits_to_int(data, endianness, 32, 32)
+    record["ihb"] = bytearray_bits_to_int(data, endianness, 33, 33)
+    month = bytearray_bits_to_int(data, endianness, 34, 37)
+    day = bytearray_bits_to_int(data, endianness, 38, 42)
+    hour = bytearray_bits_to_int(data, endianness, 43, 47)
+    minute = bytearray_bits_to_int(data, endianness, 52, 57)
+    second = min(bytearray_bits_to_int(data, endianness, 58, 63), 59)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
 
-def parse_record_format_a_alt_6232(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_a_alt_6232(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format for HEM-6232T (ihb/mov order swapped vs 7530T)."""
     record = {}
-    record["dia"] = bytearray_bits_to_int(data, endianess, 0, 7)
-    record["sys"] = bytearray_bits_to_int(data, endianess, 8, 15) + 25
-    year = bytearray_bits_to_int(data, endianess, 18, 23) + 2000
-    record["bpm"] = bytearray_bits_to_int(data, endianess, 24, 31)
-    record["ihb"] = bytearray_bits_to_int(data, endianess, 32, 32)
-    record["mov"] = bytearray_bits_to_int(data, endianess, 33, 33)
-    month = bytearray_bits_to_int(data, endianess, 34, 37)
-    day = bytearray_bits_to_int(data, endianess, 38, 42)
-    hour = bytearray_bits_to_int(data, endianess, 43, 47)
-    minute = bytearray_bits_to_int(data, endianess, 52, 57)
-    second = min(bytearray_bits_to_int(data, endianess, 58, 63), 59)
+    record["dia"] = bytearray_bits_to_int(data, endianness, 0, 7)
+    record["sys"] = bytearray_bits_to_int(data, endianness, 8, 15) + 25
+    year = bytearray_bits_to_int(data, endianness, 18, 23) + 2000
+    record["bpm"] = bytearray_bits_to_int(data, endianness, 24, 31)
+    record["ihb"] = bytearray_bits_to_int(data, endianness, 32, 32)
+    record["mov"] = bytearray_bits_to_int(data, endianness, 33, 33)
+    month = bytearray_bits_to_int(data, endianness, 34, 37)
+    day = bytearray_bits_to_int(data, endianness, 38, 42)
+    hour = bytearray_bits_to_int(data, endianness, 43, 47)
+    minute = bytearray_bits_to_int(data, endianness, 52, 57)
+    second = min(bytearray_bits_to_int(data, endianness, 58, 63), 59)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
 
-def parse_record_format_b(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_b(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format B: HEM-7150T, HEM-7155T, HEM-7342T, HEM-7361T (little-endian).
 
     Bit layout:
@@ -132,22 +136,22 @@ def parse_record_format_b(data: bytes | bytearray, endianess: str) -> dict[str, 
       [120:127] sys - 25
     """
     record = {}
-    minute = bytearray_bits_to_int(data, endianess, 68, 73)
-    second = min(bytearray_bits_to_int(data, endianess, 74, 79), 59)
-    record["mov"] = bytearray_bits_to_int(data, endianess, 80, 80)
-    record["ihb"] = bytearray_bits_to_int(data, endianess, 81, 81)
-    month = bytearray_bits_to_int(data, endianess, 82, 85)
-    day = bytearray_bits_to_int(data, endianess, 86, 90)
-    hour = bytearray_bits_to_int(data, endianess, 91, 95)
-    year = bytearray_bits_to_int(data, endianess, 98, 103) + 2000
-    record["bpm"] = bytearray_bits_to_int(data, endianess, 104, 111)
-    record["dia"] = bytearray_bits_to_int(data, endianess, 112, 119)
-    record["sys"] = bytearray_bits_to_int(data, endianess, 120, 127) + 25
+    minute = bytearray_bits_to_int(data, endianness, 68, 73)
+    second = min(bytearray_bits_to_int(data, endianness, 74, 79), 59)
+    record["mov"] = bytearray_bits_to_int(data, endianness, 80, 80)
+    record["ihb"] = bytearray_bits_to_int(data, endianness, 81, 81)
+    month = bytearray_bits_to_int(data, endianness, 82, 85)
+    day = bytearray_bits_to_int(data, endianness, 86, 90)
+    hour = bytearray_bits_to_int(data, endianness, 91, 95)
+    year = bytearray_bits_to_int(data, endianness, 98, 103) + 2000
+    record["bpm"] = bytearray_bits_to_int(data, endianness, 104, 111)
+    record["dia"] = bytearray_bits_to_int(data, endianness, 112, 119)
+    record["sys"] = bytearray_bits_to_int(data, endianness, 120, 127) + 25
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
 
-def parse_record_format_c(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_c(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format C: HEM-7380T1 (little-endian, direct byte access).
 
     Byte layout:
@@ -194,11 +198,11 @@ def parse_record_format_c(data: bytes | bytearray, endianess: str) -> dict[str, 
     return record
 
 
-def parse_record_format_c_7142(data: bytes | bytearray, endianess: str) -> dict[str, Any]:
+def parse_record_format_c_7142(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Parse format C variant for HEM-7142T2.
 
-    APK-side OGSC flows indicate the first 3 bytes are still SYS/DIA/BPM, but
-    date/time bits can be partially inconsistent in some dumps. Keep vitals and
+    The first bytes follow the same SYS/DIA/BPM layout as other format C parsers, but
+    timestamp fields can be partially inconsistent on some firmware dumps. Keep vitals and
     tolerate broken datetime fields so latest-slot selection can still work.
     """
     raw_sys = data[0]
@@ -235,6 +239,16 @@ def parse_record_format_c_7142(data: bytes | bytearray, endianess: str) -> dict[
 
 
 # --- Device Configuration ---
+
+
+class DeviceModelVariant(NamedTuple):
+    """Alternate catalog model ID that shares EEPROM layout with a canonical profile."""
+
+    model_id: str
+    unverified: bool = False
+    reason: str | None = None
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -243,16 +257,20 @@ class DeviceConfig:
     model: str
 
     # BLE channel configuration
-    parent_service_uuid: str = LEGACY_PARENT_SERVICE_UUID
-    rx_channel_uuids: list[str] = field(default_factory=lambda: list(LEGACY_RX_CHANNEL_UUIDS))
-    tx_channel_uuids: list[str] = field(default_factory=lambda: list(LEGACY_TX_CHANNEL_UUIDS))
-    unlock_uuid: str = LEGACY_UNLOCK_UUID
+    parent_service_uuid: str = CLASSIC_STACK_PARENT_SERVICE_UUID
+    rx_channel_uuids: list[str] = field(
+        default_factory=lambda: list(CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS)
+    )
+    tx_channel_uuids: list[str] = field(
+        default_factory=lambda: list(CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS)
+    )
+    unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
     requires_unlock: bool = True
     supports_pairing: bool = True
     supports_os_bonding_only: bool = False
 
     # EEPROM layout
-    endianess: str = "big"
+    endianness: str = "big"
     user_start_addresses: list[int] = field(default_factory=list)
     per_user_records_count: list[int] = field(default_factory=list)
     record_byte_size: int = 0x0E
@@ -271,6 +289,7 @@ class DeviceConfig:
     # Behavior flags (avoid model-name checks in driver)
     enable_index_debug_logs: bool = False
     use_layout_fallback_scan: bool = False
+    equivalent_model_ids: tuple[DeviceModelVariant, ...] = ()
 
     @property
     def num_users(self) -> int:
@@ -300,26 +319,26 @@ class DeviceConfig:
         parser = parser_map.get(self.record_parser)
         if parser is None:
             raise ValueError(f"Unknown record parser: {self.record_parser}")
-        return parser(data, self.endianess)
+        return parser(data, self.endianness)
 
-    def expected_service_family(self) -> str:
-        """Return expected service family for model-level compatibility checks."""
-        if self.parent_service_uuid == NEW_PARENT_SERVICE_UUID:
-            return "new"
-        return "legacy"
+    def parent_service_stack(self) -> str:
+        """Return which BLE parent-service layout this profile expects (classic vs modern)."""
+        if self.parent_service_uuid == MODERN_STACK_PARENT_SERVICE_UUID:
+            return "modern"
+        return "classic"
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
-        """Check whether advertised services match this model family."""
-        if self.expected_service_family() == "new":
-            return NEW_PARENT_SERVICE_UUID in service_uuids
-        return LEGACY_PARENT_SERVICE_UUID in service_uuids
+        """Check whether advertised GATT services match this profile's parent service."""
+        if self.parent_service_stack() == "modern":
+            return MODERN_STACK_PARENT_SERVICE_UUID in service_uuids
+        return CLASSIC_STACK_PARENT_SERVICE_UUID in service_uuids
 
 
-# --- Device Registry ---
-DEVICE_REGISTRY: dict[str, DeviceConfig] = {
+# --- Canonical device profiles (one EEPROM layout per key; catalog variants map here) ---
+CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
-        endianess="big",
+        endianness="big",
         user_start_addresses=[0x02AC, 0x0824],
         per_user_records_count=[100, 100],
         record_byte_size=0x0E,
@@ -329,18 +348,32 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
         index_pointer_layout={
-            "pointer_unsend_size": 0x08,
-            "endianess": "big",
+            "index_region_byte_size": 0x08,
+            "endianness": "big",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_a",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7280T-AP", unverified=False),
+            DeviceModelVariant("HEM-7280T-E", unverified=False),
+            DeviceModelVariant("HEM-7280T_TI-D", unverified=False),
+            DeviceModelVariant("HEM-7280T_TI-E", unverified=False),
+            DeviceModelVariant("HEM-7281T", unverified=False),
+            DeviceModelVariant("HEM-7282T", unverified=False),
+            DeviceModelVariant("HEM-7321T-ZV", unverified=False),
+            DeviceModelVariant("HEM-7322T-D", unverified=False),
+            DeviceModelVariant("HEM-7322T-E", unverified=False),
+            DeviceModelVariant("HEM-7511T", unverified=True, reason="fallback"),
+            DeviceModelVariant("HEM-8732K-SH", unverified=True, reason="fallback"),
+            DeviceModelVariant("HEM-8732T-SH", unverified=True, reason="fallback"),
+        ),
     ),
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
-        endianess="big",
+        endianness="big",
         user_start_addresses=[0x02AC],
         per_user_records_count=[100],
         record_byte_size=0x0E,
@@ -350,17 +383,32 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
         index_pointer_layout={
-            "pointer_unsend_size": 0x08,
-            "endianess": "big",
+            "index_region_byte_size": 0x08,
+            "endianness": "big",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_a",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7271T", unverified=False),
+            DeviceModelVariant("HEM-7325T", unverified=False),
+            DeviceModelVariant("HEM-7600T", unverified=False),
+            DeviceModelVariant("HEM-7600T-E", unverified=False),
+            DeviceModelVariant("HEM-7600T-SH3BK", unverified=False),
+            DeviceModelVariant("HEM-7600T2-JF", unverified=False),
+            DeviceModelVariant("HEM-7600T_W", unverified=False),
+            DeviceModelVariant("HEM-7600T_W-SH3W", unverified=False),
+            DeviceModelVariant("HEM-7600T_W-Z", unverified=False),
+            DeviceModelVariant("HEM-9601T-J3", unverified=True),
+            DeviceModelVariant("HEM-9601T2-BR3", unverified=True),
+            DeviceModelVariant("HEM-9601T_E3", unverified=True),
+            DeviceModelVariant("HEM-9700T", unverified=True),
+        ),
     ),
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
-        endianess="big",
+        endianness="big",
         user_start_addresses=[0x02E8, 0x0860],
         per_user_records_count=[100, 100],
         record_byte_size=0x0E,
@@ -370,18 +418,31 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "big",
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_a_alt_6232",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-1026T2-AJC", unverified=True),
+            DeviceModelVariant("HEM-1026T2-AJE", unverified=True),
+            DeviceModelVariant("HEM-1026T2-AKA", unverified=True),
+            DeviceModelVariant("HEM-6232T-AP", unverified=False),
+            DeviceModelVariant("HEM-6232T-E", unverified=False),
+            DeviceModelVariant("HEM-6233T", unverified=False),
+            DeviceModelVariant("HEM-6320T-SH", unverified=True),
+            DeviceModelVariant("HEM-6322T-SH", unverified=True),
+            DeviceModelVariant("HEM-6323T", unverified=True),
+            DeviceModelVariant("HEM-6324T", unverified=True),
+            DeviceModelVariant("HEM-6325T", unverified=True),
+        ),
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
-        endianess="big",
+        endianness="big",
         user_start_addresses=[0x02E8],
         per_user_records_count=[90],
         record_byte_size=0x0E,
@@ -392,17 +453,50 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=None,
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "big",
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 89, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1},
             ],
         },
         record_parser="format_a_alt",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6161T-E", unverified=True),
+            DeviceModelVariant("HEM-6161T-RU", unverified=True),
+            DeviceModelVariant("HEM-6161T2-BR", unverified=True),
+            DeviceModelVariant("HEM-6231T-SH", unverified=True),
+            DeviceModelVariant("HEM-6231T2-JC", unverified=False),
+            DeviceModelVariant("HEM-6231T2-JE", unverified=False),
+            DeviceModelVariant("HEM-6231T2-JT3", unverified=False),
+            DeviceModelVariant("HEM-7136T-SH3", unverified=True),
+            DeviceModelVariant("HEM-7138JT-SH", unverified=True),
+            DeviceModelVariant("HEM-7138T-SH", unverified=True),
+            DeviceModelVariant("HEM-7139T-SH3", unverified=True),
+            DeviceModelVariant("HEM-7143T1-AIN", unverified=True),
+            DeviceModelVariant("HEM-7143T1-AP", unverified=True),
+            DeviceModelVariant("HEM-7143T1_D", unverified=True),
+            DeviceModelVariant("HEM-7143T1_EBK", unverified=True),
+            DeviceModelVariant("HEM-7143T2_ESL", unverified=True),
+            DeviceModelVariant("HEM-7144T1-AU", unverified=True),
+            DeviceModelVariant("HEM-7144T2-BR", unverified=True),
+            DeviceModelVariant("HEM-7144T2-LA", unverified=True),
+            DeviceModelVariant("HEM-7146T2-JD", unverified=True),
+            DeviceModelVariant("HEM-7146T2-JF", unverified=True),
+            DeviceModelVariant("HEM-716DT2-LA", unverified=True),
+            DeviceModelVariant("HEM-7271L-SH3", unverified=True),
+            DeviceModelVariant("HEM-7271P-SH3", unverified=False),
+            DeviceModelVariant("HEM-7271T_SH3", unverified=False),
+            DeviceModelVariant("HEM-7530T1-BR3", unverified=False),
+            DeviceModelVariant("HEM-7530T_AP3", unverified=False),
+            DeviceModelVariant("HEM-7530T_E3", unverified=False),
+            DeviceModelVariant("HEM-7530T_J3", unverified=False),
+            DeviceModelVariant("HEM-7530T_JT3", unverified=False),
+            DeviceModelVariant("HEM-8630T-SH", unverified=False),
+        ),
     ),
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
-        endianess="little",
+        endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[60],
         record_byte_size=0x10,
@@ -412,17 +506,30 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "little",
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 59, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
         record_parser="format_b",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7150T-Z", unverified=False),
+            DeviceModelVariant("HEM-7151T-Z", unverified=True),
+            DeviceModelVariant("HEM-7153JT_ASH", unverified=False),
+            DeviceModelVariant("HEM-7153T_ASH", unverified=False),
+            DeviceModelVariant("HEM-7156T-BR", unverified=False),
+            DeviceModelVariant("HEM-7156T-LA", unverified=False),
+            DeviceModelVariant("HEM-7156T_AAP", unverified=False),
+            DeviceModelVariant("HEM-7156T_AP", unverified=False),
+            DeviceModelVariant("HEM-7157T-AP", unverified=True),
+            DeviceModelVariant("HEM-7158T-JC", unverified=True),
+            DeviceModelVariant("HEM-7158T_AP3", unverified=True),
+        ),
     ),
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
-        endianess="little",
+        endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
         record_byte_size=0x10,
@@ -432,18 +539,30 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "little",
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 59, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 59, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
         record_parser="format_b",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7155T-ALRU", unverified=False),
+            DeviceModelVariant("HEM-7155T-D", unverified=False),
+            DeviceModelVariant("HEM-7155T-EBK", unverified=False),
+            DeviceModelVariant("HEM-7155T_AP", unverified=False),
+            DeviceModelVariant("HEM-7155T_ASH3BK", unverified=False),
+            DeviceModelVariant("HEM-7155T_ASH3SL", unverified=False),
+            DeviceModelVariant("HEM-7155T_ESL", unverified=False),
+            DeviceModelVariant("HEM-7155T_K4-ESL", unverified=True),
+            DeviceModelVariant("HEM-7340T-Z", unverified=False),
+            DeviceModelVariant("HEM-7341T-Z", unverified=False),
+        ),
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
-        endianess="little",
+        endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -453,18 +572,42 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "little",
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_b",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7159T_AP3", unverified=False),
+            DeviceModelVariant("HEM-7342T-Z", unverified=False),
+            DeviceModelVariant("HEM-7343T-Z", unverified=False),
+            DeviceModelVariant("HEM-7344JT_ASH3", unverified=False),
+            DeviceModelVariant("HEM-7344T_ASH3BK", unverified=False),
+            DeviceModelVariant("HEM-7344T_ASH3SL", unverified=False),
+            DeviceModelVariant("HEM-7346T-AJC3", unverified=False),
+            DeviceModelVariant("HEM-7346T-AJE3", unverified=False),
+            DeviceModelVariant("HEM-7346T2-AJC32", unverified=False),
+            DeviceModelVariant("HEM-7346T2-AJE32", unverified=False),
+            DeviceModelVariant("HEM-7346T_ABR3", unverified=False),
+            DeviceModelVariant("HEM-7346T_AP3", unverified=False),
+            DeviceModelVariant("HEM-7347T-AJC3", unverified=False),
+            DeviceModelVariant("HEM-7347T-AJE3", unverified=False),
+            DeviceModelVariant("HEM-7347T2-AJC32", unverified=False),
+            DeviceModelVariant("HEM-7347T2-AJE32", unverified=False),
+            DeviceModelVariant("HEM-7349T_ABR", unverified=False),
+            DeviceModelVariant("HEM-7361T-ALRU", unverified=False),
+            DeviceModelVariant("HEM-7361T-AP", unverified=False),
+            DeviceModelVariant("HEM-7361T-D", unverified=False),
+            DeviceModelVariant("HEM-7361T-EBK", unverified=False),
+            DeviceModelVariant("HEM-7361T_ESL", unverified=False),
+        ),
     ),
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
-        endianess="little",
+        endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -474,24 +617,24 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "little",
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_b",
     ),
     "HEM-7380T1": DeviceConfig(
         model="HEM-7380T1",
-        parent_service_uuid=NEW_PARENT_SERVICE_UUID,
+        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
-        endianess="little",
+        endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -501,26 +644,45 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=None,
         index_pointer_layout={
-            "pointer_unsend_size": 0x18,
-            "endianess": "little",
+            "index_region_byte_size": 0x18,
+            "endianness": "little",
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
-                {"pointer_offset": 0x02, "unsend_offset": 0x06, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 99, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser="format_c",
         latest_selection_strategy="slot_desc_datetime",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7183T1-AP", unverified=True),
+            DeviceModelVariant("HEM-7183T1-CAP", unverified=True),
+            DeviceModelVariant("HEM-7183T1_FLBIN", unverified=True),
+            DeviceModelVariant("HEM-7183T1_FLIN", unverified=True),
+            DeviceModelVariant("HEM-7183T1_LAP", unverified=True),
+            DeviceModelVariant("HEM-7194T1-FLAP", unverified=True),
+            DeviceModelVariant("HEM-7194T1-FLCAP", unverified=True),
+            DeviceModelVariant("HEM-7194T1_FLBIN", unverified=True),
+            DeviceModelVariant("HEM-7194T1_FLIN", unverified=True),
+            DeviceModelVariant("HEM-7380T1-EBK", unverified=False),
+            DeviceModelVariant("HEM-7383T1-AP", unverified=False),
+            DeviceModelVariant("HEM-7384T1-NBBR", unverified=False),
+            DeviceModelVariant("HEM-7385T1-AJAZ3", unverified=True),
+            DeviceModelVariant("HEM-7386T1-AJF3", unverified=True),
+            DeviceModelVariant("HEM-7387T1-AJAZ3", unverified=True),
+            DeviceModelVariant("HEM-7388T1-AJF3", unverified=True),
+            DeviceModelVariant("HEM-7389T1-JM3", unverified=True),
+        ),
     ),
     "HEM-7142T2": DeviceConfig(
         model="HEM-7142T2",
-        parent_service_uuid=NEW_PARENT_SERVICE_UUID,
+        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
-        endianess="little",
-        # APK memory_map defines one BP data area for this model.
+        endianness="little",
+        # Single on-device measurement buffer region for this profile.
         user_start_addresses=[0x02E8],
         per_user_records_count=[14],
         record_byte_size=0x0E,
@@ -530,13 +692,13 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=None,
         index_pointer_layout={
-            "pointer_unsend_size": 0x10,
-            "endianess": "big",
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
             "backtrack_slots": 13,
             "collect_all_valid_in_index_window": True,
             "skip_full_scan_fallback_when_index_empty": True,
             "users": [
-                {"pointer_offset": 0x00, "unsend_offset": 0x04, "pointer_mask": 0xFF, "pointer_min": 0, "pointer_max": 13, "latest_pos_correction": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 13, "slot_index_bias": -1},
             ],
             "record_addresses": [0x02E8],
             "record_byte_size": 0x0E,
@@ -546,24 +708,115 @@ DEVICE_REGISTRY: dict[str, DeviceConfig] = {
         latest_selection_strategy="record_id_slot_datetime",
         enable_index_debug_logs=True,
         use_layout_fallback_scan=True,
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7138K-SH", unverified=False),
+            DeviceModelVariant("HEM-7140T1-AP", unverified=False),
+            DeviceModelVariant("HEM-7141T1-AP", unverified=False),
+            DeviceModelVariant("HEM-7142T1-AP", unverified=False),
+            DeviceModelVariant("HEM-7142T2-AP", unverified=False),
+            DeviceModelVariant("HEM-7142T2_JAZ", unverified=False),
+        ),
     ),
 }
 
-DEFAULT_DEVICE_MODEL = "HEM-7322T"
+DEFAULT_DEVICE_MODEL = "HEM-7142T2"
+
+
+def _build_model_variant_map() -> dict[str, tuple[str, DeviceModelVariant]]:
+    idx: dict[str, tuple[str, DeviceModelVariant]] = {}
+    for canonical_model_id, profile in CANONICAL_DEVICE_PROFILES.items():
+        for variant in profile.equivalent_model_ids:
+            if variant.model_id in idx:
+                raise ValueError(f"Duplicate catalog model variant {variant.model_id!r}")
+            idx[variant.model_id] = (canonical_model_id, variant)
+    return idx
+
+
+MODEL_VARIANT_MAP: dict[str, tuple[str, DeviceModelVariant]] = _build_model_variant_map()
+
+
+def is_model_variant_unverified(model: str) -> bool:
+    """True when the selected ID is a catalog variant not yet validated on hardware."""
+    entry = MODEL_VARIANT_MAP.get(model)
+    return bool(entry and entry[1].unverified)
 
 
 def get_device_config(model: str) -> DeviceConfig:
-    """Get device configuration by model name."""
-    config = DEVICE_REGISTRY.get(model)
-    if config is None:
-        _LOGGER.warning(
-            "Unknown device model '%s', falling back to %s",
-            model, DEFAULT_DEVICE_MODEL,
-        )
-        config = DEVICE_REGISTRY[DEFAULT_DEVICE_MODEL]
+    """Get device configuration by model name.
+
+    Alternate catalog model IDs map to a canonical entry in CANONICAL_DEVICE_PROFILES.
+    """
+    canonical_profile = CANONICAL_DEVICE_PROFILES.get(model)
+    if canonical_profile is not None:
+        return canonical_profile
+    variant_entry = MODEL_VARIANT_MAP.get(model)
+    if variant_entry:
+        profile_key, _variant = variant_entry
+        config = CANONICAL_DEVICE_PROFILES[profile_key]
+        return replace(config, model=model)
+    _LOGGER.warning(
+        "Unknown device model '%s', falling back to %s",
+        model, DEFAULT_DEVICE_MODEL,
+    )
+    config = CANONICAL_DEVICE_PROFILES[DEFAULT_DEVICE_MODEL]
+    if config.model != model:
+        return replace(config, model=model)
     return config
 
 
 def get_supported_models() -> list[str]:
-    """Return list of supported device model names."""
-    return list(DEVICE_REGISTRY.keys())
+    """Return list of supported model strings (registry profiles + catalog variants)."""
+    core = list(CANONICAL_DEVICE_PROFILES.keys())
+    extra = list(MODEL_VARIANT_MAP.keys())
+    return sorted(set(core) | set(extra))
+
+
+def get_supported_model_stats() -> dict[str, int]:
+    """Counts for UI copy: total selectable strings, profiles, and extra variant-only codes."""
+    canonical_keys = set(CANONICAL_DEVICE_PROFILES.keys())
+    variant_keys = set(MODEL_VARIANT_MAP.keys())
+    return {
+        "total": len(canonical_keys | variant_keys),
+        "profiles": len(canonical_keys),
+        "extra_variants": len(variant_keys - canonical_keys),
+    }
+
+
+_HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
+
+
+def infer_model_id_from_local_name(local_name: str | None) -> str | None:
+    """Return a catalog model id if the BLE local name embeds a known HEM-* code.
+
+    Many Omron cuffs advertise a name like ``HEM-7600T`` or ``Omron … HEM-7322T-D``;
+    manufacturer data alone usually does not include the full model string. The mobile
+    app can read additional identifiers after connecting; this only uses passive scan data.
+    """
+    if not local_name or not str(local_name).strip():
+        return None
+    match = _HEM_MODEL_CODE_RE.search(str(local_name).strip())
+    if not match:
+        return None
+    token = match.group(1).strip()
+    candidates = {
+        token,
+        token.upper(),
+        token.replace(" ", ""),
+        token.upper().replace(" ", ""),
+    }
+    supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
+    for cand in candidates:
+        if cand in supported:
+            return cand
+    return None
+
+
+def resolve_profile_model_id(model: str) -> str:
+    """Registry profile key (EEPROM layout) for a model string, including catalog variants."""
+    if model in CANONICAL_DEVICE_PROFILES:
+        return model
+    variant_entry = MODEL_VARIANT_MAP.get(model)
+    if variant_entry:
+        return variant_entry[0]
+    return DEFAULT_DEVICE_MODEL
+

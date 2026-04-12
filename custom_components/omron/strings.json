@@ -13,15 +13,19 @@
       },
       "select_model": {
         "title": "Select Device Model",
-        "description": "Select your Omron blood pressure monitor model.",
+        "description": "If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected by default—confirm or change it. Otherwise choose the model printed on the cuff or in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model; wrong EEPROM layouts show up as empty or bad readings—check the log for **profile=** lines.",
         "data": {
           "device_model": "Device Model",
           "scan_interval": "Update Interval (seconds)"
         }
       },
       "pairing": {
-        "title": "Pair Device",
-        "description": "Put your Omron {model} in pairing mode:\n\n1. Hold the Bluetooth button until **-P-** appears on the display\n2. Click **Submit** below to start pairing\n\nIf pairing fails, make sure the device is showing -P- and try again."
+        "title": "Pair {model}",
+        "description": "Submit (Confirm) will start pairing from Home Assistant. First put the cuff in pairing mode—for most models, hold the Bluetooth button until **-P-** appears—then press Submit."
+      },
+      "pairing_os": {
+        "title": "Pair {model}",
+        "description": "Submit (Confirm) will start pairing from Home Assistant. First set the device to pairing or discoverable mode as in the manual, then press Submit."
       }
     },
     "error": {
@@ -40,6 +44,8 @@
   "options": {
     "step": {
       "init": {
+        "title": "Omron Bluetooth",
+        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff.",
         "data": {
           "scan_interval": "Update Interval (seconds)"
         }
