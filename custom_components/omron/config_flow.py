@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import asyncio
 import dataclasses
 import datetime as dt
 import logging
@@ -40,7 +41,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, DOMAIN
-from .omron_ble.omron_driver import GattTransport
+from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
@@ -274,16 +275,19 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         client = await establish_connection(BleakClient, ble_device, address)
         try:
-            # Wait for services to resolve
-            import asyncio
+            # Bleak requires an explicit service discovery before using client.services
+            # (otherwise: BleakError "Service Discovery has not been performed yet").
+            await _bleak_refresh_services(client)
             parent_uuid = config.parent_service_uuid
             for _ in range(20):
                 if parent_uuid in [s.uuid for s in client.services]:
                     break
+                await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             transport = GattTransport(client, config)
             await transport.pair()
+            await _bleak_refresh_services(client)
             await self._async_try_sync_current_time(client, model)
             _LOGGER.info("Successfully paired with %s (%s)", model, address)
         finally:
