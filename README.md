@@ -20,7 +20,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 
 - HEM-7142T2
 
-*(Other Omron BLE devices might work by selecting a similar model, but have not been formally tested)*
+- *Other Omron BLE devices might work by selecting a similar model, but have not been formally tested. If your device does not work, please share the debug logs for further investigation.*
 
 ## ⚠️ Warning: Conflict with Official App
 **Omron blood pressure monitors only support one paired device at a time.**
