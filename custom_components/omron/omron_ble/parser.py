@@ -138,6 +138,19 @@ class OmronBluetoothDeviceData(BluetoothData):
         return value
 
     @staticmethod
+    def _classify_blood_pressure_category(sys_val: float, dia_val: float) -> str:
+        """Classify blood pressure category using ACC/AHA 2017 thresholds."""
+        if sys_val > 180 or dia_val > 120:
+            return "Hypertensive Crisis"
+        if sys_val >= 140 or dia_val >= 90:
+            return "Hypertension Stage 2"
+        if sys_val >= 130 or dia_val >= 80:
+            return "Hypertension Stage 1"
+        if sys_val >= 120 and dia_val < 80:
+            return "Elevated"
+        return "Normal"
+
+    @staticmethod
     def _decode_sfloat_le(raw: bytes) -> float:
         """Decode IEEE-11073 16-bit SFLOAT (little-endian)."""
         if len(raw) != 2:
@@ -485,7 +498,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                     record.get("dia"),
                     record.get("bpm"),
                 )
-                
+
+                sys_val = record.get("sys")
+                dia_val = record.get("dia")
+                bpm_val = record.get("bpm")
+
                 # We use generic string keys for our custom sensor types
                 self.update_sensor(
                     "blood_pressure_systolic",
@@ -508,6 +525,63 @@ class OmronBluetoothDeviceData(BluetoothData):
                     device_class=ExtendedSensorDeviceClass.HEART_RATE,
                     name="Pulse",
                 )
+
+                if (
+                    isinstance(sys_val, (int, float))
+                    and isinstance(dia_val, (int, float))
+                    and sys_val > dia_val
+                ):
+                    pulse_pressure = float(sys_val - dia_val)
+                    estimated_map = float(dia_val + (pulse_pressure / 3))
+                    self.update_sensor(
+                        "pulse_pressure",
+                        "mmHg",
+                        round(pulse_pressure, 1),
+                        device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
+                        name="Pulse Pressure",
+                    )
+                    self.update_sensor(
+                        "mean_arterial_pressure_estimated",
+                        "mmHg",
+                        round(estimated_map, 1),
+                        device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                        name="Estimated MAP",
+                    )
+                    self.update_sensor(
+                        "blood_pressure_category",
+                        None,
+                        self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+                        device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
+                        name="BP Category (ACC/AHA)",
+                    )
+
+                if (
+                    isinstance(sys_val, (int, float))
+                    and sys_val > 0
+                    and isinstance(bpm_val, (int, float))
+                ):
+                    shock_index = float(bpm_val) / float(sys_val)
+                    self.update_sensor(
+                        "shock_index",
+                        "ratio",
+                        round(shock_index, 2),
+                        device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
+                        name="Shock Index",
+                    )
+
+                if (
+                    isinstance(sys_val, (int, float))
+                    and isinstance(bpm_val, (int, float))
+                ):
+                    rate_pressure_product = float(sys_val) * float(bpm_val)
+                    self.update_sensor(
+                        "rate_pressure_product",
+                        "mmHg*bpm",
+                        round(rate_pressure_product, 1),
+                        device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
+                        name="Rate Pressure Product",
+                    )
+
                 measured_at = record.get("datetime")
                 if measured_at is not None:
                     measured_at = self._ensure_aware_datetime(measured_at)
@@ -541,6 +615,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                         "blood_pressure_systolic": record.get("sys"),
                         "blood_pressure_diastolic": record.get("dia"),
                         "heart_rate": record.get("bpm"),
+                        "pulse_pressure": (
+                            (record.get("sys") - record.get("dia"))
+                            if isinstance(record.get("sys"), (int, float))
+                            and isinstance(record.get("dia"), (int, float))
+                            and record.get("sys") > record.get("dia")
+                            else None
+                        ),
                     },
                 )
             else:

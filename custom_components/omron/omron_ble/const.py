@@ -39,3 +39,10 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
     # Heart Rate
     HEART_RATE = "heart_rate"
 
+    # Derived blood pressure health metrics
+    PULSE_PRESSURE = "pulse_pressure"
+    MEAN_ARTERIAL_PRESSURE_ESTIMATED = "mean_arterial_pressure_estimated"
+    SHOCK_INDEX = "shock_index"
+    RATE_PRESSURE_PRODUCT = "rate_pressure_product"
+    BLOOD_PRESSURE_CATEGORY = "blood_pressure_category"
+
