@@ -64,6 +64,14 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Systolic Blood Pressure (mmHg)**
   - **Diastolic Blood Pressure (mmHg)**
   - **Heart Rate / Pulse (bpm)**
+  - **Pulse Pressure (mmHg)**
+  - **Estimated Mean Arterial Pressure (mmHg)**
+  - **Shock Index (ratio)**
+  - **Rate Pressure Product (mmHg*bpm)**
+  - **Blood Pressure Category** (ACC/AHA text label)
+  - **Measurement Timestamp**
+  - **RSSI / Signal Strength (diagnostic)**
+  - **Last Poll Duration (diagnostic)**
 
 ## Troubleshooting
 
