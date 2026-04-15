@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import traceback
 from typing import Any
 
 from bleak import BleakClient
@@ -61,6 +62,37 @@ def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
         "in progress",
     )
     return any(marker in msg for marker in non_fatal_markers)
+
+
+def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
+    """Emit structured detail for BLE bonding/pairing failures."""
+    lines = [
+        prefix,
+        f"  type: {type(exc).__module__}.{type(exc).__name__}",
+        f"  str: {exc!s}",
+        f"  repr: {exc!r}",
+    ]
+    dbus_error = getattr(exc, "dbus_error", None)
+    if dbus_error is not None:
+        lines.append(f"  dbus_error: {dbus_error!s}")
+    for attr in ("dbus_path", "name", "details", "reply", "error_name", "error_message"):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            lines.append(f"  {attr}: {val!r}")
+
+    cause = exc.__cause__
+    depth = 0
+    while cause is not None and depth < 8:
+        lines.append(
+            f"  __cause__[{depth}]: "
+            f"{type(cause).__module__}.{type(cause).__name__}: {cause!s}"
+        )
+        cause = cause.__cause__
+        depth += 1
+
+    _LOGGER.error("\n".join(lines))
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
 class GattTransport:
@@ -351,19 +383,25 @@ class GattTransport:
                     last_exc = exc
                     if _is_non_fatal_os_pairing_error(exc):
                         _LOGGER.warning(
-                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s",
+                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
                             attempt,
                             max_attempts,
+                            type(exc).__name__,
                             exc,
                         )
                         return
                     _LOGGER.debug(
-                        "OS-level bonding attempt %d/%d failed: %s",
+                        "OS-level bonding attempt %d/%d failed: %s (%r)",
                         attempt,
                         max_attempts,
+                        type(exc).__name__,
                         exc,
                     )
             if last_exc is not None:
+                _log_pairing_failure_detail(
+                    f"OS-level BLE bonding failed after {max_attempts} attempts",
+                    last_exc,
+                )
                 raise last_exc
             return
 
