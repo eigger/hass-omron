@@ -77,6 +77,49 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:pulse",
     ),
+    (
+        OmronExtendedSensorDeviceClass.PULSE_PRESSURE,
+        "mmHg",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.PULSE_PRESSURE}_mmHg",
+        native_unit_of_measurement="mmHg",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-bell-curve-cumulative",
+    ),
+    (
+        OmronExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+        "mmHg",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED}_mmHg",
+        native_unit_of_measurement="mmHg",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:waves-arrow-right",
+    ),
+    (
+        OmronExtendedSensorDeviceClass.SHOCK_INDEX,
+        "ratio",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.SHOCK_INDEX}_ratio",
+        native_unit_of_measurement="ratio",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:heart-flash",
+    ),
+    (
+        OmronExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
+        "mmHg*bpm",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT}_mmHg_bpm",
+        native_unit_of_measurement="mmHg*bpm",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:multiplication",
+    ),
+    (
+        OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
+        None,
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY}",
+        icon="mdi:clipboard-pulse-outline",
+    ),
     # Timestamp (datetime object)
     (
         OmronSensorDeviceClass.TIMESTAMP,

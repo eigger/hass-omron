@@ -28,11 +28,22 @@ async def async_setup_entry(
     description = ButtonEntityDescription(
         key=f"{model_slug}_{identifier}_sync_time",
         name=f"{model} {identifier.upper()} Sync Time",
-        icon="mdi:clock-sync",
+        icon="mdi:clock-outline",
         entity_category=EntityCategory.CONFIG,
     )
+    refresh_description = ButtonEntityDescription(
+        key=f"{model_slug}_{identifier}_refresh_data",
+        name=f"{model} {identifier.upper()} Refresh Data",
+        icon="mdi:refresh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    )
 
-    async_add_entities([OmronSyncTimeButtonEntity(hass, entry, description)])
+    async_add_entities(
+        [
+            OmronSyncTimeButtonEntity(hass, entry, description),
+            OmronRefreshDataButtonEntity(hass, entry, refresh_description),
+        ]
+    )
 
 
 class OmronSyncTimeButtonEntity(ButtonEntity):
@@ -50,6 +61,7 @@ class OmronSyncTimeButtonEntity(ButtonEntity):
         self.hass = hass
         self.entity_description = description
         self._entry_id = entry.entry_id
+        self._entry = entry
         self._address = hass.data[DOMAIN][entry.entry_id]["address"]
         self._attr_unique_id = description.key
 
@@ -72,3 +84,38 @@ class OmronSyncTimeButtonEntity(ButtonEntity):
             raise HomeAssistantError(
                 "Device does not expose Current Time characteristic (CTS)"
             )
+
+
+class OmronRefreshDataButtonEntity(ButtonEntity):
+    """Button entity to trigger an immediate data refresh poll."""
+
+    entity_description: ButtonEntityDescription
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        description: ButtonEntityDescription,
+    ) -> None:
+        """Initialize entity."""
+        self.hass = hass
+        self.entity_description = description
+        self._entry_id = entry.entry_id
+        self._entry = entry
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        self._attr_unique_id = description.key
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach button to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
+
+    async def async_press(self) -> None:
+        """Handle button press to poll device and refresh sensor data."""
+        poll_coordinator = self._entry.runtime_data.poll_coordinator
+        try:
+            await poll_coordinator.async_request_refresh()
+        except Exception as err:
+            raise HomeAssistantError(f"Failed to refresh data: {err}") from err

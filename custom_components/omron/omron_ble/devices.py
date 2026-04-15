@@ -50,7 +50,7 @@ def bytearray_bits_to_int(
 
 # --- Record Parsers ---
 def parse_record_format_a(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
-    """Parse format A: HEM-7322T, HEM-7600T, HEM-6232T style (big-endian).
+    """Parse format A: HEM-7320T, HEM-7322T, HEM-7600T, HEM-6232T style (big-endian).
 
     Bit layout:
       [0:7]   dia
@@ -356,6 +356,106 @@ class DeviceConfig:
 
 # --- Canonical device profiles (one EEPROM layout per key; catalog variants map here) ---
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
+    "HEM-6320T": DeviceConfig(
+        model="HEM-6320T",
+        endianness="big",
+        user_start_addresses=[0x0370],
+        per_user_records_count=[100],
+        record_byte_size=0x0E,
+        transmission_block_size=0x38,
+        settings_read_address=0x0F74,
+        settings_write_address=0x0F9A,
+        settings_unread_records_bytes=[0x00, 0x08],
+        settings_time_sync_bytes=[0x14, 0x1E],
+        index_pointer_layout={
+            "index_region_byte_size": 0x08,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="format_a",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6320T-Z", unverified=False),
+        ),
+    ),
+    "HEM-6321T": DeviceConfig(
+        model="HEM-6321T",
+        endianness="big",
+        user_start_addresses=[0x0370, 0x08E8],
+        per_user_records_count=[100, 100],
+        record_byte_size=0x0E,
+        transmission_block_size=0x38,
+        settings_read_address=0x0F74,
+        settings_write_address=0x0F9A,
+        settings_unread_records_bytes=[0x00, 0x08],
+        settings_time_sync_bytes=[0x14, 0x1E],
+        index_pointer_layout={
+            "index_region_byte_size": 0x08,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="format_a",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6321T-Z", unverified=False),
+        ),
+    ),
+    "HEM-6401T": DeviceConfig(
+        model="HEM-6401T",
+        endianness="little",
+        # HEM-6401T exposes multiple data types; only the BP data_5 area is mapped here.
+        user_start_addresses=[0x1350],
+        per_user_records_count=[100],
+        record_byte_size=0x10,
+        transmission_block_size=0x10,
+        settings_read_address=0x0100,
+        settings_write_address=0x0160,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=None,
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0xFFFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
+            ],
+        },
+        record_parser="format_b",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6401T-Z", unverified=True, reason="fallback"),
+        ),
+    ),
+    "HEM-7320T": DeviceConfig(
+        model="HEM-7320T",
+        endianness="big",
+        user_start_addresses=[0x02AC, 0x05F4],
+        per_user_records_count=[60, 60],
+        record_byte_size=0x0E,
+        transmission_block_size=0x38,
+        settings_read_address=0x0260,
+        settings_write_address=0x0286,
+        settings_unread_records_bytes=[0x00, 0x08],
+        settings_time_sync_bytes=[0x14, 0x1E],
+        index_pointer_layout={
+            "index_region_byte_size": 0x08,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="format_a",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7320T-CA", unverified=False),
+            DeviceModelVariant("HEM-7320T-CACS", unverified=False),
+            DeviceModelVariant("HEM-7320T-ZV", unverified=False),
+            DeviceModelVariant("HEM-7320T_TI-CA", unverified=False),
+            DeviceModelVariant("HEM-7320T_TI-Z", unverified=False),
+            DeviceModelVariant("HEM-8725T-WM", unverified=True, reason="fallback"),
+        ),
+    ),
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
         legacy_pairing_workarounds=True,
@@ -378,6 +478,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="format_a",
         equivalent_model_ids=(
+            DeviceModelVariant("HEM-7321T-CA", unverified=False),
+            DeviceModelVariant("HEM-7321T_TI-CA", unverified=False),
+            DeviceModelVariant("HEM-7321T_TI-Z", unverified=False),
             DeviceModelVariant("HEM-7280T-AP", unverified=False),
             DeviceModelVariant("HEM-7280T-E", unverified=False),
             DeviceModelVariant("HEM-7280T_TI-D", unverified=False),
@@ -413,10 +516,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="format_a",
         equivalent_model_ids=(
+            DeviceModelVariant("HEM-7270C", unverified=False),
             DeviceModelVariant("HEM-7271T", unverified=False),
             DeviceModelVariant("HEM-7325T", unverified=False),
             DeviceModelVariant("HEM-7600T", unverified=False),
             DeviceModelVariant("HEM-7600T-E", unverified=False),
+            DeviceModelVariant("HEM-7600T-Z", unverified=False),
             DeviceModelVariant("HEM-7600T-SH3BK", unverified=False),
             DeviceModelVariant("HEM-7600T2-JF", unverified=False),
             DeviceModelVariant("HEM-7600T_W", unverified=False),
