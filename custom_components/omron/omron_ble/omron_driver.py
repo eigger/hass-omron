@@ -44,6 +44,25 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
 
 
+def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
+    """Whether an OS-level BLE pairing exception can be safely ignored."""
+    msg = str(exc).lower()
+    non_fatal_markers = (
+        "alreadyexists",
+        "already exists",
+        "already paired",
+        "already bonded",
+        "authentication canceled",
+        "authenticationcanceled",
+        "authentication cancelled",
+        "authenticationcancelled",
+        "notready",
+        "not ready",
+        "in progress",
+    )
+    return any(marker in msg for marker in non_fatal_markers)
+
+
 class GattTransport:
     """BLE GATT read/write and notify handling for Omron measurement memory access.
 
@@ -313,11 +332,39 @@ class GattTransport:
         # OS-level bonding only (HEM-7380T1 etc.)
         if self._config.supports_os_bonding_only:
             _LOGGER.info("Performing OS-level BLE bonding")
-            try:
-                await self._client.pair()
-            except TypeError:
-                await self._client.pair(protection_level=2)
-            _LOGGER.info("OS-level BLE bonding completed")
+            # Some stacks fail pair() even when already bonded/encrypted sessions work.
+            # Keep this as best-effort and allow caller to proceed to GATT operations.
+            max_attempts = 2
+            last_exc: BaseException | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        await asyncio.sleep(0.5)
+                        await _bleak_refresh_services(self._client)
+                    try:
+                        await self._client.pair()
+                    except TypeError:
+                        await self._client.pair(protection_level=2)
+                    _LOGGER.info("OS-level BLE bonding completed")
+                    return
+                except Exception as exc:
+                    last_exc = exc
+                    if _is_non_fatal_os_pairing_error(exc):
+                        _LOGGER.warning(
+                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s",
+                            attempt,
+                            max_attempts,
+                            exc,
+                        )
+                        return
+                    _LOGGER.debug(
+                        "OS-level bonding attempt %d/%d failed: %s",
+                        attempt,
+                        max_attempts,
+                        exc,
+                    )
+            if last_exc is not None:
+                raise last_exc
             return
 
         # Custom pairing key (most classic-stack devices)
