@@ -270,6 +270,9 @@ class DeviceConfig:
     requires_unlock: bool = True
     supports_pairing: bool = True
     supports_os_bonding_only: bool = False
+    # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
+    # HEM-7380T1 uses OS bonding only; stays False.
+    legacy_pairing_workarounds: bool = False
 
     # EEPROM layout
     endianness: str = "big"
@@ -455,6 +458,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
+        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC, 0x0824],
         per_user_records_count=[100, 100],
@@ -493,6 +497,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
+        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC],
         per_user_records_count=[100],
@@ -530,6 +535,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
+        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8, 0x0860],
         per_user_records_count=[100, 100],
@@ -564,6 +570,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
+        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8],
         per_user_records_count=[90],
@@ -618,6 +625,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
+        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[60],
@@ -651,6 +659,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
+        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -684,6 +693,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
+        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
@@ -729,6 +739,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
+        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],

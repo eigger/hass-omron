@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import asyncio
 import dataclasses
 import datetime as dt
 import logging
+import traceback
 from typing import Any
 
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
@@ -39,10 +41,55 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, DOMAIN
-from .omron_ble.omron_driver import GattTransport
+from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
+
+
+def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
+    """Emit structured detail for BLE pairing failures (BlueZ / D-Bus / Bleak)."""
+    lines = [
+        prefix,
+        f"  type: {type(exc).__module__}.{type(exc).__name__}",
+        f"  str: {exc!s}",
+        f"  repr: {exc!r}",
+    ]
+    dbus_error = getattr(exc, "dbus_error", None)
+    if dbus_error is not None:
+        lines.append(f"  dbus_error: {dbus_error!s}")
+    # Bleak / backend-specific (best-effort)
+    for attr in (
+        "dbus_path",
+        "name",
+        "details",
+        "reply",
+        "error_name",
+        "error_message",
+    ):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            lines.append(f"  {attr}: {val!r}")
+    cause = exc.__cause__
+    depth = 0
+    while cause is not None and depth < 8:
+        lines.append(
+            f"  __cause__[{depth}]: "
+            f"{type(cause).__module__}.{type(cause).__name__}: {cause!s}"
+        )
+        dbus_c = getattr(cause, "dbus_error", None)
+        if dbus_c is not None:
+            lines.append(f"    dbus_error: {dbus_c!s}")
+        cause = cause.__cause__
+        depth += 1
+    ctx = exc.__context__
+    if ctx is not None and ctx is not exc.__cause__:
+        lines.append(
+            f"  __context__: {type(ctx).__module__}.{type(ctx).__name__}: {ctx!s}"
+        )
+    _LOGGER.error("\n".join(lines))
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
 @dataclasses.dataclass
@@ -158,10 +205,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self._async_do_pairing()
                 return self._async_get_or_create_entry(model=self._selected_model)
             except ConnectionError as exc:
-                _LOGGER.error("Pairing failed: %s", exc)
+                _log_pairing_exception("Pairing failed (ConnectionError)", exc)
                 errors["base"] = "pairing_failed"
             except Exception as exc:
-                _LOGGER.error("Unexpected error during pairing: %s", exc)
+                _log_pairing_exception("Unexpected error during pairing", exc)
                 errors["base"] = "pairing_failed"
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
@@ -228,16 +275,19 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         client = await establish_connection(BleakClient, ble_device, address)
         try:
-            # Wait for services to resolve
-            import asyncio
+            # Bleak requires an explicit service discovery before using client.services
+            # (otherwise: BleakError "Service Discovery has not been performed yet").
+            await _bleak_refresh_services(client)
             parent_uuid = config.parent_service_uuid
             for _ in range(20):
                 if parent_uuid in [s.uuid for s in client.services]:
                     break
+                await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             transport = GattTransport(client, config)
             await transport.pair()
+            await _bleak_refresh_services(client)
             await self._async_try_sync_current_time(client, model)
             _LOGGER.info("Successfully paired with %s (%s)", model, address)
         finally:

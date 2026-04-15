@@ -14,9 +14,34 @@ _LOGGER = logging.getLogger(__name__)
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
 
+async def _bleak_refresh_services(client: BleakClient) -> None:
+    """Re-run GATT discovery so characteristics appear after connection."""
+    gs = getattr(client, "get_services", None)
+    if not callable(gs):
+        return
+    try:
+        await gs()
+    except Exception as exc:
+        _LOGGER.debug("get_services refresh: %s", exc)
+
+
 def _hex(data: bytes | bytearray) -> str:
     """Convert byte array to hex string."""
     return bytes(data).hex()
+
+
+def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: key programming mode ready (e.g. HEM-7150T-Z uses 8208, others 8200)."""
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x82 and resp[1] in (0x00, 0x08)
+
+
+def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: new pairing key accepted (e.g. HEM-7150T-Z uses 8004, omblepy 8000)."""
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
 
 
 class GattTransport:
@@ -302,7 +327,16 @@ class GattTransport:
         if len(pair_key) != 16:
             raise ValueError(f"Pairing key must be 16 bytes, got {len(pair_key)}")
 
-        # Step 1: Enable RX channel notification to trigger SMP Security Request
+        legacy = self._config.legacy_pairing_workarounds
+        if legacy:
+            await _bleak_refresh_services(self._client)
+            unlock_attempts, unlock_retry_delay = 30, 0.5
+            key_max_retries = 10
+        else:
+            unlock_attempts, unlock_retry_delay = 15, 1.0
+            key_max_retries = 15
+
+        # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
         try:
             await self._client.start_notify(
@@ -311,10 +345,13 @@ class GattTransport:
         except Exception as exc:
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
-        # Wait a bit for SMP and service discovery
-        await asyncio.sleep(1.0)
+        if legacy:
+            await asyncio.sleep(0.25)
+            await _bleak_refresh_services(self._client)
+        else:
+            await asyncio.sleep(1.0)
 
-        # Step 2: Wait for unlock characteristic to resolve
+        # Step 2: Subscribe on unlock UUID
         prog_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
 
@@ -322,25 +359,37 @@ class GattTransport:
             response_holder[0] = rx_bytes
             prog_event.set()
 
-        for _ in range(15):
+        unlock_subscribed = False
+        for attempt in range(unlock_attempts):
             try:
                 await self._client.start_notify(self._config.unlock_uuid, _pair_callback)
+                unlock_subscribed = True
                 break
             except Exception as exc:
-                _LOGGER.debug("Waiting for unlock UUID to become available: %s", exc)
-                await asyncio.sleep(1)
-        else:
+                _LOGGER.debug(
+                    "Unlock characteristic not ready (%s/%s): %s",
+                    attempt + 1,
+                    unlock_attempts,
+                    exc,
+                )
+                if legacy:
+                    await _bleak_refresh_services(self._client)
+                await asyncio.sleep(unlock_retry_delay)
+        if not unlock_subscribed:
             raise ConnectionError(
                 f"Characteristic {self._config.unlock_uuid} was not found! "
-                "Try clearing Bluetooth cache."
+                "Try clearing Bluetooth cache, or remove the device from OS Bluetooth and retry in -P- mode."
             )
 
-        # Step 3: Enter key programming mode
-        max_retries = 15
+        # Step 3: Enter key programming mode (0x02 prefix writes)
+        max_retries = key_max_retries
         entered_programming = False
+        last_notify: bytes | None = None
+        notify_samples: list[str] = []
+        write_failures = 0
         for attempt in range(max_retries):
             resp = response_holder[0]
-            if resp and resp[:2] == bytearray.fromhex("8200"):
+            if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt)
                 entered_programming = True
                 break
@@ -352,6 +401,7 @@ class GattTransport:
                     self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
                 )
             except Exception as exc:
+                write_failures += 1
                 _LOGGER.debug("Key programming write attempt %d failed: %s", attempt + 1, exc)
 
             try:
@@ -360,7 +410,13 @@ class GattTransport:
                 pass
 
             resp = response_holder[0]
-            if resp and resp[:2] == bytearray.fromhex("8200"):
+            if resp:
+                last_notify = bytes(resp)
+                if len(notify_samples) < 10:
+                    notify_samples.append(
+                        f"#{attempt + 1}:{_hex(resp)}"
+                    )
+            if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
                 entered_programming = True
                 break
@@ -378,6 +434,18 @@ class GattTransport:
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception:
                 pass
+            _LOGGER.error(
+                "Key programming mode not reached: model=%s legacy_workarounds=%s "
+                "unlock_uuid=%s attempts=%s write_failures=%s "
+                "expected_notify_prefix=8200_or_8208 last_notify_hex=%s samples=%s",
+                self._config.model,
+                legacy,
+                self._config.unlock_uuid,
+                max_retries,
+                write_failures,
+                _hex(last_notify) if last_notify else "None",
+                notify_samples or ["(no notifications)"],
+            )
             raise ConnectionError(
                 "Could not enter key programming mode. "
                 "Is the device in pairing mode? (hold bluetooth button until -P- appears)"
@@ -405,7 +473,7 @@ class GattTransport:
         except Exception:
             pass
 
-        if resp is None or resp[:2] != bytearray.fromhex("8000"):
+        if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         await self._client.stop_notify(self._config.unlock_uuid)
