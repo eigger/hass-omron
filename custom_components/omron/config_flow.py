@@ -89,7 +89,7 @@ def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
         )
     _LOGGER.error("\n".join(lines))
     tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
-    _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
+    _LOGGER.error("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
 @dataclasses.dataclass
@@ -299,7 +299,32 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def _async_try_sync_current_time(self, client: BleakClient, model: str) -> None:
         """Try to sync local time to device via Current Time characteristic (CTS)."""
-        char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
+        if not client.is_connected:
+            _LOGGER.debug(
+                "Skipping time sync after pairing for %s: client is not connected",
+                model,
+            )
+            return
+        try:
+            # Refresh/inspect services defensively to avoid setup-time crashes
+            # on hosts that delay GATT service resolution.
+            await _bleak_refresh_services(client)
+            services = client.services
+            if services is None:
+                _LOGGER.debug(
+                    "Skipping time sync after pairing for %s: GATT services unavailable",
+                    model,
+                )
+                return
+            char = services.get_characteristic(CTS_CHARACTERISTIC_UUID)
+        except Exception as exc:
+            _LOGGER.debug(
+                "Skipping time sync after pairing for %s: service discovery unavailable (%r)",
+                model,
+                exc,
+            )
+            return
+
         if char is None:
             _LOGGER.debug(
                 "Skipping time sync after pairing for %s: CTS characteristic not found",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import traceback
 from typing import Any
 
 from bleak import BleakClient
@@ -42,6 +43,56 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
     if resp is None or len(resp) < 2:
         return False
     return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
+
+
+def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
+    """Whether an OS-level BLE pairing exception can be safely ignored."""
+    msg = str(exc).lower()
+    non_fatal_markers = (
+        "alreadyexists",
+        "already exists",
+        "already paired",
+        "already bonded",
+        "authentication canceled",
+        "authenticationcanceled",
+        "authentication cancelled",
+        "authenticationcancelled",
+        "notready",
+        "not ready",
+        "in progress",
+    )
+    return any(marker in msg for marker in non_fatal_markers)
+
+
+def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
+    """Emit structured detail for BLE bonding/pairing failures."""
+    lines = [
+        prefix,
+        f"  type: {type(exc).__module__}.{type(exc).__name__}",
+        f"  str: {exc!s}",
+        f"  repr: {exc!r}",
+    ]
+    dbus_error = getattr(exc, "dbus_error", None)
+    if dbus_error is not None:
+        lines.append(f"  dbus_error: {dbus_error!s}")
+    for attr in ("dbus_path", "name", "details", "reply", "error_name", "error_message"):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            lines.append(f"  {attr}: {val!r}")
+
+    cause = exc.__cause__
+    depth = 0
+    while cause is not None and depth < 8:
+        lines.append(
+            f"  __cause__[{depth}]: "
+            f"{type(cause).__module__}.{type(cause).__name__}: {cause!s}"
+        )
+        cause = cause.__cause__
+        depth += 1
+
+    _LOGGER.error("\n".join(lines))
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
 class GattTransport:
@@ -313,11 +364,45 @@ class GattTransport:
         # OS-level bonding only (HEM-7380T1 etc.)
         if self._config.supports_os_bonding_only:
             _LOGGER.info("Performing OS-level BLE bonding")
-            try:
-                await self._client.pair()
-            except TypeError:
-                await self._client.pair(protection_level=2)
-            _LOGGER.info("OS-level BLE bonding completed")
+            # Some stacks fail pair() even when already bonded/encrypted sessions work.
+            # Keep this as best-effort and allow caller to proceed to GATT operations.
+            max_attempts = 2
+            last_exc: BaseException | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if attempt > 1:
+                        await asyncio.sleep(0.5)
+                        await _bleak_refresh_services(self._client)
+                    try:
+                        await self._client.pair()
+                    except TypeError:
+                        await self._client.pair(protection_level=2)
+                    _LOGGER.info("OS-level BLE bonding completed")
+                    return
+                except Exception as exc:
+                    last_exc = exc
+                    if _is_non_fatal_os_pairing_error(exc):
+                        _LOGGER.warning(
+                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
+                            attempt,
+                            max_attempts,
+                            type(exc).__name__,
+                            exc,
+                        )
+                        return
+                    _LOGGER.debug(
+                        "OS-level bonding attempt %d/%d failed: %s (%r)",
+                        attempt,
+                        max_attempts,
+                        type(exc).__name__,
+                        exc,
+                    )
+            if last_exc is not None:
+                _log_pairing_failure_detail(
+                    f"OS-level BLE bonding failed after {max_attempts} attempts",
+                    last_exc,
+                )
+                raise last_exc
             return
 
         # Custom pairing key (most classic-stack devices)

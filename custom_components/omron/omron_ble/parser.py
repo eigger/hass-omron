@@ -34,7 +34,7 @@ from .devices import (
     get_device_config,
     resolve_profile_model_id,
 )
-from .omron_driver import GattTransport, OmronDeviceDriver
+from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
@@ -320,18 +320,22 @@ class OmronBluetoothDeviceData(BluetoothData):
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
+            # Ensure Bleak service cache is populated before reading client.services.
+            await _bleak_refresh_services(client)
 
             # Some OS-bonding-only models require an encrypted link on each session
             # to return meaningful measurement memory data.
             if self._device_config.supports_os_bonding_only:
                 try:
                     await client.pair()
+                    await _bleak_refresh_services(client)
                     _LOGGER.debug(
                         "Ensured OS-level bonding before poll for model=%s",
                         self._device_model,
                     )
                 except TypeError:
                     await client.pair(protection_level=2)
+                    await _bleak_refresh_services(client)
                     _LOGGER.debug(
                         "Ensured OS-level bonding (protection_level=2) before poll for model=%s",
                         self._device_model,
@@ -346,11 +350,19 @@ class OmronBluetoothDeviceData(BluetoothData):
             # Verify the device has expected services
             parent_uuid = self._device_config.parent_service_uuid
             service_found = False
-            for _ in range(20):
-                if parent_uuid in [s.uuid for s in client.services]:
-                    service_found = True
-                    break
-                import asyncio
+            for attempt in range(20):
+                try:
+                    if parent_uuid in [s.uuid for s in client.services]:
+                        service_found = True
+                        break
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Services not ready during poll (%d/20) for %s: %s",
+                        attempt + 1,
+                        ble_device.address,
+                        exc,
+                    )
+                await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             if not service_found:
@@ -385,14 +397,24 @@ class OmronBluetoothDeviceData(BluetoothData):
                     self._device_config.parent_service_stack(),
                 )
 
-            missing_rx = [
-                uuid for uuid in self._device_config.rx_channel_uuids
-                if client.services.get_characteristic(uuid) is None
-            ]
-            missing_tx = [
-                uuid for uuid in self._device_config.tx_channel_uuids
-                if client.services.get_characteristic(uuid) is None
-            ]
+            try:
+                services = client.services
+                missing_rx = [
+                    uuid for uuid in self._device_config.rx_channel_uuids
+                    if services.get_characteristic(uuid) is None
+                ]
+                missing_tx = [
+                    uuid for uuid in self._device_config.tx_channel_uuids
+                    if services.get_characteristic(uuid) is None
+                ]
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Skipping characteristic pre-check; services unavailable for %s: %s",
+                    ble_device.address,
+                    exc,
+                )
+                missing_rx = []
+                missing_tx = []
             if missing_rx or missing_tx:
                 prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.warning(
