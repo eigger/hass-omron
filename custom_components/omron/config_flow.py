@@ -89,7 +89,7 @@ def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
         )
     _LOGGER.error("\n".join(lines))
     tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
-    _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
+    _LOGGER.error("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
 @dataclasses.dataclass
@@ -286,24 +286,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 await asyncio.sleep(0.25)
 
             transport = GattTransport(client, config)
-            try:
-                await transport.pair()
-            except Exception as exc:
-                # Modern-stack models (OS bonding only) can fail explicit pair() on some
-                # hosts even when encrypted reads later work after reconnect.
-                # Keep setup flow resilient and continue as best-effort.
-                if config.supports_os_bonding_only:
-                    _log_pairing_exception(
-                        "OS-level pairing failed during config flow; continuing best-effort",
-                        exc,
-                    )
-                    _LOGGER.warning(
-                        "Continuing setup without strict pairing success for %s (%s)",
-                        model,
-                        address,
-                    )
-                else:
-                    raise
+            await transport.pair()
             await _bleak_refresh_services(client)
             await self._async_try_sync_current_time(client, model)
             _LOGGER.info("Successfully paired with %s (%s)", model, address)
@@ -323,8 +306,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             return
         try:
-            # Best-effort fallback path can arrive here after bonding failures.
-            # Refresh/inspect services defensively so setup does not crash.
+            # Refresh/inspect services defensively to avoid setup-time crashes
+            # on hosts that delay GATT service resolution.
             await _bleak_refresh_services(client)
             services = client.services
             if services is None:

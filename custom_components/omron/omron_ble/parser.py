@@ -350,10 +350,18 @@ class OmronBluetoothDeviceData(BluetoothData):
             # Verify the device has expected services
             parent_uuid = self._device_config.parent_service_uuid
             service_found = False
-            for _ in range(20):
-                if parent_uuid in [s.uuid for s in client.services]:
-                    service_found = True
-                    break
+            for attempt in range(20):
+                try:
+                    if parent_uuid in [s.uuid for s in client.services]:
+                        service_found = True
+                        break
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Services not ready during poll (%d/20) for %s: %s",
+                        attempt + 1,
+                        ble_device.address,
+                        exc,
+                    )
                 await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
@@ -389,14 +397,24 @@ class OmronBluetoothDeviceData(BluetoothData):
                     self._device_config.parent_service_stack(),
                 )
 
-            missing_rx = [
-                uuid for uuid in self._device_config.rx_channel_uuids
-                if client.services.get_characteristic(uuid) is None
-            ]
-            missing_tx = [
-                uuid for uuid in self._device_config.tx_channel_uuids
-                if client.services.get_characteristic(uuid) is None
-            ]
+            try:
+                services = client.services
+                missing_rx = [
+                    uuid for uuid in self._device_config.rx_channel_uuids
+                    if services.get_characteristic(uuid) is None
+                ]
+                missing_tx = [
+                    uuid for uuid in self._device_config.tx_channel_uuids
+                    if services.get_characteristic(uuid) is None
+                ]
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Skipping characteristic pre-check; services unavailable for %s: %s",
+                    ble_device.address,
+                    exc,
+                )
+                missing_rx = []
+                missing_tx = []
             if missing_rx or missing_tx:
                 prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.warning(
