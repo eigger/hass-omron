@@ -34,7 +34,7 @@ from .devices import (
     get_device_config,
     resolve_profile_model_id,
 )
-from .omron_driver import GattTransport, OmronDeviceDriver
+from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
@@ -320,18 +320,22 @@ class OmronBluetoothDeviceData(BluetoothData):
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
+            # Ensure Bleak service cache is populated before reading client.services.
+            await _bleak_refresh_services(client)
 
             # Some OS-bonding-only models require an encrypted link on each session
             # to return meaningful measurement memory data.
             if self._device_config.supports_os_bonding_only:
                 try:
                     await client.pair()
+                    await _bleak_refresh_services(client)
                     _LOGGER.debug(
                         "Ensured OS-level bonding before poll for model=%s",
                         self._device_model,
                     )
                 except TypeError:
                     await client.pair(protection_level=2)
+                    await _bleak_refresh_services(client)
                     _LOGGER.debug(
                         "Ensured OS-level bonding (protection_level=2) before poll for model=%s",
                         self._device_model,
@@ -350,7 +354,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 if parent_uuid in [s.uuid for s in client.services]:
                     service_found = True
                     break
-                import asyncio
+                await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             if not service_found:
