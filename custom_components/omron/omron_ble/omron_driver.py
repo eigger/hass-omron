@@ -48,11 +48,11 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
 def _is_unlock_success_response(resp: bytes | bytearray | None) -> bool:
     """Unlock notify: unlock accepted.
 
-    Most devices reply with 0x8100, but some variants may emit 0x8108.
+    Most devices reply with 0x8100, but some variants emit 0x8104/0x8108.
     """
     if resp is None or len(resp) < 2:
         return False
-    return resp[0] == 0x81 and resp[1] in (0x00, 0x08)
+    return resp[0] == 0x81 and resp[1] in (0x00, 0x04, 0x08)
 
 
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
@@ -366,7 +366,7 @@ class GattTransport:
                 rx = _hex(response) if response is not None else "None"
                 raise ConnectionError(
                     "Unlock failed: unexpected unlock response "
-                    f"(expected 8100/8108, got {rx})"
+                    f"(expected 8100/8104/8108, got {rx})"
                 )
             if len(response) >= 2 and response[1] != 0x00:
                 _LOGGER.info(

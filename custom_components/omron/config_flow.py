@@ -47,6 +47,17 @@ _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 
 
+def _is_expected_cts_write_error(exc: Exception) -> bool:
+    """Return True for known non-fatal CTS write failures.
+
+    Some Omron variants expose CTS but reject writes with backend-specific
+    "Application error" codes (often surfaced as error=128). Pairing and data
+    polling still work, so keep this as debug noise instead of warning.
+    """
+    msg = str(exc).casefold()
+    return "error=128" in msg and "application error" in msg
+
+
 def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
     """Emit structured detail for BLE pairing failures (BlueZ / D-Bus / Bleak)."""
     lines = [
@@ -358,6 +369,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 now.isoformat(timespec="seconds"),
             )
         except Exception as exc:
+            if _is_expected_cts_write_error(exc):
+                _LOGGER.debug(
+                    "Skipping non-fatal CTS write rejection for %s: %s", model, exc
+                )
+                return
             _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
 
     async def async_step_bluetooth_confirm(

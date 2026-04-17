@@ -41,6 +41,7 @@ CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
 VERBOSE_BLS_LOG = os.getenv("OMRON_VERBOSE_BLS_LOG", "0") == "1"
+POLL_CONNECT_TIMEOUT_SECONDS = 15.0
 # Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
 OMRON_MANUFACTURER_ID = 526
 
@@ -317,9 +318,20 @@ class OmronBluetoothDeviceData(BluetoothData):
         client: BleakClient | None = None
         poll_status = "poll_failed"
         try:
-            client = await establish_connection(
-                BleakClient, ble_device, ble_device.address
-            )
+            try:
+                # Bound connection wait time so one failed poll does not block the
+                # coordinator for >1 minute on transient BLE issues.
+                client = await asyncio.wait_for(
+                    establish_connection(BleakClient, ble_device, ble_device.address),
+                    timeout=POLL_CONNECT_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                _LOGGER.warning(
+                    "Timed out connecting to %s within %.1fs; skipping this poll cycle",
+                    ble_device.address,
+                    POLL_CONNECT_TIMEOUT_SECONDS,
+                )
+                return self._finish_update()
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
 
