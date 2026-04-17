@@ -136,6 +136,7 @@ class GattTransport:
             self._rebuild_notify_handle_index_map()
             for uuid in self._config.rx_channel_uuids:
                 await self._client.start_notify(uuid, self._on_notify_channel_data)
+            await asyncio.sleep(0.5)
             self._notify_subscribed = True
 
     async def _unsubscribe_notify_channels(self) -> None:
@@ -250,11 +251,34 @@ class GattTransport:
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
-        await self._subscribe_notify_channels()
         start_cmd = bytearray.fromhex("0800000000100018")
-        await self._write_command_and_wait_reply(start_cmd)
-        if self._last_reply_packet_type != bytearray.fromhex("8000"):
-            raise ConnectionError("Invalid response to data readout start")
+        last_exc: Exception | None = None
+        for attempt in range(1, 3):
+            await self._subscribe_notify_channels()
+            try:
+                await self._write_command_and_wait_reply(start_cmd)
+                if self._last_reply_packet_type != bytearray.fromhex("8000"):
+                    raise ConnectionError("Invalid response to data readout start")
+                return
+            except ConnectionError as exc:
+                last_exc = exc
+                if attempt >= 2:
+                    break
+                _LOGGER.warning(
+                    "Start readout command failed (attempt %d/2): %s; "
+                    "re-arming notify channels and retrying",
+                    attempt,
+                    exc,
+                )
+                try:
+                    await self._unsubscribe_notify_channels()
+                except Exception:
+                    # Best-effort recovery path; retry subscribe/write anyway.
+                    pass
+                await asyncio.sleep(0.4)
+        if last_exc is not None:
+            raise last_exc
+        raise ConnectionError("Failed to start data readout session")
 
     async def close_memory_session(self) -> None:
         """End a data readout session."""
@@ -454,7 +478,7 @@ class GattTransport:
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
         if legacy:
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.5)
             await _bleak_refresh_services(self._client)
         else:
             await asyncio.sleep(1.0)
