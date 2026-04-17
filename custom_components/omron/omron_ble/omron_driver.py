@@ -45,6 +45,16 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
 
 
+def _is_unlock_success_response(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: unlock accepted.
+
+    Most devices reply with 0x8100, but some variants may emit 0x8108.
+    """
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x81 and resp[1] in (0x00, 0x08)
+
+
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
     """Whether an OS-level BLE pairing exception can be safely ignored."""
     msg = str(exc).lower()
@@ -341,6 +351,8 @@ class GattTransport:
 
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         try:
+            # Give BLE stack/device time to settle CCCD before first unlock write.
+            await asyncio.sleep(0.5)
             unlock_event.clear()
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
@@ -348,8 +360,19 @@ class GattTransport:
             await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
 
             response = response_holder[0]
-            if response is None or response[:2] != bytearray.fromhex("8100"):
-                raise ConnectionError("Unlock failed: pairing key mismatch")
+            if response is not None:
+                _LOGGER.debug("unlock notify rx=%s", _hex(response))
+            if not _is_unlock_success_response(response):
+                rx = _hex(response) if response is not None else "None"
+                raise ConnectionError(
+                    "Unlock failed: unexpected unlock response "
+                    f"(expected 8100/8108, got {rx})"
+                )
+            if len(response) >= 2 and response[1] != 0x00:
+                _LOGGER.info(
+                    "Unlock accepted with variant response prefix=%s",
+                    bytes(response[:2]).hex(),
+                )
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
 
@@ -448,6 +471,8 @@ class GattTransport:
         for attempt in range(unlock_attempts):
             try:
                 await self._client.start_notify(self._config.unlock_uuid, _pair_callback)
+                # Ensure notify subscription is active before first key-programming write.
+                await asyncio.sleep(0.5)
                 unlock_subscribed = True
                 break
             except Exception as exc:
