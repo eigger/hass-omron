@@ -46,7 +46,13 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
 
 
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
-    """Whether an OS-level BLE pairing exception can be safely ignored."""
+    """Whether an OS-level BLE pairing exception can be safely ignored.
+
+    Modern-stack Omron devices (pairing=false in ubpm) do not require an
+    explicit pair() call; the BLE stack negotiates security automatically
+    when GATT operations are performed.  Therefore most pair() errors on
+    these devices are non-fatal and should not block the config flow.
+    """
     msg = str(exc).lower()
     non_fatal_markers = (
         "alreadyexists",
@@ -57,6 +63,10 @@ def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
         "authenticationcanceled",
         "authentication cancelled",
         "authenticationcancelled",
+        "authenticationfailed",
+        "authentication failed",
+        "authenticationrejected",
+        "authentication rejected",
         "notready",
         "not ready",
         "in progress",
@@ -121,18 +131,64 @@ class GattTransport:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels."""
-        if not self._notify_subscribed:
-            self._rebuild_notify_handle_index_map()
-            for uuid in self._config.rx_channel_uuids:
-                await self._client.start_notify(uuid, self._on_notify_channel_data)
-            self._notify_subscribed = True
+        """Enable notifications on all RX channels with retry and graceful error handling.
+
+        A failed descriptor write is caught,
+        retried up to _NOTIFY_RETRIES times with a short delay, and if still failing the
+        channel is skipped with a warning rather than raising immediately.  This avoids
+        crashing the entire session for a transient GATT error (e.g. error 259 via
+        ESPHome BLE proxy) on one of the notify channels.
+        """
+        _NOTIFY_RETRIES = 3
+        _NOTIFY_RETRY_DELAY = 1.0  # seconds between retries
+
+        if self._notify_subscribed:
+            return
+
+        self._rebuild_notify_handle_index_map()
+        failed_uuids: list[str] = []
+
+        for uuid in self._config.rx_channel_uuids:
+            last_exc: Exception | None = None
+            for attempt in range(1, _NOTIFY_RETRIES + 1):
+                try:
+                    await self._client.start_notify(uuid, self._on_notify_channel_data)
+                    _LOGGER.debug("Subscribed notify channel %s", uuid)
+                    last_exc = None
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    _LOGGER.debug(
+                        "start_notify failed for %s (attempt %d/%d): %s",
+                        uuid, attempt, _NOTIFY_RETRIES, exc,
+                    )
+                    if attempt < _NOTIFY_RETRIES:
+                        await asyncio.sleep(_NOTIFY_RETRY_DELAY)
+
+            if last_exc is not None:
+                failed_uuids.append(uuid)
+                _LOGGER.warning(
+                    "Could not subscribe notify channel %s after %d attempts: %s - "
+                    "channel will be skipped (data may be incomplete)",
+                    uuid, _NOTIFY_RETRIES, last_exc,
+                )
+
+        # If ALL channels failed, the session cannot proceed - raise the last error.
+        if failed_uuids and len(failed_uuids) == len(self._config.rx_channel_uuids):
+            raise ConnectionError(
+                f"Failed to enable notifications on any RX channel: {failed_uuids}"
+            )
+
+        self._notify_subscribed = True
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
         if self._notify_subscribed:
             for uuid in self._config.rx_channel_uuids:
-                await self._client.stop_notify(uuid)
+                try:
+                    await self._client.stop_notify(uuid)
+                except Exception as exc:
+                    _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
             self._notify_subscribed = False
 
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
@@ -241,8 +297,15 @@ class GattTransport:
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
         await self._subscribe_notify_channels()
-        start_cmd = bytearray.fromhex("0800000000100018")
-        await self._write_command_and_wait_reply(start_cmd)
+        # Build init command dynamically: [len, cmd_hi, cmd_lo, 0, 0, block_size, pad, crc]
+        block_size = self._config.transmission_block_size
+        cmd = bytearray([0x08, 0x00, 0x00, 0x00, 0x00, block_size])
+        xor_crc = 0
+        for byte in cmd:
+            xor_crc ^= byte
+        cmd += b'\x00'
+        cmd.append(xor_crc)
+        await self._write_command_and_wait_reply(cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8000"):
             raise ConnectionError("Invalid response to data readout start")
 
