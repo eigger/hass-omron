@@ -314,10 +314,10 @@ class GattTransport:
         stop_cmd = bytearray.fromhex("080f000000000007")
         await self._write_command_and_wait_reply(stop_cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8f00"):
-            raise ConnectionError("Invalid response to data readout end")
-        if self._last_reply_payload and self._last_reply_payload[0]:
-            raise ConnectionError(
-                f"Device reported error code {self._last_reply_payload[0]}"
+            _LOGGER.warning("Invalid response to data readout end")
+        elif self._last_reply_payload and self._last_reply_payload[0]:
+            _LOGGER.warning(
+                "Device reported error code %d during session close", self._last_reply_payload[0]
             )
         await self._unsubscribe_notify_channels()
 
