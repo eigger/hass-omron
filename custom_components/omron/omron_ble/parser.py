@@ -45,6 +45,17 @@ VERBOSE_BLS_LOG = os.getenv("OMRON_VERBOSE_BLS_LOG", "0") == "1"
 OMRON_MANUFACTURER_ID = 526
 
 
+def _is_transient_ble_disconnect(exc: BaseException) -> bool:
+    """Return True for known transient BLE disconnect/drop messages."""
+    msg = str(exc).lower()
+    markers = (
+        "changed connection status while waiting for bluetoothgattwriteresponse",
+        "bluetoothgatterrorresponse: unknown error (19)",
+        "bluetoothconnectiondroppederror",
+    )
+    return any(marker in msg for marker in markers)
+
+
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""
 
@@ -540,7 +551,35 @@ class OmronBluetoothDeviceData(BluetoothData):
             record: dict[str, Any] | None = None
             latest_by_user: dict[int, dict[str, Any]] = {}
             if multi_user_mode:
-                latest_by_user = await self._driver.get_latest_records_per_user(transport)
+                for attempt in range(1, 3):
+                    try:
+                        latest_by_user = await self._driver.get_latest_records_per_user(transport)
+                        break
+                    except Exception as exc:
+                        if attempt >= 2 or not _is_transient_ble_disconnect(exc):
+                            raise
+                        _LOGGER.warning(
+                            "Transient BLE disconnect during multi-user read "
+                            "(attempt %d/2, model=%s, address=%s): %s",
+                            attempt,
+                            self._device_model,
+                            ble_device.address,
+                            exc,
+                        )
+                        # Give BLE stack/peripheral a brief recovery window and retry once.
+                        await asyncio.sleep(0.6)
+                        
+                        if client and client.is_connected:
+                            try:
+                                await client.disconnect()
+                            except Exception:
+                                pass
+                        
+                        client = await establish_connection(
+                            BleakClient, ble_device, ble_device.address
+                        )
+                        await _bleak_refresh_services(client)
+                        transport = GattTransport(client, self._device_config)
             else:
                 record = await self._driver.get_latest_record(transport)
                 live_record: dict[str, Any] | None = None
