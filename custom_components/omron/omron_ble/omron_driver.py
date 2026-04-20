@@ -704,6 +704,31 @@ class OmronDeviceDriver:
         )
         return await self._get_latest_via_full_scan(transport)
 
+    async def get_latest_records_per_user(
+        self, transport: GattTransport
+    ) -> dict[int, dict[str, Any]]:
+        """Return latest valid record per configured user index (1-based)."""
+        if self._config.use_layout_fallback_scan:
+            all_user_records = await self._get_all_records_with_format_c_fallback(transport)
+        else:
+            all_user_records = await self.get_all_records(transport)
+
+        latest_by_user: dict[int, dict[str, Any]] = {}
+        for user_idx, user_records in enumerate(all_user_records):
+            user = user_idx + 1
+            if not user_records:
+                continue
+            selected = self._select_latest_candidate([(user, rec) for rec in user_records])
+            if selected is None:
+                continue
+            _, record = selected
+            result = dict(record)
+            result["user"] = user
+            result.pop("_slot_index", None)
+            result.pop("_offset", None)
+            latest_by_user[user] = result
+        return latest_by_user
+
     async def _get_latest_via_full_scan(
         self, transport: GattTransport
     ) -> dict[str, Any] | None:

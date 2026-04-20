@@ -56,6 +56,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._device_config: DeviceConfig = get_device_config(device_model)
         self._driver = OmronDeviceDriver(self._device_config)
         self._last_record_signature: tuple[Any, ...] | None = None
+        self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
@@ -71,6 +72,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._device_model = model
         self._device_config = get_device_config(model)
         self._driver = OmronDeviceDriver(self._device_config)
+        self._last_record_signature = None
+        self._last_record_signatures_by_user = {}
         self._unvalidated_variant_warning_logged = False
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
@@ -128,6 +131,108 @@ class OmronBluetoothDeviceData(BluetoothData):
             record.get("dia"),
             record.get("bpm"),
         )
+
+    def _update_measurement_sensors(
+        self, record: dict[str, Any], *, user: int | None = None, multi_user: bool = False
+    ) -> None:
+        """Publish measurement-derived sensors for one record."""
+        from .const import ExtendedSensorDeviceClass
+
+        key_suffix = f"_user{user}" if multi_user and user is not None else ""
+        name_suffix = f" (User {user})" if multi_user and user is not None else ""
+
+        sys_val = record.get("sys")
+        dia_val = record.get("dia")
+        bpm_val = record.get("bpm")
+
+        self.update_sensor(
+            f"blood_pressure_systolic{key_suffix}",
+            "mmHg",
+            record["sys"],
+            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
+            name=f"Systolic{name_suffix}",
+        )
+        self.update_sensor(
+            f"blood_pressure_diastolic{key_suffix}",
+            "mmHg",
+            record["dia"],
+            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
+            name=f"Diastolic{name_suffix}",
+        )
+        self.update_sensor(
+            f"heart_rate{key_suffix}",
+            "bpm",
+            record["bpm"],
+            device_class=ExtendedSensorDeviceClass.HEART_RATE,
+            name=f"Pulse{name_suffix}",
+        )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and isinstance(dia_val, (int, float))
+            and sys_val > dia_val
+        ):
+            pulse_pressure = float(sys_val - dia_val)
+            estimated_map = float(dia_val + (pulse_pressure / 3))
+            self.update_sensor(
+                f"pulse_pressure{key_suffix}",
+                "mmHg",
+                round(pulse_pressure, 1),
+                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
+                name=f"Pulse Pressure{name_suffix}",
+            )
+            self.update_sensor(
+                f"mean_arterial_pressure_estimated{key_suffix}",
+                "mmHg",
+                round(estimated_map, 1),
+                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                name=f"Estimated MAP{name_suffix}",
+            )
+            self.update_sensor(
+                f"blood_pressure_category{key_suffix}",
+                None,
+                self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
+                name=f"BP Category (ACC/AHA){name_suffix}",
+            )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and sys_val > 0
+            and isinstance(bpm_val, (int, float))
+        ):
+            shock_index = float(bpm_val) / float(sys_val)
+            self.update_sensor(
+                f"shock_index{key_suffix}",
+                "ratio",
+                round(shock_index, 2),
+                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
+                name=f"Shock Index{name_suffix}",
+            )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and isinstance(bpm_val, (int, float))
+        ):
+            rate_pressure_product = float(sys_val) * float(bpm_val)
+            self.update_sensor(
+                f"rate_pressure_product{key_suffix}",
+                "mmHg*bpm",
+                round(rate_pressure_product, 1),
+                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
+                name=f"Rate Pressure Product{name_suffix}",
+            )
+
+        measured_at = record.get("datetime")
+        if measured_at is not None:
+            measured_at = self._ensure_aware_datetime(measured_at)
+            self.update_sensor(
+                f"measurement_timestamp{key_suffix}",
+                None,
+                measured_at,
+                device_class=SensorDeviceClass.TIMESTAMP,
+                name=f"Measured At{name_suffix}",
+            )
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
@@ -431,86 +536,118 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
             transport = GattTransport(client, self._device_config)
-            record = await self._driver.get_latest_record(transport)
-            live_record: dict[str, Any] | None = None
-            # Preferred live path for BLS devices: request latest via RACP indications.
-            live_record = await self._read_latest_via_bls_racp(client)
-            if live_record and VERBOSE_BLS_LOG:
-                _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
-            if not self._bp_char_unavailable:
-                try:
-                    bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
-                    if bp_raw:
-                        # Keep RACP result if present; otherwise use direct read result.
-                        if live_record is None:
-                            live_record = self._parse_bp_measurement(bytes(bp_raw))
-                        if VERBOSE_BLS_LOG:
-                            _LOGGER.debug(
-                                "Read BP measurement char 0x2A35: raw=%s parsed=%s",
-                                bytes(bp_raw).hex(),
-                                live_record,
+            multi_user_mode = self._device_config.num_users > 1
+            record: dict[str, Any] | None = None
+            latest_by_user: dict[int, dict[str, Any]] = {}
+            if multi_user_mode:
+                latest_by_user = await self._driver.get_latest_records_per_user(transport)
+            else:
+                record = await self._driver.get_latest_record(transport)
+                live_record: dict[str, Any] | None = None
+                # Preferred live path for BLS devices: request latest via RACP indications.
+                live_record = await self._read_latest_via_bls_racp(client)
+                if live_record and VERBOSE_BLS_LOG:
+                    _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
+                if not self._bp_char_unavailable:
+                    try:
+                        bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
+                        if bp_raw:
+                            # Keep RACP result if present; otherwise use direct read result.
+                            if live_record is None:
+                                live_record = self._parse_bp_measurement(bytes(bp_raw))
+                            if VERBOSE_BLS_LOG:
+                                _LOGGER.debug(
+                                    "Read BP measurement char 0x2A35: raw=%s parsed=%s",
+                                    bytes(bp_raw).hex(),
+                                    live_record,
+                                )
+                        elif VERBOSE_BLS_LOG:
+                            _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
+                    except Exception as exc:
+                        if "Read not permitted" in str(exc):
+                            self._bp_char_unavailable = True
+                            _LOGGER.info(
+                                "BP measurement char 0x2A35 read not permitted on %s; "
+                                "disabling live BLS read path",
+                                ble_device.address,
                             )
-                    elif VERBOSE_BLS_LOG:
-                        _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
-                except Exception as exc:
-                    if "Read not permitted" in str(exc):
-                        self._bp_char_unavailable = True
+                        elif VERBOSE_BLS_LOG:
+                            _LOGGER.debug(
+                                "Read BP measurement char 0x2A35 failed for %s: %s",
+                                ble_device.address,
+                                exc,
+                            )
+                        live_record = None
+
+                if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
+                    eeprom_dt = record.get("datetime") if record else None
+                    live_dt = live_record.get("datetime")
+                    use_live = False
+                    if record is None:
+                        use_live = True
+                    elif isinstance(live_dt, dt.datetime) and (
+                        not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
+                    ):
+                        use_live = True
+                    elif (
+                        not isinstance(live_dt, dt.datetime)
+                        and isinstance(record.get("sys"), int)
+                        and isinstance(record.get("dia"), int)
+                        and (
+                            int(live_record["sys"]) != int(record.get("sys"))
+                            or int(live_record["dia"]) != int(record.get("dia"))
+                        )
+                    ):
+                        # Some devices expose recent measurement values in 0x2A35 without timestamp.
+                        use_live = True
+                    if use_live:
+                        merged = dict(record or {})
+                        merged["sys"] = live_record["sys"]
+                        merged["dia"] = live_record["dia"]
+                        if isinstance(live_record.get("bpm"), int):
+                            merged["bpm"] = live_record["bpm"]
+                        if isinstance(live_dt, dt.datetime):
+                            merged["datetime"] = live_dt
+                        if "user" not in merged:
+                            merged["user"] = 1
+                        record = merged
                         _LOGGER.info(
-                            "BP measurement char 0x2A35 read not permitted on %s; "
-                            "disabling live BLS read path",
-                            ble_device.address,
+                            "Using live BP measurement characteristic over EEPROM "
+                            "(sys=%s dia=%s bpm=%s datetime=%s)",
+                            record.get("sys"),
+                            record.get("dia"),
+                            record.get("bpm"),
+                            record.get("datetime"),
                         )
-                    elif VERBOSE_BLS_LOG:
+
+            if multi_user_mode:
+                if latest_by_user:
+                    has_new = False
+                    for user in sorted(latest_by_user):
+                        user_record = latest_by_user[user]
                         _LOGGER.debug(
-                            "Read BP measurement char 0x2A35 failed for %s: %s",
-                            ble_device.address,
-                            exc,
+                            "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                            user,
+                            user_record.get("datetime"),
+                            user_record.get("sys"),
+                            user_record.get("dia"),
+                            user_record.get("bpm"),
                         )
-                    live_record = None
-
-            if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
-                eeprom_dt = record.get("datetime") if record else None
-                live_dt = live_record.get("datetime")
-                use_live = False
-                if record is None:
-                    use_live = True
-                elif isinstance(live_dt, dt.datetime) and (
-                    not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
-                ):
-                    use_live = True
-                elif (
-                    not isinstance(live_dt, dt.datetime)
-                    and isinstance(record.get("sys"), int)
-                    and isinstance(record.get("dia"), int)
-                    and (
-                        int(live_record["sys"]) != int(record.get("sys"))
-                        or int(live_record["dia"]) != int(record.get("dia"))
-                    )
-                ):
-                    # Some devices expose recent measurement values in 0x2A35 without timestamp.
-                    use_live = True
-                if use_live:
-                    merged = dict(record or {})
-                    merged["sys"] = live_record["sys"]
-                    merged["dia"] = live_record["dia"]
-                    if isinstance(live_record.get("bpm"), int):
-                        merged["bpm"] = live_record["bpm"]
-                    if isinstance(live_dt, dt.datetime):
-                        merged["datetime"] = live_dt
-                    if "user" not in merged:
-                        merged["user"] = 1
-                    record = merged
-                    _LOGGER.info(
-                        "Using live BP measurement characteristic over EEPROM "
-                        "(sys=%s dia=%s bpm=%s datetime=%s)",
-                        record.get("sys"),
-                        record.get("dia"),
-                        record.get("bpm"),
-                        record.get("datetime"),
-                    )
-
-            if record:
-                from .const import ExtendedSensorDeviceClass
+                        self._update_measurement_sensors(
+                            user_record,
+                            user=user,
+                            multi_user=True,
+                        )
+                        signature = self._build_record_signature(user_record)
+                        previous = self._last_record_signatures_by_user.get(user)
+                        if signature != previous:
+                            has_new = True
+                            self._last_record_signatures_by_user[user] = signature
+                    poll_status = "new_measurement" if has_new else "no_new_valid_record"
+                else:
+                    poll_status = "no_new_valid_record"
+                    _LOGGER.debug("No records found on device for any configured user")
+            elif record:
                 _LOGGER.info("Got record: %s", record)
                 _LOGGER.debug(
                     "Latest measurement selected: datetime=%s user=%s sys=%s dia=%s bpm=%s",
@@ -520,100 +657,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     record.get("dia"),
                     record.get("bpm"),
                 )
-
-                sys_val = record.get("sys")
-                dia_val = record.get("dia")
-                bpm_val = record.get("bpm")
-
-                # We use generic string keys for our custom sensor types
-                self.update_sensor(
-                    "blood_pressure_systolic",
-                    "mmHg",
-                    record["sys"],
-                    device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
-                    name="Systolic",
-                )
-                self.update_sensor(
-                    "blood_pressure_diastolic",
-                    "mmHg",
-                    record["dia"],
-                    device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
-                    name="Diastolic",
-                )
-                self.update_sensor(
-                    "heart_rate",
-                    "bpm",
-                    record["bpm"],
-                    device_class=ExtendedSensorDeviceClass.HEART_RATE,
-                    name="Pulse",
-                )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and isinstance(dia_val, (int, float))
-                    and sys_val > dia_val
-                ):
-                    pulse_pressure = float(sys_val - dia_val)
-                    estimated_map = float(dia_val + (pulse_pressure / 3))
-                    self.update_sensor(
-                        "pulse_pressure",
-                        "mmHg",
-                        round(pulse_pressure, 1),
-                        device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
-                        name="Pulse Pressure",
-                    )
-                    self.update_sensor(
-                        "mean_arterial_pressure_estimated",
-                        "mmHg",
-                        round(estimated_map, 1),
-                        device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
-                        name="Estimated MAP",
-                    )
-                    self.update_sensor(
-                        "blood_pressure_category",
-                        None,
-                        self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
-                        device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
-                        name="BP Category (ACC/AHA)",
-                    )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and sys_val > 0
-                    and isinstance(bpm_val, (int, float))
-                ):
-                    shock_index = float(bpm_val) / float(sys_val)
-                    self.update_sensor(
-                        "shock_index",
-                        "ratio",
-                        round(shock_index, 2),
-                        device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
-                        name="Shock Index",
-                    )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and isinstance(bpm_val, (int, float))
-                ):
-                    rate_pressure_product = float(sys_val) * float(bpm_val)
-                    self.update_sensor(
-                        "rate_pressure_product",
-                        "mmHg*bpm",
-                        round(rate_pressure_product, 1),
-                        device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
-                        name="Rate Pressure Product",
-                    )
-
-                measured_at = record.get("datetime")
-                if measured_at is not None:
-                    measured_at = self._ensure_aware_datetime(measured_at)
-                    self.update_sensor(
-                        "measurement_timestamp",
-                        None,
-                        measured_at,
-                        device_class=SensorDeviceClass.TIMESTAMP,
-                        name="Measured At",
-                    )
+                self._update_measurement_sensors(record)
                 signature = self._build_record_signature(record)
                 if signature == self._last_record_signature:
                     poll_status = "no_new_valid_record"
