@@ -40,7 +40,6 @@ _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
-VERBOSE_BLS_LOG = os.getenv("OMRON_VERBOSE_BLS_LOG", "0") == "1"
 # Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
 OMRON_MANUFACTURER_ID = 526
 
@@ -360,8 +359,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             # RACP: Report Stored Records (0x01), operator Last Record (0x06)
             await client.write_gatt_char(BP_RACP_CHAR_UUID, b"\x01\x06", response=True)
             raw = await asyncio.wait_for(measurement_future, timeout=3.0)
-            if VERBOSE_BLS_LOG:
-                _LOGGER.debug("BLS RACP latest raw 0x2A35=%s", raw.hex())
+            _LOGGER.debug("BLS RACP latest raw 0x2A35=%s", raw.hex())
             try:
                 await asyncio.wait_for(racp_done.wait(), timeout=1.5)
             except asyncio.TimeoutError:
@@ -371,7 +369,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             if not self._bls_racp_unavailable_logged:
                 _LOGGER.info("BLS RACP latest read failed: %s", exc)
                 self._bls_racp_unavailable_logged = True
-            elif VERBOSE_BLS_LOG:
+            else:
                 _LOGGER.debug("BLS RACP latest read failed: %s", exc)
             return None
         finally:
@@ -549,7 +547,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 live_record: dict[str, Any] | None = None
                 # Preferred live path for BLS devices: request latest via RACP indications.
                 live_record = await self._read_latest_via_bls_racp(client)
-                if live_record and VERBOSE_BLS_LOG:
+                if live_record:
                     _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
                 if not self._bp_char_unavailable:
                     try:
@@ -558,13 +556,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                             # Keep RACP result if present; otherwise use direct read result.
                             if live_record is None:
                                 live_record = self._parse_bp_measurement(bytes(bp_raw))
-                            if VERBOSE_BLS_LOG:
-                                _LOGGER.debug(
-                                    "Read BP measurement char 0x2A35: raw=%s parsed=%s",
-                                    bytes(bp_raw).hex(),
-                                    live_record,
-                                )
-                        elif VERBOSE_BLS_LOG:
+                            _LOGGER.debug(
+                                "Read BP measurement char 0x2A35: raw=%s parsed=%s",
+                                bytes(bp_raw).hex(),
+                                live_record,
+                            )
+                        else:
                             _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
                     except Exception as exc:
                         if "Read not permitted" in str(exc):
@@ -574,7 +571,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 "disabling live BLS read path",
                                 ble_device.address,
                             )
-                        elif VERBOSE_BLS_LOG:
+                        else:
                             _LOGGER.debug(
                                 "Read BP measurement char 0x2A35 failed for %s: %s",
                                 ble_device.address,
