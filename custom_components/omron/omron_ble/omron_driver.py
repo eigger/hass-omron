@@ -131,53 +131,15 @@ class GattTransport:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels with retry and graceful error handling.
-
-        A failed descriptor write is caught,
-        retried up to _NOTIFY_RETRIES times with a short delay, and if still failing the
-        channel is skipped with a warning rather than raising immediately.  This avoids
-        crashing the entire session for a transient GATT error (e.g. error 259 via
-        ESPHome BLE proxy) on one of the notify channels.
-        """
-        _NOTIFY_RETRIES = 3
-        _NOTIFY_RETRY_DELAY = 1.0  # seconds between retries
-
+        """Enable notifications on all RX channels."""
         if self._notify_subscribed:
             return
 
         self._rebuild_notify_handle_index_map()
-        failed_uuids: list[str] = []
 
         for uuid in self._config.rx_channel_uuids:
-            last_exc: Exception | None = None
-            for attempt in range(1, _NOTIFY_RETRIES + 1):
-                try:
-                    await self._client.start_notify(uuid, self._on_notify_channel_data)
-                    _LOGGER.debug("Subscribed notify channel %s", uuid)
-                    last_exc = None
-                    break
-                except Exception as exc:
-                    last_exc = exc
-                    _LOGGER.debug(
-                        "start_notify failed for %s (attempt %d/%d): %s",
-                        uuid, attempt, _NOTIFY_RETRIES, exc,
-                    )
-                    if attempt < _NOTIFY_RETRIES:
-                        await asyncio.sleep(_NOTIFY_RETRY_DELAY)
-
-            if last_exc is not None:
-                failed_uuids.append(uuid)
-                _LOGGER.warning(
-                    "Could not subscribe notify channel %s after %d attempts: %s - "
-                    "channel will be skipped (data may be incomplete)",
-                    uuid, _NOTIFY_RETRIES, last_exc,
-                )
-
-        # If ALL channels failed, the session cannot proceed - raise the last error.
-        if failed_uuids and len(failed_uuids) == len(self._config.rx_channel_uuids):
-            raise ConnectionError(
-                f"Failed to enable notifications on any RX channel: {failed_uuids}"
-            )
+            await self._client.start_notify(uuid, self._on_notify_channel_data)
+            _LOGGER.debug("Subscribed notify channel %s", uuid)
 
         self._notify_subscribed = True
 
@@ -619,8 +581,6 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
-        await self._client.stop_notify(self._config.unlock_uuid)
-        await self._client.stop_notify(self._config.rx_channel_uuids[0])
         _LOGGER.info("Device paired successfully with new key")
 
 
