@@ -262,7 +262,8 @@ class GattTransport:
         self, command: bytearray, timeout: float = 2.0
     ) -> None:
         """Send a command and wait for response with retry logic."""
-        for retry in range(5):
+        _MAX_RETRIES = 3
+        for retry in range(_MAX_RETRIES):
             self._reply_ready.clear()
 
             # Split command across TX channels
@@ -290,22 +291,16 @@ class GattTransport:
                 await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
-                _LOGGER.warning("TX timeout, retry %d/5", retry + 1)
+                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
 
-        raise ConnectionError("Failed to receive response after 5 retries")
+        raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
         await self._subscribe_notify_channels()
-        # Build init command dynamically: [len, cmd_hi, cmd_lo, 0, 0, block_size, pad, crc]
-        block_size = self._config.transmission_block_size
-        cmd = bytearray([0x08, 0x00, 0x00, 0x00, 0x00, block_size])
-        xor_crc = 0
-        for byte in cmd:
-            xor_crc ^= byte
-        cmd += b'\x00'
-        cmd.append(xor_crc)
-        await self._write_command_and_wait_reply(cmd)
+        # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
+        start_cmd = bytearray.fromhex("0800000000100018")
+        await self._write_command_and_wait_reply(start_cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8000"):
             raise ConnectionError("Invalid response to data readout start")
 
@@ -478,11 +473,11 @@ class GattTransport:
         legacy = self._config.legacy_pairing_workarounds
         if legacy:
             await _bleak_refresh_services(self._client)
-            unlock_attempts, unlock_retry_delay = 30, 0.5
-            key_max_retries = 10
+            unlock_attempts, unlock_retry_delay = 10, 0.5
+            key_max_retries = 5
         else:
-            unlock_attempts, unlock_retry_delay = 15, 1.0
-            key_max_retries = 15
+            unlock_attempts, unlock_retry_delay = 5, 1.0
+            key_max_retries = 5
 
         # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
@@ -627,13 +622,6 @@ class GattTransport:
         await self._client.stop_notify(self._config.unlock_uuid)
         await self._client.stop_notify(self._config.rx_channel_uuids[0])
         _LOGGER.info("Device paired successfully with new key")
-
-        # Step 4: Initial handshake (required after first pairing)
-        try:
-            await self.open_memory_session()
-            await self.close_memory_session()
-        except Exception as exc:
-            _LOGGER.warning("Post-pairing handshake failed (may be normal): %s", exc)
 
 
 class OmronDeviceDriver:
