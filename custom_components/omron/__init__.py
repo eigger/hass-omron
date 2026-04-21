@@ -9,17 +9,14 @@ import logging
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.devices import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
-    DOMAIN as BLUETOOTH_DOMAIN,
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant, CoreState
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceRegistry
-from homeassistant.util.signal_type import SignalType
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
@@ -38,9 +35,7 @@ PLATFORMS: list[Platform] = [
 _LOGGER = logging.getLogger(__name__)
 
 def process_service_info(
-    hass: HomeAssistant,
     entry: OmronConfigEntry,
-    device_registry: DeviceRegistry,
     service_info: BluetoothServiceInfoBleak,
 ) -> SensorUpdate:
     """Process a BluetoothServiceInfoBleak, running side effects and returning sensor data."""
@@ -74,13 +69,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]['address'] = address
     hass.data[DOMAIN][entry.entry_id]['data'] = data
 
+    # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
+    identifier = address.replace(":", "")[-4:].upper()
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_BLUETOOTH, address)},
+        manufacturer="Omron",
+        model=device_model,
+        name=f"{device_model} {identifier}",
+    )
+
     bt_coordinator = OmronBluetoothProcessorCoordinator(
         hass,
         _LOGGER,
         address=address,
         mode=BluetoothScanningMode.PASSIVE,
-        update_method=partial(process_service_info, hass, entry, device_registry),
+        update_method=partial(process_service_info, entry),
         device_data=data,
         connectable=True,
         entry=entry,
