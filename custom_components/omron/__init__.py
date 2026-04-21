@@ -60,6 +60,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         hass.data[DOMAIN] = {}
     address = entry.unique_id
     assert address is not None
+    if not async_ble_device_from_address(hass, address):
+        _LOGGER.warning(
+            "Could not find Omron device with address %s during setup; continuing without initial data",
+            address,
+        )
 
     # Get device model from config entry data, default to HEM-7322T for backward compatibility
     device_model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
@@ -149,7 +154,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     
     entry.runtime_data = bt_coordinator
     entry.runtime_data.poll_coordinator = poll_coordinator
-    await poll_coordinator.async_config_entry_first_refresh()
+    await poll_coordinator.async_refresh()
+    if not poll_coordinator.last_update_success:
+        _LOGGER.warning(
+            "Initial poll update failed for %s; entities will use cached/empty state: %s",
+            address,
+            poll_coordinator.last_exception,
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # only start after all platforms have had a chance to subscribe
