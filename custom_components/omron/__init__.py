@@ -21,7 +21,7 @@ from homeassistant.helpers.device_registry import DeviceRegistry
 from homeassistant.util.signal_type import SignalType
 from homeassistant.exceptions import HomeAssistantError
 from datetime import timedelta
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_MODEL,
     DOMAIN,
@@ -109,7 +109,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         try:
             device = async_ble_device_from_address(hass, hass.data[DOMAIN][entry.entry_id]['address'])
             if not device:
-                raise UpdateFailed("BLE Device none")
+                _LOGGER.warning("BLE device not found; keeping last successful poll data")
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
             connection_coordinator.async_set_updated_data(True)
             duration_coordinator.async_set_updated_data(0.0)
@@ -117,7 +120,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             result = await coordinator.device_data.async_poll(device)
             return result
         except Exception as err:
-            raise UpdateFailed(f"polling error: {err}") from err
+            _LOGGER.warning("polling error; keeping last successful poll data: %s", err)
+            if poll_coordinator.data is not None:
+                return poll_coordinator.data
+            return entry.runtime_data.device_data._finish_update()
         finally:
             if ticker_task is not None:
                 ticker_task.cancel()
