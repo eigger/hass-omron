@@ -8,30 +8,6 @@ TIMEOUT_5MIN = 5 * 60
 class ExtendedSensorDeviceClass(BaseDeviceClass):
     """Device class for additional sensors (compared to sensor-state-data)."""
 
-    # Channel
-    CHANNEL = "channel"
-
-    # Raw hex data
-    RAW = "raw"
-
-    # Text
-    TEXT = "text"
-
-    # Volume storage
-    VOLUME_STORAGE = "volume_storage"
-
-    # Direction
-    DIRECTION = "direction"
-
-    # Precipitation
-    PRECIPITATION = "precipitation"
-
-    # Movement detected during measurement
-    MOVEMENT = "movement"
-
-    # Irregular heartbeat detected
-    IRREGULAR_HEARTBEAT = "irregular_heartbeat"
-
     # Blood Pressure (Systolic & Diastolic)
     BLOOD_PRESSURE_SYSTOLIC = "blood_pressure_systolic"
     BLOOD_PRESSURE_DIASTOLIC = "blood_pressure_diastolic"

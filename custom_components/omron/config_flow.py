@@ -279,7 +279,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             # (otherwise: BleakError "Service Discovery has not been performed yet").
             await _bleak_refresh_services(client)
             parent_uuid = config.parent_service_uuid
-            for _ in range(20):
+            for _ in range(5):
                 if parent_uuid in [s.uuid for s in client.services]:
                     break
                 await _bleak_refresh_services(client)

@@ -9,19 +9,16 @@ import logging
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.devices import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
-    DOMAIN as BLUETOOTH_DOMAIN,
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant, CoreState
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.device_registry import DeviceRegistry
-from homeassistant.util.signal_type import SignalType
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from datetime import timedelta
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_MODEL,
     DOMAIN,
@@ -38,9 +35,7 @@ PLATFORMS: list[Platform] = [
 _LOGGER = logging.getLogger(__name__)
 
 def process_service_info(
-    hass: HomeAssistant,
     entry: OmronConfigEntry,
-    device_registry: DeviceRegistry,
     service_info: BluetoothServiceInfoBleak,
 ) -> SensorUpdate:
     """Process a BluetoothServiceInfoBleak, running side effects and returning sensor data."""
@@ -60,6 +55,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         hass.data[DOMAIN] = {}
     address = entry.unique_id
     assert address is not None
+    if not async_ble_device_from_address(hass, address):
+        _LOGGER.debug(
+            "Could not find Omron device with address %s during setup; continuing without initial data",
+            address,
+        )
 
     # Get device model from config entry data, default to HEM-7322T for backward compatibility
     device_model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
@@ -69,13 +69,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]['address'] = address
     hass.data[DOMAIN][entry.entry_id]['data'] = data
 
+    # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
+    identifier = address.replace(":", "")[-4:].upper()
+    device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_BLUETOOTH, address)},
+        manufacturer="Omron",
+        model=device_model,
+        name=f"{device_model} {identifier}",
+    )
+
     bt_coordinator = OmronBluetoothProcessorCoordinator(
         hass,
         _LOGGER,
         address=address,
         mode=BluetoothScanningMode.PASSIVE,
-        update_method=partial(process_service_info, hass, entry, device_registry),
+        update_method=partial(process_service_info, entry),
         device_data=data,
         connectable=True,
         entry=entry,
@@ -109,7 +119,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         try:
             device = async_ble_device_from_address(hass, hass.data[DOMAIN][entry.entry_id]['address'])
             if not device:
-                raise UpdateFailed("BLE Device none")
+                _LOGGER.debug("BLE device not found; keeping last successful poll data")
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                _LOGGER.debug(
+                    "BLE device not found and no cached poll data exists yet; "
+                    "returning empty update until device is discovered again"
+                )
+                return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
             connection_coordinator.async_set_updated_data(True)
             duration_coordinator.async_set_updated_data(0.0)
@@ -117,7 +134,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             result = await coordinator.device_data.async_poll(device)
             return result
         except Exception as err:
-            raise UpdateFailed(f"polling error: {err}") from err
+            _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
+            if poll_coordinator.data is not None:
+                return poll_coordinator.data
+            return entry.runtime_data.device_data._finish_update()
         finally:
             if ticker_task is not None:
                 ticker_task.cancel()
@@ -143,7 +163,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     
     entry.runtime_data = bt_coordinator
     entry.runtime_data.poll_coordinator = poll_coordinator
-    await poll_coordinator.async_config_entry_first_refresh()
+    await poll_coordinator.async_refresh()
+    if not poll_coordinator.last_update_success:
+        _LOGGER.warning(
+            "Initial poll update failed for %s; entities will use cached/empty state: %s",
+            address,
+            poll_coordinator.last_exception,
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # only start after all platforms have had a chance to subscribe

@@ -1,8 +1,7 @@
-"""Bluetooth passive-update coordinator and data processor for Omron."""
+"""Bluetooth advertisement coordinator for Omron."""
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from logging import Logger
-from typing import Any, Generic, TypeVar
 
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 
@@ -11,15 +10,11 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
 )
 from homeassistant.components.bluetooth.passive_update_processor import (
-    PassiveBluetoothDataProcessor,
     PassiveBluetoothProcessorCoordinator,
 )
 from homeassistant.core import HomeAssistant
 
 from .types import OmronConfigEntry
-
-_T = TypeVar("_T")
-
 
 class OmronBluetoothProcessorCoordinator(
     PassiveBluetoothProcessorCoordinator[SensorUpdate]
@@ -41,12 +36,3 @@ class OmronBluetoothProcessorCoordinator(
         super().__init__(hass, logger, address, mode, update_method, connectable)
         self.device_data = device_data
         self.entry = entry
-
-
-class OmronBluetoothDataProcessor(
-    Generic[_T],
-    PassiveBluetoothDataProcessor[_T, SensorUpdate],
-):
-    """Bridges Home Assistant passive BLE updates to Omron sensor payloads."""
-
-    coordinator: OmronBluetoothProcessorCoordinator

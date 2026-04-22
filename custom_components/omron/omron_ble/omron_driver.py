@@ -13,6 +13,9 @@ from .devices import DeviceConfig, bytearray_bits_to_int
 _LOGGER = logging.getLogger(__name__)
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
+MODERN_STACK_RX_NOTIFY_FALLBACK_UUIDS = [
+    "8858eb40-aee8-11e1-bb67-0002a5d5c51b",
+]
 
 
 async def _bleak_refresh_services(client: BleakClient) -> None:
@@ -114,6 +117,7 @@ class GattTransport:
     def __init__(self, client: BleakClient, device_config: DeviceConfig) -> None:
         self._client = client
         self._config = device_config
+        self._rx_notify_uuids: list[str] = list(self._config.rx_channel_uuids)
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
@@ -122,69 +126,74 @@ class GattTransport:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
 
+    def _select_single_channel_notify_fallback(self, failed_uuid: str) -> str | None:
+        """Pick a fallback RX notify UUID when primary channel subscription fails."""
+        services = getattr(self._client, "services", None)
+        if services is None:
+            return None
+        failed = failed_uuid.lower()
+        available: set[str] = set()
+        try:
+            for service in services:
+                for char in service.characteristics:
+                    uuid = str(char.uuid).lower()
+                    props = {p.lower() for p in getattr(char, "properties", [])}
+                    if "notify" in props or "indicate" in props:
+                        available.add(uuid)
+        except Exception:
+            return None
+        for candidate in MODERN_STACK_RX_NOTIFY_FALLBACK_UUIDS:
+            cu = candidate.lower()
+            if cu != failed and cu in available:
+                return cu
+        return None
+
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
         self._notify_handle_to_channel = {}
-        for idx, uuid in enumerate(self._config.rx_channel_uuids):
+        for idx, uuid in enumerate(self._rx_notify_uuids):
             char = self._client.services.get_characteristic(uuid)
             if char is not None:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels with retry and graceful error handling.
-
-        A failed descriptor write is caught,
-        retried up to _NOTIFY_RETRIES times with a short delay, and if still failing the
-        channel is skipped with a warning rather than raising immediately.  This avoids
-        crashing the entire session for a transient GATT error (e.g. error 259 via
-        ESPHome BLE proxy) on one of the notify channels.
-        """
-        _NOTIFY_RETRIES = 3
-        _NOTIFY_RETRY_DELAY = 1.0  # seconds between retries
-
+        """Enable notifications on all RX channels."""
         if self._notify_subscribed:
             return
 
         self._rebuild_notify_handle_index_map()
-        failed_uuids: list[str] = []
 
-        for uuid in self._config.rx_channel_uuids:
-            last_exc: Exception | None = None
-            for attempt in range(1, _NOTIFY_RETRIES + 1):
-                try:
-                    await self._client.start_notify(uuid, self._on_notify_channel_data)
-                    _LOGGER.debug("Subscribed notify channel %s", uuid)
-                    last_exc = None
-                    break
-                except Exception as exc:
-                    last_exc = exc
-                    _LOGGER.debug(
-                        "start_notify failed for %s (attempt %d/%d): %s",
-                        uuid, attempt, _NOTIFY_RETRIES, exc,
-                    )
-                    if attempt < _NOTIFY_RETRIES:
-                        await asyncio.sleep(_NOTIFY_RETRY_DELAY)
-
-            if last_exc is not None:
-                failed_uuids.append(uuid)
-                _LOGGER.warning(
-                    "Could not subscribe notify channel %s after %d attempts: %s - "
-                    "channel will be skipped (data may be incomplete)",
-                    uuid, _NOTIFY_RETRIES, last_exc,
-                )
-
-        # If ALL channels failed, the session cannot proceed - raise the last error.
-        if failed_uuids and len(failed_uuids) == len(self._config.rx_channel_uuids):
-            raise ConnectionError(
-                f"Failed to enable notifications on any RX channel: {failed_uuids}"
-            )
+        for uuid in self._rx_notify_uuids:
+            try:
+                await self._client.start_notify(uuid, self._on_notify_channel_data)
+                _LOGGER.debug("Subscribed notify channel %s", uuid)
+            except Exception as exc:
+                if self._config.is_single_channel:
+                    fallback_uuid = self._select_single_channel_notify_fallback(uuid)
+                    if fallback_uuid is not None:
+                        _LOGGER.warning(
+                            "Notify subscribe failed on %s; retrying with fallback %s: %s",
+                            uuid,
+                            fallback_uuid,
+                            exc,
+                        )
+                        self._rx_notify_uuids = [fallback_uuid]
+                        self._rebuild_notify_handle_index_map()
+                        await self._client.start_notify(
+                            fallback_uuid, self._on_notify_channel_data
+                        )
+                        _LOGGER.debug(
+                            "Subscribed notify channel %s (fallback)", fallback_uuid
+                        )
+                        break
+                raise
 
         self._notify_subscribed = True
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
         if self._notify_subscribed:
-            for uuid in self._config.rx_channel_uuids:
+            for uuid in self._rx_notify_uuids:
                 try:
                     await self._client.stop_notify(uuid)
                 except Exception as exc:
@@ -200,8 +209,9 @@ class GattTransport:
             channel_index = self._notify_handle_to_channel.get(char, -1)
         else:
             # Try UUID-based mapping first, then handle-based
-            if char.uuid in self._config.rx_channel_uuids:
-                channel_index = self._config.rx_channel_uuids.index(char.uuid)
+            char_uuid = str(char.uuid).lower()
+            if char_uuid in self._rx_notify_uuids:
+                channel_index = self._rx_notify_uuids.index(char_uuid)
             else:
                 channel_index = self._notify_handle_to_channel.get(char.handle, -1)
 
@@ -262,7 +272,8 @@ class GattTransport:
         self, command: bytearray, timeout: float = 2.0
     ) -> None:
         """Send a command and wait for response with retry logic."""
-        for retry in range(5):
+        _MAX_RETRIES = 3
+        for retry in range(_MAX_RETRIES):
             self._reply_ready.clear()
 
             # Split command across TX channels
@@ -290,22 +301,16 @@ class GattTransport:
                 await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
-                _LOGGER.warning("TX timeout, retry %d/5", retry + 1)
+                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
 
-        raise ConnectionError("Failed to receive response after 5 retries")
+        raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
         await self._subscribe_notify_channels()
-        # Build init command dynamically: [len, cmd_hi, cmd_lo, 0, 0, block_size, pad, crc]
-        block_size = self._config.transmission_block_size
-        cmd = bytearray([0x08, 0x00, 0x00, 0x00, 0x00, block_size])
-        xor_crc = 0
-        for byte in cmd:
-            xor_crc ^= byte
-        cmd += b'\x00'
-        cmd.append(xor_crc)
-        await self._write_command_and_wait_reply(cmd)
+        # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
+        start_cmd = bytearray.fromhex("0800000000100018")
+        await self._write_command_and_wait_reply(start_cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8000"):
             raise ConnectionError("Invalid response to data readout start")
 
@@ -478,11 +483,11 @@ class GattTransport:
         legacy = self._config.legacy_pairing_workarounds
         if legacy:
             await _bleak_refresh_services(self._client)
-            unlock_attempts, unlock_retry_delay = 30, 0.5
-            key_max_retries = 10
+            unlock_attempts, unlock_retry_delay = 10, 0.5
+            key_max_retries = 5
         else:
-            unlock_attempts, unlock_retry_delay = 15, 1.0
-            key_max_retries = 15
+            unlock_attempts, unlock_retry_delay = 5, 1.0
+            key_max_retries = 5
 
         # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
@@ -624,16 +629,7 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
-        await self._client.stop_notify(self._config.unlock_uuid)
-        await self._client.stop_notify(self._config.rx_channel_uuids[0])
         _LOGGER.info("Device paired successfully with new key")
-
-        # Step 4: Initial handshake (required after first pairing)
-        try:
-            await self.open_memory_session()
-            await self.close_memory_session()
-        except Exception as exc:
-            _LOGGER.warning("Post-pairing handshake failed (may be normal): %s", exc)
 
 
 class OmronDeviceDriver:
@@ -766,6 +762,31 @@ class OmronDeviceDriver:
             self._config.model,
         )
         return await self._get_latest_via_full_scan(transport)
+
+    async def get_latest_records_per_user(
+        self, transport: GattTransport
+    ) -> dict[int, dict[str, Any]]:
+        """Return latest valid record per configured user index (1-based)."""
+        if self._config.use_layout_fallback_scan:
+            all_user_records = await self._get_all_records_with_format_c_fallback(transport)
+        else:
+            all_user_records = await self.get_all_records(transport)
+
+        latest_by_user: dict[int, dict[str, Any]] = {}
+        for user_idx, user_records in enumerate(all_user_records):
+            user = user_idx + 1
+            if not user_records:
+                continue
+            selected = self._select_latest_candidate([(user, rec) for rec in user_records])
+            if selected is None:
+                continue
+            _, record = selected
+            result = dict(record)
+            result["user"] = user
+            result.pop("_slot_index", None)
+            result.pop("_offset", None)
+            latest_by_user[user] = result
+        return latest_by_user
 
     async def _get_latest_via_full_scan(
         self, transport: GattTransport

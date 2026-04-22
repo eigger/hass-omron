@@ -13,6 +13,7 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakCharacteristicNotFoundError
 from bleak_retry_connector import establish_connection
 
 from bluetooth_sensor_state_data import BluetoothData
@@ -40,9 +41,11 @@ _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
-VERBOSE_BLS_LOG = os.getenv("OMRON_VERBOSE_BLS_LOG", "0") == "1"
 # Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
 OMRON_MANUFACTURER_ID = 526
+
+
+
 
 
 class OmronBluetoothDeviceData(BluetoothData):
@@ -56,9 +59,17 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._device_config: DeviceConfig = get_device_config(device_model)
         self._driver = OmronDeviceDriver(self._device_config)
         self._last_record_signature: tuple[Any, ...] | None = None
+        self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
+        self._os_bond_recovery_in_progress = False
+        self._char_not_found_recovery_in_progress = False
+        self._connection_drop_recovery_in_progress = False
+        self._os_bonding_unavailable = False
+        self._os_bonding_unavailable_logged = False
+        self._connect_failure_streak = 0
+        self._connect_backoff_until_monotonic = 0.0
 
     @property
     def device_model(self) -> str:
@@ -71,6 +82,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._device_model = model
         self._device_config = get_device_config(model)
         self._driver = OmronDeviceDriver(self._device_config)
+        self._last_record_signature = None
+        self._last_record_signatures_by_user = {}
         self._unvalidated_variant_warning_logged = False
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
@@ -128,6 +141,108 @@ class OmronBluetoothDeviceData(BluetoothData):
             record.get("dia"),
             record.get("bpm"),
         )
+
+    def _update_measurement_sensors(
+        self, record: dict[str, Any], *, user: int | None = None, multi_user: bool = False
+    ) -> None:
+        """Publish measurement-derived sensors for one record."""
+        from .const import ExtendedSensorDeviceClass
+
+        key_suffix = f"_user{user}" if multi_user and user is not None else ""
+        name_suffix = f" (User {user})" if multi_user and user is not None else ""
+
+        sys_val = record.get("sys")
+        dia_val = record.get("dia")
+        bpm_val = record.get("bpm")
+
+        self.update_sensor(
+            f"blood_pressure_systolic{key_suffix}",
+            "mmHg",
+            record["sys"],
+            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
+            name=f"Systolic{name_suffix}",
+        )
+        self.update_sensor(
+            f"blood_pressure_diastolic{key_suffix}",
+            "mmHg",
+            record["dia"],
+            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
+            name=f"Diastolic{name_suffix}",
+        )
+        self.update_sensor(
+            f"heart_rate{key_suffix}",
+            "bpm",
+            record["bpm"],
+            device_class=ExtendedSensorDeviceClass.HEART_RATE,
+            name=f"Pulse{name_suffix}",
+        )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and isinstance(dia_val, (int, float))
+            and sys_val > dia_val
+        ):
+            pulse_pressure = float(sys_val - dia_val)
+            estimated_map = float(dia_val + (pulse_pressure / 3))
+            self.update_sensor(
+                f"pulse_pressure{key_suffix}",
+                "mmHg",
+                round(pulse_pressure, 1),
+                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
+                name=f"Pulse Pressure{name_suffix}",
+            )
+            self.update_sensor(
+                f"mean_arterial_pressure_estimated{key_suffix}",
+                "mmHg",
+                round(estimated_map, 1),
+                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                name=f"Estimated MAP{name_suffix}",
+            )
+            self.update_sensor(
+                f"blood_pressure_category{key_suffix}",
+                None,
+                self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
+                name=f"BP Category (ACC/AHA){name_suffix}",
+            )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and sys_val > 0
+            and isinstance(bpm_val, (int, float))
+        ):
+            shock_index = float(bpm_val) / float(sys_val)
+            self.update_sensor(
+                f"shock_index{key_suffix}",
+                "ratio",
+                round(shock_index, 2),
+                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
+                name=f"Shock Index{name_suffix}",
+            )
+
+        if (
+            isinstance(sys_val, (int, float))
+            and isinstance(bpm_val, (int, float))
+        ):
+            rate_pressure_product = float(sys_val) * float(bpm_val)
+            self.update_sensor(
+                f"rate_pressure_product{key_suffix}",
+                "mmHg*bpm",
+                round(rate_pressure_product, 1),
+                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
+                name=f"Rate Pressure Product{name_suffix}",
+            )
+
+        measured_at = record.get("datetime")
+        if measured_at is not None:
+            measured_at = self._ensure_aware_datetime(measured_at)
+            self.update_sensor(
+                f"measurement_timestamp{key_suffix}",
+                None,
+                measured_at,
+                device_class=SensorDeviceClass.TIMESTAMP,
+                name=f"Measured At{name_suffix}",
+            )
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
@@ -252,8 +367,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             # RACP: Report Stored Records (0x01), operator Last Record (0x06)
             await client.write_gatt_char(BP_RACP_CHAR_UUID, b"\x01\x06", response=True)
             raw = await asyncio.wait_for(measurement_future, timeout=3.0)
-            if VERBOSE_BLS_LOG:
-                _LOGGER.debug("BLS RACP latest raw 0x2A35=%s", raw.hex())
+            _LOGGER.debug("BLS RACP latest raw 0x2A35=%s", raw.hex())
             try:
                 await asyncio.wait_for(racp_done.wait(), timeout=1.5)
             except asyncio.TimeoutError:
@@ -263,7 +377,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             if not self._bls_racp_unavailable_logged:
                 _LOGGER.info("BLS RACP latest read failed: %s", exc)
                 self._bls_racp_unavailable_logged = True
-            elif VERBOSE_BLS_LOG:
+            else:
                 _LOGGER.debug("BLS RACP latest read failed: %s", exc)
             return None
         finally:
@@ -289,9 +403,211 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
+    @staticmethod
+    def _gatt_characteristics_snapshot(client: BleakClient) -> dict[str, list[str]]:
+        """Build a compact snapshot of currently discovered GATT characteristics."""
+        snapshot: dict[str, list[str]] = {}
+        services = getattr(client, "services", None)
+        if services is None:
+            return snapshot
+        try:
+            for service in services:
+                chars = sorted(str(char.uuid).lower() for char in service.characteristics)
+                snapshot[str(service.uuid).lower()] = chars
+        except Exception:
+            return {}
+        return snapshot
+
+    @staticmethod
+    def _is_authentication_related_error(exc: BaseException) -> bool:
+        """Best-effort check for BLE auth/bond/encryption failures."""
+        markers = (
+            "authentication",
+            "authorize",
+            "authorise",
+            "insufficient authentication",
+            "insufficient encryption",
+            "security",
+            "bond",
+            "pair",
+            "not permitted",
+            "not authorized",
+            "not authorised",
+            "error=5",
+            "error 5",
+            "error=15",
+            "error 15",
+            "error (19)",
+            "error 19",
+            "changed connection status",
+            "0x13",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    @staticmethod
+    def _is_characteristic_not_found_error(exc: BaseException) -> bool:
+        """Handle bleak version/backend differences for characteristic-not-found."""
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            if isinstance(cur, BleakCharacteristicNotFoundError):
+                return True
+            type_name = type(cur).__name__.lower()
+            text = f"{cur!s}".lower()
+            if (
+                "bleakcharacteristicnotfounderror" in type_name
+                or ("characteristic" in text and "was not found" in text)
+            ):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    @staticmethod
+    def _is_pairing_unavailable_error(exc: BaseException) -> bool:
+        """Detect backends/devices where OS-level pairing is not available."""
+        markers = (
+            "pairing failed due to error: 102",
+            "error 102",
+            "pairing not supported",
+            "not supported",
+            "not implemented",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    @staticmethod
+    def _is_transient_connection_drop_error(exc: BaseException) -> bool:
+        """Best-effort detection for transient BLE link drops via proxy/backends."""
+        markers = (
+            "changed connection status",
+            "bluetoothconnectiondroppederror",
+            "unknown error (19)",
+            "bluetoothgattnotifyresponse",
+            "bluetoothgattwriteresponse",
+            "failed to connect",
+            "timeout",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    @staticmethod
+    def _is_connect_establish_timeout_error(exc: BaseException) -> bool:
+        """Detect connect-stage timeout/not-found failures from retry connector."""
+        markers = (
+            "failed to connect after",
+            "timeout waiting for connect response",
+            "timeoutapierror",
+            "bleaknotfounderror",
+            "disconnect timed out",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
+        """Return bonded state when backend exposes it, else None."""
+        is_paired = getattr(client, "is_paired", None)
+        if not callable(is_paired):
+            return None
+        try:
+            result = is_paired()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return bool(result)
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not determine bonded state for %s: %s",
+                self._device_model,
+                exc,
+            )
+            return None
+
+    async def _async_try_os_bonding(
+        self,
+        client: BleakClient,
+        *,
+        reason: str,
+    ) -> bool:
+        """Attempt OS-level bonding once for bonding-only models."""
+        try:
+            await client.pair()
+        except TypeError:
+            try:
+                await client.pair(protection_level=2)
+            except Exception as exc:
+                if self._is_pairing_unavailable_error(exc):
+                    self._os_bonding_unavailable = True
+                    if not self._os_bonding_unavailable_logged:
+                        _LOGGER.warning(
+                            "Disabling OS-level bonding attempts for %s; "
+                            "pairing appears unavailable on this backend/device: %s",
+                            self._device_model,
+                            exc,
+                        )
+                        self._os_bonding_unavailable_logged = True
+                raise
+        except Exception as exc:
+            if self._is_pairing_unavailable_error(exc):
+                self._os_bonding_unavailable = True
+                if not self._os_bonding_unavailable_logged:
+                    _LOGGER.warning(
+                        "Disabling OS-level bonding attempts for %s; "
+                        "pairing appears unavailable on this backend/device: %s",
+                        self._device_model,
+                        exc,
+                    )
+                    self._os_bonding_unavailable_logged = True
+            raise
+        await _bleak_refresh_services(client)
+        _LOGGER.info(
+            "Performed OS-level bonding for %s (%s)",
+            self._device_model,
+            reason,
+        )
+        return True
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
+        now_monotonic = asyncio.get_running_loop().time()
+        if now_monotonic < self._connect_backoff_until_monotonic:
+            remaining = self._connect_backoff_until_monotonic - now_monotonic
+            _LOGGER.warning(
+                "Skipping poll for %s (%s) during connect backoff window (%.1fs remaining)",
+                self._device_model,
+                ble_device.address,
+                remaining,
+            )
+            return self._finish_update()
         variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
         if variant_entry:
             profile_key, variant = variant_entry
@@ -316,48 +632,31 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         client: BleakClient | None = None
         poll_status = "poll_failed"
+        retry_after_char_not_found = False
+        retry_after_connection_drop = False
+        char_not_found_exc: BaseException | None = None
+        connection_drop_exc: BaseException | None = None
         try:
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
+            # Reset connection failure backoff after successful connect.
+            self._connect_failure_streak = 0
+            self._connect_backoff_until_monotonic = 0.0
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
-
-            # Some OS-bonding-only models require an encrypted link on each session
-            # to return meaningful measurement memory data.
-            if self._device_config.supports_os_bonding_only:
-                try:
-                    await client.pair()
-                    await _bleak_refresh_services(client)
-                    _LOGGER.debug(
-                        "Ensured OS-level bonding before poll for model=%s",
-                        self._device_model,
-                    )
-                except TypeError:
-                    await client.pair(protection_level=2)
-                    await _bleak_refresh_services(client)
-                    _LOGGER.debug(
-                        "Ensured OS-level bonding (protection_level=2) before poll for model=%s",
-                        self._device_model,
-                    )
-                except Exception as exc:
-                    _LOGGER.debug(
-                        "OS-level bonding check before poll failed/ignored for model=%s: %s",
-                        self._device_model,
-                        exc,
-                    )
 
             # Verify the device has expected services
             parent_uuid = self._device_config.parent_service_uuid
             service_found = False
-            for attempt in range(20):
+            for attempt in range(5):
                 try:
                     if parent_uuid in [s.uuid for s in client.services]:
                         service_found = True
                         break
                 except Exception as exc:
                     _LOGGER.debug(
-                        "Services not ready during poll (%d/20) for %s: %s",
+                        "Services not ready during poll (%d/5) for %s: %s",
                         attempt + 1,
                         ble_device.address,
                         exc,
@@ -417,6 +716,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 missing_tx = []
             if missing_rx or missing_tx:
                 prof = resolve_profile_model_id(self._device_model)
+                gatt_snapshot = self._gatt_characteristics_snapshot(client)
                 _LOGGER.warning(
                     "Potential model/stack mismatch: missing expected characteristics "
                     "for model=%s profile=%s missing_rx=%s missing_tx=%s",
@@ -429,88 +729,125 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "Continuing poll despite missing characteristic pre-check; "
                     "driver command path will determine actual compatibility."
                 )
+                _LOGGER.debug(
+                    "Discovered GATT characteristics snapshot for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    gatt_snapshot,
+                )
 
             transport = GattTransport(client, self._device_config)
-            record = await self._driver.get_latest_record(transport)
-            live_record: dict[str, Any] | None = None
-            # Preferred live path for BLS devices: request latest via RACP indications.
-            live_record = await self._read_latest_via_bls_racp(client)
-            if live_record and VERBOSE_BLS_LOG:
-                _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
-            if not self._bp_char_unavailable:
-                try:
-                    bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
-                    if bp_raw:
-                        # Keep RACP result if present; otherwise use direct read result.
-                        if live_record is None:
-                            live_record = self._parse_bp_measurement(bytes(bp_raw))
-                        if VERBOSE_BLS_LOG:
+            multi_user_mode = self._device_config.num_users > 1
+            record: dict[str, Any] | None = None
+            latest_by_user: dict[int, dict[str, Any]] = {}
+            if multi_user_mode:
+                latest_by_user = await self._driver.get_latest_records_per_user(transport)
+            else:
+                record = await self._driver.get_latest_record(transport)
+                live_record: dict[str, Any] | None = None
+                # Preferred live path for BLS devices: request latest via RACP indications.
+                live_record = await self._read_latest_via_bls_racp(client)
+                if live_record:
+                    _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
+                if not self._bp_char_unavailable:
+                    try:
+                        bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
+                        if bp_raw:
+                            # Keep RACP result if present; otherwise use direct read result.
+                            if live_record is None:
+                                live_record = self._parse_bp_measurement(bytes(bp_raw))
                             _LOGGER.debug(
                                 "Read BP measurement char 0x2A35: raw=%s parsed=%s",
                                 bytes(bp_raw).hex(),
                                 live_record,
                             )
-                    elif VERBOSE_BLS_LOG:
-                        _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
-                except Exception as exc:
-                    if "Read not permitted" in str(exc):
-                        self._bp_char_unavailable = True
+                        else:
+                            _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
+                    except Exception as exc:
+                        if "Read not permitted" in str(exc):
+                            self._bp_char_unavailable = True
+                            _LOGGER.info(
+                                "BP measurement char 0x2A35 read not permitted on %s; "
+                                "disabling live BLS read path",
+                                ble_device.address,
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "Read BP measurement char 0x2A35 failed for %s: %s",
+                                ble_device.address,
+                                exc,
+                            )
+                        live_record = None
+
+                if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
+                    eeprom_dt = record.get("datetime") if record else None
+                    live_dt = live_record.get("datetime")
+                    use_live = False
+                    if record is None:
+                        use_live = True
+                    elif isinstance(live_dt, dt.datetime) and (
+                        not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
+                    ):
+                        use_live = True
+                    elif (
+                        not isinstance(live_dt, dt.datetime)
+                        and isinstance(record.get("sys"), int)
+                        and isinstance(record.get("dia"), int)
+                        and (
+                            int(live_record["sys"]) != int(record.get("sys"))
+                            or int(live_record["dia"]) != int(record.get("dia"))
+                        )
+                    ):
+                        # Some devices expose recent measurement values in 0x2A35 without timestamp.
+                        use_live = True
+                    if use_live:
+                        merged = dict(record or {})
+                        merged["sys"] = live_record["sys"]
+                        merged["dia"] = live_record["dia"]
+                        if isinstance(live_record.get("bpm"), int):
+                            merged["bpm"] = live_record["bpm"]
+                        if isinstance(live_dt, dt.datetime):
+                            merged["datetime"] = live_dt
+                        if "user" not in merged:
+                            merged["user"] = 1
+                        record = merged
                         _LOGGER.info(
-                            "BP measurement char 0x2A35 read not permitted on %s; "
-                            "disabling live BLS read path",
-                            ble_device.address,
+                            "Using live BP measurement characteristic over EEPROM "
+                            "(sys=%s dia=%s bpm=%s datetime=%s)",
+                            record.get("sys"),
+                            record.get("dia"),
+                            record.get("bpm"),
+                            record.get("datetime"),
                         )
-                    elif VERBOSE_BLS_LOG:
+
+            if multi_user_mode:
+                if latest_by_user:
+                    has_new = False
+                    for user in sorted(latest_by_user):
+                        user_record = latest_by_user[user]
                         _LOGGER.debug(
-                            "Read BP measurement char 0x2A35 failed for %s: %s",
-                            ble_device.address,
-                            exc,
+                            "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                            user,
+                            user_record.get("datetime"),
+                            user_record.get("sys"),
+                            user_record.get("dia"),
+                            user_record.get("bpm"),
                         )
-                    live_record = None
-
-            if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
-                eeprom_dt = record.get("datetime") if record else None
-                live_dt = live_record.get("datetime")
-                use_live = False
-                if record is None:
-                    use_live = True
-                elif isinstance(live_dt, dt.datetime) and (
-                    not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
-                ):
-                    use_live = True
-                elif (
-                    not isinstance(live_dt, dt.datetime)
-                    and isinstance(record.get("sys"), int)
-                    and isinstance(record.get("dia"), int)
-                    and (
-                        int(live_record["sys"]) != int(record.get("sys"))
-                        or int(live_record["dia"]) != int(record.get("dia"))
-                    )
-                ):
-                    # Some devices expose recent measurement values in 0x2A35 without timestamp.
-                    use_live = True
-                if use_live:
-                    merged = dict(record or {})
-                    merged["sys"] = live_record["sys"]
-                    merged["dia"] = live_record["dia"]
-                    if isinstance(live_record.get("bpm"), int):
-                        merged["bpm"] = live_record["bpm"]
-                    if isinstance(live_dt, dt.datetime):
-                        merged["datetime"] = live_dt
-                    if "user" not in merged:
-                        merged["user"] = 1
-                    record = merged
-                    _LOGGER.info(
-                        "Using live BP measurement characteristic over EEPROM "
-                        "(sys=%s dia=%s bpm=%s datetime=%s)",
-                        record.get("sys"),
-                        record.get("dia"),
-                        record.get("bpm"),
-                        record.get("datetime"),
-                    )
-
-            if record:
-                from .const import ExtendedSensorDeviceClass
+                        self._update_measurement_sensors(
+                            user_record,
+                            user=user,
+                            multi_user=True,
+                        )
+                        signature = self._build_record_signature(user_record)
+                        previous = self._last_record_signatures_by_user.get(user)
+                        if signature != previous:
+                            has_new = True
+                            self._last_record_signatures_by_user[user] = signature
+                    poll_status = "new_measurement" if has_new else "no_new_valid_record"
+                else:
+                    poll_status = "no_new_valid_record"
+                    _LOGGER.debug("No records found on device for any configured user")
+            elif record:
                 _LOGGER.info("Got record: %s", record)
                 _LOGGER.debug(
                     "Latest measurement selected: datetime=%s user=%s sys=%s dia=%s bpm=%s",
@@ -520,100 +857,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     record.get("dia"),
                     record.get("bpm"),
                 )
-
-                sys_val = record.get("sys")
-                dia_val = record.get("dia")
-                bpm_val = record.get("bpm")
-
-                # We use generic string keys for our custom sensor types
-                self.update_sensor(
-                    "blood_pressure_systolic",
-                    "mmHg",
-                    record["sys"],
-                    device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
-                    name="Systolic",
-                )
-                self.update_sensor(
-                    "blood_pressure_diastolic",
-                    "mmHg",
-                    record["dia"],
-                    device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
-                    name="Diastolic",
-                )
-                self.update_sensor(
-                    "heart_rate",
-                    "bpm",
-                    record["bpm"],
-                    device_class=ExtendedSensorDeviceClass.HEART_RATE,
-                    name="Pulse",
-                )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and isinstance(dia_val, (int, float))
-                    and sys_val > dia_val
-                ):
-                    pulse_pressure = float(sys_val - dia_val)
-                    estimated_map = float(dia_val + (pulse_pressure / 3))
-                    self.update_sensor(
-                        "pulse_pressure",
-                        "mmHg",
-                        round(pulse_pressure, 1),
-                        device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
-                        name="Pulse Pressure",
-                    )
-                    self.update_sensor(
-                        "mean_arterial_pressure_estimated",
-                        "mmHg",
-                        round(estimated_map, 1),
-                        device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
-                        name="Estimated MAP",
-                    )
-                    self.update_sensor(
-                        "blood_pressure_category",
-                        None,
-                        self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
-                        device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
-                        name="BP Category (ACC/AHA)",
-                    )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and sys_val > 0
-                    and isinstance(bpm_val, (int, float))
-                ):
-                    shock_index = float(bpm_val) / float(sys_val)
-                    self.update_sensor(
-                        "shock_index",
-                        "ratio",
-                        round(shock_index, 2),
-                        device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
-                        name="Shock Index",
-                    )
-
-                if (
-                    isinstance(sys_val, (int, float))
-                    and isinstance(bpm_val, (int, float))
-                ):
-                    rate_pressure_product = float(sys_val) * float(bpm_val)
-                    self.update_sensor(
-                        "rate_pressure_product",
-                        "mmHg*bpm",
-                        round(rate_pressure_product, 1),
-                        device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
-                        name="Rate Pressure Product",
-                    )
-
-                measured_at = record.get("datetime")
-                if measured_at is not None:
-                    measured_at = self._ensure_aware_datetime(measured_at)
-                    self.update_sensor(
-                        "measurement_timestamp",
-                        None,
-                        measured_at,
-                        device_class=SensorDeviceClass.TIMESTAMP,
-                        name="Measured At",
-                    )
+                self._update_measurement_sensors(record)
                 signature = self._build_record_signature(record)
                 if signature == self._last_record_signature:
                     poll_status = "no_new_valid_record"
@@ -657,6 +901,56 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
         except Exception as exc:
+            if self._is_characteristic_not_found_error(exc) and client is not None:
+                _LOGGER.warning(
+                    "Characteristic not found during poll for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    exc,
+                )
+                _LOGGER.warning(
+                    "GATT snapshot at characteristic-not-found for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    self._gatt_characteristics_snapshot(client),
+                )
+                if not self._char_not_found_recovery_in_progress:
+                    retry_after_char_not_found = True
+                    char_not_found_exc = exc
+                    _LOGGER.warning(
+                        "Characteristic-not-found poll error for %s; "
+                        "will attempt one-time reconnect/service-rediscovery recovery",
+                        self._device_model,
+                    )
+            elif (
+                self._is_transient_connection_drop_error(exc)
+                and not self._connection_drop_recovery_in_progress
+            ):
+                retry_after_connection_drop = True
+                connection_drop_exc = exc
+                _LOGGER.warning(
+                    "Transient BLE link drop during poll for %s (%s); "
+                    "will attempt one-time reconnect retry: %s",
+                    self._device_model,
+                    ble_device.address,
+                    exc,
+                )
+            if self._is_connect_establish_timeout_error(exc):
+                self._connect_failure_streak += 1
+                if self._connect_failure_streak >= 2:
+                    # Exponential backoff to avoid hammering BLE proxy during outage.
+                    backoff_seconds = min(
+                        120.0, 15.0 * (2 ** (self._connect_failure_streak - 2))
+                    )
+                    self._connect_backoff_until_monotonic = (
+                        asyncio.get_running_loop().time() + backoff_seconds
+                    )
+                    _LOGGER.warning(
+                        "Connect timeout streak for %s is %d; applying backoff %.1fs",
+                        self._device_model,
+                        self._connect_failure_streak,
+                        backoff_seconds,
+                    )
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
             _LOGGER.error(
@@ -683,6 +977,63 @@ class OmronBluetoothDeviceData(BluetoothData):
                 except Exception:
                     pass
             _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
+
+        if retry_after_char_not_found:
+            self._char_not_found_recovery_in_progress = True
+            try:
+                await asyncio.sleep(0.4)
+                recovery_client = await establish_connection(
+                    BleakClient, ble_device, ble_device.address
+                )
+                try:
+                    await _bleak_refresh_services(recovery_client)
+                    _LOGGER.warning(
+                        "GATT snapshot after reconnect/recovery for %s (%s): %s",
+                        self._device_model,
+                        ble_device.address,
+                        self._gatt_characteristics_snapshot(recovery_client),
+                    )
+                finally:
+                    if recovery_client.is_connected:
+                        try:
+                            await recovery_client.disconnect()
+                        except Exception:
+                            pass
+            except Exception as recovery_exc:
+                _LOGGER.warning(
+                    "Characteristic-not-found recovery failed for %s: "
+                    "original=%s recovery=%s",
+                    self._device_model,
+                    char_not_found_exc,
+                    recovery_exc,
+                )
+            else:
+                _LOGGER.info(
+                    "Retrying poll after reconnect/service-rediscovery recovery for %s",
+                    self._device_model,
+                )
+                return await self.async_poll(ble_device)
+            finally:
+                self._char_not_found_recovery_in_progress = False
+
+        if retry_after_connection_drop:
+            self._connection_drop_recovery_in_progress = True
+            try:
+                await asyncio.sleep(0.8)
+                _LOGGER.info(
+                    "Retrying poll after transient BLE link drop for %s",
+                    self._device_model,
+                )
+                return await self.async_poll(ble_device)
+            except Exception as recovery_exc:
+                _LOGGER.warning(
+                    "Transient link-drop recovery failed for %s: original=%s recovery=%s",
+                    self._device_model,
+                    connection_drop_exc,
+                    recovery_exc,
+                )
+            finally:
+                self._connection_drop_recovery_in_progress = False
 
         return self._finish_update()
 

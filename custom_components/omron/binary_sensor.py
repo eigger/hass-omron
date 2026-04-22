@@ -12,20 +12,15 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.components.bluetooth.passive_update_processor import (
-    PassiveBluetoothDataUpdate,
-    PassiveBluetoothProcessorEntity,
-)
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
-from .coordinator import OmronBluetoothDataProcessor
 from .const import DOMAIN
-from .device import device_key_to_bluetooth_entity_key
+from .omron_ble import DeviceKey
 from .types import OmronConfigEntry
 
 BINARY_SENSOR_DESCRIPTIONS = {
@@ -40,31 +35,28 @@ BINARY_SENSOR_DESCRIPTIONS = {
 }
 
 
-def sensor_update_to_bluetooth_data_update(
+def _device_key_id(device_key: DeviceKey) -> str:
+    """Build a stable identifier from sensor-state device key."""
+    return f"{device_key.device_id}_{device_key.key}"
+
+
+def _binary_description_for_update(
     sensor_update: SensorUpdate,
-) -> PassiveBluetoothDataUpdate[bool | None]:
-    """Convert a binary sensor update to a bluetooth data update."""
-    return PassiveBluetoothDataUpdate(
-        devices={
-            device_id: sensor_device_info_to_hass_device_info(device_info)
-            for device_id, device_info in sensor_update.devices.items()
-        },
-        entity_descriptions={
-            device_key_to_bluetooth_entity_key(device_key): BINARY_SENSOR_DESCRIPTIONS[
-                description.device_class
-            ]
-            for device_key, description in sensor_update.binary_entity_descriptions.items()
-            if description.device_class
-        },
-        entity_data={
-            device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
-            for device_key, sensor_values in sensor_update.binary_entity_values.items()
-        },
-        entity_names={
-            device_key_to_bluetooth_entity_key(device_key): sensor_values.name
-            for device_key, sensor_values in sensor_update.binary_entity_values.items()
-        },
-    )
+    device_key: DeviceKey,
+) -> BinarySensorEntityDescription | None:
+    """Map sensor-state binary description to HA binary description."""
+    state_desc = sensor_update.binary_entity_descriptions.get(device_key)
+    if state_desc is None or state_desc.device_class is None:
+        return None
+    return BINARY_SENSOR_DESCRIPTIONS.get(state_desc.device_class)
+
+
+def _binary_device_info(sensor_device_info, address: str) -> dict:
+    """Convert sensor-state device info and ensure BLE connection key exists."""
+    device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
+    if "connections" not in device_info:
+        device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
+    return device_info
 
 
 async def async_setup_entry(
@@ -73,18 +65,48 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Omron BLE binary sensors."""
-    coordinator = entry.runtime_data
-    processor = OmronBluetoothDataProcessor(
-        sensor_update_to_bluetooth_data_update
-    )
-    entry.async_on_unload(
-        processor.async_add_entities_listener(
-            OmronBluetoothBinarySensorEntity, async_add_entities
-        )
-    )
-    entry.async_on_unload(
-        coordinator.async_register_processor(processor, BinarySensorEntityDescription)
-    )
+    poll_coordinator = entry.runtime_data.poll_coordinator
+    known_entity_keys: set[str] = set()
+
+    def _build_new_entities(sensor_update: SensorUpdate | None) -> list[BinarySensorEntity]:
+        if sensor_update is None:
+            return []
+        new_entities: list[BinarySensorEntity] = []
+        for device_key in sensor_update.binary_entity_descriptions:
+            entity_key = _device_key_id(device_key)
+            if entity_key in known_entity_keys:
+                continue
+            description = _binary_description_for_update(sensor_update, device_key)
+            if description is None:
+                continue
+            sensor_value = sensor_update.binary_entity_values.get(device_key)
+            sensor_name = sensor_value.name if sensor_value is not None else str(device_key.key)
+            new_entities.append(
+                OmronBluetoothBinarySensorEntity(
+                    hass=hass,
+                    entry=entry,
+                    coordinator=poll_coordinator,
+                    device_key=device_key,
+                    description=description,
+                    sensor_name=sensor_name,
+                )
+            )
+            known_entity_keys.add(entity_key)
+        return new_entities
+
+    initial_entities = _build_new_entities(poll_coordinator.data)
+    if initial_entities:
+        async_add_entities(initial_entities)
+
+    @callback
+    def _handle_poll_update() -> None:
+        """Create entities for new keys discovered in later polls."""
+        new_entities = _build_new_entities(poll_coordinator.data)
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(poll_coordinator.async_add_listener(_handle_poll_update))
+
     connection_coordinator = (
         hass.data[DOMAIN][entry.entry_id].get("connection_coordinator")
     )
@@ -95,20 +117,56 @@ async def async_setup_entry(
 
 
 class OmronBluetoothBinarySensorEntity(
-    PassiveBluetoothProcessorEntity[OmronBluetoothDataProcessor[bool | None]],
+    CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
     BinarySensorEntity,
 ):
     """Representation of a Omron binary sensor."""
 
+    entity_description: BinarySensorEntityDescription
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[SensorUpdate],
+        device_key: DeviceKey,
+        description: BinarySensorEntityDescription,
+        sensor_name: str,
+    ) -> None:
+        """Initialize binary sensor entity backed by poll coordinator state."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._device_key = device_key
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
+        self._attr_unique_id = f"{model_slug}_{identifier}_{key_slug}"
+        self._attr_name = sensor_name
+
     @property
     def is_on(self) -> bool | None:
         """Return the native value."""
-        return self.processor.entity_data.get(self.entity_key)
+        sensor_update = self.coordinator.data
+        if sensor_update is None:
+            return None
+        sensor_value = sensor_update.binary_entity_values.get(self._device_key)
+        if sensor_value is None:
+            return None
+        return sensor_value.native_value
 
     @property
-    def available(self) -> bool:
-        """Return True if entity is available."""
-        return super().available
+    def device_info(self) -> DeviceInfo:
+        """Attach binary sensor to the same discovered Omron device."""
+        sensor_update = self.coordinator.data
+        if sensor_update is not None:
+            sensor_device_info = sensor_update.devices.get(self._device_key.device_id)
+            if sensor_device_info is not None:
+                return _binary_device_info(sensor_device_info, self._address)
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
 
 
 class OmronConnectionBinarySensorEntity(
