@@ -56,7 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     address = entry.unique_id
     assert address is not None
     if not async_ble_device_from_address(hass, address):
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Could not find Omron device with address %s during setup; continuing without initial data",
             address,
         )
@@ -119,9 +119,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         try:
             device = async_ble_device_from_address(hass, hass.data[DOMAIN][entry.entry_id]['address'])
             if not device:
-                _LOGGER.warning("BLE device not found; keeping last successful poll data")
+                _LOGGER.debug("BLE device not found; keeping last successful poll data")
                 if poll_coordinator.data is not None:
                     return poll_coordinator.data
+                _LOGGER.debug(
+                    "BLE device not found and no cached poll data exists yet; "
+                    "returning empty update until device is discovered again"
+                )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
             connection_coordinator.async_set_updated_data(True)
@@ -130,7 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             result = await coordinator.device_data.async_poll(device)
             return result
         except Exception as err:
-            _LOGGER.warning("polling error; keeping last successful poll data: %s", err)
+            _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:
                 return poll_coordinator.data
             return entry.runtime_data.device_data._finish_update()
