@@ -19,6 +19,8 @@ A custom integration for Home Assistant to connect and poll data directly from O
 ## Supported Models
 
 - HEM-7142T2
+- HEM-7320T
+- HEM-7322T
 
 - *Other Omron BLE devices might work by selecting a similar model, but have not been formally tested. If your device does not work, please share the debug logs for further investigation.*
 
