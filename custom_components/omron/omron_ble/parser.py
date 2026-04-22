@@ -68,6 +68,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._connection_drop_recovery_in_progress = False
         self._os_bonding_unavailable = False
         self._os_bonding_unavailable_logged = False
+        self._connect_failure_streak = 0
+        self._connect_backoff_until_monotonic = 0.0
 
     @property
     def device_model(self) -> str:
@@ -511,6 +513,26 @@ class OmronBluetoothDeviceData(BluetoothData):
             depth += 1
         return False
 
+    @staticmethod
+    def _is_connect_establish_timeout_error(exc: BaseException) -> bool:
+        """Detect connect-stage timeout/not-found failures from retry connector."""
+        markers = (
+            "failed to connect after",
+            "timeout waiting for connect response",
+            "timeoutapierror",
+            "bleaknotfounderror",
+            "disconnect timed out",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
     async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
         """Return bonded state when backend exposes it, else None."""
         is_paired = getattr(client, "is_paired", None)
@@ -576,6 +598,16 @@ class OmronBluetoothDeviceData(BluetoothData):
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
+        now_monotonic = asyncio.get_running_loop().time()
+        if now_monotonic < self._connect_backoff_until_monotonic:
+            remaining = self._connect_backoff_until_monotonic - now_monotonic
+            _LOGGER.warning(
+                "Skipping poll for %s (%s) during connect backoff window (%.1fs remaining)",
+                self._device_model,
+                ble_device.address,
+                remaining,
+            )
+            return self._finish_update()
         variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
         if variant_entry:
             profile_key, variant = variant_entry
@@ -608,6 +640,9 @@ class OmronBluetoothDeviceData(BluetoothData):
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
+            # Reset connection failure backoff after successful connect.
+            self._connect_failure_streak = 0
+            self._connect_backoff_until_monotonic = 0.0
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
 
@@ -900,6 +935,22 @@ class OmronBluetoothDeviceData(BluetoothData):
                     ble_device.address,
                     exc,
                 )
+            if self._is_connect_establish_timeout_error(exc):
+                self._connect_failure_streak += 1
+                if self._connect_failure_streak >= 2:
+                    # Exponential backoff to avoid hammering BLE proxy during outage.
+                    backoff_seconds = min(
+                        120.0, 15.0 * (2 ** (self._connect_failure_streak - 2))
+                    )
+                    self._connect_backoff_until_monotonic = (
+                        asyncio.get_running_loop().time() + backoff_seconds
+                    )
+                    _LOGGER.warning(
+                        "Connect timeout streak for %s is %d; applying backoff %.1fs",
+                        self._device_model,
+                        self._connect_failure_streak,
+                        backoff_seconds,
+                    )
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
             _LOGGER.error(
