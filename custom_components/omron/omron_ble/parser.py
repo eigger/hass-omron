@@ -64,6 +64,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
         self._os_bond_recovery_in_progress = False
+        self._char_not_found_recovery_in_progress = False
 
     @property
     def device_model(self) -> str:
@@ -446,6 +447,25 @@ class OmronBluetoothDeviceData(BluetoothData):
             depth += 1
         return False
 
+    @staticmethod
+    def _is_characteristic_not_found_error(exc: BaseException) -> bool:
+        """Handle bleak version/backend differences for characteristic-not-found."""
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            if isinstance(cur, BleakCharacteristicNotFoundError):
+                return True
+            type_name = type(cur).__name__.lower()
+            text = f"{cur!s}".lower()
+            if (
+                "bleakcharacteristicnotfounderror" in type_name
+                or ("characteristic" in text and "was not found" in text)
+            ):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
     async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
         """Return bonded state when backend exposes it, else None."""
         is_paired = getattr(client, "is_paired", None)
@@ -511,7 +531,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         client: BleakClient | None = None
         poll_status = "poll_failed"
         retry_after_auth_failure = False
+        retry_after_char_not_found = False
         auth_failure_exc: BaseException | None = None
+        char_not_found_exc: BaseException | None = None
         try:
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
@@ -790,23 +812,32 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
         except Exception as exc:
-            if isinstance(exc, BleakCharacteristicNotFoundError) and client is not None:
+            if self._is_characteristic_not_found_error(exc) and client is not None:
                 _LOGGER.warning(
                     "Characteristic not found during poll for %s (%s): %s",
                     self._device_model,
                     ble_device.address,
                     exc,
                 )
-                _LOGGER.debug(
+                _LOGGER.warning(
                     "GATT snapshot at characteristic-not-found for %s (%s): %s",
                     self._device_model,
                     ble_device.address,
                     self._gatt_characteristics_snapshot(client),
                 )
+                if not self._char_not_found_recovery_in_progress:
+                    retry_after_char_not_found = True
+                    char_not_found_exc = exc
+                    _LOGGER.warning(
+                        "Characteristic-not-found poll error for %s; "
+                        "will attempt one-time reconnect/service-rediscovery recovery",
+                        self._device_model,
+                    )
             if (
                 self._device_config.supports_os_bonding_only
                 and not self._os_bond_recovery_in_progress
                 and self._is_authentication_related_error(exc)
+                and not retry_after_char_not_found
             ):
                 retry_after_auth_failure = True
                 auth_failure_exc = exc
@@ -843,6 +874,44 @@ class OmronBluetoothDeviceData(BluetoothData):
                 except Exception:
                     pass
             _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
+
+        if retry_after_char_not_found:
+            self._char_not_found_recovery_in_progress = True
+            try:
+                await asyncio.sleep(0.4)
+                recovery_client = await establish_connection(
+                    BleakClient, ble_device, ble_device.address
+                )
+                try:
+                    await _bleak_refresh_services(recovery_client)
+                    _LOGGER.warning(
+                        "GATT snapshot after reconnect/recovery for %s (%s): %s",
+                        self._device_model,
+                        ble_device.address,
+                        self._gatt_characteristics_snapshot(recovery_client),
+                    )
+                finally:
+                    if recovery_client.is_connected:
+                        try:
+                            await recovery_client.disconnect()
+                        except Exception:
+                            pass
+            except Exception as recovery_exc:
+                _LOGGER.warning(
+                    "Characteristic-not-found recovery failed for %s: "
+                    "original=%s recovery=%s",
+                    self._device_model,
+                    char_not_found_exc,
+                    recovery_exc,
+                )
+            else:
+                _LOGGER.info(
+                    "Retrying poll after reconnect/service-rediscovery recovery for %s",
+                    self._device_model,
+                )
+                return await self.async_poll(ble_device)
+            finally:
+                self._char_not_found_recovery_in_progress = False
 
         if retry_after_auth_failure:
             self._os_bond_recovery_in_progress = True
