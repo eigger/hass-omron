@@ -715,6 +715,26 @@ class OmronBluetoothDeviceData(BluetoothData):
                 missing_rx = []
                 missing_tx = []
             if missing_rx or missing_tx:
+                _LOGGER.info(
+                    "Missing GATT characteristics detected in cache for %s; forcing service refresh",
+                    ble_device.address,
+                )
+                try:
+                    await _bleak_refresh_services(client)
+                    # Re-evaluate
+                    services = client.services
+                    missing_rx = [
+                        uuid for uuid in self._device_config.rx_channel_uuids
+                        if services.get_characteristic(uuid) is None
+                    ]
+                    missing_tx = [
+                        uuid for uuid in self._device_config.tx_channel_uuids
+                        if services.get_characteristic(uuid) is None
+                    ]
+                except Exception as refresh_exc:
+                    _LOGGER.debug("GATT refresh failed: %s", refresh_exc)
+
+            if missing_rx or missing_tx:
                 prof = resolve_profile_model_id(self._device_model)
                 gatt_snapshot = self._gatt_characteristics_snapshot(client)
                 _LOGGER.warning(
