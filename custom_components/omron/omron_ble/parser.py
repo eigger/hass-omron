@@ -415,6 +415,10 @@ class OmronBluetoothDeviceData(BluetoothData):
             "error 5",
             "error=15",
             "error 15",
+            "error (19)",
+            "error 19",
+            "changed connection status",
+            "0x13",
         )
         cur: BaseException | None = exc
         depth = 0
