@@ -13,6 +13,7 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+from bleak.exc import BleakCharacteristicNotFoundError
 from bleak_retry_connector import establish_connection
 
 from bluetooth_sensor_state_data import BluetoothData
@@ -397,6 +398,21 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.pending = False
 
     @staticmethod
+    def _gatt_characteristics_snapshot(client: BleakClient) -> dict[str, list[str]]:
+        """Build a compact snapshot of currently discovered GATT characteristics."""
+        snapshot: dict[str, list[str]] = {}
+        services = getattr(client, "services", None)
+        if services is None:
+            return snapshot
+        try:
+            for service in services:
+                chars = sorted(str(char.uuid).lower() for char in service.characteristics)
+                snapshot[str(service.uuid).lower()] = chars
+        except Exception:
+            return {}
+        return snapshot
+
+    @staticmethod
     def _is_authentication_related_error(exc: BaseException) -> bool:
         """Best-effort check for BLE auth/bond/encryption failures."""
         markers = (
@@ -589,6 +605,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 missing_tx = []
             if missing_rx or missing_tx:
                 prof = resolve_profile_model_id(self._device_model)
+                gatt_snapshot = self._gatt_characteristics_snapshot(client)
                 _LOGGER.warning(
                     "Potential model/stack mismatch: missing expected characteristics "
                     "for model=%s profile=%s missing_rx=%s missing_tx=%s",
@@ -600,6 +617,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                 _LOGGER.warning(
                     "Continuing poll despite missing characteristic pre-check; "
                     "driver command path will determine actual compatibility."
+                )
+                _LOGGER.debug(
+                    "Discovered GATT characteristics snapshot for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    gatt_snapshot,
                 )
 
             transport = GattTransport(client, self._device_config)
@@ -767,6 +790,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
         except Exception as exc:
+            if isinstance(exc, BleakCharacteristicNotFoundError) and client is not None:
+                _LOGGER.warning(
+                    "Characteristic not found during poll for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    exc,
+                )
+                _LOGGER.debug(
+                    "GATT snapshot at characteristic-not-found for %s (%s): %s",
+                    self._device_model,
+                    ble_device.address,
+                    self._gatt_characteristics_snapshot(client),
+                )
             if (
                 self._device_config.supports_os_bonding_only
                 and not self._os_bond_recovery_in_progress
