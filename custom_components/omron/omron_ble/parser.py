@@ -62,6 +62,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
+        self._os_bond_recovery_in_progress = False
 
     @property
     def device_model(self) -> str:
@@ -395,6 +396,73 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
+    @staticmethod
+    def _is_authentication_related_error(exc: BaseException) -> bool:
+        """Best-effort check for BLE auth/bond/encryption failures."""
+        markers = (
+            "authentication",
+            "authorize",
+            "authorise",
+            "insufficient authentication",
+            "insufficient encryption",
+            "security",
+            "bond",
+            "pair",
+            "not permitted",
+            "not authorized",
+            "not authorised",
+            "error=5",
+            "error 5",
+            "error=15",
+            "error 15",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
+    async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
+        """Return bonded state when backend exposes it, else None."""
+        is_paired = getattr(client, "is_paired", None)
+        if not callable(is_paired):
+            return None
+        try:
+            result = is_paired()
+            if asyncio.iscoroutine(result):
+                result = await result
+            return bool(result)
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not determine bonded state for %s: %s",
+                self._device_model,
+                exc,
+            )
+            return None
+
+    async def _async_try_os_bonding(
+        self,
+        client: BleakClient,
+        *,
+        reason: str,
+    ) -> bool:
+        """Attempt OS-level bonding once for bonding-only models."""
+        try:
+            await client.pair()
+        except TypeError:
+            await client.pair(protection_level=2)
+        await _bleak_refresh_services(client)
+        _LOGGER.info(
+            "Performed OS-level bonding for %s (%s)",
+            self._device_model,
+            reason,
+        )
+        return True
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
@@ -422,6 +490,8 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         client: BleakClient | None = None
         poll_status = "poll_failed"
+        retry_after_auth_failure = False
+        auth_failure_exc: BaseException | None = None
         try:
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
@@ -429,29 +499,21 @@ class OmronBluetoothDeviceData(BluetoothData):
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
 
-            # Some OS-bonding-only models require an encrypted link on each session
-            # to return meaningful measurement memory data.
+            # For OS-bonding-only models, avoid pair() on every poll.
+            # Try bonding only when we can confirm bond is missing.
             if self._device_config.supports_os_bonding_only:
-                try:
-                    await client.pair()
-                    await _bleak_refresh_services(client)
-                    _LOGGER.debug(
-                        "Ensured OS-level bonding before poll for model=%s",
-                        self._device_model,
-                    )
-                except TypeError:
-                    await client.pair(protection_level=2)
-                    await _bleak_refresh_services(client)
-                    _LOGGER.debug(
-                        "Ensured OS-level bonding (protection_level=2) before poll for model=%s",
-                        self._device_model,
-                    )
-                except Exception as exc:
-                    _LOGGER.debug(
-                        "OS-level bonding check before poll failed/ignored for model=%s: %s",
-                        self._device_model,
-                        exc,
-                    )
+                bonded = await self._async_is_client_bonded(client)
+                if bonded is False:
+                    try:
+                        await self._async_try_os_bonding(
+                            client, reason="bond_missing"
+                        )
+                    except Exception as exc:
+                        _LOGGER.debug(
+                            "OS-level bonding attempt skipped/failed for %s: %s",
+                            self._device_model,
+                            exc,
+                        )
 
             # Verify the device has expected services
             parent_uuid = self._device_config.parent_service_uuid
@@ -701,25 +763,39 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
         except Exception as exc:
-            prof = resolve_profile_model_id(self._device_model)
-            variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
-            _LOGGER.error(
-                "Error polling device model=%s profile=%s address=%s: %s",
-                self._device_model,
-                prof,
-                ble_device.address,
-                exc,
-                exc_info=exc,
-            )
-            _LOGGER.error(
-                "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
-                "variant_reason=%s",
-                type(exc).__name__,
-                self._device_model,
-                prof,
-                variant_entry[1].unverified if variant_entry else False,
-                variant_entry[1].reason if variant_entry else None,
-            )
+            if (
+                self._device_config.supports_os_bonding_only
+                and not self._os_bond_recovery_in_progress
+                and self._is_authentication_related_error(exc)
+            ):
+                retry_after_auth_failure = True
+                auth_failure_exc = exc
+                _LOGGER.warning(
+                    "Authentication-related poll error for %s; "
+                    "will attempt one-time OS-level bonding recovery: %s",
+                    self._device_model,
+                    exc,
+                )
+            else:
+                prof = resolve_profile_model_id(self._device_model)
+                variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+                _LOGGER.error(
+                    "Error polling device model=%s profile=%s address=%s: %s",
+                    self._device_model,
+                    prof,
+                    ble_device.address,
+                    exc,
+                    exc_info=exc,
+                )
+                _LOGGER.error(
+                    "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
+                    "variant_reason=%s",
+                    type(exc).__name__,
+                    self._device_model,
+                    prof,
+                    variant_entry[1].unverified if variant_entry else False,
+                    variant_entry[1].reason if variant_entry else None,
+                )
         finally:
             if client and client.is_connected:
                 try:
@@ -727,6 +803,40 @@ class OmronBluetoothDeviceData(BluetoothData):
                 except Exception:
                     pass
             _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
+
+        if retry_after_auth_failure:
+            self._os_bond_recovery_in_progress = True
+            try:
+                recovery_client = await establish_connection(
+                    BleakClient, ble_device, ble_device.address
+                )
+                try:
+                    await _bleak_refresh_services(recovery_client)
+                    await self._async_try_os_bonding(
+                        recovery_client, reason="auth_error_recovery"
+                    )
+                finally:
+                    if recovery_client.is_connected:
+                        try:
+                            await recovery_client.disconnect()
+                        except Exception:
+                            pass
+            except Exception as recovery_exc:
+                _LOGGER.warning(
+                    "OS-level bonding recovery failed for %s after auth-related poll error: "
+                    "original=%s recovery=%s",
+                    self._device_model,
+                    auth_failure_exc,
+                    recovery_exc,
+                )
+            else:
+                _LOGGER.info(
+                    "Retrying poll after successful OS-level bonding recovery for %s",
+                    self._device_model,
+                )
+                return await self.async_poll(ble_device)
+            finally:
+                self._os_bond_recovery_in_progress = False
 
         return self._finish_update()
 
