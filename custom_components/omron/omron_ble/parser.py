@@ -65,6 +65,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._unvalidated_variant_warning_logged = False
         self._os_bond_recovery_in_progress = False
         self._char_not_found_recovery_in_progress = False
+        self._connection_drop_recovery_in_progress = False
         self._os_bonding_unavailable = False
         self._os_bonding_unavailable_logged = False
 
@@ -488,6 +489,28 @@ class OmronBluetoothDeviceData(BluetoothData):
             depth += 1
         return False
 
+    @staticmethod
+    def _is_transient_connection_drop_error(exc: BaseException) -> bool:
+        """Best-effort detection for transient BLE link drops via proxy/backends."""
+        markers = (
+            "changed connection status",
+            "bluetoothconnectiondroppederror",
+            "unknown error (19)",
+            "bluetoothgattnotifyresponse",
+            "bluetoothgattwriteresponse",
+            "failed to connect",
+            "timeout",
+        )
+        cur: BaseException | None = exc
+        depth = 0
+        while cur is not None and depth < 8:
+            text = f"{type(cur).__name__}: {cur!s}".lower()
+            if any(marker in text for marker in markers):
+                return True
+            cur = cur.__cause__
+            depth += 1
+        return False
+
     async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
         """Return bonded state when backend exposes it, else None."""
         is_paired = getattr(client, "is_paired", None)
@@ -578,7 +601,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         client: BleakClient | None = None
         poll_status = "poll_failed"
         retry_after_char_not_found = False
+        retry_after_connection_drop = False
         char_not_found_exc: BaseException | None = None
+        connection_drop_exc: BaseException | None = None
         try:
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
@@ -862,6 +887,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                         "will attempt one-time reconnect/service-rediscovery recovery",
                         self._device_model,
                     )
+            elif (
+                self._is_transient_connection_drop_error(exc)
+                and not self._connection_drop_recovery_in_progress
+            ):
+                retry_after_connection_drop = True
+                connection_drop_exc = exc
+                _LOGGER.warning(
+                    "Transient BLE link drop during poll for %s (%s); "
+                    "will attempt one-time reconnect retry: %s",
+                    self._device_model,
+                    ble_device.address,
+                    exc,
+                )
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
             _LOGGER.error(
@@ -926,6 +964,25 @@ class OmronBluetoothDeviceData(BluetoothData):
                 return await self.async_poll(ble_device)
             finally:
                 self._char_not_found_recovery_in_progress = False
+
+        if retry_after_connection_drop:
+            self._connection_drop_recovery_in_progress = True
+            try:
+                await asyncio.sleep(0.8)
+                _LOGGER.info(
+                    "Retrying poll after transient BLE link drop for %s",
+                    self._device_model,
+                )
+                return await self.async_poll(ble_device)
+            except Exception as recovery_exc:
+                _LOGGER.warning(
+                    "Transient link-drop recovery failed for %s: original=%s recovery=%s",
+                    self._device_model,
+                    connection_drop_exc,
+                    recovery_exc,
+                )
+            finally:
+                self._connection_drop_recovery_in_progress = False
 
         return self._finish_update()
 
