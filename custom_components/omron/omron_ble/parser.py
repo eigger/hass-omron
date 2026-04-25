@@ -395,6 +395,32 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
+    async def _try_configure_preferred_mtu(self, client: BleakClient) -> None:
+        """Best-effort MTU configuration for profiles that declare one."""
+        target_mtu = self._device_config.target_mtu_size()
+        if target_mtu is None:
+            return
+        acquire = getattr(client, "_acquire_mtu", None)
+        if callable(acquire):
+            try:
+                await acquire()
+            except Exception as exc:
+                _LOGGER.debug(
+                    "MTU acquisition failed (target=%s, model=%s): %s",
+                    target_mtu,
+                    self._device_model,
+                    exc,
+                )
+        current_mtu = getattr(client, "mtu_size", None)
+        if current_mtu is not None:
+            _LOGGER.debug(
+                "Link MTU for model=%s connect_type=%s: current=%s target=%s",
+                self._device_model,
+                self._device_config.connect_type,
+                current_mtu,
+                target_mtu,
+            )
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
@@ -426,6 +452,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
+            await self._try_configure_preferred_mtu(client)
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
 
@@ -664,7 +691,16 @@ class OmronBluetoothDeviceData(BluetoothData):
                 variant_entry[1].reason if variant_entry else None,
             )
         finally:
-            if client and client.is_connected:
+            delay_s = self._device_config.disconnect_grace_period_seconds()
+            if delay_s > 0:
+                _LOGGER.debug(
+                    "Applying disconnect grace period %.3fs for model=%s connect_type=%s",
+                    delay_s,
+                    self._device_model,
+                    self._device_config.connect_type,
+                )
+                await asyncio.sleep(delay_s)
+            if client and client.is_connected and not self._device_config.should_keep_connection():
                 try:
                     await client.disconnect()
                 except Exception:
@@ -678,6 +714,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         client: BleakClient | None = None
         try:
             client = await establish_connection(BleakClient, ble_device, ble_device.address)
+            await self._try_configure_preferred_mtu(client)
             char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
             if char is None:
                 _LOGGER.warning(
@@ -711,7 +748,10 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
             return True
         finally:
-            if client and client.is_connected:
+            delay_s = self._device_config.disconnect_grace_period_seconds()
+            if delay_s > 0:
+                await asyncio.sleep(delay_s)
+            if client and client.is_connected and not self._device_config.should_keep_connection():
                 try:
                     await client.disconnect()
                 except Exception:

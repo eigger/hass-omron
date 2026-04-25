@@ -270,6 +270,17 @@ class DeviceConfig:
     requires_unlock: bool = True
     supports_pairing: bool = True
     supports_os_bonding_only: bool = False
+    connect_type: str | None = None
+    # Delay before disconnect to let device-side session teardown settle (milliseconds).
+    disconnect_grace_period_ms: int | None = None
+    # Optional protocol tuning overrides (mainly for WLD family).
+    rx_frame_size_bytes: int | None = None
+    tx_frame_size_bytes: int | None = None
+    gatt_response_timeout_s: float | None = None
+    gatt_retry_count: int | None = None
+    preferred_link_mtu: int | None = None
+    keep_connection_open: bool | None = None
+    supports_time_adjustment: bool | None = None
     # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
     # HEM-7380T1 uses OS bonding only; stays False.
     legacy_pairing_workarounds: bool = False
@@ -310,6 +321,112 @@ class DeviceConfig:
     def supports_unread_counter(self) -> bool:
         """Return True if the device supports unread record counters."""
         return self.settings_unread_records_bytes is not None
+
+    def connect_family(self) -> str:
+        """Return connect_type family prefix (WLD/WLS/WLB) or UNKNOWN."""
+        if not self.connect_type:
+            return "UNKNOWN"
+        prefix = self.connect_type.strip().upper().split(".", 1)[0]
+        if prefix in {"WLD", "WLS", "WLB"}:
+            return prefix
+        return "UNKNOWN"
+
+    def connect_major_version(self) -> int | None:
+        """Return connect_type major version (e.g. WLD3.0 -> 3)."""
+        if not self.connect_type:
+            return None
+        upper = self.connect_type.strip().upper()
+        if "." not in upper:
+            return None
+        head = upper.split(".", 1)[0]
+        digits = "".join(ch for ch in head if ch.isdigit())
+        if not digits:
+            return None
+        try:
+            return int(digits)
+        except ValueError:
+            return None
+
+    def disconnect_grace_period_seconds(self, *, max_seconds: float = 10.0) -> float:
+        """Return safe disconnect grace period in seconds."""
+        if self.disconnect_grace_period_ms is None:
+            return 0.0
+        delay_ms = max(0, int(self.disconnect_grace_period_ms))
+        delay_s = delay_ms / 1000.0
+        if delay_s > max_seconds:
+            return max_seconds
+        return delay_s
+
+    def write_frame_length(self) -> int:
+        """Return per-command TX payload length."""
+        if self.tx_frame_size_bytes is not None:
+            return max(1, int(self.tx_frame_size_bytes))
+        if self.connect_family() == "WLD":
+            major = self.connect_major_version()
+            if major in {3, 4}:
+                return 64
+            if major in {1, 2}:
+                return 64
+            return 64
+        return 16
+
+    def read_frame_length(self) -> int:
+        """Return expected single-access RX frame length."""
+        if self.rx_frame_size_bytes is not None:
+            return max(1, int(self.rx_frame_size_bytes))
+        if self.connect_family() == "WLD":
+            major = self.connect_major_version()
+            if major in {3, 4}:
+                return 64
+            if major in {1, 2}:
+                return 64
+            return 64
+        return 16
+
+    def command_timeout_seconds(self) -> float:
+        """Return command-response timeout."""
+        if self.gatt_response_timeout_s is not None:
+            return max(0.5, float(self.gatt_response_timeout_s))
+        if self.connect_family() == "WLD":
+            return 10.0
+        return 2.0
+
+    def command_retry_count(self) -> int:
+        """Return command send retry count."""
+        if self.gatt_retry_count is not None:
+            return max(1, int(self.gatt_retry_count))
+        if self.connect_family() == "WLD":
+            return 3
+        return 3
+
+    def target_mtu_size(self) -> int | None:
+        """Return preferred MTU for this profile."""
+        if self.preferred_link_mtu is not None:
+            return max(23, int(self.preferred_link_mtu))
+        if self.connect_family() == "WLD":
+            major = self.connect_major_version()
+            if major in {3, 4}:
+                return 244
+            if major in {1, 2}:
+                return 64
+            return 64
+        return None
+
+    def should_keep_connection(self) -> bool:
+        """Return whether the profile expects persistent connection."""
+        if self.keep_connection_open is not None:
+            return self.keep_connection_open
+        if self.connect_family() == "WLD":
+            return False
+        return False
+
+    def supports_adjust_update_time(self) -> bool:
+        """Return whether profile supports dedicated update-time adjustment flow."""
+        if self.supports_time_adjustment is not None:
+            return self.supports_time_adjustment
+        if self.connect_family() == "WLD":
+            return False
+        return False
 
     def parse_record(self, data: bytes | bytearray) -> dict[str, Any]:
         """Parse a single record using the device-specific parser."""
@@ -358,6 +475,7 @@ class DeviceConfig:
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6320T": DeviceConfig(
         model="HEM-6320T",
+        connect_type="WLB1.0",
         endianness="big",
         user_start_addresses=[0x0370],
         per_user_records_count=[100],
@@ -381,6 +499,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6321T": DeviceConfig(
         model="HEM-6321T",
+        connect_type="WLB1.0",
         endianness="big",
         user_start_addresses=[0x0370, 0x08E8],
         per_user_records_count=[100, 100],
@@ -405,6 +524,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6401T": DeviceConfig(
         model="HEM-6401T",
+        connect_type="WLB1.0",
         endianness="little",
         # HEM-6401T exposes multiple data types; only the BP data_5 area is mapped here.
         user_start_addresses=[0x1350],
@@ -431,6 +551,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7320T": DeviceConfig(
         model="HEM-7320T",
+        connect_type="WLB1.0",
         endianness="big",
         user_start_addresses=[0x02AC, 0x05F4],
         per_user_records_count=[60, 60],
@@ -460,6 +581,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
+        connect_type="WLB1.0",
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC, 0x0824],
@@ -499,6 +621,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
+        connect_type="WLB1.0",
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC],
@@ -538,6 +661,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8, 0x0860],
@@ -575,6 +699,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8],
@@ -633,6 +758,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098],
@@ -668,6 +794,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7151T: same layout as HEM-7150T but has 80 record slots
     "HEM-7151T": DeviceConfig(
         model="HEM-7151T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098],
@@ -692,6 +819,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
@@ -733,6 +861,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7155T modern stack V2 — OS bonding only, same EEPROM addresses as V1
     "HEM-7155T-MW": DeviceConfig(
         model="HEM-7155T-MW",
+        connect_type="WLD2.0",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
@@ -762,6 +891,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7155T modern stack V3 — OS bonding only, different EEPROM addresses
     "HEM-7155T-MW3": DeviceConfig(
         model="HEM-7155T-MW3",
+        connect_type="WLD2.0",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
@@ -791,6 +921,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7146T modern stack — OS bonding only, 1 user, 30 records
     "HEM-7146T": DeviceConfig(
         model="HEM-7146T",
+        connect_type="WLD1.0",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
@@ -824,6 +955,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
@@ -873,6 +1005,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
+        connect_type="WLS3.0",
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
@@ -895,6 +1028,13 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7380T1": DeviceConfig(
         model="HEM-7380T1",
+        connect_type="WLD3.0",
+        disconnect_grace_period_ms=3000,
+        rx_frame_size_bytes=64,
+        tx_frame_size_bytes=64,
+        preferred_link_mtu=244,
+        keep_connection_open=False,
+        supports_time_adjustment=False,
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
@@ -955,6 +1095,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7142T2": DeviceConfig(
         model="HEM-7142T2",
+        connect_type="WLD1.0",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],

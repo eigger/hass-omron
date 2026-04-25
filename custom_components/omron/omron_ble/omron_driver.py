@@ -114,6 +114,11 @@ class GattTransport:
     def __init__(self, client: BleakClient, device_config: DeviceConfig) -> None:
         self._client = client
         self._config = device_config
+        self._connect_family = self._config.connect_family()
+        self._connect_major = self._config.connect_major_version()
+        self._write_frame_len = self._config.write_frame_length()
+        self._cmd_timeout_s = self._config.command_timeout_seconds()
+        self._cmd_retry_count = self._config.command_retry_count()
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
@@ -224,21 +229,29 @@ class GattTransport:
         self, command: bytearray, timeout: float = 2.0
     ) -> None:
         """Send a command and wait for response with retry logic."""
-        _MAX_RETRIES = 3
-        for retry in range(_MAX_RETRIES):
+        effective_timeout = timeout
+        if effective_timeout == 2.0:
+            effective_timeout = self._cmd_timeout_s
+        for retry in range(self._cmd_retry_count):
             self._reply_ready.clear()
 
             # Split command across TX channels
             remaining_cmd = command
             channel_width = 16
-            if self._config.is_single_channel:
+            # Explicit connect_type branching:
+            # - WLD*: single-channel modern path (full-frame write, no response)
+            # - WLS/WLB*: classic multi-channel path
+            if self._connect_family == "WLD":
+                channel_width = max(1, self._write_frame_len)
+            elif self._config.is_single_channel:
+                # Fallback for unknown connect_type but single-channel config.
                 channel_width = max(channel_width, len(command))
 
             num_tx_channels = (len(command) + channel_width - 1) // channel_width
             for ch_idx in range(num_tx_channels):
                 tx_segment = remaining_cmd[:channel_width]
                 _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
-                if self._config.is_single_channel:
+                if self._connect_family == "WLD" or self._config.is_single_channel:
                     await self._client.write_gatt_char(
                         self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
                     )
@@ -250,12 +263,14 @@ class GattTransport:
 
             # Wait for response
             try:
-                await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
+                await asyncio.wait_for(self._reply_ready.wait(), timeout=effective_timeout)
                 return  # Success
             except asyncio.TimeoutError:
-                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
+                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, self._cmd_retry_count)
 
-        raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
+        raise ConnectionError(
+            f"Failed to receive response after {self._cmd_retry_count} retries"
+        )
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
@@ -348,6 +363,10 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
+        # Explicit connect_type branching:
+        # WLD* families use OS-level security and do not use custom unlock characteristic.
+        if self._connect_family == "WLD":
+            return
         if not self._config.requires_unlock:
             return
 
@@ -381,8 +400,11 @@ class GattTransport:
         """
         pair_key = key or PAIRING_KEY
 
-        # OS-level bonding only (HEM-7380T1 etc.)
-        if self._config.supports_os_bonding_only:
+        # Explicit connect_type branching:
+        # - WLD*: OS-level bonding path (best effort)
+        # - WLS/WLB*: custom unlock-key programming path
+        # - UNKNOWN: fallback to legacy capability flags
+        if self._connect_family == "WLD" or self._config.supports_os_bonding_only:
             _LOGGER.info("Performing OS-level BLE bonding")
             # Some stacks fail pair() even when already bonded/encrypted sessions work.
             # Keep this as best-effort and allow caller to proceed to GATT operations.
@@ -425,7 +447,7 @@ class GattTransport:
                 raise last_exc
             return
 
-        # Custom pairing key (most classic-stack devices)
+        # Custom pairing key path for classic families (WLS/WLB)
         if not self._config.supports_pairing:
             raise ConnectionError("Pairing is not supported for this device")
 
