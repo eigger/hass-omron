@@ -581,6 +581,16 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
+        if legacy:
+            _LOGGER.debug("Executing legacy post-pairing handshake to trigger 'sync success' animation...")
+            await asyncio.sleep(2.0)
+            try:
+                await self.open_memory_session()
+                await self.close_memory_session()
+                await asyncio.sleep(2.0)
+            except Exception as exc:
+                _LOGGER.warning("Legacy post-pairing handshake failed (may be normal): %s", exc)
+
         _LOGGER.info("Device paired successfully with new key")
 
 
