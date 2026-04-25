@@ -31,6 +31,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpda
 
 from .const import DOMAIN
 from .omron_ble import DeviceKey
+from .omron_ble.devices import get_device_config
 from .types import OmronConfigEntry
 
 SENSOR_DESCRIPTIONS = {
@@ -134,14 +135,21 @@ SENSOR_DESCRIPTIONS = {
     ),
 }
 
-def hass_device_info(sensor_device_info, address: str | None = None):
+def hass_device_info(
+    sensor_device_info,
+    address: str | None = None,
+    connect_type: str | None = None,
+):
     device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
     if address is not None and "connections" not in device_info:
         device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
     if sensor_device_info.sw_version is not None:
         device_info[ATTR_SW_VERSION] = sensor_device_info.sw_version
-    if sensor_device_info.hw_version is not None:
-        device_info[ATTR_HW_VERSION] = sensor_device_info.hw_version
+    hw_version = sensor_device_info.hw_version
+    if connect_type:
+        hw_version = f"{hw_version} ({connect_type})" if hw_version else connect_type
+    if hw_version is not None:
+        device_info[ATTR_HW_VERSION] = hw_version
     return device_info
 
 
@@ -241,6 +249,7 @@ class OmronBluetoothSensorEntity(
         self._device_key = device_key
         self._address = hass.data[DOMAIN][entry.entry_id]["address"]
         model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._connect_type = get_device_config(model).connect_type
         identifier = self._address.replace(":", "")[-4:].lower()
         model_slug = model.lower().replace("-", "_")
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
@@ -279,7 +288,11 @@ class OmronBluetoothSensorEntity(
         if sensor_update is not None:
             sensor_device_info = sensor_update.devices.get(self._device_key.device_id)
             if sensor_device_info is not None:
-                return hass_device_info(sensor_device_info, self._address)
+                return hass_device_info(
+                    sensor_device_info,
+                    self._address,
+                    self._connect_type,
+                )
         return DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, self._address)},
         )
