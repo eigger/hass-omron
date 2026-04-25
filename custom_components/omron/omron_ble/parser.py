@@ -13,7 +13,6 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
-from bleak.exc import BleakCharacteristicNotFoundError
 from bleak_retry_connector import establish_connection
 
 from bluetooth_sensor_state_data import BluetoothData
@@ -63,13 +62,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
-        self._os_bond_recovery_in_progress = False
-        self._char_not_found_recovery_in_progress = False
-        self._connection_drop_recovery_in_progress = False
-        self._os_bonding_unavailable = False
-        self._os_bonding_unavailable_logged = False
-        self._connect_failure_streak = 0
-        self._connect_backoff_until_monotonic = 0.0
 
     @property
     def device_model(self) -> str:
@@ -403,211 +395,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
-    @staticmethod
-    def _gatt_characteristics_snapshot(client: BleakClient) -> dict[str, list[str]]:
-        """Build a compact snapshot of currently discovered GATT characteristics."""
-        snapshot: dict[str, list[str]] = {}
-        services = getattr(client, "services", None)
-        if services is None:
-            return snapshot
-        try:
-            for service in services:
-                chars = sorted(str(char.uuid).lower() for char in service.characteristics)
-                snapshot[str(service.uuid).lower()] = chars
-        except Exception:
-            return {}
-        return snapshot
-
-    @staticmethod
-    def _is_authentication_related_error(exc: BaseException) -> bool:
-        """Best-effort check for BLE auth/bond/encryption failures."""
-        markers = (
-            "authentication",
-            "authorize",
-            "authorise",
-            "insufficient authentication",
-            "insufficient encryption",
-            "security",
-            "bond",
-            "pair",
-            "not permitted",
-            "not authorized",
-            "not authorised",
-            "error=5",
-            "error 5",
-            "error=15",
-            "error 15",
-            "error (19)",
-            "error 19",
-            "changed connection status",
-            "0x13",
-        )
-        cur: BaseException | None = exc
-        depth = 0
-        while cur is not None and depth < 8:
-            text = f"{type(cur).__name__}: {cur!s}".lower()
-            if any(marker in text for marker in markers):
-                return True
-            cur = cur.__cause__
-            depth += 1
-        return False
-
-    @staticmethod
-    def _is_characteristic_not_found_error(exc: BaseException) -> bool:
-        """Handle bleak version/backend differences for characteristic-not-found."""
-        cur: BaseException | None = exc
-        depth = 0
-        while cur is not None and depth < 8:
-            if isinstance(cur, BleakCharacteristicNotFoundError):
-                return True
-            type_name = type(cur).__name__.lower()
-            text = f"{cur!s}".lower()
-            if (
-                "bleakcharacteristicnotfounderror" in type_name
-                or ("characteristic" in text and "was not found" in text)
-            ):
-                return True
-            cur = cur.__cause__
-            depth += 1
-        return False
-
-    @staticmethod
-    def _is_pairing_unavailable_error(exc: BaseException) -> bool:
-        """Detect backends/devices where OS-level pairing is not available."""
-        markers = (
-            "pairing failed due to error: 102",
-            "error 102",
-            "pairing not supported",
-            "not supported",
-            "not implemented",
-        )
-        cur: BaseException | None = exc
-        depth = 0
-        while cur is not None and depth < 8:
-            text = f"{type(cur).__name__}: {cur!s}".lower()
-            if any(marker in text for marker in markers):
-                return True
-            cur = cur.__cause__
-            depth += 1
-        return False
-
-    @staticmethod
-    def _is_transient_connection_drop_error(exc: BaseException) -> bool:
-        """Best-effort detection for transient BLE link drops via proxy/backends."""
-        markers = (
-            "changed connection status",
-            "bluetoothconnectiondroppederror",
-            "unknown error (19)",
-            "bluetoothgattnotifyresponse",
-            "bluetoothgattwriteresponse",
-            "failed to connect",
-            "timeout",
-        )
-        cur: BaseException | None = exc
-        depth = 0
-        while cur is not None and depth < 8:
-            text = f"{type(cur).__name__}: {cur!s}".lower()
-            if any(marker in text for marker in markers):
-                return True
-            cur = cur.__cause__
-            depth += 1
-        return False
-
-    @staticmethod
-    def _is_connect_establish_timeout_error(exc: BaseException) -> bool:
-        """Detect connect-stage timeout/not-found failures from retry connector."""
-        markers = (
-            "failed to connect after",
-            "timeout waiting for connect response",
-            "timeoutapierror",
-            "bleaknotfounderror",
-            "disconnect timed out",
-        )
-        cur: BaseException | None = exc
-        depth = 0
-        while cur is not None and depth < 8:
-            text = f"{type(cur).__name__}: {cur!s}".lower()
-            if any(marker in text for marker in markers):
-                return True
-            cur = cur.__cause__
-            depth += 1
-        return False
-
-    async def _async_is_client_bonded(self, client: BleakClient) -> bool | None:
-        """Return bonded state when backend exposes it, else None."""
-        is_paired = getattr(client, "is_paired", None)
-        if not callable(is_paired):
-            return None
-        try:
-            result = is_paired()
-            if asyncio.iscoroutine(result):
-                result = await result
-            return bool(result)
-        except Exception as exc:
-            _LOGGER.debug(
-                "Could not determine bonded state for %s: %s",
-                self._device_model,
-                exc,
-            )
-            return None
-
-    async def _async_try_os_bonding(
-        self,
-        client: BleakClient,
-        *,
-        reason: str,
-    ) -> bool:
-        """Attempt OS-level bonding once for bonding-only models."""
-        try:
-            await client.pair()
-        except TypeError:
-            try:
-                await client.pair(protection_level=2)
-            except Exception as exc:
-                if self._is_pairing_unavailable_error(exc):
-                    self._os_bonding_unavailable = True
-                    if not self._os_bonding_unavailable_logged:
-                        _LOGGER.warning(
-                            "Disabling OS-level bonding attempts for %s; "
-                            "pairing appears unavailable on this backend/device: %s",
-                            self._device_model,
-                            exc,
-                        )
-                        self._os_bonding_unavailable_logged = True
-                raise
-        except Exception as exc:
-            if self._is_pairing_unavailable_error(exc):
-                self._os_bonding_unavailable = True
-                if not self._os_bonding_unavailable_logged:
-                    _LOGGER.warning(
-                        "Disabling OS-level bonding attempts for %s; "
-                        "pairing appears unavailable on this backend/device: %s",
-                        self._device_model,
-                        exc,
-                    )
-                    self._os_bonding_unavailable_logged = True
-            raise
-        await _bleak_refresh_services(client)
-        _LOGGER.info(
-            "Performed OS-level bonding for %s (%s)",
-            self._device_model,
-            reason,
-        )
-        return True
-
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
-        now_monotonic = asyncio.get_running_loop().time()
-        if now_monotonic < self._connect_backoff_until_monotonic:
-            remaining = self._connect_backoff_until_monotonic - now_monotonic
-            _LOGGER.warning(
-                "Skipping poll for %s (%s) during connect backoff window (%.1fs remaining)",
-                self._device_model,
-                ble_device.address,
-                remaining,
-            )
-            return self._finish_update()
         variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
         if variant_entry:
             profile_key, variant = variant_entry
@@ -632,17 +422,10 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         client: BleakClient | None = None
         poll_status = "poll_failed"
-        retry_after_char_not_found = False
-        retry_after_connection_drop = False
-        char_not_found_exc: BaseException | None = None
-        connection_drop_exc: BaseException | None = None
         try:
             client = await establish_connection(
                 BleakClient, ble_device, ble_device.address
             )
-            # Reset connection failure backoff after successful connect.
-            self._connect_failure_streak = 0
-            self._connect_backoff_until_monotonic = 0.0
             # Ensure Bleak service cache is populated before reading client.services.
             await _bleak_refresh_services(client)
 
@@ -694,66 +477,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                     prof,
                     self.last_service_info.service_uuids,
                     self._device_config.parent_service_stack(),
-                )
-
-            try:
-                services = client.services
-                missing_rx = [
-                    uuid for uuid in self._device_config.rx_channel_uuids
-                    if services.get_characteristic(uuid) is None
-                ]
-                missing_tx = [
-                    uuid for uuid in self._device_config.tx_channel_uuids
-                    if services.get_characteristic(uuid) is None
-                ]
-            except Exception as exc:
-                _LOGGER.debug(
-                    "Skipping characteristic pre-check; services unavailable for %s: %s",
-                    ble_device.address,
-                    exc,
-                )
-                missing_rx = []
-                missing_tx = []
-            if missing_rx or missing_tx:
-                _LOGGER.info(
-                    "Missing GATT characteristics detected in cache for %s; forcing service refresh",
-                    ble_device.address,
-                )
-                try:
-                    await _bleak_refresh_services(client)
-                    # Re-evaluate
-                    services = client.services
-                    missing_rx = [
-                        uuid for uuid in self._device_config.rx_channel_uuids
-                        if services.get_characteristic(uuid) is None
-                    ]
-                    missing_tx = [
-                        uuid for uuid in self._device_config.tx_channel_uuids
-                        if services.get_characteristic(uuid) is None
-                    ]
-                except Exception as refresh_exc:
-                    _LOGGER.debug("GATT refresh failed: %s", refresh_exc)
-
-            if missing_rx or missing_tx:
-                prof = resolve_profile_model_id(self._device_model)
-                gatt_snapshot = self._gatt_characteristics_snapshot(client)
-                _LOGGER.warning(
-                    "Potential model/stack mismatch: missing expected characteristics "
-                    "for model=%s profile=%s missing_rx=%s missing_tx=%s",
-                    self._device_model,
-                    prof,
-                    missing_rx,
-                    missing_tx,
-                )
-                _LOGGER.warning(
-                    "Continuing poll despite missing characteristic pre-check; "
-                    "driver command path will determine actual compatibility."
-                )
-                _LOGGER.debug(
-                    "Discovered GATT characteristics snapshot for %s (%s): %s",
-                    self._device_model,
-                    ble_device.address,
-                    gatt_snapshot,
                 )
 
             transport = GattTransport(client, self._device_config)
@@ -921,56 +644,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
         except Exception as exc:
-            if self._is_characteristic_not_found_error(exc) and client is not None:
-                _LOGGER.warning(
-                    "Characteristic not found during poll for %s (%s): %s",
-                    self._device_model,
-                    ble_device.address,
-                    exc,
-                )
-                _LOGGER.warning(
-                    "GATT snapshot at characteristic-not-found for %s (%s): %s",
-                    self._device_model,
-                    ble_device.address,
-                    self._gatt_characteristics_snapshot(client),
-                )
-                if not self._char_not_found_recovery_in_progress:
-                    retry_after_char_not_found = True
-                    char_not_found_exc = exc
-                    _LOGGER.warning(
-                        "Characteristic-not-found poll error for %s; "
-                        "will attempt one-time reconnect/service-rediscovery recovery",
-                        self._device_model,
-                    )
-            elif (
-                self._is_transient_connection_drop_error(exc)
-                and not self._connection_drop_recovery_in_progress
-            ):
-                retry_after_connection_drop = True
-                connection_drop_exc = exc
-                _LOGGER.warning(
-                    "Transient BLE link drop during poll for %s (%s); "
-                    "will attempt one-time reconnect retry: %s",
-                    self._device_model,
-                    ble_device.address,
-                    exc,
-                )
-            if self._is_connect_establish_timeout_error(exc):
-                self._connect_failure_streak += 1
-                if self._connect_failure_streak >= 2:
-                    # Exponential backoff to avoid hammering BLE proxy during outage.
-                    backoff_seconds = min(
-                        120.0, 15.0 * (2 ** (self._connect_failure_streak - 2))
-                    )
-                    self._connect_backoff_until_monotonic = (
-                        asyncio.get_running_loop().time() + backoff_seconds
-                    )
-                    _LOGGER.warning(
-                        "Connect timeout streak for %s is %d; applying backoff %.1fs",
-                        self._device_model,
-                        self._connect_failure_streak,
-                        backoff_seconds,
-                    )
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
             _LOGGER.error(
@@ -997,63 +670,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 except Exception:
                     pass
             _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
-
-        if retry_after_char_not_found:
-            self._char_not_found_recovery_in_progress = True
-            try:
-                await asyncio.sleep(0.4)
-                recovery_client = await establish_connection(
-                    BleakClient, ble_device, ble_device.address
-                )
-                try:
-                    await _bleak_refresh_services(recovery_client)
-                    _LOGGER.warning(
-                        "GATT snapshot after reconnect/recovery for %s (%s): %s",
-                        self._device_model,
-                        ble_device.address,
-                        self._gatt_characteristics_snapshot(recovery_client),
-                    )
-                finally:
-                    if recovery_client.is_connected:
-                        try:
-                            await recovery_client.disconnect()
-                        except Exception:
-                            pass
-            except Exception as recovery_exc:
-                _LOGGER.warning(
-                    "Characteristic-not-found recovery failed for %s: "
-                    "original=%s recovery=%s",
-                    self._device_model,
-                    char_not_found_exc,
-                    recovery_exc,
-                )
-            else:
-                _LOGGER.info(
-                    "Retrying poll after reconnect/service-rediscovery recovery for %s",
-                    self._device_model,
-                )
-                return await self.async_poll(ble_device)
-            finally:
-                self._char_not_found_recovery_in_progress = False
-
-        if retry_after_connection_drop:
-            self._connection_drop_recovery_in_progress = True
-            try:
-                await asyncio.sleep(0.8)
-                _LOGGER.info(
-                    "Retrying poll after transient BLE link drop for %s",
-                    self._device_model,
-                )
-                return await self.async_poll(ble_device)
-            except Exception as recovery_exc:
-                _LOGGER.warning(
-                    "Transient link-drop recovery failed for %s: original=%s recovery=%s",
-                    self._device_model,
-                    connection_drop_exc,
-                    recovery_exc,
-                )
-            finally:
-                self._connection_drop_recovery_in_progress = False
 
         return self._finish_update()
 
