@@ -414,7 +414,6 @@ class GattTransport:
                 try:
                     if attempt > 1:
                         await asyncio.sleep(0.5)
-                        await _bleak_refresh_services(self._client)
                     try:
                         await self._client.pair()
                     except TypeError:

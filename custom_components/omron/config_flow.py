@@ -282,12 +282,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             for _ in range(5):
                 if parent_uuid in [s.uuid for s in client.services]:
                     break
-                await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             transport = GattTransport(client, config)
             await transport.pair()
-            await _bleak_refresh_services(client)
             await self._async_try_sync_current_time(client, model)
             _LOGGER.info("Successfully paired with %s (%s)", model, address)
         finally:

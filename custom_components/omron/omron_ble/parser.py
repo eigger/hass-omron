@@ -471,7 +471,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         ble_device.address,
                         exc,
                     )
-                await _bleak_refresh_services(client)
+                    await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
             if not service_found:
