@@ -12,7 +12,6 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.const import ATTR_HW_VERSION
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
@@ -22,7 +21,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpda
 
 from .const import DOMAIN
 from .omron_ble import DeviceKey
-from .omron_ble.devices import get_device_config
 from .types import OmronConfigEntry
 
 BINARY_SENSOR_DESCRIPTIONS = {
@@ -56,17 +54,15 @@ def _binary_description_for_update(
 def _binary_device_info(
     sensor_device_info,
     address: str,
-    connect_type: str | None = None,
 ) -> dict:
     """Convert sensor-state device info and ensure BLE connection key exists."""
     device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
     if "connections" not in device_info:
         device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
-    hw_version = sensor_device_info.hw_version
-    if connect_type:
-        hw_version = f"{hw_version} ({connect_type})" if hw_version else connect_type
-    if hw_version is not None:
-        device_info[ATTR_HW_VERSION] = hw_version
+    # Keep only BLE connection metadata from binary-sensor-side device_info.
+    for key in list(device_info):
+        if key != "connections":
+            device_info.pop(key, None)
     return device_info
 
 
@@ -150,7 +146,6 @@ class OmronBluetoothBinarySensorEntity(
         self._device_key = device_key
         self._address = hass.data[DOMAIN][entry.entry_id]["address"]
         model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._connect_type = get_device_config(model).connect_type
         identifier = self._address.replace(":", "")[-4:].lower()
         model_slug = model.lower().replace("-", "_")
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
@@ -178,7 +173,6 @@ class OmronBluetoothBinarySensorEntity(
                 return _binary_device_info(
                     sensor_device_info,
                     self._address,
-                    self._connect_type,
                 )
         return DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, self._address)},

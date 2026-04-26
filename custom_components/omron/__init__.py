@@ -7,7 +7,7 @@ from time import perf_counter
 import asyncio
 import logging
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
-from .omron_ble.devices import DEFAULT_DEVICE_MODEL
+from .omron_ble.devices import DEFAULT_DEVICE_MODEL, get_device_config
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
@@ -72,12 +72,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
     identifier = address.replace(":", "")[-4:].upper()
+    connect_type = get_device_config(device_model).connect_type
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         connections={(CONNECTION_BLUETOOTH, address)},
         manufacturer="Omron",
         model=device_model,
         name=f"{device_model} {identifier}",
+        sw_version=connect_type,
     )
 
     bt_coordinator = OmronBluetoothProcessorCoordinator(

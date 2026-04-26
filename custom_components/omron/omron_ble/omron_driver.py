@@ -403,7 +403,7 @@ class GattTransport:
         # Explicit connect_type branching:
         # - WLD*: OS-level bonding path (best effort)
         # - WLS/WLB*: custom unlock-key programming path
-        # - UNKNOWN: fallback to legacy capability flags
+        # - UNKNOWN: fallback to capability flags
         if self._connect_family == "WLD" or self._config.supports_os_bonding_only:
             _LOGGER.info("Performing OS-level BLE bonding")
             # Some stacks fail pair() even when already bonded/encrypted sessions work.
@@ -454,14 +454,8 @@ class GattTransport:
         if len(pair_key) != 16:
             raise ValueError(f"Pairing key must be 16 bytes, got {len(pair_key)}")
 
-        legacy = self._config.legacy_pairing_workarounds
-        if legacy:
-            await _bleak_refresh_services(self._client)
-            unlock_attempts, unlock_retry_delay = 10, 0.5
-            key_max_retries = 5
-        else:
-            unlock_attempts, unlock_retry_delay = 5, 1.0
-            key_max_retries = 5
+        unlock_attempts, unlock_retry_delay = 3, 1.0
+        key_max_retries = 3
 
         # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
@@ -472,11 +466,7 @@ class GattTransport:
         except Exception as exc:
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
-        if legacy:
-            await asyncio.sleep(0.25)
-            await _bleak_refresh_services(self._client)
-        else:
-            await asyncio.sleep(1.0)
+        await asyncio.sleep(1.0)
 
         # Step 2: Subscribe on unlock UUID
         prog_event = asyncio.Event()
@@ -499,8 +489,6 @@ class GattTransport:
                     unlock_attempts,
                     exc,
                 )
-                if legacy:
-                    await _bleak_refresh_services(self._client)
                 await asyncio.sleep(unlock_retry_delay)
         if not unlock_subscribed:
             raise ConnectionError(
@@ -562,11 +550,10 @@ class GattTransport:
             except Exception:
                 pass
             _LOGGER.error(
-                "Key programming mode not reached: model=%s legacy_workarounds=%s "
+                "Key programming mode not reached: model=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
                 "expected_notify_prefix=8200_or_8208 last_notify_hex=%s samples=%s",
                 self._config.model,
-                legacy,
                 self._config.unlock_uuid,
                 max_retries,
                 write_failures,
@@ -603,7 +590,7 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
-        if legacy:
+        if self._connect_family == "WLS":
             _LOGGER.debug("Executing legacy post-pairing handshake to trigger 'sync success' animation...")
             await asyncio.sleep(2.0)
             try:

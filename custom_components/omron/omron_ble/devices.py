@@ -281,9 +281,6 @@ class DeviceConfig:
     preferred_link_mtu: int | None = None
     keep_connection_open: bool | None = None
     supports_time_adjustment: bool | None = None
-    # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
-    # HEM-7380T1 uses OS bonding only; stays False.
-    legacy_pairing_workarounds: bool = False
 
     # EEPROM layout
     endianness: str = "big"
@@ -582,7 +579,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
         connect_type="WLB1.0",
-        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC, 0x0824],
         per_user_records_count=[100, 100],
@@ -622,7 +618,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
         connect_type="WLB1.0",
-        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02AC],
         per_user_records_count=[100],
@@ -662,7 +657,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8, 0x0860],
         per_user_records_count=[100, 100],
@@ -700,7 +694,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8],
         per_user_records_count=[90],
@@ -759,7 +752,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[60],
@@ -795,7 +787,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7151T": DeviceConfig(
         model="HEM-7151T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[80],
@@ -820,7 +811,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -956,7 +946,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
@@ -1006,7 +995,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
         connect_type="WLS3.0",
-        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
