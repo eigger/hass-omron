@@ -97,6 +97,10 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **RSSI / Signal Strength (diagnostic)**
   - **Last Poll Duration (diagnostic)**
 
+## Device note (text entity)
+
+- Each integration entry exposes a **Text** entity (**Device nickname**) under *Configuration* for a free-form note. It does **not** change the Device Registry name, entity IDs, or integration options; Home Assistant restores the last value like other restore-state entities.
+
 ## User names (multi-user models) & last values
 
 - Some Omron models store **two (or more) user profiles** on the cuff. After you choose such a model, the setup flow asks for a **display name per profile** (defaults: `user1`, `user2`, …). Those names are used in sensor labels and in the internal sensor key (slug), so they replace the old `_user1` / `_user2`-style suffix in `entity_id`s when you customize them.
