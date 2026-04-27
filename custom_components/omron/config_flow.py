@@ -47,6 +47,37 @@ _LOGGER = logging.getLogger(__name__)
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 
 
+def _resolved_user_aliases_from_input(
+    num_users: int, user_input: dict[str, Any]
+) -> list[str]:
+    """Return display label per slot (1..num_users), with empty -> user{n}."""
+    resolved: list[str] = []
+    for i in range(1, num_users + 1):
+        key = f"user_alias_{i}"
+        raw = str(user_input.get(key, f"user{i}") or "").strip()
+        resolved.append(raw if raw else f"user{i}")
+    return resolved
+
+
+def _user_aliases_are_unique(resolved: list[str]) -> bool:
+    """True if no two slots share the same label (case-insensitive)."""
+    lowered = [x.lower() for x in resolved]
+    return len(set(lowered)) == len(lowered)
+
+
+def _user_aliases_schema(
+    num_users: int, defaults: dict[str, Any] | None = None
+) -> vol.Schema:
+    """Build voluptuous schema for user_alias_1..N."""
+    defaults = defaults or {}
+    fields: dict[Any, Any] = {}
+    for i in range(1, num_users + 1):
+        key = f"user_alias_{i}"
+        def_val = str(defaults.get(key, f"user{i}") or f"user{i}")
+        fields[vol.Required(key, default=def_val)] = vol.All(str, vol.Length(max=64))
+    return vol.Schema(fields)
+
+
 def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
     """Emit structured detail for BLE pairing failures (BlueZ / D-Bus / Bleak)."""
     lines = [
@@ -197,23 +228,28 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             return await self.async_step_pairing()
 
         if user_input is not None:
-            self._user_aliases = {}
-            for i in range(1, cfg.num_users + 1):
-                key = f"user_alias_{i}"
-                raw = str(user_input.get(key, f"user{i}") or "").strip()
-                self._user_aliases[str(i)] = raw if raw else f"user{i}"
+            resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
+            if not _user_aliases_are_unique(resolved):
+                title_ph = self.context.get("title_placeholders") or {}
+                return self.async_show_form(
+                    step_id="user_aliases",
+                    data_schema=_user_aliases_schema(cfg.num_users, user_input),
+                    errors={"base": "duplicate_user_aliases"},
+                    description_placeholders={
+                        "model": model,
+                        "num_users": str(cfg.num_users),
+                        "name": str(title_ph.get("name", model)),
+                    },
+                )
+            self._user_aliases = {
+                str(i): resolved[i - 1] for i in range(1, cfg.num_users + 1)
+            }
             return await self.async_step_pairing()
-
-        schema_dict: dict[Any, Any] = {}
-        for i in range(1, cfg.num_users + 1):
-            schema_dict[
-                vol.Required(f"user_alias_{i}", default=f"user{i}")
-            ] = vol.All(str, vol.Length(max=64))
 
         title_ph = self.context.get("title_placeholders") or {}
         return self.async_show_form(
             step_id="user_aliases",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=_user_aliases_schema(cfg.num_users),
             description_placeholders={
                 "model": model,
                 "num_users": str(cfg.num_users),
@@ -525,12 +561,37 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
             }
             if cfg.num_users > 1:
-                aliases: dict[str, str] = {}
-                for i in range(1, cfg.num_users + 1):
-                    key = f"user_alias_{i}"
-                    raw = str(user_input.get(key, f"user{i}") or "").strip()
-                    aliases[str(i)] = raw if raw else f"user{i}"
-                out[CONF_USER_ALIASES] = aliases
+                resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
+                if not _user_aliases_are_unique(resolved):
+                    interval_default = user_input.get(
+                        CONF_SCAN_INTERVAL,
+                        entry.options.get(
+                            CONF_SCAN_INTERVAL,
+                            entry.data.get(CONF_SCAN_INTERVAL, 300),
+                        ),
+                    )
+                    fields_err: dict[Any, Any] = {
+                        vol.Required(
+                            CONF_SCAN_INTERVAL,
+                            default=interval_default,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+                    }
+                    for i in range(1, cfg.num_users + 1):
+                        key = f"user_alias_{i}"
+                        fields_err[
+                            vol.Required(key, default=str(user_input.get(key, "") or ""))
+                        ] = vol.All(str, vol.Length(max=64))
+                    return self.async_show_form(
+                        step_id="init",
+                        data_schema=vol.Schema(fields_err),
+                        errors={"base": "duplicate_user_aliases"},
+                        description_placeholders={
+                            "num_users": str(cfg.num_users),
+                        },
+                    )
+                out[CONF_USER_ALIASES] = {
+                    str(i): resolved[i - 1] for i in range(1, cfg.num_users + 1)
+                }
             else:
                 out[CONF_USER_ALIASES] = {}
             return self.async_create_entry(title="", data=out)

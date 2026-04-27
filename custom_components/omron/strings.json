@@ -41,7 +41,8 @@
     "error": {
       "pairing_failed": "Pairing failed. Make sure the device is in pairing mode (-P- on display) and try again.",
       "decryption_failed": "The provided bindkey did not work, sensor data could not be decrypted. Please check it and try again.",
-      "expected_32_characters": "Expected a 32 character hexadecimal bindkey."
+      "expected_32_characters": "Expected a 32 character hexadecimal bindkey.",
+      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive)."
     },
     "abort": {
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
@@ -64,6 +65,9 @@
           "user_alias_4": "User 4 name"
         }
       }
+    },
+    "error": {
+      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive)."
     }
   },
   "entity": {

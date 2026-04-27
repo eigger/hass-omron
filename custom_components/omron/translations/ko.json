@@ -32,7 +32,8 @@
     "error": {
       "pairing_failed": "페어링에 실패했습니다. 기기가 페어링 모드(-P- 표시)인지 확인한 뒤 다시 시도하세요.",
       "decryption_failed": "입력한 bindkey로 데이터를 복호화하지 못했습니다. 값을 확인하고 다시 시도하세요.",
-      "expected_32_characters": "bindkey는 32자리 16진수여야 합니다."
+      "expected_32_characters": "bindkey는 32자리 16진수여야 합니다.",
+      "duplicate_user_aliases": "각 사용자 슬롯 이름은 서로 달라야 합니다(대소문자 구분 없음)."
     },
     "abort": {
       "not_supported": "지원되지 않는 기기입니다."
@@ -51,6 +52,9 @@
           "user_alias_4": "사용자 4 이름"
         }
       }
+    },
+    "error": {
+      "duplicate_user_aliases": "각 사용자 슬롯 이름은 서로 달라야 합니다(대소문자 구분 없음)."
     }
   },
   "entity": {
