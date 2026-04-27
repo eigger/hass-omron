@@ -97,6 +97,13 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **RSSI / Signal Strength (diagnostic)**
   - **Last Poll Duration (diagnostic)**
 
+## User names (multi-user models) & last values
+
+- Some Omron models store **two (or more) user profiles** on the cuff. After you choose such a model, the setup flow asks for a **display name per profile** (defaults: `user1`, `user2`, …). Those names are used in sensor labels and in the internal sensor key (slug), so they replace the old `_user1` / `_user2`-style suffix in `entity_id`s when you customize them.
+- **Single-user models** do not show this step.
+- **Changing a name** later under **Configure** re-creates sensors for that profile slot (new `entity_id`, new long-term statistics for those entities).
+- **Last value after restart**: non-diagnostic measurement sensors restore their last recorded state from Home Assistant so they can show the previous reading when the cuff is off or not yet polled. The **Connection** binary sensor still reflects whether a poll connection is active. Stale readings are possible if the device has not synced—use the connection sensor and timestamps as context.
+
 ## Troubleshooting
 
 - **`Pairing failed: Could not enter key programming mode`**: Make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.

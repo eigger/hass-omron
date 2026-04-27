@@ -19,6 +19,16 @@
           "scan_interval": "Update Interval (seconds)"
         }
       },
+      "user_aliases": {
+        "title": "User names on the cuff",
+        "description": "This model stores **{num_users}** user profiles. Enter a short name for each (defaults: user1, user2, …). These names appear in sensor names and entity IDs instead of generic user numbers.",
+        "data": {
+          "user_alias_1": "User 1 name",
+          "user_alias_2": "User 2 name",
+          "user_alias_3": "User 3 name",
+          "user_alias_4": "User 4 name"
+        }
+      },
       "pairing": {
         "title": "Pair {model}",
         "description": "Submit (Confirm) will start pairing from Home Assistant. First put the cuff in pairing mode—for most models, hold the Bluetooth button until **-P-** appears—then press Submit."
@@ -45,9 +55,13 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff.",
+        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff.\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
         "data": {
-          "scan_interval": "Update Interval (seconds)"
+          "scan_interval": "Update Interval (seconds)",
+          "user_alias_1": "User 1 name",
+          "user_alias_2": "User 2 name",
+          "user_alias_3": "User 3 name",
+          "user_alias_4": "User 4 name"
         }
       }
     }

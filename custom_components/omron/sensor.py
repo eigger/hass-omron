@@ -18,6 +18,8 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     ATTR_SW_VERSION,
     ATTR_HW_VERSION,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
     EntityCategory,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfTime,
@@ -27,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
@@ -220,6 +223,7 @@ async def async_setup_entry(
 
 class OmronBluetoothSensorEntity(
     CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
+    RestoreEntity,
     SensorEntity,
 ):
     """Representation of a Omron BLE sensor."""
@@ -246,17 +250,10 @@ class OmronBluetoothSensorEntity(
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
         self._attr_unique_id = f"{model_slug}_{identifier}_{key_slug}"
         self._attr_name = sensor_name
+        self._restored_native_value: Any | None = None
 
-    @property
-    def native_value(self) -> Any:
-        """Return the native value."""
-        sensor_update = self.coordinator.data
-        if sensor_update is None:
-            return None
-        sensor_value = sensor_update.entity_values.get(self._device_key)
-        if sensor_value is None:
-            return None
-        value = sensor_value.native_value
+    def _coerce_native_value(self, value: Any) -> Any:
+        """Normalize values from coordinator or restore (timestamps, etc.)."""
         if (
             self.entity_description.device_class == SensorDeviceClass.TIMESTAMP
             and isinstance(value, str)
@@ -271,6 +268,68 @@ class OmronBluetoothSensorEntity(
                 parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
             return parsed
         return value
+
+    def _parse_restored_state_string(self, state_str: str) -> Any:
+        """Parse recorder state string back to a native value."""
+        if state_str in (STATE_UNKNOWN, STATE_UNAVAILABLE, ""):
+            return None
+        if self.entity_description.device_class == SensorDeviceClass.TIMESTAMP:
+            parsed = dt_util.parse_datetime(state_str)
+            if parsed is None:
+                try:
+                    parsed = dt.datetime.fromisoformat(state_str)
+                except ValueError:
+                    return None
+            if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
+                parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            return parsed
+        if self.entity_description.state_class == SensorStateClass.MEASUREMENT:
+            try:
+                num = float(state_str)
+                if num.is_integer():
+                    return int(num)
+                return num
+            except ValueError:
+                return state_str
+        return state_str
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to coordinator and restore last state from recorder."""
+        await super().async_added_to_hass()
+        if self.entity_description.entity_category == EntityCategory.DIAGNOSTIC:
+            return
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
+            return
+        self._restored_native_value = self._parse_restored_state_string(
+            str(last_state.state)
+        )
+
+    @property
+    def native_value(self) -> Any:
+        """Return the native value."""
+        sensor_update = self.coordinator.data
+        if sensor_update is not None:
+            sensor_value = sensor_update.entity_values.get(self._device_key)
+            if sensor_value is not None and sensor_value.native_value is not None:
+                return self._coerce_native_value(sensor_value.native_value)
+        if (
+            self.entity_description.entity_category != EntityCategory.DIAGNOSTIC
+            and self._restored_native_value is not None
+        ):
+            return self._coerce_native_value(self._restored_native_value)
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Keep showing last restored value when coordinator poll has not succeeded yet."""
+        if self.entity_description.entity_category == EntityCategory.DIAGNOSTIC:
+            return super().available
+        if self.native_value is not None:
+            return True
+        return super().available
 
     @property
     def device_info(self) -> DeviceInfo:

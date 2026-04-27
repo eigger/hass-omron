@@ -29,5 +29,5 @@
   "documentation": "https://github.com/eigger/hass-omron",
   "issue_tracker": "https://github.com/eigger/hass-omron/issues",
   "iot_class": "local_polling",
-  "version": "1.4.2"
+  "version": "1.4.4"
 }

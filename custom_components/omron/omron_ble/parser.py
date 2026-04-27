@@ -35,8 +35,26 @@ from .devices import (
     resolve_profile_model_id,
 )
 from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
+from ..util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, str]:
+    """Build 1-based user index -> display label; empty strings become user{n}."""
+    if not user_aliases:
+        return {}
+    out: dict[int, str] = {}
+    for k, v in user_aliases.items():
+        try:
+            idx = int(k)
+        except (TypeError, ValueError):
+            continue
+        label = str(v).strip() if v is not None else ""
+        out[idx] = label if label else f"user{idx}"
+    return out
+
+
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
@@ -50,13 +68,18 @@ OMRON_MANUFACTURER_ID = 526
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""
 
-    def __init__(self, device_model: str = DEFAULT_DEVICE_MODEL) -> None:
+    def __init__(
+        self,
+        device_model: str = DEFAULT_DEVICE_MODEL,
+        user_aliases: dict[int, str] | None = None,
+    ) -> None:
         super().__init__()
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
         self._device_model = device_model
         self._device_config: DeviceConfig = get_device_config(device_model)
         self._driver = OmronDeviceDriver(self._device_config)
+        self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
@@ -124,6 +147,23 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
 
+    def _measurement_user_suffixes(
+        self, user: int | None, multi_user: bool
+    ) -> tuple[str, str]:
+        """Return (sensor_key_suffix, friendly_name_suffix) for multi-user cuffs.
+
+        Keys use a slug of the configured alias (default user1, user2, …).
+        """
+        if not multi_user or user is None:
+            return "", ""
+        label = self._user_aliases.get(user)
+        if not label:
+            label = f"user{user}"
+        slug = slugify_for_entity_key(label)
+        if not slug:
+            slug = f"user{user}"
+        return f"_{slug}", f" ({label})"
+
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
         return (
@@ -140,8 +180,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         """Publish measurement-derived sensors for one record."""
         from .const import ExtendedSensorDeviceClass
 
-        key_suffix = f"_user{user}" if multi_user and user is not None else ""
-        name_suffix = f" (User {user})" if multi_user and user is not None else ""
+        key_suffix, name_suffix = self._measurement_user_suffixes(user, multi_user)
 
         sys_val = record.get("sys")
         dia_val = record.get("dia")

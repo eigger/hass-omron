@@ -1,25 +1,56 @@
-{
+﻿{
   "config": {
+    "flow_title": "{name}",
     "step": {
       "select_model": {
         "title": "기기 모델 선택",
-        "description": "광고 이름에 알려진 코드(예: HEM-7600T)가 있으면 기본으로 선택됩니다. 맞는지 확인하거나 목록에서 고르세요. 목록은 총 **{model_total}**개(프로필 **{profile_count}** + 변형 **{variant_count}**)입니다. 정확한 코드가 없으면 가장 가까운 모델을 선택하세요. EEPROM 레이아웃이 맞지 않으면 측정값이 비거나 이상합니다. 로그의 **profile=** 줄을 확인하세요.",
+        "description": "블루투스 광고 이름에 알려진 코드(예: **HEM-7600T**)가 있으면 기본으로 선택됩니다. 맞는지 확인하거나 변경하세요. 그렇지 않다면 커프 본체 또는 Omron Connect에 표시된 모델을 선택하세요. 목록은 총 **{model_total}**개이며, 하드웨어 프로필 **{profile_count}**개와 지역/번들 변형 **{variant_count}**개로 구성됩니다. 정확한 코드가 없으면 가장 가까운 모델을 선택하세요. EEPROM 레이아웃이 맞지 않으면 측정값이 비거나 이상할 수 있으니 로그의 **profile=** 줄을 확인하세요.",
         "data": {
-          "device_model": "모델",
+          "device_model": "기기 모델",
           "scan_interval": "갱신 주기(초)"
+        }
+      },
+      "user_aliases": {
+        "title": "커프 사용자 이름",
+        "description": "이 모델은 사용자 프로필 **{num_users}**개를 저장합니다. 각 슬롯의 이름을 입력하세요(기본값: user1, user2, ...). 이 이름이 기존의 user1/user2 대신 센서 이름과 엔티티 ID에 사용됩니다.",
+        "data": {
+          "user_alias_1": "사용자 1 이름",
+          "user_alias_2": "사용자 2 이름",
+          "user_alias_3": "사용자 3 이름",
+          "user_alias_4": "사용자 4 이름"
         }
       },
       "pairing": {
         "title": "{model} 페어링",
-        "description": "**확인**을 누르면 Home Assistant에서 페어링이 진행됩니다. 먼저 혈압계를 페어링 모드로 두세요(대개 블루투스 버튼을 길게 눌러 **-P-** 표시). 그다음 확인을 누르세요."
+        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 커프를 페어링 모드로 전환하세요(대부분 모델은 블루투스 버튼을 길게 눌러 **-P-** 표시). 그 다음 제출을 누르세요."
       },
       "pairing_os": {
         "title": "{model} 페어링",
-        "description": "**확인**을 누르면 Home Assistant에서 페어링이 진행됩니다. 사용 설명서대로 기기를 페어링·검색 가능 상태로 만든 뒤 확인을 누르세요."
+        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 설명서대로 기기를 페어링/검색 가능 상태로 만든 뒤 제출을 누르세요."
       }
     },
     "error": {
-      "pairing_failed": "페어링에 실패했습니다. -P-가 표시 중인지 확인한 뒤 다시 시도하세요."
+      "pairing_failed": "페어링에 실패했습니다. 기기가 페어링 모드(-P- 표시)인지 확인한 뒤 다시 시도하세요.",
+      "decryption_failed": "입력한 bindkey로 데이터를 복호화하지 못했습니다. 값을 확인하고 다시 시도하세요.",
+      "expected_32_characters": "bindkey는 32자리 16진수여야 합니다."
+    },
+    "abort": {
+      "not_supported": "지원되지 않는 기기입니다."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "혈압계에서 새 측정값을 가져오기 위해 Home Assistant가 폴링하는 주기입니다(60~86400초). 값이 작을수록 커프 배터리 사용량이 늘어납니다.\n\n**이 기기의 프로필 슬롯 수:** {num_users}. 2개 이상이면 아래에서 슬롯별 표시 이름을 설정할 수 있습니다(기본값 user1, user2, ...). 슬롯 이름을 바꾸면 해당 슬롯 센서의 엔티티가 새로 생성됩니다.",
+        "data": {
+          "scan_interval": "갱신 주기(초)",
+          "user_alias_1": "사용자 1 이름",
+          "user_alias_2": "사용자 2 이름",
+          "user_alias_3": "사용자 3 이름",
+          "user_alias_4": "사용자 4 이름"
+        }
+      }
     }
   }
 }

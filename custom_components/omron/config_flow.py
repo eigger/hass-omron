@@ -40,7 +40,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
-from .const import CONF_DEVICE_MODEL, DOMAIN
+from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_devices: dict[str, Discovery] = {}
         self._selected_model: str | None = None
         self._scan_interval: int = 300
+        self._user_aliases: dict[str, str] = {}
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -143,12 +144,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._selected_model = user_input[CONF_DEVICE_MODEL]
             self._scan_interval = user_input.get(CONF_SCAN_INTERVAL, 300)
-            
+
             # Update device data with selected model
             if self._discovered_device:
                 self._discovered_device.device_model = self._selected_model
                 title = _title(self._discovery_info, self._discovered_device)
                 self.context["title_placeholders"] = {"name": title}
+            cfg = get_device_config(self._selected_model)
+            if cfg.num_users > 1:
+                return await self.async_step_user_aliases()
+            self._user_aliases = {}
             return await self.async_step_pairing()
 
         models = get_supported_models()
@@ -179,6 +184,41 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             description_placeholders=desc_ph,
+        )
+
+    async def async_step_user_aliases(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect display names for each device user slot (multi-user models only)."""
+        model = self._selected_model or DEFAULT_DEVICE_MODEL
+        cfg = get_device_config(model)
+        if cfg.num_users <= 1:
+            self._user_aliases = {}
+            return await self.async_step_pairing()
+
+        if user_input is not None:
+            self._user_aliases = {}
+            for i in range(1, cfg.num_users + 1):
+                key = f"user_alias_{i}"
+                raw = str(user_input.get(key, f"user{i}") or "").strip()
+                self._user_aliases[str(i)] = raw if raw else f"user{i}"
+            return await self.async_step_pairing()
+
+        schema_dict: dict[Any, Any] = {}
+        for i in range(1, cfg.num_users + 1):
+            schema_dict[
+                vol.Required(f"user_alias_{i}", default=f"user{i}")
+            ] = vol.All(str, vol.Length(max=64))
+
+        title_ph = self.context.get("title_placeholders") or {}
+        return self.async_show_form(
+            step_id="user_aliases",
+            data_schema=vol.Schema(schema_dict),
+            description_placeholders={
+                "model": model,
+                "num_users": str(cfg.num_users),
+                "name": str(title_ph.get("name", model)),
+            },
         )
 
     async def async_step_pairing(
@@ -446,6 +486,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         data[CONF_SCAN_INTERVAL] = int(
             getattr(self, "_scan_interval", 300)
         )
+        data[CONF_USER_ALIASES] = dict(getattr(self, "_user_aliases", {}))
 
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(
@@ -475,22 +516,53 @@ class OmronOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        entry = self._config_entry
+        model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
+        cfg = get_device_config(model)
+
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        # Retrieve current setting, fallback to data, default 300
-        current_interval = self._config_entry.options.get(
-            CONF_SCAN_INTERVAL,
-            self._config_entry.data.get(CONF_SCAN_INTERVAL, 300)
-        )
-
-        options_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=current_interval,
-                ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+            out: dict[str, Any] = {
+                CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
             }
+            if cfg.num_users > 1:
+                aliases: dict[str, str] = {}
+                for i in range(1, cfg.num_users + 1):
+                    key = f"user_alias_{i}"
+                    raw = str(user_input.get(key, f"user{i}") or "").strip()
+                    aliases[str(i)] = raw if raw else f"user{i}"
+                out[CONF_USER_ALIASES] = aliases
+            else:
+                out[CONF_USER_ALIASES] = {}
+            return self.async_create_entry(title="", data=out)
+
+        current_interval = entry.options.get(
+            CONF_SCAN_INTERVAL,
+            entry.data.get(CONF_SCAN_INTERVAL, 300),
+        )
+        raw_aliases = entry.options.get(
+            CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
+        )
+        current_aliases: dict[str, Any] = (
+            dict(raw_aliases) if isinstance(raw_aliases, dict) else {}
         )
 
-        return self.async_show_form(step_id="init", data_schema=options_schema)
+        fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_SCAN_INTERVAL,
+                default=current_interval,
+            ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+        }
+        if cfg.num_users > 1:
+            for i in range(1, cfg.num_users + 1):
+                prev = str(current_aliases.get(str(i), f"user{i}") or f"user{i}")
+                fields[
+                    vol.Required(f"user_alias_{i}", default=prev)
+                ] = vol.All(str, vol.Length(max=64))
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "num_users": str(cfg.num_users),
+            },
+        )

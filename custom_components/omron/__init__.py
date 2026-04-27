@@ -23,6 +23,7 @@ from .const import (
     CONF_DEVICE_MODEL,
     DOMAIN,
 )
+from .util import aliases_dict_from_entry
 from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
 
@@ -64,7 +65,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Get device model from config entry data, default to HEM-7322T for backward compatibility
     device_model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
 
-    data = OmronBluetoothDeviceData(device_model=device_model)
+    data = OmronBluetoothDeviceData(
+        device_model=device_model,
+        user_aliases=aliases_dict_from_entry(entry),
+    )
     hass.data[DOMAIN][entry.entry_id] = {}
     hass.data[DOMAIN][entry.entry_id]['address'] = address
     hass.data[DOMAIN][entry.entry_id]['data'] = data
@@ -72,12 +76,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
     identifier = address.replace(":", "")[-4:].upper()
+    aliases = aliases_dict_from_entry(entry)
+    if len(aliases) >= 2:
+        parts = [aliases[i] for i in sorted(aliases)]
+        device_name = f"{device_model} {identifier} ({' / '.join(parts)})"
+    else:
+        device_name = f"{device_model} {identifier}"
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         connections={(CONNECTION_BLUETOOTH, address)},
         manufacturer="Omron",
         model=device_model,
-        name=f"{device_model} {identifier}",
+        name=device_name,
     )
 
     bt_coordinator = OmronBluetoothProcessorCoordinator(
