@@ -10,6 +10,10 @@
           "scan_interval": "갱신 주기(초)"
         }
       },
+      "bluetooth_confirm": {
+        "title": "기기 확인",
+        "description": "{name} 기기를 설정하려면 제출(확인)을 누르세요."
+      },
       "user_aliases": {
         "title": "커프 사용자 이름",
         "description": "이 모델은 사용자 프로필 **{num_users}**개를 저장합니다. 각 슬롯의 이름을 입력하세요(기본값: user1, user2, ...). 이 이름이 기존의 user1/user2 대신 센서 이름과 엔티티 ID에 사용됩니다.",

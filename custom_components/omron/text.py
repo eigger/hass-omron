@@ -30,6 +30,7 @@ class OmronDeviceAliasTextEntity(RestoreText):
         self.hass = hass
         self._address = hass.data[DOMAIN][entry_id]["address"]
         model = hass.data[DOMAIN][entry_id]["data"].device_model
+        self._default_alias = model
         identifier = self._address.replace(":", "")[-4:].lower()
         model_slug = model.lower().replace("-", "_")
         self._attr_unique_id = f"{model_slug}_{identifier}_device_alias"
@@ -39,7 +40,7 @@ class OmronDeviceAliasTextEntity(RestoreText):
         self._attr_native_max = _ALIAS_MAX_LEN
         self._attr_native_min = 0
         self._attr_mode = "text"
-        self._attr_native_value = ""
+        self._attr_native_value = self._default_alias
 
     @property
     def available(self) -> bool:
@@ -61,9 +62,11 @@ class OmronDeviceAliasTextEntity(RestoreText):
         self._attr_native_max = last_text.native_max
         self._attr_native_min = last_text.native_min
         if last_text.native_value is not None:
-            self._attr_native_value = str(last_text.native_value)
+            restored = str(last_text.native_value).strip()
+            self._attr_native_value = restored or self._default_alias
 
     async def async_set_value(self, value: str) -> None:
         """Update displayed text only (persisted via RestoreText / recorder)."""
-        self._attr_native_value = (value or "").strip()[:_ALIAS_MAX_LEN]
+        trimmed = (value or "").strip()[:_ALIAS_MAX_LEN]
+        self._attr_native_value = trimmed or self._default_alias
         self.async_write_ha_state()

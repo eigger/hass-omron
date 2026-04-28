@@ -653,8 +653,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                         ble_device.address,
                         exc,
                     )
-                await _bleak_refresh_services(client)
-                await asyncio.sleep(0.25)
+                if attempt < 4:
+                    await _bleak_refresh_services(client)
+                    await asyncio.sleep(0.25)
 
             if not service_found:
                 prof = resolve_profile_model_id(self._device_model)
@@ -882,46 +883,76 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         return self._finish_update()
 
-    async def async_sync_current_time(self, ble_device: BLEDevice) -> bool:
-        """Connect to device and sync current local time via CTS."""
-        client: BleakClient | None = None
-        try:
-            client = await establish_connection(BleakClient, ble_device, ble_device.address)
-            char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-            if char is None:
-                _LOGGER.warning(
-                    "CTS characteristic not found while syncing time (model=%s, address=%s)",
-                    self._device_model,
+    async def async_retry_pairing(self, ble_device: BLEDevice) -> None:
+        """Connect to the device and retry pairing/bonding (setup-like flow)."""
+        client = await establish_connection(BleakClient, ble_device, ble_device.address)
+        await _bleak_refresh_services(client)
+        parent_uuid = self._device_config.parent_service_uuid
+        service_found = False
+        for attempt in range(5):
+            try:
+                if parent_uuid in [s.uuid for s in client.services]:
+                    service_found = True
+                    break
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Services not ready during manual pairing retry (%d/5) for %s: %s",
+                    attempt + 1,
                     ble_device.address,
+                    exc,
                 )
-                return False
+            if attempt < 4:
+                await _bleak_refresh_services(client)
+                await asyncio.sleep(0.25)
 
-            now = dt.datetime.now().astimezone()
-            payload = bytearray()
-            payload += int(now.year).to_bytes(2, "little")
-            payload += bytes(
-                [
-                    now.month,
-                    now.day,
-                    now.hour,
-                    now.minute,
-                    now.second,
-                    now.isoweekday(),
-                    0x00,  # Fractions256
-                    0x01,  # Adjust reason: manual time update
-                ]
+        if not service_found:
+            raise ConnectionError(
+                f"Required service {parent_uuid} not found on device {ble_device.address}"
             )
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time via CTS for %s (%s): %s",
+
+        transport = GattTransport(client, self._device_config)
+        await transport.pair()
+        await _bleak_refresh_services(client)
+        await self._async_sync_current_time_with_client(client, ble_device.address)
+        _LOGGER.info(
+            "Manual pairing retry completed for %s (%s)",
+            self._device_model,
+            ble_device.address,
+        )
+
+    async def _async_sync_current_time_with_client(
+        self, client: BleakClient, address: str
+    ) -> bool:
+        """Sync current local time via CTS using an already connected client."""
+        char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
+        if char is None:
+            _LOGGER.warning(
+                "CTS characteristic not found while syncing time (model=%s, address=%s)",
                 self._device_model,
-                ble_device.address,
-                now.isoformat(timespec="seconds"),
+                address,
             )
-            return True
-        finally:
-            if client and client.is_connected:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
+            return False
+
+        now = dt.datetime.now().astimezone()
+        payload = bytearray()
+        payload += int(now.year).to_bytes(2, "little")
+        payload += bytes(
+            [
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+                now.isoweekday(),
+                0x00,  # Fractions256
+                0x01,  # Adjust reason: manual time update
+            ]
+        )
+        await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
+        _LOGGER.info(
+            "Synced current time via CTS for %s (%s): %s",
+            self._device_model,
+            address,
+            now.isoformat(timespec="seconds"),
+        )
+        return True

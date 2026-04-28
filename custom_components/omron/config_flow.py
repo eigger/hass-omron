@@ -350,28 +350,22 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             raise ConnectionError(f"BLE device {address} not available")
 
         client = await establish_connection(BleakClient, ble_device, address)
-        try:
-            # Bleak requires an explicit service discovery before using client.services
-            # (otherwise: BleakError "Service Discovery has not been performed yet").
-            await _bleak_refresh_services(client)
-            parent_uuid = config.parent_service_uuid
-            for _ in range(5):
-                if parent_uuid in [s.uuid for s in client.services]:
-                    break
+        # Keep the connection open after pairing; poll path will reuse/reconnect as needed.
+        # Bleak requires an explicit service discovery before using client.services
+        # (otherwise: BleakError "Service Discovery has not been performed yet").
+        await _bleak_refresh_services(client)
+        parent_uuid = config.parent_service_uuid
+        for attempt in range(5):
+            if parent_uuid in [s.uuid for s in client.services]:
+                break
+            if attempt < 4:
                 await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
-            transport = GattTransport(client, config)
-            await transport.pair()
-            await _bleak_refresh_services(client)
-            await self._async_try_sync_current_time(client, model)
-            _LOGGER.info("Successfully paired with %s (%s)", model, address)
-        finally:
-            if client.is_connected:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
+        transport = GattTransport(client, config)
+        await transport.pair()
+        await self._async_try_sync_current_time(client, model)
+        _LOGGER.info("Successfully paired with %s (%s)", model, address)
 
     async def _async_try_sync_current_time(self, client: BleakClient, model: str) -> None:
         """Try to sync local time to device via Current Time characteristic (CTS)."""
