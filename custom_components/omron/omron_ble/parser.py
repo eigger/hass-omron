@@ -101,7 +101,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
         self._unvalidated_variant_warning_logged = False
-        self._seed_measurement_entities()
 
     def _seed_measurement_entities(self) -> None:
         """Pre-register measurement sensor descriptions for offline startup.
