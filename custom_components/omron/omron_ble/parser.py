@@ -85,6 +85,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
+        self._seed_measurement_entities()
 
     @property
     def device_model(self) -> str:
@@ -100,6 +101,89 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
         self._unvalidated_variant_warning_logged = False
+        self._seed_measurement_entities()
+
+    def _seed_measurement_entities(self) -> None:
+        """Pre-register measurement sensor descriptions for offline startup.
+
+        This ensures entities exist on setup so RestoreEntity can show last values
+        before the first successful device poll.
+        """
+        from .const import ExtendedSensorDeviceClass
+
+        multi_user_mode = self._device_config.num_users > 1
+        user_ids = (
+            list(range(1, self._device_config.num_users + 1))
+            if multi_user_mode
+            else [None]
+        )
+        for user in user_ids:
+            key_suffix, name_suffix = self._measurement_user_suffixes(
+                user if isinstance(user, int) else None, multi_user_mode
+            )
+            self.update_sensor(
+                f"blood_pressure_systolic{key_suffix}",
+                "mmHg",
+                None,
+                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
+                name=f"Systolic{name_suffix}",
+            )
+            self.update_sensor(
+                f"blood_pressure_diastolic{key_suffix}",
+                "mmHg",
+                None,
+                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
+                name=f"Diastolic{name_suffix}",
+            )
+            self.update_sensor(
+                f"heart_rate{key_suffix}",
+                "bpm",
+                None,
+                device_class=ExtendedSensorDeviceClass.HEART_RATE,
+                name=f"Pulse{name_suffix}",
+            )
+            self.update_sensor(
+                f"pulse_pressure{key_suffix}",
+                "mmHg",
+                None,
+                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
+                name=f"Pulse Pressure{name_suffix}",
+            )
+            self.update_sensor(
+                f"mean_arterial_pressure_estimated{key_suffix}",
+                "mmHg",
+                None,
+                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                name=f"Estimated MAP{name_suffix}",
+            )
+            self.update_sensor(
+                f"blood_pressure_category{key_suffix}",
+                None,
+                None,
+                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
+                name=f"BP Category (ACC/AHA){name_suffix}",
+            )
+            self.update_sensor(
+                f"shock_index{key_suffix}",
+                "ratio",
+                None,
+                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
+                name=f"Shock Index{name_suffix}",
+            )
+            self.update_sensor(
+                f"rate_pressure_product{key_suffix}",
+                "mmHg*bpm",
+                None,
+                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
+                name=f"Rate Pressure Product{name_suffix}",
+            )
+            self.update_sensor(
+                f"measurement_timestamp{key_suffix}",
+                None,
+                None,
+                device_class=SensorDeviceClass.TIMESTAMP,
+                name=f"Measured At{name_suffix}",
+            )
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
         if super().supported(data):
