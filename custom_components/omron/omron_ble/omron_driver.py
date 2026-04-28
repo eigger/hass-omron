@@ -1057,6 +1057,47 @@ class OmronDeviceDriver:
             ],
         )
 
+    def _log_same_datetime_candidates(
+        self,
+        candidates: list[tuple[int, dict[str, Any]]],
+        selected_dt: dt.datetime,
+        *,
+        limit: int = 12,
+    ) -> None:
+        """Log candidates that share the same selected datetime."""
+        same_dt = [
+            (user, rec)
+            for user, rec in candidates
+            if rec.get("datetime") == selected_dt
+        ]
+        if len(same_dt) <= 1:
+            return
+        ranked = sorted(
+            same_dt,
+            key=lambda item: (
+                item[1].get("_slot_index", -1),
+                item[1].get("_record_id", -1),
+            ),
+            reverse=True,
+        )[:limit]
+        _LOGGER.info(
+            "%s latest selector: datetime tie detected dt=%s candidates=%d details=%s",
+            self._config.model,
+            selected_dt,
+            len(same_dt),
+            [
+                (
+                    user,
+                    rec.get("_slot_index"),
+                    rec.get("_record_id"),
+                    rec.get("sys"),
+                    rec.get("dia"),
+                    rec.get("bpm"),
+                )
+                for user, rec in ranked
+            ],
+        )
+
     async def get_all_records_flat(
         self, transport: GattTransport
     ) -> list[dict[str, Any]]:
@@ -1275,6 +1316,12 @@ class OmronDeviceDriver:
                         selected_by_datetime[1].get("_record_id"),
                         selected_by_datetime[1].get("_slot_index"),
                     )
+                    selected_dt = selected_by_datetime[1].get("datetime")
+                    if isinstance(selected_dt, dt.datetime):
+                        self._log_same_datetime_candidates(
+                            recent_dt_candidates,
+                            selected_dt,
+                        )
                     return selected_by_datetime
             return max(
                 candidates,
