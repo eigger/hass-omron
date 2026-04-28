@@ -40,11 +40,42 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
-from .const import CONF_DEVICE_MODEL, DOMAIN
+from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .omron_ble.const import CTS_CHARACTERISTIC_UUID, build_cts_payload
 from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
-CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
+
+
+def _resolved_user_aliases_from_input(
+    num_users: int, user_input: dict[str, Any]
+) -> list[str]:
+    """Return display label per slot (1..num_users), with empty -> user{n}."""
+    resolved: list[str] = []
+    for i in range(1, num_users + 1):
+        key = f"user_alias_{i}"
+        raw = str(user_input.get(key, f"user{i}") or "").strip()
+        resolved.append(raw if raw else f"user{i}")
+    return resolved
+
+
+def _user_aliases_are_unique(resolved: list[str]) -> bool:
+    """True if no two slots share the same label (case-insensitive)."""
+    lowered = [x.lower() for x in resolved]
+    return len(set(lowered)) == len(lowered)
+
+
+def _user_aliases_schema(
+    num_users: int, defaults: dict[str, Any] | None = None
+) -> vol.Schema:
+    """Build voluptuous schema for user_alias_1..N."""
+    defaults = defaults or {}
+    fields: dict[Any, Any] = {}
+    for i in range(1, num_users + 1):
+        key = f"user_alias_{i}"
+        def_val = str(defaults.get(key, f"user{i}") or f"user{i}")
+        fields[vol.Required(key, default=def_val)] = vol.All(str, vol.Length(max=64))
+    return vol.Schema(fields)
 
 
 def _log_pairing_exception(prefix: str, exc: BaseException) -> None:
@@ -117,6 +148,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_devices: dict[str, Discovery] = {}
         self._selected_model: str | None = None
         self._scan_interval: int = 300
+        self._user_aliases: dict[str, str] = {}
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -143,12 +175,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._selected_model = user_input[CONF_DEVICE_MODEL]
             self._scan_interval = user_input.get(CONF_SCAN_INTERVAL, 300)
-            
+
             # Update device data with selected model
             if self._discovered_device:
                 self._discovered_device.device_model = self._selected_model
                 title = _title(self._discovery_info, self._discovered_device)
                 self.context["title_placeholders"] = {"name": title}
+            cfg = get_device_config(self._selected_model)
+            if cfg.num_users > 1:
+                return await self.async_step_user_aliases()
+            self._user_aliases = {}
             return await self.async_step_pairing()
 
         models = get_supported_models()
@@ -179,6 +215,46 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             description_placeholders=desc_ph,
+        )
+
+    async def async_step_user_aliases(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Collect display names for each device user slot (multi-user models only)."""
+        model = self._selected_model or DEFAULT_DEVICE_MODEL
+        cfg = get_device_config(model)
+        if cfg.num_users <= 1:
+            self._user_aliases = {}
+            return await self.async_step_pairing()
+
+        if user_input is not None:
+            resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
+            if not _user_aliases_are_unique(resolved):
+                title_ph = self.context.get("title_placeholders") or {}
+                return self.async_show_form(
+                    step_id="user_aliases",
+                    data_schema=_user_aliases_schema(cfg.num_users, user_input),
+                    errors={"base": "duplicate_user_aliases"},
+                    description_placeholders={
+                        "model": model,
+                        "num_users": str(cfg.num_users),
+                        "name": str(title_ph.get("name", model)),
+                    },
+                )
+            self._user_aliases = {
+                str(i): resolved[i - 1] for i in range(1, cfg.num_users + 1)
+            }
+            return await self.async_step_pairing()
+
+        title_ph = self.context.get("title_placeholders") or {}
+        return self.async_show_form(
+            step_id="user_aliases",
+            data_schema=_user_aliases_schema(cfg.num_users),
+            description_placeholders={
+                "model": model,
+                "num_users": str(cfg.num_users),
+                "name": str(title_ph.get("name", model)),
+            },
         )
 
     async def async_step_pairing(
@@ -274,28 +350,22 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             raise ConnectionError(f"BLE device {address} not available")
 
         client = await establish_connection(BleakClient, ble_device, address)
-        try:
-            # Bleak requires an explicit service discovery before using client.services
-            # (otherwise: BleakError "Service Discovery has not been performed yet").
-            await _bleak_refresh_services(client)
-            parent_uuid = config.parent_service_uuid
-            for _ in range(5):
-                if parent_uuid in [s.uuid for s in client.services]:
-                    break
+        # Keep the connection open after pairing; poll path will reuse/reconnect as needed.
+        # Bleak requires an explicit service discovery before using client.services
+        # (otherwise: BleakError "Service Discovery has not been performed yet").
+        await _bleak_refresh_services(client)
+        parent_uuid = config.parent_service_uuid
+        for attempt in range(5):
+            if parent_uuid in [s.uuid for s in client.services]:
+                break
+            if attempt < 4:
                 await _bleak_refresh_services(client)
                 await asyncio.sleep(0.25)
 
-            transport = GattTransport(client, config)
-            await transport.pair()
-            await _bleak_refresh_services(client)
-            await self._async_try_sync_current_time(client, model)
-            _LOGGER.info("Successfully paired with %s (%s)", model, address)
-        finally:
-            if client.is_connected:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
+        transport = GattTransport(client, config)
+        await transport.pair()
+        await self._async_try_sync_current_time(client, model)
+        _LOGGER.info("Successfully paired with %s (%s)", model, address)
 
     async def _async_try_sync_current_time(self, client: BleakClient, model: str) -> None:
         """Try to sync local time to device via Current Time characteristic (CTS)."""
@@ -333,23 +403,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             return
 
         now = dt.datetime.now().astimezone()
-        day_of_week = now.isoweekday()  # Monday=1 ... Sunday=7 (CTS format)
-        # Bluetooth CTS payload (10 bytes):
-        # year(2 LE), month, day, hour, minute, second, day_of_week, fractions256, adjust_reason
-        payload = bytearray()
-        payload += int(now.year).to_bytes(2, "little")
-        payload += bytes(
-            [
-                now.month,
-                now.day,
-                now.hour,
-                now.minute,
-                now.second,
-                day_of_week,
-                0x00,  # Fractions256
-                0x01,  # Adjust reason: manual time update
-            ]
-        )
+        payload = build_cts_payload(now)
         try:
             await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
             _LOGGER.info(
@@ -446,6 +500,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         data[CONF_SCAN_INTERVAL] = int(
             getattr(self, "_scan_interval", 300)
         )
+        data[CONF_USER_ALIASES] = dict(getattr(self, "_user_aliases", {}))
 
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(
@@ -475,22 +530,78 @@ class OmronOptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        entry = self._config_entry
+        model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
+        cfg = get_device_config(model)
+
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        # Retrieve current setting, fallback to data, default 300
-        current_interval = self._config_entry.options.get(
-            CONF_SCAN_INTERVAL,
-            self._config_entry.data.get(CONF_SCAN_INTERVAL, 300)
-        )
-
-        options_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=current_interval,
-                ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+            out: dict[str, Any] = {
+                CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
             }
+            if cfg.num_users > 1:
+                resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
+                if not _user_aliases_are_unique(resolved):
+                    interval_default = user_input.get(
+                        CONF_SCAN_INTERVAL,
+                        entry.options.get(
+                            CONF_SCAN_INTERVAL,
+                            entry.data.get(CONF_SCAN_INTERVAL, 300),
+                        ),
+                    )
+                    fields_err: dict[Any, Any] = {
+                        vol.Required(
+                            CONF_SCAN_INTERVAL,
+                            default=interval_default,
+                        ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+                    }
+                    for i in range(1, cfg.num_users + 1):
+                        key = f"user_alias_{i}"
+                        fields_err[
+                            vol.Required(key, default=str(user_input.get(key, "") or ""))
+                        ] = vol.All(str, vol.Length(max=64))
+                    return self.async_show_form(
+                        step_id="init",
+                        data_schema=vol.Schema(fields_err),
+                        errors={"base": "duplicate_user_aliases"},
+                        description_placeholders={
+                            "num_users": str(cfg.num_users),
+                        },
+                    )
+                out[CONF_USER_ALIASES] = {
+                    str(i): resolved[i - 1] for i in range(1, cfg.num_users + 1)
+                }
+            else:
+                out[CONF_USER_ALIASES] = {}
+            return self.async_create_entry(title="", data=out)
+
+        current_interval = entry.options.get(
+            CONF_SCAN_INTERVAL,
+            entry.data.get(CONF_SCAN_INTERVAL, 300),
+        )
+        raw_aliases = entry.options.get(
+            CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
+        )
+        current_aliases: dict[str, Any] = (
+            dict(raw_aliases) if isinstance(raw_aliases, dict) else {}
         )
 
-        return self.async_show_form(step_id="init", data_schema=options_schema)
+        fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_SCAN_INTERVAL,
+                default=current_interval,
+            ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+        }
+        if cfg.num_users > 1:
+            for i in range(1, cfg.num_users + 1):
+                prev = str(current_aliases.get(str(i), f"user{i}") or f"user{i}")
+                fields[
+                    vol.Required(f"user_alias_{i}", default=prev)
+                ] = vol.All(str, vol.Length(max=64))
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(fields),
+            description_placeholders={
+                "num_users": str(cfg.num_users),
+            },
+        )

@@ -25,7 +25,7 @@ from sensor_state_data import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import TIMEOUT_5MIN
+from .const import CTS_CHARACTERISTIC_UUID, TIMEOUT_5MIN, build_cts_payload
 from .devices import (
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
@@ -35,9 +35,26 @@ from .devices import (
     resolve_profile_model_id,
 )
 from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
+from ..util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
-CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
+
+
+def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, str]:
+    """Build 1-based user index -> display label; empty strings become user{n}."""
+    if not user_aliases:
+        return {}
+    out: dict[int, str] = {}
+    for k, v in user_aliases.items():
+        try:
+            idx = int(k)
+        except (TypeError, ValueError):
+            continue
+        label = str(v).strip() if v is not None else ""
+        out[idx] = label if label else f"user{idx}"
+    return out
+
+
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
 # Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
@@ -50,18 +67,24 @@ OMRON_MANUFACTURER_ID = 526
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""
 
-    def __init__(self, device_model: str = DEFAULT_DEVICE_MODEL) -> None:
+    def __init__(
+        self,
+        device_model: str = DEFAULT_DEVICE_MODEL,
+        user_aliases: dict[int, str] | None = None,
+    ) -> None:
         super().__init__()
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
         self._device_model = device_model
         self._device_config: DeviceConfig = get_device_config(device_model)
         self._driver = OmronDeviceDriver(self._device_config)
+        self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
+        self._seed_measurement_entities()
 
     @property
     def device_model(self) -> str:
@@ -77,6 +100,67 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
         self._unvalidated_variant_warning_logged = False
+
+    def _seed_measurement_entities(self) -> None:
+        """Pre-register measurement sensor descriptions for offline startup.
+
+        This ensures entities exist on setup so RestoreEntity can show last values
+        before the first successful device poll.
+        """
+        from .const import ExtendedSensorDeviceClass
+
+        multi_user_mode = self._device_config.num_users > 1
+        user_ids = (
+            list(range(1, self._device_config.num_users + 1))
+            if multi_user_mode
+            else [None]
+        )
+        for user in user_ids:
+            key_suffix, name_suffix = self._measurement_user_suffixes(
+                user if isinstance(user, int) else None, multi_user_mode
+            )
+            self._publish_seed_measurements_for_suffix(
+                key_suffix,
+                name_suffix,
+                ExtendedSensorDeviceClass,
+            )
+
+    def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
+        """Declarative spec for all measurement entities that must exist at startup."""
+        return (
+            ("blood_pressure_systolic", "mmHg", sensor_classes.BLOOD_PRESSURE_SYSTOLIC, "Systolic"),
+            ("blood_pressure_diastolic", "mmHg", sensor_classes.BLOOD_PRESSURE_DIASTOLIC, "Diastolic"),
+            ("heart_rate", "bpm", sensor_classes.HEART_RATE, "Pulse"),
+            ("pulse_pressure", "mmHg", sensor_classes.PULSE_PRESSURE, "Pulse Pressure"),
+            (
+                "mean_arterial_pressure_estimated",
+                "mmHg",
+                sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                "Estimated MAP",
+            ),
+            ("blood_pressure_category", None, sensor_classes.BLOOD_PRESSURE_CATEGORY, "BP Category (ACC/AHA)"),
+            ("shock_index", "ratio", sensor_classes.SHOCK_INDEX, "Shock Index"),
+            ("rate_pressure_product", "mmHg*bpm", sensor_classes.RATE_PRESSURE_PRODUCT, "Rate Pressure Product"),
+            ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+        )
+
+    def _publish_seed_measurements_for_suffix(
+        self,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish all startup measurement entities for one user suffix."""
+        for base_key, unit, device_class, base_name in self._seed_measurement_specs(sensor_classes):
+            self._publish_measurement_sensor(
+                base_key,
+                unit,
+                None,
+                device_class,
+                base_name,
+                key_suffix,
+                name_suffix,
+            )
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
         if super().supported(data):
@@ -124,6 +208,196 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
 
+    def _measurement_user_suffixes(
+        self, user: int | None, multi_user: bool
+    ) -> tuple[str, str]:
+        """Return (sensor_key_suffix, friendly_name_suffix) for multi-user cuffs.
+
+        Keys use a slug of the configured alias (default user1, user2, …).
+        """
+        if not multi_user or user is None:
+            return "", ""
+        label = self._user_aliases.get(user)
+        if not label:
+            label = f"user{user}"
+        slug = slugify_for_entity_key(label)
+        if not slug:
+            slug = f"user{user}"
+        return f"_{slug}", f" ({label})"
+
+    def _publish_measurement_sensor(
+        self,
+        base_key: str,
+        unit: str | None,
+        value: Any,
+        device_class: Any,
+        base_name: str,
+        key_suffix: str,
+        name_suffix: str,
+    ) -> None:
+        """Publish one measurement sensor with precomputed user suffixes."""
+        self.update_sensor(
+            f"{base_key}{key_suffix}",
+            unit,
+            value,
+            device_class=device_class,
+            name=f"{base_name}{name_suffix}",
+        )
+
+    def _publish_primary_measurements(
+        self,
+        record: dict[str, Any],
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> tuple[Any, Any, Any]:
+        """Publish direct values read from the cuff."""
+        sys_val = record.get("sys")
+        dia_val = record.get("dia")
+        bpm_val = record.get("bpm")
+        self._publish_measurement_sensor(
+            "blood_pressure_systolic",
+            "mmHg",
+            sys_val,
+            sensor_classes.BLOOD_PRESSURE_SYSTOLIC,
+            "Systolic",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "blood_pressure_diastolic",
+            "mmHg",
+            dia_val,
+            sensor_classes.BLOOD_PRESSURE_DIASTOLIC,
+            "Diastolic",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "heart_rate",
+            "bpm",
+            bpm_val,
+            sensor_classes.HEART_RATE,
+            "Pulse",
+            key_suffix,
+            name_suffix,
+        )
+        return sys_val, dia_val, bpm_val
+
+    def _publish_pressure_derived_metrics(
+        self,
+        sys_val: Any,
+        dia_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish metrics derivable from systolic/diastolic pair."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and isinstance(dia_val, (int, float))
+            and sys_val > dia_val
+        ):
+            return
+        pulse_pressure = float(sys_val - dia_val)
+        estimated_map = float(dia_val + (pulse_pressure / 3))
+        self._publish_measurement_sensor(
+            "pulse_pressure",
+            "mmHg",
+            round(pulse_pressure, 1),
+            sensor_classes.PULSE_PRESSURE,
+            "Pulse Pressure",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "mean_arterial_pressure_estimated",
+            "mmHg",
+            round(estimated_map, 1),
+            sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+            "Estimated MAP",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "blood_pressure_category",
+            None,
+            self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+            sensor_classes.BLOOD_PRESSURE_CATEGORY,
+            "BP Category (ACC/AHA)",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_shock_index(
+        self,
+        sys_val: Any,
+        bpm_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish shock index only when denominator is valid."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and sys_val > 0
+            and isinstance(bpm_val, (int, float))
+        ):
+            return
+        shock_index = float(bpm_val) / float(sys_val)
+        self._publish_measurement_sensor(
+            "shock_index",
+            "ratio",
+            round(shock_index, 2),
+            sensor_classes.SHOCK_INDEX,
+            "Shock Index",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_rate_pressure_product(
+        self,
+        sys_val: Any,
+        bpm_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish RPP from systolic and pulse."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and isinstance(bpm_val, (int, float))
+        ):
+            return
+        rpp = float(sys_val) * float(bpm_val)
+        self._publish_measurement_sensor(
+            "rate_pressure_product",
+            "mmHg*bpm",
+            round(rpp, 1),
+            sensor_classes.RATE_PRESSURE_PRODUCT,
+            "Rate Pressure Product",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_measurement_timestamp(
+        self, record: dict[str, Any], key_suffix: str, name_suffix: str
+    ) -> None:
+        """Publish measurement timestamp when present."""
+        measured_at = record.get("datetime")
+        if measured_at is None:
+            return
+        measured_at = self._ensure_aware_datetime(measured_at)
+        self._publish_measurement_sensor(
+            "measurement_timestamp",
+            None,
+            measured_at,
+            SensorDeviceClass.TIMESTAMP,
+            "Measured At",
+            key_suffix,
+            name_suffix,
+        )
+
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
         return (
@@ -140,101 +414,35 @@ class OmronBluetoothDeviceData(BluetoothData):
         """Publish measurement-derived sensors for one record."""
         from .const import ExtendedSensorDeviceClass
 
-        key_suffix = f"_user{user}" if multi_user and user is not None else ""
-        name_suffix = f" (User {user})" if multi_user and user is not None else ""
-
-        sys_val = record.get("sys")
-        dia_val = record.get("dia")
-        bpm_val = record.get("bpm")
-
-        self.update_sensor(
-            f"blood_pressure_systolic{key_suffix}",
-            "mmHg",
-            record["sys"],
-            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
-            name=f"Systolic{name_suffix}",
+        key_suffix, name_suffix = self._measurement_user_suffixes(user, multi_user)
+        sys_val, dia_val, bpm_val = self._publish_primary_measurements(
+            record,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-        self.update_sensor(
-            f"blood_pressure_diastolic{key_suffix}",
-            "mmHg",
-            record["dia"],
-            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
-            name=f"Diastolic{name_suffix}",
+        self._publish_pressure_derived_metrics(
+            sys_val,
+            dia_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-        self.update_sensor(
-            f"heart_rate{key_suffix}",
-            "bpm",
-            record["bpm"],
-            device_class=ExtendedSensorDeviceClass.HEART_RATE,
-            name=f"Pulse{name_suffix}",
+        self._publish_shock_index(
+            sys_val,
+            bpm_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and isinstance(dia_val, (int, float))
-            and sys_val > dia_val
-        ):
-            pulse_pressure = float(sys_val - dia_val)
-            estimated_map = float(dia_val + (pulse_pressure / 3))
-            self.update_sensor(
-                f"pulse_pressure{key_suffix}",
-                "mmHg",
-                round(pulse_pressure, 1),
-                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
-                name=f"Pulse Pressure{name_suffix}",
-            )
-            self.update_sensor(
-                f"mean_arterial_pressure_estimated{key_suffix}",
-                "mmHg",
-                round(estimated_map, 1),
-                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
-                name=f"Estimated MAP{name_suffix}",
-            )
-            self.update_sensor(
-                f"blood_pressure_category{key_suffix}",
-                None,
-                self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
-                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
-                name=f"BP Category (ACC/AHA){name_suffix}",
-            )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and sys_val > 0
-            and isinstance(bpm_val, (int, float))
-        ):
-            shock_index = float(bpm_val) / float(sys_val)
-            self.update_sensor(
-                f"shock_index{key_suffix}",
-                "ratio",
-                round(shock_index, 2),
-                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
-                name=f"Shock Index{name_suffix}",
-            )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and isinstance(bpm_val, (int, float))
-        ):
-            rate_pressure_product = float(sys_val) * float(bpm_val)
-            self.update_sensor(
-                f"rate_pressure_product{key_suffix}",
-                "mmHg*bpm",
-                round(rate_pressure_product, 1),
-                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
-                name=f"Rate Pressure Product{name_suffix}",
-            )
-
-        measured_at = record.get("datetime")
-        if measured_at is not None:
-            measured_at = self._ensure_aware_datetime(measured_at)
-            self.update_sensor(
-                f"measurement_timestamp{key_suffix}",
-                None,
-                measured_at,
-                device_class=SensorDeviceClass.TIMESTAMP,
-                name=f"Measured At{name_suffix}",
-            )
+        self._publish_rate_pressure_product(
+            sys_val,
+            bpm_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
+        )
+        self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
@@ -444,8 +652,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                         ble_device.address,
                         exc,
                     )
-                await _bleak_refresh_services(client)
-                await asyncio.sleep(0.25)
+                if attempt < 4:
+                    await _bleak_refresh_services(client)
+                    await asyncio.sleep(0.25)
 
             if not service_found:
                 prof = resolve_profile_model_id(self._device_model)
@@ -673,46 +882,63 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         return self._finish_update()
 
-    async def async_sync_current_time(self, ble_device: BLEDevice) -> bool:
-        """Connect to device and sync current local time via CTS."""
-        client: BleakClient | None = None
-        try:
-            client = await establish_connection(BleakClient, ble_device, ble_device.address)
-            char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-            if char is None:
-                _LOGGER.warning(
-                    "CTS characteristic not found while syncing time (model=%s, address=%s)",
-                    self._device_model,
+    async def async_retry_pairing(self, ble_device: BLEDevice) -> None:
+        """Connect to the device and retry pairing/bonding (setup-like flow)."""
+        client = await establish_connection(BleakClient, ble_device, ble_device.address)
+        await _bleak_refresh_services(client)
+        parent_uuid = self._device_config.parent_service_uuid
+        service_found = False
+        for attempt in range(5):
+            try:
+                if parent_uuid in [s.uuid for s in client.services]:
+                    service_found = True
+                    break
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Services not ready during manual pairing retry (%d/5) for %s: %s",
+                    attempt + 1,
                     ble_device.address,
+                    exc,
                 )
-                return False
+            if attempt < 4:
+                await _bleak_refresh_services(client)
+                await asyncio.sleep(0.25)
 
-            now = dt.datetime.now().astimezone()
-            payload = bytearray()
-            payload += int(now.year).to_bytes(2, "little")
-            payload += bytes(
-                [
-                    now.month,
-                    now.day,
-                    now.hour,
-                    now.minute,
-                    now.second,
-                    now.isoweekday(),
-                    0x00,  # Fractions256
-                    0x01,  # Adjust reason: manual time update
-                ]
+        if not service_found:
+            raise ConnectionError(
+                f"Required service {parent_uuid} not found on device {ble_device.address}"
             )
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time via CTS for %s (%s): %s",
+
+        transport = GattTransport(client, self._device_config)
+        await transport.pair()
+        await _bleak_refresh_services(client)
+        await self._async_sync_current_time_with_client(client, ble_device.address)
+        _LOGGER.info(
+            "Manual pairing retry completed for %s (%s)",
+            self._device_model,
+            ble_device.address,
+        )
+
+    async def _async_sync_current_time_with_client(
+        self, client: BleakClient, address: str
+    ) -> bool:
+        """Sync current local time via CTS using an already connected client."""
+        char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
+        if char is None:
+            _LOGGER.warning(
+                "CTS characteristic not found while syncing time (model=%s, address=%s)",
                 self._device_model,
-                ble_device.address,
-                now.isoformat(timespec="seconds"),
+                address,
             )
-            return True
-        finally:
-            if client and client.is_connected:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
+            return False
+
+        now = dt.datetime.now().astimezone()
+        payload = build_cts_payload(now)
+        await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
+        _LOGGER.info(
+            "Synced current time via CTS for %s (%s): %s",
+            self._device_model,
+            address,
+            now.isoformat(timespec="seconds"),
+        )
+        return True
