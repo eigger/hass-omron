@@ -25,7 +25,7 @@ from sensor_state_data import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import TIMEOUT_5MIN
+from .const import CTS_CHARACTERISTIC_UUID, TIMEOUT_5MIN, build_cts_payload
 from .devices import (
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
@@ -55,7 +55,6 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
     return out
 
 
-CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
 BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
 # Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
@@ -934,20 +933,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             return False
 
         now = dt.datetime.now().astimezone()
-        payload = bytearray()
-        payload += int(now.year).to_bytes(2, "little")
-        payload += bytes(
-            [
-                now.month,
-                now.day,
-                now.hour,
-                now.minute,
-                now.second,
-                now.isoweekday(),
-                0x00,  # Fractions256
-                0x01,  # Adjust reason: manual time update
-            ]
-        )
+        payload = build_cts_payload(now)
         await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
         _LOGGER.info(
             "Synced current time via CTS for %s (%s): %s",

@@ -41,10 +41,10 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .omron_ble.const import CTS_CHARACTERISTIC_UUID, build_cts_payload
 from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
-CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 
 
 def _resolved_user_aliases_from_input(
@@ -403,23 +403,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             return
 
         now = dt.datetime.now().astimezone()
-        day_of_week = now.isoweekday()  # Monday=1 ... Sunday=7 (CTS format)
-        # Bluetooth CTS payload (10 bytes):
-        # year(2 LE), month, day, hour, minute, second, day_of_week, fractions256, adjust_reason
-        payload = bytearray()
-        payload += int(now.year).to_bytes(2, "little")
-        payload += bytes(
-            [
-                now.month,
-                now.day,
-                now.hour,
-                now.minute,
-                now.second,
-                day_of_week,
-                0x00,  # Fractions256
-                0x01,  # Adjust reason: manual time update
-            ]
-        )
+        payload = build_cts_payload(now)
         try:
             await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
             _LOGGER.info(
