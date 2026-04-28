@@ -121,6 +121,8 @@ class GattTransport:
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
+        self._memory_session_depth = 0
+        self._unlocked = False
 
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
@@ -259,6 +261,11 @@ class GattTransport:
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
+        self._memory_session_depth += 1
+        if self._memory_session_depth > 1:
+            _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
+            return
+
         await self._subscribe_notify_channels()
         # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
         start_cmd = bytearray.fromhex("0800000000100018")
@@ -268,6 +275,13 @@ class GattTransport:
 
     async def close_memory_session(self) -> None:
         """End a data readout session."""
+        if self._memory_session_depth <= 0:
+            return
+        self._memory_session_depth -= 1
+        if self._memory_session_depth > 0:
+            _LOGGER.debug("Decreasing memory session depth to %d", self._memory_session_depth)
+            return
+
         stop_cmd = bytearray.fromhex("080f000000000007")
         await self._write_command_and_wait_reply(stop_cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8f00"):
@@ -348,7 +362,7 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock:
+        if not self._config.requires_unlock or self._unlocked:
             return
 
         unlock_key = key or PAIRING_KEY
@@ -370,6 +384,8 @@ class GattTransport:
             response = response_holder[0]
             if response is None or response[:2] != bytearray.fromhex("8100"):
                 raise ConnectionError("Unlock failed: pairing key mismatch")
+            
+            self._unlocked = True
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
 
@@ -655,8 +671,17 @@ class OmronDeviceDriver:
             )
             cached = bytearray(cached)
 
-            # Log current device time (best-effort)
-            self._log_eeprom_device_time(cached)
+            # Parse current device time and only write if difference is > 60 seconds
+            device_dt = self._parse_eeprom_device_time(cached)
+            if device_dt is not None:
+                diff = abs((device_dt - now).total_seconds())
+                if diff <= 60:
+                    _LOGGER.debug(
+                        "Device %s time is already in sync (%s), skipping EEPROM write",
+                        self._config.model,
+                        device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    return True
 
             # Write new time into the cached settings
             cached = self._build_eeprom_time_data(cached, now)
@@ -680,8 +705,8 @@ class OmronDeviceDriver:
 
         return True
 
-    def _log_eeprom_device_time(self, cached: bytearray) -> None:
-        """Log the current time stored on the device (best-effort)."""
+    def _parse_eeprom_device_time(self, cached: bytearray) -> dt.datetime | None:
+        """Parse and return the current time stored on the device (best-effort)."""
         try:
             if self._config.endianness == "big":
                 # Format A: [2:8] = month, year-2000, hour, day, second, minute
@@ -699,17 +724,23 @@ class OmronDeviceDriver:
                 device_dt = dt.datetime(
                     year_off + 2000, month, day, hour, minute, min(second, 59)
                 )
-            _LOGGER.info(
+            
+            # Use local timezone to match the `now` timezone we compare against
+            device_dt = device_dt.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+            
+            _LOGGER.debug(
                 "Device %s current EEPROM time: %s",
                 self._config.model,
                 device_dt.strftime("%Y-%m-%d %H:%M:%S"),
             )
+            return device_dt
         except Exception:
             _LOGGER.warning(
                 "Device %s has invalid EEPROM time data: %s",
                 self._config.model,
                 bytes(cached).hex(),
             )
+            return None
 
     def _build_eeprom_time_data(
         self, cached: bytearray, now: dt.datetime

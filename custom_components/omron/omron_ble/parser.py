@@ -689,6 +689,23 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
             transport = GattTransport(client, self._device_config)
+            
+            # Open a single memory session for both records and time sync
+            session_opened = False
+            if self._device_config.parent_service_uuid.lower() == "ec90":
+                try:
+                    await transport.unlock()
+                    await transport.open_memory_session()
+                    session_opened = True
+                except Exception as exc:
+                    _LOGGER.debug("Could not open memory session globally in poll: %s", exc)
+
+            # Perform time sync first, ensuring the device clock is correct before further actions
+            try:
+                await self._async_sync_current_time_with_client(client, ble_device.address, transport)
+            except Exception as exc:
+                _LOGGER.warning("Time sync failed during poll for %s: %s", ble_device.address, exc)
+
             multi_user_mode = self._device_config.num_users > 1
             record: dict[str, Any] | None = None
             latest_by_user: dict[int, dict[str, Any]] = {}
@@ -873,6 +890,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                 variant_entry[1].reason if variant_entry else None,
             )
         finally:
+            if session_opened:
+                try:
+                    await transport.close_memory_session()
+                except Exception:
+                    pass
+
             if client and client.is_connected:
                 try:
                     await client.disconnect()

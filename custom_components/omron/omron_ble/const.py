@@ -23,7 +23,7 @@ def build_cts_payload(now: dt.datetime) -> bytearray:
             now.second,
             now.isoweekday(),  # Monday=1 ... Sunday=7 (CTS format)
             0x00,  # Fractions256
-            0x01,  # Adjust reason: manual time update
+            0x00,  # Adjust reason: 0x00 (Unknown)
         ]
     )
     return payload
