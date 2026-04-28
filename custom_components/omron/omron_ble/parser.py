@@ -25,7 +25,14 @@ from sensor_state_data import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CTS_CHARACTERISTIC_UUID, TIMEOUT_5MIN, build_cts_payload
+from .const import (
+    CTS_CHARACTERISTIC_UUID,
+    TIMEOUT_5MIN,
+    build_cts_payload,
+    BATTERY_LEVEL_UUID,
+    FIRMWARE_REVISION_UUID,
+    HARDWARE_REVISION_UUID,
+)
 from .devices import (
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
@@ -124,6 +131,15 @@ class OmronBluetoothDeviceData(BluetoothData):
                 name_suffix,
                 ExtendedSensorDeviceClass,
             )
+
+        # Seed device-level battery sensor
+        self.update_sensor(
+            "battery",
+            Units.PERCENTAGE,
+            None,
+            SensorDeviceClass.BATTERY,
+            "Battery",
+        )
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
@@ -868,6 +884,48 @@ class OmronBluetoothDeviceData(BluetoothData):
                     self._device_model,
                     prof,
                 )
+
+            # Fetch Battery Level
+            try:
+                char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                if char_bat:
+                    bat_bytes = await client.read_gatt_char(char_bat)
+                    if bat_bytes:
+                        bat_level = int(bat_bytes[0])
+                        self.update_sensor(
+                            "battery",
+                            Units.PERCENTAGE,
+                            bat_level,
+                            SensorDeviceClass.BATTERY,
+                            "Battery",
+                        )
+                        _LOGGER.debug("Read Battery Level: %s%%", bat_level)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Battery Level: %s", exc)
+
+            # Fetch Firmware Revision
+            try:
+                char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
+                if char_fw:
+                    fw_bytes = await client.read_gatt_char(char_fw)
+                    if fw_bytes:
+                        fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_sw_version(fw_rev)
+                        _LOGGER.debug("Read Firmware Revision: %s", fw_rev)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
+
+            # Fetch Hardware Revision
+            try:
+                char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
+                if char_hw:
+                    hw_bytes = await client.read_gatt_char(char_hw)
+                    if hw_bytes:
+                        hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_hw_version(hw_rev)
+                        _LOGGER.debug("Read Hardware Revision: %s", hw_rev)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
 
         except Exception as exc:
             prof = resolve_profile_model_id(self._device_model)
