@@ -120,68 +120,47 @@ class OmronBluetoothDeviceData(BluetoothData):
             key_suffix, name_suffix = self._measurement_user_suffixes(
                 user if isinstance(user, int) else None, multi_user_mode
             )
-            self.update_sensor(
-                f"blood_pressure_systolic{key_suffix}",
+            self._publish_seed_measurements_for_suffix(
+                key_suffix,
+                name_suffix,
+                ExtendedSensorDeviceClass,
+            )
+
+    def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
+        """Declarative spec for all measurement entities that must exist at startup."""
+        return (
+            ("blood_pressure_systolic", "mmHg", sensor_classes.BLOOD_PRESSURE_SYSTOLIC, "Systolic"),
+            ("blood_pressure_diastolic", "mmHg", sensor_classes.BLOOD_PRESSURE_DIASTOLIC, "Diastolic"),
+            ("heart_rate", "bpm", sensor_classes.HEART_RATE, "Pulse"),
+            ("pulse_pressure", "mmHg", sensor_classes.PULSE_PRESSURE, "Pulse Pressure"),
+            (
+                "mean_arterial_pressure_estimated",
                 "mmHg",
+                sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+                "Estimated MAP",
+            ),
+            ("blood_pressure_category", None, sensor_classes.BLOOD_PRESSURE_CATEGORY, "BP Category (ACC/AHA)"),
+            ("shock_index", "ratio", sensor_classes.SHOCK_INDEX, "Shock Index"),
+            ("rate_pressure_product", "mmHg*bpm", sensor_classes.RATE_PRESSURE_PRODUCT, "Rate Pressure Product"),
+            ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+        )
+
+    def _publish_seed_measurements_for_suffix(
+        self,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish all startup measurement entities for one user suffix."""
+        for base_key, unit, device_class, base_name in self._seed_measurement_specs(sensor_classes):
+            self._publish_measurement_sensor(
+                base_key,
+                unit,
                 None,
-                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
-                name=f"Systolic{name_suffix}",
-            )
-            self.update_sensor(
-                f"blood_pressure_diastolic{key_suffix}",
-                "mmHg",
-                None,
-                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
-                name=f"Diastolic{name_suffix}",
-            )
-            self.update_sensor(
-                f"heart_rate{key_suffix}",
-                "bpm",
-                None,
-                device_class=ExtendedSensorDeviceClass.HEART_RATE,
-                name=f"Pulse{name_suffix}",
-            )
-            self.update_sensor(
-                f"pulse_pressure{key_suffix}",
-                "mmHg",
-                None,
-                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
-                name=f"Pulse Pressure{name_suffix}",
-            )
-            self.update_sensor(
-                f"mean_arterial_pressure_estimated{key_suffix}",
-                "mmHg",
-                None,
-                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
-                name=f"Estimated MAP{name_suffix}",
-            )
-            self.update_sensor(
-                f"blood_pressure_category{key_suffix}",
-                None,
-                None,
-                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
-                name=f"BP Category (ACC/AHA){name_suffix}",
-            )
-            self.update_sensor(
-                f"shock_index{key_suffix}",
-                "ratio",
-                None,
-                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
-                name=f"Shock Index{name_suffix}",
-            )
-            self.update_sensor(
-                f"rate_pressure_product{key_suffix}",
-                "mmHg*bpm",
-                None,
-                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
-                name=f"Rate Pressure Product{name_suffix}",
-            )
-            self.update_sensor(
-                f"measurement_timestamp{key_suffix}",
-                None,
-                None,
-                device_class=SensorDeviceClass.TIMESTAMP,
-                name=f"Measured At{name_suffix}",
+                device_class,
+                base_name,
+                key_suffix,
+                name_suffix,
             )
 
     def supported(self, data: BluetoothServiceInfoBleak) -> bool:
@@ -247,6 +226,179 @@ class OmronBluetoothDeviceData(BluetoothData):
             slug = f"user{user}"
         return f"_{slug}", f" ({label})"
 
+    def _publish_measurement_sensor(
+        self,
+        base_key: str,
+        unit: str | None,
+        value: Any,
+        device_class: Any,
+        base_name: str,
+        key_suffix: str,
+        name_suffix: str,
+    ) -> None:
+        """Publish one measurement sensor with precomputed user suffixes."""
+        self.update_sensor(
+            f"{base_key}{key_suffix}",
+            unit,
+            value,
+            device_class=device_class,
+            name=f"{base_name}{name_suffix}",
+        )
+
+    def _publish_primary_measurements(
+        self,
+        record: dict[str, Any],
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> tuple[Any, Any, Any]:
+        """Publish direct values read from the cuff."""
+        sys_val = record.get("sys")
+        dia_val = record.get("dia")
+        bpm_val = record.get("bpm")
+        self._publish_measurement_sensor(
+            "blood_pressure_systolic",
+            "mmHg",
+            sys_val,
+            sensor_classes.BLOOD_PRESSURE_SYSTOLIC,
+            "Systolic",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "blood_pressure_diastolic",
+            "mmHg",
+            dia_val,
+            sensor_classes.BLOOD_PRESSURE_DIASTOLIC,
+            "Diastolic",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "heart_rate",
+            "bpm",
+            bpm_val,
+            sensor_classes.HEART_RATE,
+            "Pulse",
+            key_suffix,
+            name_suffix,
+        )
+        return sys_val, dia_val, bpm_val
+
+    def _publish_pressure_derived_metrics(
+        self,
+        sys_val: Any,
+        dia_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish metrics derivable from systolic/diastolic pair."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and isinstance(dia_val, (int, float))
+            and sys_val > dia_val
+        ):
+            return
+        pulse_pressure = float(sys_val - dia_val)
+        estimated_map = float(dia_val + (pulse_pressure / 3))
+        self._publish_measurement_sensor(
+            "pulse_pressure",
+            "mmHg",
+            round(pulse_pressure, 1),
+            sensor_classes.PULSE_PRESSURE,
+            "Pulse Pressure",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "mean_arterial_pressure_estimated",
+            "mmHg",
+            round(estimated_map, 1),
+            sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
+            "Estimated MAP",
+            key_suffix,
+            name_suffix,
+        )
+        self._publish_measurement_sensor(
+            "blood_pressure_category",
+            None,
+            self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+            sensor_classes.BLOOD_PRESSURE_CATEGORY,
+            "BP Category (ACC/AHA)",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_shock_index(
+        self,
+        sys_val: Any,
+        bpm_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish shock index only when denominator is valid."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and sys_val > 0
+            and isinstance(bpm_val, (int, float))
+        ):
+            return
+        shock_index = float(bpm_val) / float(sys_val)
+        self._publish_measurement_sensor(
+            "shock_index",
+            "ratio",
+            round(shock_index, 2),
+            sensor_classes.SHOCK_INDEX,
+            "Shock Index",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_rate_pressure_product(
+        self,
+        sys_val: Any,
+        bpm_val: Any,
+        key_suffix: str,
+        name_suffix: str,
+        sensor_classes: Any,
+    ) -> None:
+        """Publish RPP from systolic and pulse."""
+        if not (
+            isinstance(sys_val, (int, float))
+            and isinstance(bpm_val, (int, float))
+        ):
+            return
+        rpp = float(sys_val) * float(bpm_val)
+        self._publish_measurement_sensor(
+            "rate_pressure_product",
+            "mmHg*bpm",
+            round(rpp, 1),
+            sensor_classes.RATE_PRESSURE_PRODUCT,
+            "Rate Pressure Product",
+            key_suffix,
+            name_suffix,
+        )
+
+    def _publish_measurement_timestamp(
+        self, record: dict[str, Any], key_suffix: str, name_suffix: str
+    ) -> None:
+        """Publish measurement timestamp when present."""
+        measured_at = record.get("datetime")
+        if measured_at is None:
+            return
+        measured_at = self._ensure_aware_datetime(measured_at)
+        self._publish_measurement_sensor(
+            "measurement_timestamp",
+            None,
+            measured_at,
+            SensorDeviceClass.TIMESTAMP,
+            "Measured At",
+            key_suffix,
+            name_suffix,
+        )
+
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
         return (
@@ -264,99 +416,34 @@ class OmronBluetoothDeviceData(BluetoothData):
         from .const import ExtendedSensorDeviceClass
 
         key_suffix, name_suffix = self._measurement_user_suffixes(user, multi_user)
-
-        sys_val = record.get("sys")
-        dia_val = record.get("dia")
-        bpm_val = record.get("bpm")
-
-        self.update_sensor(
-            f"blood_pressure_systolic{key_suffix}",
-            "mmHg",
-            record["sys"],
-            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
-            name=f"Systolic{name_suffix}",
+        sys_val, dia_val, bpm_val = self._publish_primary_measurements(
+            record,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-        self.update_sensor(
-            f"blood_pressure_diastolic{key_suffix}",
-            "mmHg",
-            record["dia"],
-            device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_DIASTOLIC,
-            name=f"Diastolic{name_suffix}",
+        self._publish_pressure_derived_metrics(
+            sys_val,
+            dia_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-        self.update_sensor(
-            f"heart_rate{key_suffix}",
-            "bpm",
-            record["bpm"],
-            device_class=ExtendedSensorDeviceClass.HEART_RATE,
-            name=f"Pulse{name_suffix}",
+        self._publish_shock_index(
+            sys_val,
+            bpm_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
         )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and isinstance(dia_val, (int, float))
-            and sys_val > dia_val
-        ):
-            pulse_pressure = float(sys_val - dia_val)
-            estimated_map = float(dia_val + (pulse_pressure / 3))
-            self.update_sensor(
-                f"pulse_pressure{key_suffix}",
-                "mmHg",
-                round(pulse_pressure, 1),
-                device_class=ExtendedSensorDeviceClass.PULSE_PRESSURE,
-                name=f"Pulse Pressure{name_suffix}",
-            )
-            self.update_sensor(
-                f"mean_arterial_pressure_estimated{key_suffix}",
-                "mmHg",
-                round(estimated_map, 1),
-                device_class=ExtendedSensorDeviceClass.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
-                name=f"Estimated MAP{name_suffix}",
-            )
-            self.update_sensor(
-                f"blood_pressure_category{key_suffix}",
-                None,
-                self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
-                device_class=ExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY,
-                name=f"BP Category (ACC/AHA){name_suffix}",
-            )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and sys_val > 0
-            and isinstance(bpm_val, (int, float))
-        ):
-            shock_index = float(bpm_val) / float(sys_val)
-            self.update_sensor(
-                f"shock_index{key_suffix}",
-                "ratio",
-                round(shock_index, 2),
-                device_class=ExtendedSensorDeviceClass.SHOCK_INDEX,
-                name=f"Shock Index{name_suffix}",
-            )
-
-        if (
-            isinstance(sys_val, (int, float))
-            and isinstance(bpm_val, (int, float))
-        ):
-            rate_pressure_product = float(sys_val) * float(bpm_val)
-            self.update_sensor(
-                f"rate_pressure_product{key_suffix}",
-                "mmHg*bpm",
-                round(rate_pressure_product, 1),
-                device_class=ExtendedSensorDeviceClass.RATE_PRESSURE_PRODUCT,
-                name=f"Rate Pressure Product{name_suffix}",
-            )
-
-        measured_at = record.get("datetime")
-        if measured_at is not None:
-            measured_at = self._ensure_aware_datetime(measured_at)
-            self.update_sensor(
-                f"measurement_timestamp{key_suffix}",
-                None,
-                measured_at,
-                device_class=SensorDeviceClass.TIMESTAMP,
-                name=f"Measured At{name_suffix}",
-            )
+        self._publish_rate_pressure_product(
+            sys_val,
+            bpm_val,
+            key_suffix,
+            name_suffix,
+            ExtendedSensorDeviceClass,
+        )
+        self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
