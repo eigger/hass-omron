@@ -311,6 +311,15 @@ class DeviceConfig:
         """Return True if the device supports unread record counters."""
         return self.settings_unread_records_bytes is not None
 
+    @property
+    def supports_eeprom_time_sync(self) -> bool:
+        """Return True if the device supports EEPROM-based time synchronization."""
+        return (
+            self.settings_time_sync_bytes is not None
+            and self.settings_read_address is not None
+            and self.settings_write_address is not None
+        )
+
     def parse_record(self, data: bytes | bytearray) -> dict[str, Any]:
         """Parse a single record using the device-specific parser."""
         parser_map = {

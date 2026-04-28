@@ -912,7 +912,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         transport = GattTransport(client, self._device_config)
         await transport.pair()
         await _bleak_refresh_services(client)
-        await self._async_sync_current_time_with_client(client, ble_device.address)
+        await self._async_sync_current_time_with_client(client, ble_device.address, transport)
         _LOGGER.info(
             "Manual pairing retry completed for %s (%s)",
             self._device_model,
@@ -920,25 +920,61 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
 
     async def _async_sync_current_time_with_client(
-        self, client: BleakClient, address: str
+        self, client: BleakClient, address: str,
+        transport: GattTransport | None = None,
     ) -> bool:
-        """Sync current local time via CTS using an already connected client."""
+        """Sync current local time via CTS or EEPROM fallback.
+
+        Newer-stack devices (HEM-7380T1 etc.) use the standard BLE CTS
+        characteristic (0x2A2B). Legacy devices (HEM-7322T, HEM-7155T etc.)
+        do not expose CTS and instead store time in a dedicated EEPROM region.
+        """
+        # Try CTS first
         char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-        if char is None:
-            _LOGGER.warning(
-                "CTS characteristic not found while syncing time (model=%s, address=%s)",
+        if char is not None:
+            now = dt.datetime.now().astimezone()
+            payload = build_cts_payload(now)
+            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
+            _LOGGER.info(
+                "Synced current time via CTS for %s (%s): %s",
+                self._device_model,
+                address,
+                now.isoformat(timespec="seconds"),
+            )
+            return True
+
+        # CTS not available — try EEPROM-based time sync for legacy devices
+        if self._device_config.supports_eeprom_time_sync:
+            _LOGGER.debug(
+                "CTS characteristic not found for %s (%s), trying EEPROM time sync",
                 self._device_model,
                 address,
             )
+            if transport is None:
+                transport = GattTransport(client, self._device_config)
+            try:
+                synced = await self._driver.sync_eeprom_time(transport)
+                if synced:
+                    return True
+                _LOGGER.warning(
+                    "EEPROM time sync returned False for %s (%s)",
+                    self._device_model,
+                    address,
+                )
+            except Exception as exc:
+                _LOGGER.warning(
+                    "EEPROM time sync failed for %s (%s): %s",
+                    self._device_model,
+                    address,
+                    exc,
+                )
             return False
 
-        now = dt.datetime.now().astimezone()
-        payload = build_cts_payload(now)
-        await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-        _LOGGER.info(
-            "Synced current time via CTS for %s (%s): %s",
+        _LOGGER.warning(
+            "No time sync method available for %s (%s): "
+            "CTS characteristic not found and EEPROM time sync not supported",
             self._device_model,
             address,
-            now.isoformat(timespec="seconds"),
         )
-        return True
+        return False
+

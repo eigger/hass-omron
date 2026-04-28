@@ -13,6 +13,7 @@ from typing import Any
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
     DEFAULT_DEVICE_MODEL,
+    DeviceConfig,
     MODEL_VARIANT_MAP,
     get_device_config,
     get_supported_model_stats,
@@ -42,7 +43,7 @@ from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.const import CTS_CHARACTERISTIC_UUID, build_cts_payload
-from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
+from .omron_ble.omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -364,11 +365,17 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         transport = GattTransport(client, config)
         await transport.pair()
-        await self._async_try_sync_current_time(client, model)
+        await self._async_try_sync_current_time(client, model, config, transport)
         _LOGGER.info("Successfully paired with %s (%s)", model, address)
 
-    async def _async_try_sync_current_time(self, client: BleakClient, model: str) -> None:
-        """Try to sync local time to device via Current Time characteristic (CTS)."""
+    async def _async_try_sync_current_time(
+        self,
+        client: BleakClient,
+        model: str,
+        config: DeviceConfig | None = None,
+        transport: GattTransport | None = None,
+    ) -> None:
+        """Try to sync local time to device via CTS or EEPROM fallback."""
         if not client.is_connected:
             _LOGGER.debug(
                 "Skipping time sync after pairing for %s: client is not connected",
@@ -395,24 +402,47 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             return
 
-        if char is None:
-            _LOGGER.debug(
-                "Skipping time sync after pairing for %s: CTS characteristic not found",
-                model,
-            )
-            return
+        # Try CTS first
+        if char is not None:
+            now = dt.datetime.now().astimezone()
+            payload = build_cts_payload(now)
+            try:
+                await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
+                _LOGGER.info(
+                    "Synced current time to %s via CTS: %s",
+                    model,
+                    now.isoformat(timespec="seconds"),
+                )
+                return
+            except Exception as exc:
+                _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
 
-        now = dt.datetime.now().astimezone()
-        payload = build_cts_payload(now)
-        try:
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time to %s via CTS: %s",
+        # CTS not available — try EEPROM-based time sync for legacy devices
+        if config is None:
+            config = get_device_config(model)
+        if config.supports_eeprom_time_sync:
+            _LOGGER.debug(
+                "CTS not found for %s, trying EEPROM time sync",
                 model,
-                now.isoformat(timespec="seconds"),
             )
-        except Exception as exc:
-            _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
+            if transport is None:
+                transport = GattTransport(client, config)
+            try:
+                driver = OmronDeviceDriver(config)
+                synced = await driver.sync_eeprom_time(transport)
+                if synced:
+                    return
+                _LOGGER.warning("EEPROM time sync returned False for %s", model)
+            except Exception as exc:
+                _LOGGER.warning("EEPROM time sync failed for %s: %s", model, exc)
+        else:
+            _LOGGER.debug(
+                "Skipping time sync after pairing for %s: "
+                "CTS characteristic not found and EEPROM time sync not supported",
+                model,
+            )
+
+
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
