@@ -659,6 +659,10 @@ class OmronDeviceDriver:
 
         if now is None:
             now = self._now_func()
+        # Normalize to local timezone-aware datetime so comparisons with parsed
+        # EEPROM timestamps never fail on naive/aware mismatch.
+        if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+            now = now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
 
         await transport.unlock()
         await transport.open_memory_session()
