@@ -135,6 +135,16 @@ SENSOR_DESCRIPTIONS = {
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
+    (
+        OmronSensorDeviceClass.BATTERY,
+        Units.PERCENTAGE,
+    ): SensorEntityDescription(
+        key=f"{OmronSensorDeviceClass.BATTERY}_{Units.PERCENTAGE}",
+        device_class=SensorDeviceClass.BATTERY,
+        native_unit_of_measurement=Units.PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery",
+    ),
 }
 
 def hass_device_info(sensor_device_info, address: str | None = None):
@@ -296,6 +306,10 @@ class OmronBluetoothSensorEntity(
     async def async_added_to_hass(self) -> None:
         """Subscribe to coordinator and restore last state from recorder."""
         await super().async_added_to_hass()
+        # Battery level can be unsupported on some models/firmware sessions.
+        # Avoid showing stale restored values as if they were fresh readings.
+        if self.entity_description.device_class == SensorDeviceClass.BATTERY:
+            return
         if self.entity_description.entity_category == EntityCategory.DIAGNOSTIC:
             return
         last_state = await self.async_get_last_state()

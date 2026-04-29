@@ -124,15 +124,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ExtendedSensorDeviceClass,
             )
 
-        # Seed device-level battery sensor
-        self.update_sensor(
-            "battery",
-            Units.PERCENTAGE,
-            None,
-            SensorDeviceClass.BATTERY,
-            "Battery",
-        )
-
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
         return (
@@ -906,18 +897,29 @@ class OmronBluetoothDeviceData(BluetoothData):
             # Fetch Battery Level
             try:
                 char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                bat_bytes = None
                 if char_bat:
                     bat_bytes = await client.read_gatt_char(char_bat)
-                    if bat_bytes:
-                        bat_level = int(bat_bytes[0])
-                        self.update_sensor(
-                            "battery",
-                            Units.PERCENTAGE,
-                            bat_level,
-                            SensorDeviceClass.BATTERY,
-                            "Battery",
-                        )
-                        _LOGGER.debug("Read Battery Level: %s%%", bat_level)
+                else:
+                    # Some stacks do not expose BAS in cached services reliably.
+                    # Fall back to direct UUID read attempt.
+                    _LOGGER.debug(
+                        "Battery characteristic %s not found in services for %s; trying direct UUID read",
+                        BATTERY_LEVEL_UUID,
+                        ble_device.address,
+                    )
+                    bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
+
+                if bat_bytes:
+                    bat_level = int(bat_bytes[0])
+                    self.update_sensor(
+                        "battery",
+                        Units.PERCENTAGE,
+                        bat_level,
+                        SensorDeviceClass.BATTERY,
+                        "Battery",
+                    )
+                    _LOGGER.debug("Read Battery Level: %s%%", bat_level)
             except Exception as exc:
                 _LOGGER.debug("Failed to read Battery Level: %s", exc)
 
