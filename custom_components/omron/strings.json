@@ -9,7 +9,8 @@
         }
       },
       "bluetooth_confirm": {
-        "description": "[%key:component::bluetooth::config::step::bluetooth_confirm::description%]"
+        "title": "Confirm Device",
+        "description": "To configure {name}, first put the device into pairing mode, then press Submit (Confirm)."
       },
       "select_model": {
         "title": "Select Device Model",
