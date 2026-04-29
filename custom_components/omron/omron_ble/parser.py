@@ -29,12 +29,15 @@ from .const import (
     HARDWARE_REVISION_UUID,
     MANUFACTURER_NAME_UUID,
     MODEL_NUMBER_UUID,
+    BP_MEASUREMENT_CHAR_UUID,
+    BP_RACP_CHAR_UUID,
+    OMRON_MANUFACTURER_ID,
+    DISCOVERABLE_PARENT_SERVICE_UUIDS,
+    DEFAULT_DEVICE_MODEL,
 )
 from .setup import async_sync_device_time
 from .devices import (
-    DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
-    DEFAULT_DEVICE_MODEL,
     MODEL_VARIANT_MAP,
     get_device_config,
     resolve_profile_model_id,
@@ -58,16 +61,6 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
         label = str(v).strip() if v is not None else ""
         out[idx] = label if label else f"user{idx}"
     return out
-
-
-BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
-BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
-# Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
-OMRON_MANUFACTURER_ID = 526
-
-
-
-
 
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""

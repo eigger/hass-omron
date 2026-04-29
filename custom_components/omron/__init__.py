@@ -7,7 +7,7 @@ from time import perf_counter
 import asyncio
 import logging
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
-from .omron_ble.devices import DEFAULT_DEVICE_MODEL
+from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
@@ -46,9 +46,6 @@ def process_service_info(
     update = data.update(service_info)
 
     return update
-
-
-
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

@@ -12,7 +12,6 @@ from typing import Any
 
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
-    DEFAULT_DEVICE_MODEL,
     DeviceConfig,
     MODEL_VARIANT_MAP,
     get_device_config,
@@ -46,6 +45,7 @@ from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
 )
+from .omron_ble.const import DEFAULT_DEVICE_MODEL
 
 _LOGGER = logging.getLogger(__name__)
 
