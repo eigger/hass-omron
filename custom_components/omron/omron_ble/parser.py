@@ -726,7 +726,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             
             # Open a single memory session for both records and time sync
             session_opened = False
-            if self._device_config.parent_service_uuid.lower() == "ec90":
+            if self._device_config.parent_service_stack() == "classic":
                 try:
                     await transport.unlock()
                     await transport.open_memory_session()
