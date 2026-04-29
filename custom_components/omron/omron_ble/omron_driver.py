@@ -374,6 +374,7 @@ class GattTransport:
             unlock_event.set()
 
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
+        await asyncio.sleep(0.5)
         try:
             unlock_event.clear()
             await self._client.write_gatt_char(
@@ -383,6 +384,11 @@ class GattTransport:
 
             response = response_holder[0]
             if response is None or response[:2] != bytearray.fromhex("8100"):
+                _LOGGER.debug(
+                    "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
+                    len(response) if response is not None else None,
+                    _hex(response) if response else "None",
+                )
                 raise ConnectionError("Unlock failed: pairing key mismatch")
             
             self._unlocked = True
