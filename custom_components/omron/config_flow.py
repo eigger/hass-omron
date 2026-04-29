@@ -12,7 +12,7 @@ from typing import Any
 
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
-    DEFAULT_DEVICE_MODEL,
+    DeviceConfig,
     MODEL_VARIANT_MAP,
     get_device_config,
     get_supported_model_stats,
@@ -41,8 +41,11 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
-from .omron_ble.const import CTS_CHARACTERISTIC_UUID, build_cts_payload
-from .omron_ble.omron_driver import GattTransport, _bleak_refresh_services
+from .omron_ble.setup import (
+    async_fetch_device_model_number,
+    async_pair_and_sync_device,
+)
+from .omron_ble.const import DEFAULT_DEVICE_MODEL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -149,6 +152,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_model: str | None = None
         self._scan_interval: int = 300
         self._user_aliases: dict[str, str] = {}
+        self._cached_client: BleakClient | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -166,7 +170,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovery_info = discovery_info
         self._discovered_device = device
 
-        return await self.async_step_select_model()
+        return await self.async_step_bluetooth_confirm()
 
     async def async_step_select_model(
         self, user_input: dict[str, Any] | None = None
@@ -191,10 +195,26 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         model_dict = {m: m for m in models}
         stats = get_supported_model_stats()
         default_model = DEFAULT_DEVICE_MODEL
+        
+        # Check manufacturer data directly if available for model code (often in BLE beacons)
+        # Or read from config flow context if we cached it.
+        # However, for passive discovery, we only have local_name.
         if self._discovery_info:
             inferred = infer_model_id_from_local_name(self._discovery_info.name)
             if inferred is not None:
                 default_model = inferred
+            else:
+                # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
+                ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
+                if ble_device:
+                    client, model_num = await async_fetch_device_model_number(ble_device)
+                    if client:
+                        self._cached_client = client
+                        if model_num:
+                            inferred = infer_model_id_from_local_name(model_num)
+                            if inferred:
+                                default_model = inferred
+
         desc_ph = {
             **self.context.get("title_placeholders", {}),
             "model_total": str(stats["total"]),
@@ -349,70 +369,13 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        client = await establish_connection(BleakClient, ble_device, address)
-        # Keep the connection open after pairing; poll path will reuse/reconnect as needed.
-        # Bleak requires an explicit service discovery before using client.services
-        # (otherwise: BleakError "Service Discovery has not been performed yet").
-        await _bleak_refresh_services(client)
-        parent_uuid = config.parent_service_uuid
-        for attempt in range(5):
-            if parent_uuid in [s.uuid for s in client.services]:
-                break
-            if attempt < 4:
-                await _bleak_refresh_services(client)
-                await asyncio.sleep(0.25)
+        if self._cached_client and self._cached_client.is_connected:
+            client = self._cached_client
+        else:
+            client = await establish_connection(BleakClient, ble_device, address)
+            self._cached_client = client
 
-        transport = GattTransport(client, config)
-        await transport.pair()
-        await self._async_try_sync_current_time(client, model)
-        _LOGGER.info("Successfully paired with %s (%s)", model, address)
-
-    async def _async_try_sync_current_time(self, client: BleakClient, model: str) -> None:
-        """Try to sync local time to device via Current Time characteristic (CTS)."""
-        if not client.is_connected:
-            _LOGGER.debug(
-                "Skipping time sync after pairing for %s: client is not connected",
-                model,
-            )
-            return
-        try:
-            # Refresh/inspect services defensively to avoid setup-time crashes
-            # on hosts that delay GATT service resolution.
-            await _bleak_refresh_services(client)
-            services = client.services
-            if services is None:
-                _LOGGER.debug(
-                    "Skipping time sync after pairing for %s: GATT services unavailable",
-                    model,
-                )
-                return
-            char = services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-        except Exception as exc:
-            _LOGGER.debug(
-                "Skipping time sync after pairing for %s: service discovery unavailable (%r)",
-                model,
-                exc,
-            )
-            return
-
-        if char is None:
-            _LOGGER.debug(
-                "Skipping time sync after pairing for %s: CTS characteristic not found",
-                model,
-            )
-            return
-
-        now = dt.datetime.now().astimezone()
-        payload = build_cts_payload(now)
-        try:
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time to %s via CTS: %s",
-                model,
-                now.isoformat(timespec="seconds"),
-            )
-        except Exception as exc:
-            _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
+        await async_pair_and_sync_device(client, ble_device, model, config)
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

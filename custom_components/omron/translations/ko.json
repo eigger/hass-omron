@@ -12,7 +12,7 @@
       },
       "bluetooth_confirm": {
         "title": "기기 확인",
-        "description": "{name} 기기를 설정하려면 제출(확인)을 누르세요."
+        "description": "{name} 기기를 구성하려면 먼저 기기를 페어링 가능 상태로 만든 뒤 제출(확인)을 누르세요."
       },
       "user_aliases": {
         "title": "커프 사용자 이름",

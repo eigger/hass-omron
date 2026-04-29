@@ -121,6 +121,8 @@ class GattTransport:
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
+        self._memory_session_depth = 0
+        self._unlocked = False
 
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
@@ -259,6 +261,11 @@ class GattTransport:
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
+        self._memory_session_depth += 1
+        if self._memory_session_depth > 1:
+            _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
+            return
+
         await self._subscribe_notify_channels()
         # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
         start_cmd = bytearray.fromhex("0800000000100018")
@@ -268,6 +275,13 @@ class GattTransport:
 
     async def close_memory_session(self) -> None:
         """End a data readout session."""
+        if self._memory_session_depth <= 0:
+            return
+        self._memory_session_depth -= 1
+        if self._memory_session_depth > 0:
+            _LOGGER.debug("Decreasing memory session depth to %d", self._memory_session_depth)
+            return
+
         stop_cmd = bytearray.fromhex("080f000000000007")
         await self._write_command_and_wait_reply(stop_cmd)
         if self._last_reply_packet_type != bytearray.fromhex("8f00"):
@@ -348,7 +362,7 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock:
+        if not self._config.requires_unlock or self._unlocked:
             return
 
         unlock_key = key or PAIRING_KEY
@@ -370,6 +384,8 @@ class GattTransport:
             response = response_holder[0]
             if response is None or response[:2] != bytearray.fromhex("8100"):
                 raise ConnectionError("Unlock failed: pairing key mismatch")
+            
+            self._unlocked = True
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
 
@@ -605,6 +621,163 @@ class OmronDeviceDriver:
         self._cached_settings: bytearray | None = None
         self._now_func = dt.datetime.now
         self._counter_probe_logged = False
+
+    async def sync_eeprom_time(
+        self, transport: GattTransport, now: dt.datetime | None = None
+    ) -> bool:
+        """Synchronize time to legacy devices via EEPROM settings write.
+
+        Legacy Omron devices (classic-stack with custom key pairing) do not use
+        the standard BLE CTS characteristic for time synchronization.  Instead,
+        the time is stored in a dedicated region of the EEPROM settings block.
+
+        Two layout families exist:
+
+        Format A (big-endian devices: HEM-7322T, HEM-7320T, HEM-7600T, HEM-6232T …)
+            settings_time_sync_bytes = [0x14, 0x1E] (10 bytes)
+            Time data bytes [2:8] = [month, year-2000, hour, day, second, minute]
+            Checksum byte [9] = sum(bytes[0:9]) & 0xFF
+
+        Format B (little-endian devices: HEM-7150T, HEM-7155T, HEM-7342T, HEM-7361T …)
+            settings_time_sync_bytes = [0x2C, 0x3C] (16 bytes)
+            Time data bytes [8:14] = [year-2000, month, day, hour, minute, second]
+            Checksum byte [14] = sum(bytes[0:14]) & 0xFF
+
+        Returns True on success, False if the device does not support EEPROM time sync.
+        """
+        if not self._config.supports_eeprom_time_sync:
+            return False
+
+        time_sync_range = self._config.settings_time_sync_bytes
+        read_addr = self._config.settings_read_address
+        write_addr = self._config.settings_write_address
+        if time_sync_range is None or read_addr is None or write_addr is None:
+            return False
+
+        section_start, section_end = time_sync_range
+        section_size = section_end - section_start
+
+        if now is None:
+            now = self._now_func()
+        # Normalize to local timezone-aware datetime so comparisons with parsed
+        # EEPROM timestamps never fail on naive/aware mismatch.
+        if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
+            now = now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+
+        await transport.unlock()
+        await transport.open_memory_session()
+        try:
+            # Read current time sync settings from EEPROM
+            cached = await transport.read_memory_range(
+                read_addr + section_start,
+                section_size,
+                min(section_size, self._config.transmission_block_size),
+            )
+            cached = bytearray(cached)
+
+            # Parse current device time and only write if difference is > 60 seconds
+            device_dt = self._parse_eeprom_device_time(cached)
+            if device_dt is not None:
+                diff = abs((device_dt - now).total_seconds())
+                if diff <= 60:
+                    _LOGGER.debug(
+                        "Device %s time is already in sync (%s), skipping EEPROM write",
+                        self._config.model,
+                        device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    )
+                    return True
+
+            # Write new time into the cached settings
+            cached = self._build_eeprom_time_data(cached, now)
+
+            # Write the modified settings back to EEPROM
+            await transport.write_memory_range(
+                write_addr + section_start,
+                cached,
+                block_size=len(cached),
+            )
+            _LOGGER.info(
+                "Synced time via EEPROM for %s: %s",
+                self._config.model,
+                now.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+        finally:
+            try:
+                await transport.close_memory_session()
+            except Exception:
+                pass
+
+        return True
+
+    def _parse_eeprom_device_time(self, cached: bytearray) -> dt.datetime | None:
+        """Parse and return the current time stored on the device (best-effort)."""
+        try:
+            if self._config.endianness == "big":
+                # Format A: [2:8] = month, year-2000, hour, day, second, minute
+                month, year_off, hour, day, second, minute = (
+                    int(b) for b in cached[2:8]
+                )
+                device_dt = dt.datetime(
+                    year_off + 2000, month, day, hour, minute, min(second, 59)
+                )
+            else:
+                # Format B: [8:14] = year-2000, month, day, hour, minute, second
+                year_off, month, day, hour, minute, second = (
+                    int(b) for b in cached[8:14]
+                )
+                device_dt = dt.datetime(
+                    year_off + 2000, month, day, hour, minute, min(second, 59)
+                )
+            
+            # Use local timezone to match the `now` timezone we compare against
+            device_dt = device_dt.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+            
+            _LOGGER.debug(
+                "Device %s current EEPROM time: %s",
+                self._config.model,
+                device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            return device_dt
+        except Exception:
+            _LOGGER.warning(
+                "Device %s has invalid EEPROM time data: %s",
+                self._config.model,
+                bytes(cached).hex(),
+            )
+            return None
+
+    def _build_eeprom_time_data(
+        self, cached: bytearray, now: dt.datetime
+    ) -> bytearray:
+        """Build the EEPROM time sync payload with updated time and checksum."""
+        if self._config.endianness == "big":
+            # Format A: preserve bytes [0:2], write time at [2:8], pad [8]=0x00, checksum [9]
+            result = bytearray(cached[0:2])
+            result += bytes([
+                now.month,
+                now.year - 2000,
+                now.hour,
+                now.day,
+                now.second,
+                now.minute,
+            ])
+            result += bytes([0x00])
+            result.append(sum(result) & 0xFF)
+        else:
+            # Format B: preserve bytes [0:8], write time at [8:14], checksum [14], pad [15]=0x00
+            result = bytearray(cached[0:8])
+            result += bytes([
+                now.year - 2000,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+            ])
+            result.append(sum(result) & 0xFF)
+            result += bytes([0x00])
+        return result
+
 
     async def _probe_7142_counter_candidates(
         self, transport: GattTransport

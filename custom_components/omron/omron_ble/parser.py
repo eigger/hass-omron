@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
-import os
 from typing import Any
 
 from bleak import BleakClient
@@ -25,11 +24,21 @@ from sensor_state_data import (
 )
 from homeassistant.util import dt as dt_util
 
-from .const import CTS_CHARACTERISTIC_UUID, TIMEOUT_5MIN, build_cts_payload
-from .devices import (
+from .const import (
+    BATTERY_LEVEL_UUID,
+    FIRMWARE_REVISION_UUID,
+    HARDWARE_REVISION_UUID,
+    MANUFACTURER_NAME_UUID,
+    MODEL_NUMBER_UUID,
+    BP_MEASUREMENT_CHAR_UUID,
+    BP_RACP_CHAR_UUID,
+    OMRON_MANUFACTURER_ID,
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
-    DeviceConfig,
     DEFAULT_DEVICE_MODEL,
+)
+from .setup import async_sync_device_time
+from .devices import (
+    DeviceConfig,
     MODEL_VARIANT_MAP,
     get_device_config,
     resolve_profile_model_id,
@@ -53,16 +62,6 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
         label = str(v).strip() if v is not None else ""
         out[idx] = label if label else f"user{idx}"
     return out
-
-
-BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"
-BP_RACP_CHAR_UUID = "00002a52-0000-1000-8000-00805f9b34fb"
-# Bluetooth SIG company identifier for Omron Healthcare (matches manifest.json bluetooth manufacturer_id)
-OMRON_MANUFACTURER_ID = 526
-
-
-
-
 
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""
@@ -124,6 +123,15 @@ class OmronBluetoothDeviceData(BluetoothData):
                 name_suffix,
                 ExtendedSensorDeviceClass,
             )
+
+        # Seed device-level battery sensor
+        self.update_sensor(
+            "battery",
+            Units.PERCENTAGE,
+            None,
+            SensorDeviceClass.BATTERY,
+            "Battery",
+        )
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
@@ -444,6 +452,24 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
         self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
+        status_flags = record.get("status_flags")
+        if status_flags:
+            from .const import ExtendedBinarySensorDeviceClass
+            for flag_key, class_name in [
+                ("body_movement", ExtendedBinarySensorDeviceClass.BODY_MOVEMENT),
+                ("cuff_fit", ExtendedBinarySensorDeviceClass.CUFF_FIT),
+                ("irregular_pulse", ExtendedBinarySensorDeviceClass.IRREGULAR_PULSE),
+                ("improper_position", ExtendedBinarySensorDeviceClass.IMPROPER_POSITION),
+            ]:
+                if flag_key in status_flags:
+                    self.update_binary_sensor(
+                        f"{flag_key}{key_suffix}",
+                        status_flags[flag_key],
+                        class_name,
+                        f"{flag_key.replace('_', ' ').title()}{name_suffix}",
+                    )
+
+
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
         if not isinstance(value, dt.datetime):
@@ -524,7 +550,14 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         if has_user_id and len(payload) > idx:
             idx += 1
+        
+        status_flags = {}
         if has_status and len(payload) >= idx + 2:
+            status_val = int.from_bytes(payload[idx:idx + 2], "little")
+            status_flags["body_movement"] = bool(status_val & 0x01)
+            status_flags["cuff_fit"] = bool(status_val & 0x02)
+            status_flags["irregular_pulse"] = bool(status_val & 0x04)
+            status_flags["improper_position"] = bool(status_val & 0x20)
             idx += 2
 
         return {
@@ -532,6 +565,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             "dia": dia_mmhg,
             "bpm": pulse,
             "datetime": measured_dt,
+            "status_flags": status_flags,
         }
 
     async def _read_latest_via_bls_racp(self, client: BleakClient) -> dict[str, Any] | None:
@@ -689,6 +723,23 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
             transport = GattTransport(client, self._device_config)
+            
+            # Open a single memory session for both records and time sync
+            session_opened = False
+            if self._device_config.parent_service_stack() == "classic":
+                try:
+                    await transport.unlock()
+                    await transport.open_memory_session()
+                    session_opened = True
+                except Exception as exc:
+                    _LOGGER.debug("Could not open memory session globally in poll: %s", exc)
+
+            # Perform time sync first, ensuring the device clock is correct before further actions
+            try:
+                await self._async_sync_current_time_with_client(client, ble_device.address, transport)
+            except Exception as exc:
+                _LOGGER.warning("Time sync failed during poll for %s: %s", ble_device.address, exc)
+
             multi_user_mode = self._device_config.num_users > 1
             record: dict[str, Any] | None = None
             latest_by_user: dict[int, dict[str, Any]] = {}
@@ -852,6 +903,73 @@ class OmronBluetoothDeviceData(BluetoothData):
                     prof,
                 )
 
+            # Fetch Battery Level
+            try:
+                char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                if char_bat:
+                    bat_bytes = await client.read_gatt_char(char_bat)
+                    if bat_bytes:
+                        bat_level = int(bat_bytes[0])
+                        self.update_sensor(
+                            "battery",
+                            Units.PERCENTAGE,
+                            bat_level,
+                            SensorDeviceClass.BATTERY,
+                            "Battery",
+                        )
+                        _LOGGER.debug("Read Battery Level: %s%%", bat_level)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Battery Level: %s", exc)
+
+            # Fetch Firmware Revision
+            try:
+                char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
+                if char_fw:
+                    fw_bytes = await client.read_gatt_char(char_fw)
+                    if fw_bytes:
+                        fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_sw_version(fw_rev)
+                        _LOGGER.debug("Read Firmware Revision: %s", fw_rev)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
+
+            # Fetch Hardware Revision
+            try:
+                char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
+                if char_hw:
+                    hw_bytes = await client.read_gatt_char(char_hw)
+                    if hw_bytes:
+                        hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_hw_version(hw_rev)
+                        _LOGGER.debug("Read Hardware Revision: %s", hw_rev)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
+
+            # Fetch Manufacturer Name
+            try:
+                char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
+                if char_mfg:
+                    mfg_bytes = await client.read_gatt_char(char_mfg)
+                    if mfg_bytes:
+                        mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_manufacturer(mfg_name)
+                        _LOGGER.debug("Read Manufacturer Name: %s", mfg_name)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
+
+            # Fetch Model Number
+            try:
+                char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
+                if char_model:
+                    model_bytes = await client.read_gatt_char(char_model)
+                    if model_bytes:
+                        model_num = model_bytes.decode("utf-8").strip(" \x00")
+                        # You might use model_num internally, but we don't necessarily want to override
+                        # the user's selected model logic, so we just log it for now.
+                        _LOGGER.debug("Read Model Number from device: %s", model_num)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Model Number: %s", exc)
+
         except Exception as exc:
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
@@ -873,6 +991,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                 variant_entry[1].reason if variant_entry else None,
             )
         finally:
+            if session_opened:
+                try:
+                    await transport.close_memory_session()
+                except Exception:
+                    pass
+
             if client and client.is_connected:
                 try:
                     await client.disconnect()
@@ -912,7 +1036,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         transport = GattTransport(client, self._device_config)
         await transport.pair()
         await _bleak_refresh_services(client)
-        await self._async_sync_current_time_with_client(client, ble_device.address)
+        await self._async_sync_current_time_with_client(client, ble_device.address, transport)
         _LOGGER.info(
             "Manual pairing retry completed for %s (%s)",
             self._device_model,
@@ -920,25 +1044,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
 
     async def _async_sync_current_time_with_client(
-        self, client: BleakClient, address: str
+        self, client: BleakClient, address: str,
+        transport: GattTransport | None = None,
     ) -> bool:
-        """Sync current local time via CTS using an already connected client."""
-        char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-        if char is None:
-            _LOGGER.warning(
-                "CTS characteristic not found while syncing time (model=%s, address=%s)",
-                self._device_model,
-                address,
-            )
-            return False
-
-        now = dt.datetime.now().astimezone()
-        payload = build_cts_payload(now)
-        await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-        _LOGGER.info(
-            "Synced current time via CTS for %s (%s): %s",
-            self._device_model,
-            address,
-            now.isoformat(timespec="seconds"),
+        """Sync current local time via CTS or EEPROM fallback."""
+        return await async_sync_device_time(
+            client, self._device_model, self._device_config, transport
         )
-        return True
+
