@@ -6,9 +6,7 @@ for measurement data via GATT connection.
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import logging
-import os
 from typing import Any
 
 from bleak import BleakClient
@@ -26,13 +24,13 @@ from sensor_state_data import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    CTS_CHARACTERISTIC_UUID,
-    TIMEOUT_5MIN,
-    build_cts_payload,
     BATTERY_LEVEL_UUID,
     FIRMWARE_REVISION_UUID,
     HARDWARE_REVISION_UUID,
+    MANUFACTURER_NAME_UUID,
+    MODEL_NUMBER_UUID,
 )
+from .setup import async_sync_device_time
 from .devices import (
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DeviceConfig,
@@ -460,6 +458,24 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
         self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
+        status_flags = record.get("status_flags")
+        if status_flags:
+            from .const import ExtendedBinarySensorDeviceClass
+            for flag_key, class_name in [
+                ("body_movement", ExtendedBinarySensorDeviceClass.BODY_MOVEMENT),
+                ("cuff_fit", ExtendedBinarySensorDeviceClass.CUFF_FIT),
+                ("irregular_pulse", ExtendedBinarySensorDeviceClass.IRREGULAR_PULSE),
+                ("improper_position", ExtendedBinarySensorDeviceClass.IMPROPER_POSITION),
+            ]:
+                if flag_key in status_flags:
+                    self.update_binary_sensor(
+                        f"{flag_key}{key_suffix}",
+                        status_flags[flag_key],
+                        class_name,
+                        f"{flag_key.replace('_', ' ').title()}{name_suffix}",
+                    )
+
+
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
         if not isinstance(value, dt.datetime):
@@ -540,7 +556,14 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         if has_user_id and len(payload) > idx:
             idx += 1
+        
+        status_flags = {}
         if has_status and len(payload) >= idx + 2:
+            status_val = int.from_bytes(payload[idx:idx + 2], "little")
+            status_flags["body_movement"] = bool(status_val & 0x01)
+            status_flags["cuff_fit"] = bool(status_val & 0x02)
+            status_flags["irregular_pulse"] = bool(status_val & 0x04)
+            status_flags["improper_position"] = bool(status_val & 0x20)
             idx += 2
 
         return {
@@ -548,6 +571,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             "dia": dia_mmhg,
             "bpm": pulse,
             "datetime": measured_dt,
+            "status_flags": status_flags,
         }
 
     async def _read_latest_via_bls_racp(self, client: BleakClient) -> dict[str, Any] | None:
@@ -927,6 +951,31 @@ class OmronBluetoothDeviceData(BluetoothData):
             except Exception as exc:
                 _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
 
+            # Fetch Manufacturer Name
+            try:
+                char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
+                if char_mfg:
+                    mfg_bytes = await client.read_gatt_char(char_mfg)
+                    if mfg_bytes:
+                        mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
+                        self.set_device_manufacturer(mfg_name)
+                        _LOGGER.debug("Read Manufacturer Name: %s", mfg_name)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
+
+            # Fetch Model Number
+            try:
+                char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
+                if char_model:
+                    model_bytes = await client.read_gatt_char(char_model)
+                    if model_bytes:
+                        model_num = model_bytes.decode("utf-8").strip(" \x00")
+                        # You might use model_num internally, but we don't necessarily want to override
+                        # the user's selected model logic, so we just log it for now.
+                        _LOGGER.debug("Read Model Number from device: %s", model_num)
+            except Exception as exc:
+                _LOGGER.debug("Failed to read Model Number: %s", exc)
+
         except Exception as exc:
             prof = resolve_profile_model_id(self._device_model)
             variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
@@ -1004,58 +1053,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         self, client: BleakClient, address: str,
         transport: GattTransport | None = None,
     ) -> bool:
-        """Sync current local time via CTS or EEPROM fallback.
-
-        Newer-stack devices (HEM-7380T1 etc.) use the standard BLE CTS
-        characteristic (0x2A2B). Legacy devices (HEM-7322T, HEM-7155T etc.)
-        do not expose CTS and instead store time in a dedicated EEPROM region.
-        """
-        # Try CTS first
-        char = client.services.get_characteristic(CTS_CHARACTERISTIC_UUID)
-        if char is not None:
-            now = dt.datetime.now().astimezone()
-            payload = build_cts_payload(now)
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time via CTS for %s (%s): %s",
-                self._device_model,
-                address,
-                now.isoformat(timespec="seconds"),
-            )
-            return True
-
-        # CTS not available — try EEPROM-based time sync for legacy devices
-        if self._device_config.supports_eeprom_time_sync:
-            _LOGGER.debug(
-                "CTS characteristic not found for %s (%s), trying EEPROM time sync",
-                self._device_model,
-                address,
-            )
-            if transport is None:
-                transport = GattTransport(client, self._device_config)
-            try:
-                synced = await self._driver.sync_eeprom_time(transport)
-                if synced:
-                    return True
-                _LOGGER.warning(
-                    "EEPROM time sync returned False for %s (%s)",
-                    self._device_model,
-                    address,
-                )
-            except Exception as exc:
-                _LOGGER.warning(
-                    "EEPROM time sync failed for %s (%s): %s",
-                    self._device_model,
-                    address,
-                    exc,
-                )
-            return False
-
-        _LOGGER.warning(
-            "No time sync method available for %s (%s): "
-            "CTS characteristic not found and EEPROM time sync not supported",
-            self._device_model,
-            address,
+        """Sync current local time via CTS or EEPROM fallback."""
+        return await async_sync_device_time(
+            client, self._device_model, self._device_config, transport
         )
-        return False
 

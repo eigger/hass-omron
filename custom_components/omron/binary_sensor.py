@@ -6,6 +6,7 @@ from .omron_ble import (
     BinarySensorDeviceClass as OmronBinarySensorDeviceClass,
     SensorUpdate,
 )
+from .omron_ble.const import ExtendedBinarySensorDeviceClass as OmronExtendedBinarySensorDeviceClass
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -31,6 +32,26 @@ BINARY_SENSOR_DESCRIPTIONS = {
     OmronBinarySensorDeviceClass.PROBLEM: BinarySensorEntityDescription(
         key=OmronBinarySensorDeviceClass.PROBLEM,
         device_class=BinarySensorDeviceClass.PROBLEM,
+    ),
+    OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:account-alert",
+    ),
+    OmronExtendedBinarySensorDeviceClass.CUFF_FIT: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.CUFF_FIT,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:bandage",
+    ),
+    OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:heart-broken",
+    ),
+    OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:compass-off",
     ),
 }
 

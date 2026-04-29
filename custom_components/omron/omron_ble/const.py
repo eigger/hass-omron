@@ -1,36 +1,15 @@
 """Constants for the Omron BLE module."""
 from __future__ import annotations
 
-import datetime as dt
-
 from sensor_state_data import BaseDeviceClass
 
-TIMEOUT_1DAY = 86400
-TIMEOUT_5MIN = 5 * 60
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
 HARDWARE_REVISION_UUID = "00002a27-0000-1000-8000-00805f9b34fb"
-
-
-def build_cts_payload(now: dt.datetime) -> bytearray:
-    """Build Bluetooth CTS payload (10 bytes) from timezone-aware datetime."""
-    payload = bytearray()
-    payload += int(now.year).to_bytes(2, "little")
-    payload += bytes(
-        [
-            now.month,
-            now.day,
-            now.hour,
-            now.minute,
-            now.second,
-            now.isoweekday(),  # Monday=1 ... Sunday=7 (CTS format)
-            0x00,  # Fractions256
-            0x00,  # Adjust reason: 0x00 (Unknown)
-        ]
-    )
-    return payload
-
+MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
+MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+LOCAL_TIME_INFO_UUID = "00002a0f-0000-1000-8000-00805f9b34fb"
 
 class ExtendedSensorDeviceClass(BaseDeviceClass):
     """Device class for additional sensors (compared to sensor-state-data)."""
@@ -49,3 +28,10 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
     RATE_PRESSURE_PRODUCT = "rate_pressure_product"
     BLOOD_PRESSURE_CATEGORY = "blood_pressure_category"
 
+
+class ExtendedBinarySensorDeviceClass(BaseDeviceClass):
+    """Device class for additional binary sensors."""
+    BODY_MOVEMENT = "body_movement"
+    CUFF_FIT = "cuff_fit"
+    IRREGULAR_PULSE = "irregular_pulse"
+    IMPROPER_POSITION = "improper_position"
