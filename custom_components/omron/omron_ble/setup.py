@@ -109,6 +109,8 @@ async def async_sync_device_time(
         cts_notify_ready = asyncio.Event()
         cts_notify_started = False
         cts_notify_payload: list[bytes | None] = [None]
+        cts_snapshot_ok = False
+        cts_notify_ok = False
 
         def _cts_callback(_: object, data: bytearray) -> None:
             cts_notify_payload[0] = bytes(data)
@@ -123,6 +125,7 @@ async def async_sync_device_time(
             try:
                 cts_snapshot = await client.read_gatt_char(CTS_CHARACTERISTIC_UUID)
                 if cts_snapshot:
+                    cts_snapshot_ok = True
                     _LOGGER.debug(
                         "CTS current-time snapshot for %s: %s",
                         model,
@@ -138,6 +141,7 @@ async def async_sync_device_time(
             try:
                 await asyncio.wait_for(cts_notify_ready.wait(), timeout=1.0)
                 if cts_notify_payload[0] is not None:
+                    cts_notify_ok = True
                     _LOGGER.debug(
                         "CTS notify received for %s before sync: %s",
                         model,
@@ -148,6 +152,16 @@ async def async_sync_device_time(
                     "CTS notify not received before sync for %s (continuing)",
                     model,
                 )
+
+            if not (cts_snapshot_ok and cts_notify_ok):
+                _LOGGER.warning(
+                    "Skipping CTS write for %s: notify/get precondition not met "
+                    "(snapshot_ok=%s notify_ok=%s)",
+                    model,
+                    cts_snapshot_ok,
+                    cts_notify_ok,
+                )
+                return False
 
             await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
             _LOGGER.info(
