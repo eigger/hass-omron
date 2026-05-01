@@ -106,7 +106,63 @@ async def async_sync_device_time(
     if char_cts is not None:
         now = dt.datetime.now().astimezone()
         payload = build_cts_payload(now)
+        cts_notify_ready = asyncio.Event()
+        cts_notify_started = False
+        cts_notify_payload: list[bytes | None] = [None]
+        cts_snapshot_ok = False
+        cts_notify_ok = False
+
+        def _cts_callback(_: object, data: bytearray) -> None:
+            cts_notify_payload[0] = bytes(data)
+            cts_notify_ready.set()
+
         try:
+            # Align with OGSC flow: enable CTS notify/get before set.
+            await client.start_notify(CTS_CHARACTERISTIC_UUID, _cts_callback)
+            await asyncio.sleep(0.5)
+            cts_notify_started = True
+
+            try:
+                cts_snapshot = await client.read_gatt_char(CTS_CHARACTERISTIC_UUID)
+                if cts_snapshot:
+                    cts_snapshot_ok = True
+                    _LOGGER.debug(
+                        "CTS current-time snapshot for %s: %s",
+                        model,
+                        bytes(cts_snapshot).hex(),
+                    )
+            except Exception as exc:
+                _LOGGER.debug(
+                    "CTS snapshot read failed for %s (continuing): %s",
+                    model,
+                    exc,
+                )
+
+            try:
+                await asyncio.wait_for(cts_notify_ready.wait(), timeout=1.0)
+                if cts_notify_payload[0] is not None:
+                    cts_notify_ok = True
+                    _LOGGER.debug(
+                        "CTS notify received for %s before sync: %s",
+                        model,
+                        cts_notify_payload[0].hex(),
+                    )
+            except asyncio.TimeoutError:
+                _LOGGER.debug(
+                    "CTS notify not received before sync for %s (continuing)",
+                    model,
+                )
+
+            if not (cts_snapshot_ok and cts_notify_ok):
+                _LOGGER.warning(
+                    "Skipping CTS write for %s: notify/get precondition not met "
+                    "(snapshot_ok=%s notify_ok=%s)",
+                    model,
+                    cts_snapshot_ok,
+                    cts_notify_ok,
+                )
+                return False
+
             await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
             _LOGGER.info(
                 "Synced current time via CTS for %s: %s",
@@ -140,6 +196,12 @@ async def async_sync_device_time(
             return True
         except Exception as exc:
             _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
+        finally:
+            if cts_notify_started:
+                try:
+                    await client.stop_notify(CTS_CHARACTERISTIC_UUID)
+                except Exception as exc:
+                    _LOGGER.debug("CTS stop_notify failed for %s: %s", model, exc)
 
     # CTS not available — try EEPROM-based time sync for legacy devices
     if config is None:

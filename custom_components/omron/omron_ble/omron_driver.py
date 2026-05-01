@@ -45,6 +45,13 @@ def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
 
 
+def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
+    """Unlock notify: current pairing key accepted for auth/unlock (8100 or 8104)."""
+    if resp is None or len(resp) < 2:
+        return False
+    return resp[0] == 0x81 and resp[1] in (0x00, 0x04)
+
+
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
     """Whether an OS-level BLE pairing exception can be safely ignored.
 
@@ -374,6 +381,7 @@ class GattTransport:
             unlock_event.set()
 
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
+        await asyncio.sleep(0.5)
         try:
             unlock_event.clear()
             await self._client.write_gatt_char(
@@ -382,7 +390,12 @@ class GattTransport:
             await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
 
             response = response_holder[0]
-            if response is None or response[:2] != bytearray.fromhex("8100"):
+            if not _is_unlock_auth_key_ack(response):
+                _LOGGER.debug(
+                    "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
+                    len(response) if response is not None else None,
+                    _hex(response) if response else "None",
+                )
                 raise ConnectionError("Unlock failed: pairing key mismatch")
             
             self._unlocked = True
