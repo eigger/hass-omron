@@ -132,6 +132,47 @@ class GattTransport:
         self._memory_session_depth = 0
         self._unlocked = False
 
+    def _debug_ble_link(self, tag: str) -> None:
+        """Emit one-line BLE link state for troubleshooting notify/write stalls."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        try:
+            connected = bool(self._client.is_connected)
+        except Exception as exc:
+            connected = False
+            conn_note = f"is_connected_error={exc!r}"
+        else:
+            conn_note = ""
+        services_note = ""
+        try:
+            sv = self._client.services
+            if sv is None:
+                services_note = "services=None"
+            else:
+                try:
+                    services_note = f"services_len={len(sv)}"
+                except Exception as exc:
+                    services_note = f"services_len_error={exc!r}"
+        except Exception as exc:
+            services_note = f"services_access_error={exc!r}"
+        frag_bits = []
+        for i in range(min(4, len(self._channel_fragments))):
+            frag_bits.append("1" if self._channel_fragments[i] else "0")
+        _LOGGER.debug(
+            "BLE trace [%s] model=%s connected=%s %s %s "
+            "notify_subscribed=%s rx_handle_map=%d memory_depth=%d unlocked=%s partial_rx=%s",
+            tag,
+            self._config.model,
+            connected,
+            conn_note,
+            services_note,
+            self._notify_subscribed,
+            len(self._notify_handle_to_channel),
+            self._memory_session_depth,
+            self._unlocked,
+            "".join(frag_bits) if frag_bits else "",
+        )
+
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
         self._notify_handle_to_channel = {}
@@ -139,12 +180,23 @@ class GattTransport:
             char = self._client.services.get_characteristic(uuid)
             if char is not None:
                 self._notify_handle_to_channel[char.handle] = idx
+        _LOGGER.debug(
+            "RX notify handle map: %d/%d channels (model=%s)",
+            len(self._notify_handle_to_channel),
+            len(self._config.rx_channel_uuids),
+            self._config.model,
+        )
 
     async def _subscribe_notify_channels(self) -> None:
         """Enable notifications on all RX channels."""
         if self._notify_subscribed:
+            _LOGGER.debug(
+                "RX notify subscribe skipped (already flagged) model=%s",
+                self._config.model,
+            )
             return
 
+        self._debug_ble_link("before_rx_subscribe")
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
@@ -152,6 +204,7 @@ class GattTransport:
             _LOGGER.debug("Subscribed notify channel %s", uuid)
         await asyncio.sleep(0.5)
         self._notify_subscribed = True
+        self._debug_ble_link("after_rx_subscribe")
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
@@ -161,6 +214,7 @@ class GattTransport:
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
+        self._debug_ble_link("after_rx_unsubscribe")
 
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
@@ -280,10 +334,16 @@ class GattTransport:
 
             # Wait for response
             try:
+                self._debug_ble_link(
+                    f"await_reply attempt={retry + 1} cmd_head={_hex(command[:8])}"
+                )
                 await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
                 _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
+                self._debug_ble_link(
+                    f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
+                )
 
         raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
 
@@ -295,15 +355,18 @@ class GattTransport:
             return
 
         try:
+            self._debug_ble_link("open_memory_session_enter")
             await self._subscribe_notify_channels()
             # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
             start_cmd = bytearray.fromhex("0800000000100018")
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
+            self._debug_ble_link("open_memory_session_ok")
         except BaseException:
             if self._memory_session_depth > 0:
                 self._memory_session_depth -= 1
+            self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels()
             raise
 
@@ -396,7 +459,11 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock or self._unlocked:
+        if not self._config.requires_unlock:
+            _LOGGER.debug("unlock skipped: requires_unlock=False model=%s", self._config.model)
+            return
+        if self._unlocked:
+            _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
             return
 
         unlock_key = key or PAIRING_KEY
@@ -407,10 +474,17 @@ class GattTransport:
             response_holder[0] = rx_bytes
             unlock_event.set()
 
+        self._debug_ble_link("unlock_before_notify")
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         await asyncio.sleep(0.5)
         try:
             unlock_event.clear()
+            _LOGGER.debug(
+                "unlock write: uuid=%s payload_len=%d model=%s",
+                self._config.unlock_uuid,
+                1 + len(unlock_key),
+                self._config.model,
+            )
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
             )
@@ -426,8 +500,18 @@ class GattTransport:
                 raise ConnectionError("Unlock failed: pairing key mismatch")
             
             self._unlocked = True
+            if response is not None and len(response) >= 2:
+                _LOGGER.debug(
+                    "unlock ok: notify_prefix=%s model=%s",
+                    response[:2].hex(),
+                    self._config.model,
+                )
+        except asyncio.TimeoutError:
+            self._debug_ble_link("unlock_notify_timeout")
+            raise ConnectionError("Unlock failed: notify timeout") from None
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
+            self._debug_ble_link("unlock_after_stop_notify")
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program a new pairing key into the device.

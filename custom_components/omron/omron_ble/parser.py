@@ -664,6 +664,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                 client = await establish_connection(
                     BleakClient, ble_device, ble_device.address
                 )
+                _LOGGER.debug(
+                    "Poll: connected=%s address=%s mtu=%s",
+                    getattr(client, "is_connected", None),
+                    ble_device.address,
+                    getattr(client, "mtu_size", None),
+                )
                 # Ensure Bleak service cache is populated before reading client.services.
                 await _bleak_refresh_services(client)
 
