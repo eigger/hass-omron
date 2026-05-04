@@ -589,6 +589,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         try:
             await client.start_notify(BP_MEASUREMENT_CHAR_UUID, _meas_cb)
             await client.start_notify(BP_RACP_CHAR_UUID, _racp_cb)
+            await asyncio.sleep(0.5)
             # RACP: Report Stored Records (0x01), operator Last Record (0x06)
             await client.write_gatt_char(BP_RACP_CHAR_UUID, b"\x01\x06", response=True)
             raw = await asyncio.wait_for(measurement_future, timeout=3.0)

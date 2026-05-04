@@ -149,7 +149,7 @@ class GattTransport:
         for uuid in self._config.rx_channel_uuids:
             await self._client.start_notify(uuid, self._on_notify_channel_data)
             _LOGGER.debug("Subscribed notify channel %s", uuid)
-
+        await asyncio.sleep(0.5)
         self._notify_subscribed = True
 
     async def _unsubscribe_notify_channels(self) -> None:
