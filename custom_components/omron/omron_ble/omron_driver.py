@@ -7,6 +7,7 @@ import traceback
 from typing import Any
 
 from bleak import BleakClient
+from bleak.exc import BleakError
 
 from .devices import DeviceConfig, bytearray_bits_to_int
 
@@ -154,13 +155,12 @@ class GattTransport:
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
-        if self._notify_subscribed:
-            for uuid in self._config.rx_channel_uuids:
-                try:
-                    await self._client.stop_notify(uuid)
-                except Exception as exc:
-                    _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
-            self._notify_subscribed = False
+        for uuid in self._config.rx_channel_uuids:
+            try:
+                await self._client.stop_notify(uuid)
+            except Exception as exc:
+                _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
+        self._notify_subscribed = False
 
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
@@ -244,18 +244,39 @@ class GattTransport:
                 channel_width = max(channel_width, len(command))
 
             num_tx_channels = (len(command) + channel_width - 1) // channel_width
-            for ch_idx in range(num_tx_channels):
-                tx_segment = remaining_cmd[:channel_width]
-                _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
-                if self._config.is_single_channel:
-                    await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+            try:
+                for ch_idx in range(num_tx_channels):
+                    tx_segment = remaining_cmd[:channel_width]
+                    _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
+                    if self._config.is_single_channel:
+                        await self._client.write_gatt_char(
+                            self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+                        )
+                    else:
+                        await self._client.write_gatt_char(
+                            self._config.tx_channel_uuids[ch_idx], tx_segment
+                        )
+                    remaining_cmd = remaining_cmd[channel_width:]
+            except BleakError as exc:
+                msg = str(exc).lower()
+                if "service discovery has not been performed" in msg:
+                    _LOGGER.debug(
+                        "GATT services not ready during write (retry %d/%d): %s",
+                        retry + 1,
+                        _MAX_RETRIES,
+                        exc,
                     )
+                    await _bleak_refresh_services(self._client)
                 else:
-                    await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], tx_segment
+                    _LOGGER.warning(
+                        "BLE error during write (retry %d/%d): %s",
+                        retry + 1,
+                        _MAX_RETRIES,
+                        exc,
                     )
-                remaining_cmd = remaining_cmd[channel_width:]
+                if retry + 1 >= _MAX_RETRIES:
+                    raise
+                continue
 
             # Wait for response
             try:
@@ -273,12 +294,18 @@ class GattTransport:
             _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
             return
 
-        await self._subscribe_notify_channels()
-        # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
-        start_cmd = bytearray.fromhex("0800000000100018")
-        await self._write_command_and_wait_reply(start_cmd)
-        if self._last_reply_packet_type != bytearray.fromhex("8000"):
-            raise ConnectionError("Invalid response to data readout start")
+        try:
+            await self._subscribe_notify_channels()
+            # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
+            start_cmd = bytearray.fromhex("0800000000100018")
+            await self._write_command_and_wait_reply(start_cmd)
+            if self._last_reply_packet_type != bytearray.fromhex("8000"):
+                raise ConnectionError("Invalid response to data readout start")
+        except BaseException:
+            if self._memory_session_depth > 0:
+                self._memory_session_depth -= 1
+            await self._unsubscribe_notify_channels()
+            raise
 
     async def close_memory_session(self) -> None:
         """End a data readout session."""

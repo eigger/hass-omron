@@ -83,6 +83,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
+        self._poll_guard = asyncio.Lock()
         self._seed_measurement_entities()
 
     @property
@@ -631,383 +632,385 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
-        _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
-        variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
-        if variant_entry:
-            profile_key, variant = variant_entry
-            _LOGGER.debug(
-                "Catalog variant: %s -> profile %s (unverified=%s, reason=%s)",
-                self._device_model,
-                profile_key,
-                variant.unverified,
-                variant.reason,
-            )
-            if variant.unverified and not self._unvalidated_variant_warning_logged:
-                _LOGGER.warning(
-                    "Unverified catalog variant: %s -> profile %s (reason=%s). "
-                    "If sync fails or values look wrong, choose another registry profile.",
+        async with self._poll_guard:
+            _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
+            variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+            if variant_entry:
+                profile_key, variant = variant_entry
+                _LOGGER.debug(
+                    "Catalog variant: %s -> profile %s (unverified=%s, reason=%s)",
                     self._device_model,
                     profile_key,
+                    variant.unverified,
                     variant.reason,
                 )
-                self._unvalidated_variant_warning_logged = True
-
-        self._events_updates.clear()
-
-        client: BleakClient | None = None
-        poll_status = "poll_failed"
-        try:
-            client = await establish_connection(
-                BleakClient, ble_device, ble_device.address
-            )
-            # Ensure Bleak service cache is populated before reading client.services.
-            await _bleak_refresh_services(client)
-
-            # Verify the device has expected services
-            parent_uuid = self._device_config.parent_service_uuid
-            service_found = False
-            for attempt in range(5):
-                try:
-                    if parent_uuid in [s.uuid for s in client.services]:
-                        service_found = True
-                        break
-                except Exception as exc:
-                    _LOGGER.debug(
-                        "Services not ready during poll (%d/5) for %s: %s",
-                        attempt + 1,
-                        ble_device.address,
-                        exc,
+                if variant.unverified and not self._unvalidated_variant_warning_logged:
+                    _LOGGER.warning(
+                        "Unverified catalog variant: %s -> profile %s (reason=%s). "
+                        "If sync fails or values look wrong, choose another registry profile.",
+                        self._device_model,
+                        profile_key,
+                        variant.reason,
                     )
-                if attempt < 4:
-                    await _bleak_refresh_services(client)
-                    await asyncio.sleep(0.25)
+                    self._unvalidated_variant_warning_logged = True
 
-            if not service_found:
+            self._events_updates.clear()
+
+            client: BleakClient | None = None
+            poll_status = "poll_failed"
+            transport: GattTransport | None = None
+            session_opened = False
+            try:
+                client = await establish_connection(
+                    BleakClient, ble_device, ble_device.address
+                )
+                # Ensure Bleak service cache is populated before reading client.services.
+                await _bleak_refresh_services(client)
+
+                # Verify the device has expected services
+                parent_uuid = self._device_config.parent_service_uuid
+                service_found = False
+                for attempt in range(5):
+                    try:
+                        if parent_uuid in [s.uuid for s in client.services]:
+                            service_found = True
+                            break
+                    except Exception as exc:
+                        _LOGGER.debug(
+                            "Services not ready during poll (%d/5) for %s: %s",
+                            attempt + 1,
+                            ble_device.address,
+                            exc,
+                        )
+                    if attempt < 4:
+                        await _bleak_refresh_services(client)
+                        await asyncio.sleep(0.25)
+
+                if not service_found:
+                    prof = resolve_profile_model_id(self._device_model)
+                    variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+                    _LOGGER.error(
+                        "Required service %s not found on device %s",
+                        parent_uuid,
+                        ble_device.address,
+                    )
+                    _LOGGER.error(
+                        "poll_failed: model/service mismatch (model=%s profile=%s "
+                        "variant_unverified=%s variant_reason=%s expected_stack=%s)",
+                        self._device_model,
+                        prof,
+                        variant_entry[1].unverified if variant_entry else False,
+                        variant_entry[1].reason if variant_entry else None,
+                        self._device_config.parent_service_stack(),
+                    )
+                    return self._finish_update()
+
+                if self.last_service_info and not self._device_config.is_advertisement_compatible(
+                    self.last_service_info.service_uuids
+                ):
+                    prof = resolve_profile_model_id(self._device_model)
+                    _LOGGER.warning(
+                        "Configured model %s (profile %s) may not match advertised service family. "
+                        "advertised=%s expected_stack=%s",
+                        self._device_model,
+                        prof,
+                        self.last_service_info.service_uuids,
+                        self._device_config.parent_service_stack(),
+                    )
+
+                transport = GattTransport(client, self._device_config)
+
+                # Open a single memory session for both records and time sync
+                if self._device_config.parent_service_stack() == "classic":
+                    try:
+                        await transport.unlock()
+                        await transport.open_memory_session()
+                        session_opened = True
+                    except Exception as exc:
+                        _LOGGER.debug("Could not open memory session globally in poll: %s", exc)
+
+                # Perform time sync first, ensuring the device clock is correct before further actions
+                try:
+                    await self._async_sync_current_time_with_client(client, ble_device.address, transport)
+                except Exception as exc:
+                    _LOGGER.warning("Time sync failed during poll for %s: %s", ble_device.address, exc)
+
+                multi_user_mode = self._device_config.num_users > 1
+                record: dict[str, Any] | None = None
+                latest_by_user: dict[int, dict[str, Any]] = {}
+                if multi_user_mode:
+                    latest_by_user = await self._driver.get_latest_records_per_user(transport)
+                else:
+                    record = await self._driver.get_latest_record(transport)
+                    live_record: dict[str, Any] | None = None
+                    # Preferred live path for BLS devices: request latest via RACP indications.
+                    live_record = await self._read_latest_via_bls_racp(client)
+                    if live_record:
+                        _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
+                    if not self._bp_char_unavailable:
+                        try:
+                            bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
+                            if bp_raw:
+                                # Keep RACP result if present; otherwise use direct read result.
+                                if live_record is None:
+                                    live_record = self._parse_bp_measurement(bytes(bp_raw))
+                                _LOGGER.debug(
+                                    "Read BP measurement char 0x2A35: raw=%s parsed=%s",
+                                    bytes(bp_raw).hex(),
+                                    live_record,
+                                )
+                            else:
+                                _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
+                        except Exception as exc:
+                            if "Read not permitted" in str(exc):
+                                self._bp_char_unavailable = True
+                                _LOGGER.info(
+                                    "BP measurement char 0x2A35 read not permitted on %s; "
+                                    "disabling live BLS read path",
+                                    ble_device.address,
+                                )
+                            else:
+                                _LOGGER.debug(
+                                    "Read BP measurement char 0x2A35 failed for %s: %s",
+                                    ble_device.address,
+                                    exc,
+                                )
+                            live_record = None
+
+                    if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
+                        eeprom_dt = record.get("datetime") if record else None
+                        live_dt = live_record.get("datetime")
+                        use_live = False
+                        if record is None:
+                            use_live = True
+                        elif isinstance(live_dt, dt.datetime) and (
+                            not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
+                        ):
+                            use_live = True
+                        elif (
+                            not isinstance(live_dt, dt.datetime)
+                            and isinstance(record.get("sys"), int)
+                            and isinstance(record.get("dia"), int)
+                            and (
+                                int(live_record["sys"]) != int(record.get("sys"))
+                                or int(live_record["dia"]) != int(record.get("dia"))
+                            )
+                        ):
+                            # Some devices expose recent measurement values in 0x2A35 without timestamp.
+                            use_live = True
+                        if use_live:
+                            merged = dict(record or {})
+                            merged["sys"] = live_record["sys"]
+                            merged["dia"] = live_record["dia"]
+                            if isinstance(live_record.get("bpm"), int):
+                                merged["bpm"] = live_record["bpm"]
+                            if isinstance(live_dt, dt.datetime):
+                                merged["datetime"] = live_dt
+                            if "user" not in merged:
+                                merged["user"] = 1
+                            record = merged
+                            _LOGGER.info(
+                                "Using live BP measurement characteristic over EEPROM "
+                                "(sys=%s dia=%s bpm=%s datetime=%s)",
+                                record.get("sys"),
+                                record.get("dia"),
+                                record.get("bpm"),
+                                record.get("datetime"),
+                            )
+
+                if multi_user_mode:
+                    if latest_by_user:
+                        has_new = False
+                        for user in sorted(latest_by_user):
+                            user_record = latest_by_user[user]
+                            _LOGGER.debug(
+                                "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                                user,
+                                user_record.get("datetime"),
+                                user_record.get("sys"),
+                                user_record.get("dia"),
+                                user_record.get("bpm"),
+                            )
+                            self._update_measurement_sensors(
+                                user_record,
+                                user=user,
+                                multi_user=True,
+                            )
+                            signature = self._build_record_signature(user_record)
+                            previous = self._last_record_signatures_by_user.get(user)
+                            if signature != previous:
+                                has_new = True
+                                self._last_record_signatures_by_user[user] = signature
+                        poll_status = "new_measurement" if has_new else "no_new_valid_record"
+                    else:
+                        poll_status = "no_new_valid_record"
+                        _LOGGER.debug("No records found on device for any configured user")
+                elif record:
+                    _LOGGER.info("Got record: %s", record)
+                    _LOGGER.debug(
+                        "Latest measurement selected: datetime=%s user=%s sys=%s dia=%s bpm=%s",
+                        record.get("datetime"),
+                        record.get("user"),
+                        record.get("sys"),
+                        record.get("dia"),
+                        record.get("bpm"),
+                    )
+                    self._update_measurement_sensors(record)
+                    signature = self._build_record_signature(record)
+                    if signature == self._last_record_signature:
+                        poll_status = "no_new_valid_record"
+                        _LOGGER.debug(
+                            "no_new_valid_record: latest valid record unchanged (model=%s, sig=%s)",
+                            self._device_model,
+                            signature,
+                        )
+                    else:
+                        poll_status = "new_measurement"
+                        _LOGGER.debug(
+                            "new_measurement: latest valid record changed from %s to %s",
+                            self._last_record_signature,
+                            signature,
+                        )
+                        self._last_record_signature = signature
+                    _LOGGER.debug(
+                        "Prepared sensor update payload for %s: %s",
+                        ble_device.address,
+                        {
+                            "blood_pressure_systolic": record.get("sys"),
+                            "blood_pressure_diastolic": record.get("dia"),
+                            "heart_rate": record.get("bpm"),
+                            "pulse_pressure": (
+                                (record.get("sys") - record.get("dia"))
+                                if isinstance(record.get("sys"), (int, float))
+                                and isinstance(record.get("dia"), (int, float))
+                                and record.get("sys") > record.get("dia")
+                                else None
+                            ),
+                        },
+                    )
+                else:
+                    poll_status = "no_new_valid_record"
+                    prof = resolve_profile_model_id(self._device_model)
+                    _LOGGER.debug("No records found on device")
+                    _LOGGER.debug(
+                        "no_new_valid_record: no valid parsed records (model=%s profile=%s)",
+                        self._device_model,
+                        prof,
+                    )
+
+                # Fetch Battery Level
+                try:
+                    char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                    bat_bytes = None
+                    if char_bat:
+                        bat_bytes = await client.read_gatt_char(char_bat)
+                    else:
+                        # Some stacks do not expose BAS in cached services reliably.
+                        # Fall back to direct UUID read attempt.
+                        _LOGGER.debug(
+                            "Battery characteristic %s not found in services for %s; trying direct UUID read",
+                            BATTERY_LEVEL_UUID,
+                            ble_device.address,
+                        )
+                        bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
+
+                    if bat_bytes:
+                        bat_level = int(bat_bytes[0])
+                        self.update_sensor(
+                            "battery",
+                            Units.PERCENTAGE,
+                            bat_level,
+                            SensorDeviceClass.BATTERY,
+                            "Battery",
+                        )
+                        _LOGGER.debug("Read Battery Level: %s%%", bat_level)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to read Battery Level: %s", exc)
+
+                # Fetch Firmware Revision
+                try:
+                    char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
+                    if char_fw:
+                        fw_bytes = await client.read_gatt_char(char_fw)
+                        if fw_bytes:
+                            fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
+                            self.set_device_sw_version(fw_rev)
+                            _LOGGER.debug("Read Firmware Revision: %s", fw_rev)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
+
+                # Fetch Hardware Revision
+                try:
+                    char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
+                    if char_hw:
+                        hw_bytes = await client.read_gatt_char(char_hw)
+                        if hw_bytes:
+                            hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
+                            self.set_device_hw_version(hw_rev)
+                            _LOGGER.debug("Read Hardware Revision: %s", hw_rev)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
+
+                # Fetch Manufacturer Name
+                try:
+                    char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
+                    if char_mfg:
+                        mfg_bytes = await client.read_gatt_char(char_mfg)
+                        if mfg_bytes:
+                            mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
+                            self.set_device_manufacturer(mfg_name)
+                            _LOGGER.debug("Read Manufacturer Name: %s", mfg_name)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
+
+                # Fetch Model Number
+                try:
+                    char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
+                    if char_model:
+                        model_bytes = await client.read_gatt_char(char_model)
+                        if model_bytes:
+                            model_num = model_bytes.decode("utf-8").strip(" \x00")
+                            # You might use model_num internally, but we don't necessarily want to override
+                            # the user's selected model logic, so we just log it for now.
+                            _LOGGER.debug("Read Model Number from device: %s", model_num)
+                except Exception as exc:
+                    _LOGGER.debug("Failed to read Model Number: %s", exc)
+
+            except Exception as exc:
                 prof = resolve_profile_model_id(self._device_model)
                 variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
                 _LOGGER.error(
-                    "Required service %s not found on device %s",
-                    parent_uuid,
+                    "Error polling device model=%s profile=%s address=%s: %s",
+                    self._device_model,
+                    prof,
                     ble_device.address,
+                    exc,
+                    exc_info=exc,
                 )
                 _LOGGER.error(
-                    "poll_failed: model/service mismatch (model=%s profile=%s "
-                    "variant_unverified=%s variant_reason=%s expected_stack=%s)",
+                    "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
+                    "variant_reason=%s",
+                    type(exc).__name__,
                     self._device_model,
                     prof,
                     variant_entry[1].unverified if variant_entry else False,
                     variant_entry[1].reason if variant_entry else None,
-                    self._device_config.parent_service_stack(),
                 )
-                return self._finish_update()
-
-            if self.last_service_info and not self._device_config.is_advertisement_compatible(
-                self.last_service_info.service_uuids
-            ):
-                prof = resolve_profile_model_id(self._device_model)
-                _LOGGER.warning(
-                    "Configured model %s (profile %s) may not match advertised service family. "
-                    "advertised=%s expected_stack=%s",
-                    self._device_model,
-                    prof,
-                    self.last_service_info.service_uuids,
-                    self._device_config.parent_service_stack(),
-                )
-
-            transport = GattTransport(client, self._device_config)
-            
-            # Open a single memory session for both records and time sync
-            session_opened = False
-            if self._device_config.parent_service_stack() == "classic":
-                try:
-                    await transport.unlock()
-                    await transport.open_memory_session()
-                    session_opened = True
-                except Exception as exc:
-                    _LOGGER.debug("Could not open memory session globally in poll: %s", exc)
-
-            # Perform time sync first, ensuring the device clock is correct before further actions
-            try:
-                await self._async_sync_current_time_with_client(client, ble_device.address, transport)
-            except Exception as exc:
-                _LOGGER.warning("Time sync failed during poll for %s: %s", ble_device.address, exc)
-
-            multi_user_mode = self._device_config.num_users > 1
-            record: dict[str, Any] | None = None
-            latest_by_user: dict[int, dict[str, Any]] = {}
-            if multi_user_mode:
-                latest_by_user = await self._driver.get_latest_records_per_user(transport)
-            else:
-                record = await self._driver.get_latest_record(transport)
-                live_record: dict[str, Any] | None = None
-                # Preferred live path for BLS devices: request latest via RACP indications.
-                live_record = await self._read_latest_via_bls_racp(client)
-                if live_record:
-                    _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
-                if not self._bp_char_unavailable:
+            finally:
+                if session_opened and transport is not None:
                     try:
-                        bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
-                        if bp_raw:
-                            # Keep RACP result if present; otherwise use direct read result.
-                            if live_record is None:
-                                live_record = self._parse_bp_measurement(bytes(bp_raw))
-                            _LOGGER.debug(
-                                "Read BP measurement char 0x2A35: raw=%s parsed=%s",
-                                bytes(bp_raw).hex(),
-                                live_record,
-                            )
-                        else:
-                            _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
-                    except Exception as exc:
-                        if "Read not permitted" in str(exc):
-                            self._bp_char_unavailable = True
-                            _LOGGER.info(
-                                "BP measurement char 0x2A35 read not permitted on %s; "
-                                "disabling live BLS read path",
-                                ble_device.address,
-                            )
-                        else:
-                            _LOGGER.debug(
-                                "Read BP measurement char 0x2A35 failed for %s: %s",
-                                ble_device.address,
-                                exc,
-                            )
-                        live_record = None
+                        await transport.close_memory_session()
+                    except Exception:
+                        pass
 
-                if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
-                    eeprom_dt = record.get("datetime") if record else None
-                    live_dt = live_record.get("datetime")
-                    use_live = False
-                    if record is None:
-                        use_live = True
-                    elif isinstance(live_dt, dt.datetime) and (
-                        not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
-                    ):
-                        use_live = True
-                    elif (
-                        not isinstance(live_dt, dt.datetime)
-                        and isinstance(record.get("sys"), int)
-                        and isinstance(record.get("dia"), int)
-                        and (
-                            int(live_record["sys"]) != int(record.get("sys"))
-                            or int(live_record["dia"]) != int(record.get("dia"))
-                        )
-                    ):
-                        # Some devices expose recent measurement values in 0x2A35 without timestamp.
-                        use_live = True
-                    if use_live:
-                        merged = dict(record or {})
-                        merged["sys"] = live_record["sys"]
-                        merged["dia"] = live_record["dia"]
-                        if isinstance(live_record.get("bpm"), int):
-                            merged["bpm"] = live_record["bpm"]
-                        if isinstance(live_dt, dt.datetime):
-                            merged["datetime"] = live_dt
-                        if "user" not in merged:
-                            merged["user"] = 1
-                        record = merged
-                        _LOGGER.info(
-                            "Using live BP measurement characteristic over EEPROM "
-                            "(sys=%s dia=%s bpm=%s datetime=%s)",
-                            record.get("sys"),
-                            record.get("dia"),
-                            record.get("bpm"),
-                            record.get("datetime"),
-                        )
+                if client and client.is_connected:
+                    try:
+                        await client.disconnect()
+                    except Exception:
+                        pass
+                _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
 
-            if multi_user_mode:
-                if latest_by_user:
-                    has_new = False
-                    for user in sorted(latest_by_user):
-                        user_record = latest_by_user[user]
-                        _LOGGER.debug(
-                            "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
-                            user,
-                            user_record.get("datetime"),
-                            user_record.get("sys"),
-                            user_record.get("dia"),
-                            user_record.get("bpm"),
-                        )
-                        self._update_measurement_sensors(
-                            user_record,
-                            user=user,
-                            multi_user=True,
-                        )
-                        signature = self._build_record_signature(user_record)
-                        previous = self._last_record_signatures_by_user.get(user)
-                        if signature != previous:
-                            has_new = True
-                            self._last_record_signatures_by_user[user] = signature
-                    poll_status = "new_measurement" if has_new else "no_new_valid_record"
-                else:
-                    poll_status = "no_new_valid_record"
-                    _LOGGER.debug("No records found on device for any configured user")
-            elif record:
-                _LOGGER.info("Got record: %s", record)
-                _LOGGER.debug(
-                    "Latest measurement selected: datetime=%s user=%s sys=%s dia=%s bpm=%s",
-                    record.get("datetime"),
-                    record.get("user"),
-                    record.get("sys"),
-                    record.get("dia"),
-                    record.get("bpm"),
-                )
-                self._update_measurement_sensors(record)
-                signature = self._build_record_signature(record)
-                if signature == self._last_record_signature:
-                    poll_status = "no_new_valid_record"
-                    _LOGGER.debug(
-                        "no_new_valid_record: latest valid record unchanged (model=%s, sig=%s)",
-                        self._device_model,
-                        signature,
-                    )
-                else:
-                    poll_status = "new_measurement"
-                    _LOGGER.debug(
-                        "new_measurement: latest valid record changed from %s to %s",
-                        self._last_record_signature,
-                        signature,
-                    )
-                    self._last_record_signature = signature
-                _LOGGER.debug(
-                    "Prepared sensor update payload for %s: %s",
-                    ble_device.address,
-                    {
-                        "blood_pressure_systolic": record.get("sys"),
-                        "blood_pressure_diastolic": record.get("dia"),
-                        "heart_rate": record.get("bpm"),
-                        "pulse_pressure": (
-                            (record.get("sys") - record.get("dia"))
-                            if isinstance(record.get("sys"), (int, float))
-                            and isinstance(record.get("dia"), (int, float))
-                            and record.get("sys") > record.get("dia")
-                            else None
-                        ),
-                    },
-                )
-            else:
-                poll_status = "no_new_valid_record"
-                prof = resolve_profile_model_id(self._device_model)
-                _LOGGER.debug("No records found on device")
-                _LOGGER.debug(
-                    "no_new_valid_record: no valid parsed records (model=%s profile=%s)",
-                    self._device_model,
-                    prof,
-                )
-
-            # Fetch Battery Level
-            try:
-                char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
-                bat_bytes = None
-                if char_bat:
-                    bat_bytes = await client.read_gatt_char(char_bat)
-                else:
-                    # Some stacks do not expose BAS in cached services reliably.
-                    # Fall back to direct UUID read attempt.
-                    _LOGGER.debug(
-                        "Battery characteristic %s not found in services for %s; trying direct UUID read",
-                        BATTERY_LEVEL_UUID,
-                        ble_device.address,
-                    )
-                    bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
-
-                if bat_bytes:
-                    bat_level = int(bat_bytes[0])
-                    self.update_sensor(
-                        "battery",
-                        Units.PERCENTAGE,
-                        bat_level,
-                        SensorDeviceClass.BATTERY,
-                        "Battery",
-                    )
-                    _LOGGER.debug("Read Battery Level: %s%%", bat_level)
-            except Exception as exc:
-                _LOGGER.debug("Failed to read Battery Level: %s", exc)
-
-            # Fetch Firmware Revision
-            try:
-                char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
-                if char_fw:
-                    fw_bytes = await client.read_gatt_char(char_fw)
-                    if fw_bytes:
-                        fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
-                        self.set_device_sw_version(fw_rev)
-                        _LOGGER.debug("Read Firmware Revision: %s", fw_rev)
-            except Exception as exc:
-                _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
-
-            # Fetch Hardware Revision
-            try:
-                char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
-                if char_hw:
-                    hw_bytes = await client.read_gatt_char(char_hw)
-                    if hw_bytes:
-                        hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
-                        self.set_device_hw_version(hw_rev)
-                        _LOGGER.debug("Read Hardware Revision: %s", hw_rev)
-            except Exception as exc:
-                _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
-
-            # Fetch Manufacturer Name
-            try:
-                char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
-                if char_mfg:
-                    mfg_bytes = await client.read_gatt_char(char_mfg)
-                    if mfg_bytes:
-                        mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
-                        self.set_device_manufacturer(mfg_name)
-                        _LOGGER.debug("Read Manufacturer Name: %s", mfg_name)
-            except Exception as exc:
-                _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
-
-            # Fetch Model Number
-            try:
-                char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
-                if char_model:
-                    model_bytes = await client.read_gatt_char(char_model)
-                    if model_bytes:
-                        model_num = model_bytes.decode("utf-8").strip(" \x00")
-                        # You might use model_num internally, but we don't necessarily want to override
-                        # the user's selected model logic, so we just log it for now.
-                        _LOGGER.debug("Read Model Number from device: %s", model_num)
-            except Exception as exc:
-                _LOGGER.debug("Failed to read Model Number: %s", exc)
-
-        except Exception as exc:
-            prof = resolve_profile_model_id(self._device_model)
-            variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
-            _LOGGER.error(
-                "Error polling device model=%s profile=%s address=%s: %s",
-                self._device_model,
-                prof,
-                ble_device.address,
-                exc,
-                exc_info=exc,
-            )
-            _LOGGER.error(
-                "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
-                "variant_reason=%s",
-                type(exc).__name__,
-                self._device_model,
-                prof,
-                variant_entry[1].unverified if variant_entry else False,
-                variant_entry[1].reason if variant_entry else None,
-            )
-        finally:
-            if session_opened:
-                try:
-                    await transport.close_memory_session()
-                except Exception:
-                    pass
-
-            if client and client.is_connected:
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
-            _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
-
-        return self._finish_update()
+            return self._finish_update()
 
     async def async_retry_pairing(self, ble_device: BLEDevice) -> None:
         """Connect to the device and retry pairing/bonding (setup-like flow)."""
