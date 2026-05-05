@@ -729,6 +729,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                 # Open a single memory session for both records and time sync
                 if self._device_config.parent_service_stack() == "classic":
                     try:
+                        if self._device_config.legacy_pairing_workarounds:
+                            try:
+                                await transport.pair()
+                            except Exception as exc:
+                                _LOGGER.debug(
+                                    "Legacy poll pair step failed (continuing to unlock): %s",
+                                    exc,
+                                )
                         await transport.unlock()
                         await transport.open_memory_session()
                         session_opened = True

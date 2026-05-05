@@ -469,16 +469,56 @@ class GattTransport:
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
+        rx_notify_primed = False
 
         def _unlock_callback(_: Any, rx_bytes: bytearray) -> None:
             response_holder[0] = rx_bytes
             unlock_event.set()
 
+        # Match pairing flow: briefly prime RX notify so stacks that require
+        # a security request trigger can establish encrypted notify reliably.
+        try:
+            await self._client.start_notify(
+                self._config.rx_channel_uuids[0], lambda _h, _d: None
+            )
+            rx_notify_primed = True
+            await asyncio.sleep(0.5)
+        except Exception as exc:
+            _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
+
         self._debug_ble_link("unlock_before_notify")
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         await asyncio.sleep(0.5)
         try:
+            # Legacy classic-stack devices are often more stable if we send a
+            # short "confirm encryption" probe before auth-key unlock.
+            if self._config.legacy_pairing_workarounds:
+                unlock_event.clear()
+                response_holder[0] = None
+                try:
+                    await self._client.write_gatt_char(
+                        self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+                    )
+                    await asyncio.wait_for(unlock_event.wait(), timeout=2.0)
+                    confirm_resp = response_holder[0]
+                    if _is_unlock_key_programming_ready(confirm_resp):
+                        _LOGGER.debug(
+                            "unlock confirm probe acknowledged: notify_prefix=%s model=%s",
+                            confirm_resp[:2].hex() if confirm_resp is not None else "None",
+                            self._config.model,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "unlock confirm probe unexpected notify (continuing): len=%s hex=%s model=%s",
+                            len(confirm_resp) if confirm_resp is not None else None,
+                            _hex(confirm_resp) if confirm_resp else "None",
+                            self._config.model,
+                        )
+                except Exception as exc:
+                    _LOGGER.debug("unlock confirm probe skipped/failed (continuing): %s", exc)
+
             unlock_event.clear()
+            response_holder[0] = None
             _LOGGER.debug(
                 "unlock write: uuid=%s payload_len=%d model=%s",
                 self._config.unlock_uuid,
@@ -511,6 +551,11 @@ class GattTransport:
             raise ConnectionError("Unlock failed: notify timeout") from None
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
+            if rx_notify_primed:
+                try:
+                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
 
     async def pair(self, key: bytearray | None = None) -> None:
