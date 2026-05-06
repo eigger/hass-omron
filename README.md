@@ -18,6 +18,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 
 ## Supported Models
 
+- HEM-6232T
 - HEM-7142T2
 - HEM-7320T
 - HEM-7322T

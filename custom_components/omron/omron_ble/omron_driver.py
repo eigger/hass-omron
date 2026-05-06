@@ -7,6 +7,7 @@ import traceback
 from typing import Any
 
 from bleak import BleakClient
+from bleak.exc import BleakError
 
 from .devices import DeviceConfig, bytearray_bits_to_int
 
@@ -39,10 +40,10 @@ def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
 
 
 def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: new pairing key accepted (e.g. HEM-7150T-Z uses 8004, omblepy 8000)."""
+    """Unlock notify: new pairing key accepted (8000/8004 typical; 8001 observed on some models)."""
     if resp is None or len(resp) < 2:
         return False
-    return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
+    return resp[0] == 0x80 and resp[1] in (0x00, 0x01, 0x04)
 
 
 def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
@@ -131,6 +132,73 @@ class GattTransport:
         self._memory_session_depth = 0
         self._unlocked = False
 
+    def _require_connected(self, context: str) -> None:
+        """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
+        try:
+            if not self._client.is_connected:
+                raise ConnectionError(
+                    f"BLE disconnected ({context}); retry the poll when the device is in range"
+                )
+        except ConnectionError:
+            raise
+        except Exception as exc:
+            raise ConnectionError(
+                f"BLE connection state unavailable ({context}): {exc}"
+            ) from exc
+
+    async def _ensure_services_cache(self) -> None:
+        """Ensure GATT services are usable (refresh if Bleak has not populated the cache)."""
+        self._require_connected("GATT service cache")
+        try:
+            _ = self._client.services
+        except BleakError as exc:
+            msg = str(exc).lower()
+            if "discovery has not been performed" in msg or "not been performed" in msg:
+                await _bleak_refresh_services(self._client)
+            else:
+                raise
+
+    def _debug_ble_link(self, tag: str) -> None:
+        """Emit one-line BLE link state for troubleshooting notify/write stalls."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        try:
+            connected = bool(self._client.is_connected)
+        except Exception as exc:
+            connected = False
+            conn_note = f"is_connected_error={exc!r}"
+        else:
+            conn_note = ""
+        services_note = ""
+        try:
+            sv = self._client.services
+            if sv is None:
+                services_note = "services=None"
+            else:
+                try:
+                    services_note = f"services_len={len(sv)}"
+                except Exception as exc:
+                    services_note = f"services_len_error={exc!r}"
+        except Exception as exc:
+            services_note = f"services_access_error={exc!r}"
+        frag_bits = []
+        for i in range(min(4, len(self._channel_fragments))):
+            frag_bits.append("1" if self._channel_fragments[i] else "0")
+        _LOGGER.debug(
+            "BLE trace [%s] model=%s connected=%s %s %s "
+            "notify_subscribed=%s rx_handle_map=%d memory_depth=%d unlocked=%s partial_rx=%s",
+            tag,
+            self._config.model,
+            connected,
+            conn_note,
+            services_note,
+            self._notify_subscribed,
+            len(self._notify_handle_to_channel),
+            self._memory_session_depth,
+            self._unlocked,
+            "".join(frag_bits) if frag_bits else "",
+        )
+
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
         self._notify_handle_to_channel = {}
@@ -138,29 +206,42 @@ class GattTransport:
             char = self._client.services.get_characteristic(uuid)
             if char is not None:
                 self._notify_handle_to_channel[char.handle] = idx
+        _LOGGER.debug(
+            "RX notify handle map: %d/%d channels (model=%s)",
+            len(self._notify_handle_to_channel),
+            len(self._config.rx_channel_uuids),
+            self._config.model,
+        )
 
     async def _subscribe_notify_channels(self) -> None:
         """Enable notifications on all RX channels."""
         if self._notify_subscribed:
+            _LOGGER.debug(
+                "RX notify subscribe skipped (already flagged) model=%s",
+                self._config.model,
+            )
             return
 
+        self._debug_ble_link("before_rx_subscribe")
+        await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
             await self._client.start_notify(uuid, self._on_notify_channel_data)
             _LOGGER.debug("Subscribed notify channel %s", uuid)
-
+        await asyncio.sleep(0.5)
         self._notify_subscribed = True
+        self._debug_ble_link("after_rx_subscribe")
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
-        if self._notify_subscribed:
-            for uuid in self._config.rx_channel_uuids:
-                try:
-                    await self._client.stop_notify(uuid)
-                except Exception as exc:
-                    _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
-            self._notify_subscribed = False
+        for uuid in self._config.rx_channel_uuids:
+            try:
+                await self._client.stop_notify(uuid)
+            except Exception as exc:
+                _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
+        self._notify_subscribed = False
+        self._debug_ble_link("after_rx_unsubscribe")
 
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
@@ -244,25 +325,62 @@ class GattTransport:
                 channel_width = max(channel_width, len(command))
 
             num_tx_channels = (len(command) + channel_width - 1) // channel_width
-            for ch_idx in range(num_tx_channels):
-                tx_segment = remaining_cmd[:channel_width]
-                _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
-                if self._config.is_single_channel:
-                    await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+            try:
+                for ch_idx in range(num_tx_channels):
+                    tx_segment = remaining_cmd[:channel_width]
+                    _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
+                    if self._config.is_single_channel:
+                        await self._client.write_gatt_char(
+                            self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+                        )
+                    else:
+                        await self._client.write_gatt_char(
+                            self._config.tx_channel_uuids[ch_idx], tx_segment
+                        )
+                    remaining_cmd = remaining_cmd[channel_width:]
+            except BleakError as exc:
+                msg = str(exc).lower()
+                if "service discovery has not been performed" in msg:
+                    _LOGGER.debug(
+                        "GATT services not ready during write (retry %d/%d): %s",
+                        retry + 1,
+                        _MAX_RETRIES,
+                        exc,
                     )
+                    await _bleak_refresh_services(self._client)
                 else:
-                    await self._client.write_gatt_char(
-                        self._config.tx_channel_uuids[ch_idx], tx_segment
+                    _LOGGER.warning(
+                        "BLE error during write (retry %d/%d): %s",
+                        retry + 1,
+                        _MAX_RETRIES,
+                        exc,
                     )
-                remaining_cmd = remaining_cmd[channel_width:]
+                if retry + 1 >= _MAX_RETRIES:
+                    raise
+                continue
 
             # Wait for response
             try:
+                self._debug_ble_link(
+                    f"await_reply attempt={retry + 1} cmd_head={_hex(command[:8])}"
+                )
                 await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
                 _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
+                self._debug_ble_link(
+                    f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
+                )
+                try:
+                    if not self._client.is_connected:
+                        raise ConnectionError(
+                            "BLE disconnected while waiting for a memory-protocol reply "
+                            "(no assembled RX within timeout); retry when the link is stable"
+                        )
+                except ConnectionError:
+                    raise
+                except Exception:
+                    pass
 
         raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
 
@@ -273,12 +391,23 @@ class GattTransport:
             _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
             return
 
-        await self._subscribe_notify_channels()
-        # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
-        start_cmd = bytearray.fromhex("0800000000100018")
-        await self._write_command_and_wait_reply(start_cmd)
-        if self._last_reply_packet_type != bytearray.fromhex("8000"):
-            raise ConnectionError("Invalid response to data readout start")
+        try:
+            self._require_connected("open_memory_session")
+            self._debug_ble_link("open_memory_session_enter")
+            await self._subscribe_notify_channels()
+            # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
+            start_cmd = bytearray.fromhex("0800000000100018")
+            await self._write_command_and_wait_reply(start_cmd)
+            if self._last_reply_packet_type != bytearray.fromhex("8000"):
+                raise ConnectionError("Invalid response to data readout start")
+            self._debug_ble_link("open_memory_session_ok")
+        except BaseException:
+            if self._memory_session_depth > 0:
+                self._memory_session_depth -= 1
+            self._unlocked = False
+            self._debug_ble_link("open_memory_session_fail_cleanup")
+            await self._unsubscribe_notify_channels()
+            raise
 
     async def close_memory_session(self) -> None:
         """End a data readout session."""
@@ -369,21 +498,80 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock or self._unlocked:
+        if not self._config.requires_unlock:
+            _LOGGER.debug("unlock skipped: requires_unlock=False model=%s", self._config.model)
             return
+        if self._unlocked:
+            _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
+            return
+
+        self._require_connected("unlock")
 
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
+        rx_notify_primed = False
 
         def _unlock_callback(_: Any, rx_bytes: bytearray) -> None:
+            _LOGGER.debug(
+                "unlock notify: len=%s hex=%s model=%s",
+                len(rx_bytes),
+                _hex(rx_bytes),
+                self._config.model,
+            )
             response_holder[0] = rx_bytes
             unlock_event.set()
 
+        # Match pairing flow: briefly prime RX notify so stacks that require
+        # a security request trigger can establish encrypted notify reliably.
+        try:
+            await self._client.start_notify(
+                self._config.rx_channel_uuids[0], lambda _h, _d: None
+            )
+            rx_notify_primed = True
+            await asyncio.sleep(0.5)
+        except Exception as exc:
+            _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
+
+        self._debug_ble_link("unlock_before_notify")
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         await asyncio.sleep(0.5)
         try:
+            # Legacy classic-stack devices are often more stable if we send a
+            # short "confirm encryption" probe before auth-key unlock.
+            if self._config.legacy_pairing_workarounds:
+                unlock_event.clear()
+                response_holder[0] = None
+                try:
+                    await self._client.write_gatt_char(
+                        self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+                    )
+                    await asyncio.wait_for(unlock_event.wait(), timeout=2.0)
+                    confirm_resp = response_holder[0]
+                    if _is_unlock_key_programming_ready(confirm_resp):
+                        _LOGGER.debug(
+                            "unlock confirm probe acknowledged: notify_prefix=%s model=%s",
+                            confirm_resp[:2].hex() if confirm_resp is not None else "None",
+                            self._config.model,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "unlock confirm probe unexpected notify (continuing): len=%s hex=%s model=%s",
+                            len(confirm_resp) if confirm_resp is not None else None,
+                            _hex(confirm_resp) if confirm_resp else "None",
+                            self._config.model,
+                        )
+                except Exception as exc:
+                    _LOGGER.debug("unlock confirm probe skipped/failed (continuing): %s", exc)
+
             unlock_event.clear()
+            response_holder[0] = None
+            _LOGGER.debug(
+                "unlock write: uuid=%s payload_len=%d model=%s",
+                self._config.unlock_uuid,
+                1 + len(unlock_key),
+                self._config.model,
+            )
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
             )
@@ -399,8 +587,23 @@ class GattTransport:
                 raise ConnectionError("Unlock failed: pairing key mismatch")
             
             self._unlocked = True
+            if response is not None and len(response) >= 2:
+                _LOGGER.debug(
+                    "unlock ok: notify_prefix=%s model=%s",
+                    response[:2].hex(),
+                    self._config.model,
+                )
+        except asyncio.TimeoutError:
+            self._debug_ble_link("unlock_notify_timeout")
+            raise ConnectionError("Unlock failed: notify timeout") from None
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
+            if rx_notify_primed:
+                try:
+                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
+            self._debug_ble_link("unlock_after_stop_notify")
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program a new pairing key into the device.
@@ -490,6 +693,12 @@ class GattTransport:
         response_holder: list[bytes | None] = [None]
 
         def _pair_callback(_: Any, rx_bytes: bytearray) -> None:
+            _LOGGER.debug(
+                "pair unlock notify: len=%s hex=%s model=%s",
+                len(rx_bytes),
+                _hex(rx_bytes),
+                self._config.model,
+            )
             response_holder[0] = rx_bytes
             prog_event.set()
 
@@ -610,15 +819,15 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
-        if legacy:
-            _LOGGER.debug("Executing legacy post-pairing handshake to trigger 'sync success' animation...")
-            await asyncio.sleep(2.0)
-            try:
-                await self.open_memory_session()
-                await self.close_memory_session()
-                await asyncio.sleep(2.0)
-            except Exception as exc:
-                _LOGGER.warning("Legacy post-pairing handshake failed (may be normal): %s", exc)
+        # if legacy:
+        #     _LOGGER.debug("Executing legacy post-pairing handshake to trigger 'sync success' animation...")
+        #     await asyncio.sleep(2.0)
+        #     try:
+        #         await self.open_memory_session()
+        #         await self.close_memory_session()
+        #         await asyncio.sleep(2.0)
+        #     except Exception as exc:
+        #         _LOGGER.warning("Legacy post-pairing handshake failed (may be normal): %s", exc)
 
         _LOGGER.info("Device paired successfully with new key")
 
@@ -790,64 +999,6 @@ class OmronDeviceDriver:
             result.append(sum(result) & 0xFF)
             result += bytes([0x00])
         return result
-
-
-    async def _probe_7142_counter_candidates(
-        self, transport: GattTransport
-    ) -> None:
-        """Log potential unread-counter regions for HEM-7142T2 analysis."""
-        if not self._config.use_layout_fallback_scan or self._counter_probe_logged:
-            return
-        # Only run when debug logging is enabled to avoid noisy logs.
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-
-        probe_regions = [
-            (0x0010, 0x10, "b-format settings block"),
-            (0x0054, 0x10, "b-format settings write block"),
-            (0x0260, 0x10, "a-format settings block"),
-            (0x0286, 0x10, "a-format settings write block"),
-        ]
-        try:
-            for addr, size, label in probe_regions:
-                raw = await transport.read_memory_range(addr, size, size)
-                hex_raw = bytes(raw).hex()
-                _LOGGER.debug(
-                    "7142 counter-probe %s addr=%#06x size=%#04x raw=%s",
-                    label,
-                    addr,
-                    size,
-                    hex_raw,
-                )
-                if len(raw) >= 8:
-                    # Try index-based interpretation:
-                    # [0:2],[2:4] -> lastWrittenSlot user1/2
-                    # [4:6],[6:8] -> unread user1/2
-                    lw_u1_le = int.from_bytes(raw[0:2], "little")
-                    lw_u2_le = int.from_bytes(raw[2:4], "little")
-                    ur_u1_le = int.from_bytes(raw[4:6], "little")
-                    ur_u2_le = int.from_bytes(raw[6:8], "little")
-                    lw_u1_be = int.from_bytes(raw[0:2], "big")
-                    lw_u2_be = int.from_bytes(raw[2:4], "big")
-                    ur_u1_be = int.from_bytes(raw[4:6], "big")
-                    ur_u2_be = int.from_bytes(raw[6:8], "big")
-                    _LOGGER.debug(
-                        "7142 counter-probe decoded addr=%#06x "
-                        "LE(last_slot_u1=%d,u2=%d unread_u1=%d,u2=%d) "
-                        "BE(last_slot_u1=%d,u2=%d unread_u1=%d,u2=%d)",
-                        addr,
-                        lw_u1_le,
-                        lw_u2_le,
-                        ur_u1_le,
-                        ur_u2_le,
-                        lw_u1_be,
-                        lw_u2_be,
-                        ur_u1_be,
-                        ur_u2_be,
-                    )
-            self._counter_probe_logged = True
-        except Exception as exc:
-            _LOGGER.debug("7142 counter-probe skipped: %s", exc)
 
     async def get_all_records(
         self, transport: GattTransport
@@ -1595,7 +1746,6 @@ class OmronDeviceDriver:
         await transport.unlock()
         await transport.open_memory_session()
         try:
-            await self._probe_7142_counter_candidates(transport)
             best_records: list[list[dict[str, Any]]] | None = None
             best_latest: dt.datetime | None = None
             best_layout: tuple[list[int], list[int], int] | None = None
