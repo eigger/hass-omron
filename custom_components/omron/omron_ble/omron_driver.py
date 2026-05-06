@@ -40,10 +40,10 @@ def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
 
 
 def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: new pairing key accepted (e.g. HEM-7150T-Z uses 8004, omblepy 8000)."""
+    """Unlock notify: new pairing key accepted (8000/8004 typical; 8001 observed on some models)."""
     if resp is None or len(resp) < 2:
         return False
-    return resp[0] == 0x80 and resp[1] in (0x00, 0x04)
+    return resp[0] == 0x80 and resp[1] in (0x00, 0x01, 0x04)
 
 
 def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
@@ -132,6 +132,32 @@ class GattTransport:
         self._memory_session_depth = 0
         self._unlocked = False
 
+    def _require_connected(self, context: str) -> None:
+        """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
+        try:
+            if not self._client.is_connected:
+                raise ConnectionError(
+                    f"BLE disconnected ({context}); retry the poll when the device is in range"
+                )
+        except ConnectionError:
+            raise
+        except Exception as exc:
+            raise ConnectionError(
+                f"BLE connection state unavailable ({context}): {exc}"
+            ) from exc
+
+    async def _ensure_services_cache(self) -> None:
+        """Ensure GATT services are usable (refresh if Bleak has not populated the cache)."""
+        self._require_connected("GATT service cache")
+        try:
+            _ = self._client.services
+        except BleakError as exc:
+            msg = str(exc).lower()
+            if "discovery has not been performed" in msg or "not been performed" in msg:
+                await _bleak_refresh_services(self._client)
+            else:
+                raise
+
     def _debug_ble_link(self, tag: str) -> None:
         """Emit one-line BLE link state for troubleshooting notify/write stalls."""
         if not _LOGGER.isEnabledFor(logging.DEBUG):
@@ -197,6 +223,7 @@ class GattTransport:
             return
 
         self._debug_ble_link("before_rx_subscribe")
+        await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
@@ -344,6 +371,16 @@ class GattTransport:
                 self._debug_ble_link(
                     f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
                 )
+                try:
+                    if not self._client.is_connected:
+                        raise ConnectionError(
+                            "BLE disconnected while waiting for a memory-protocol reply "
+                            "(no assembled RX within timeout); retry when the link is stable"
+                        )
+                except ConnectionError:
+                    raise
+                except Exception:
+                    pass
 
         raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
 
@@ -355,6 +392,7 @@ class GattTransport:
             return
 
         try:
+            self._require_connected("open_memory_session")
             self._debug_ble_link("open_memory_session_enter")
             await self._subscribe_notify_channels()
             # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
@@ -366,6 +404,7 @@ class GattTransport:
         except BaseException:
             if self._memory_session_depth > 0:
                 self._memory_session_depth -= 1
+            self._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels()
             raise
@@ -466,12 +505,20 @@ class GattTransport:
             _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
             return
 
+        self._require_connected("unlock")
+
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
         rx_notify_primed = False
 
         def _unlock_callback(_: Any, rx_bytes: bytearray) -> None:
+            _LOGGER.debug(
+                "unlock notify: len=%s hex=%s model=%s",
+                len(rx_bytes),
+                _hex(rx_bytes),
+                self._config.model,
+            )
             response_holder[0] = rx_bytes
             unlock_event.set()
 
@@ -646,6 +693,12 @@ class GattTransport:
         response_holder: list[bytes | None] = [None]
 
         def _pair_callback(_: Any, rx_bytes: bytearray) -> None:
+            _LOGGER.debug(
+                "pair unlock notify: len=%s hex=%s model=%s",
+                len(rx_bytes),
+                _hex(rx_bytes),
+                self._config.model,
+            )
             response_holder[0] = rx_bytes
             prog_event.set()
 
