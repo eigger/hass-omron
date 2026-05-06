@@ -727,7 +727,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 transport = GattTransport(client, self._device_config)
 
                 # Open a single memory session for both records and time sync
-                if self._device_config.parent_service_stack() == "classic":
+                if self._device_config.parent_service_stack() == "classic" or self._device_config.supports_eeprom_time_sync:
                     try:
                         if self._device_config.legacy_pairing_workarounds:
                             try:
@@ -1056,7 +1056,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         transport = GattTransport(client, self._device_config)
         await transport.pair()
         await _bleak_refresh_services(client)
-        await self._async_sync_current_time_with_client(client, ble_device.address, transport)
         _LOGGER.info(
             "Manual pairing retry completed for %s (%s)",
             self._device_model,

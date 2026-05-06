@@ -947,64 +947,6 @@ class OmronDeviceDriver:
             result += bytes([0x00])
         return result
 
-
-    async def _probe_7142_counter_candidates(
-        self, transport: GattTransport
-    ) -> None:
-        """Log potential unread-counter regions for HEM-7142T2 analysis."""
-        if not self._config.use_layout_fallback_scan or self._counter_probe_logged:
-            return
-        # Only run when debug logging is enabled to avoid noisy logs.
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-
-        probe_regions = [
-            (0x0010, 0x10, "b-format settings block"),
-            (0x0054, 0x10, "b-format settings write block"),
-            (0x0260, 0x10, "a-format settings block"),
-            (0x0286, 0x10, "a-format settings write block"),
-        ]
-        try:
-            for addr, size, label in probe_regions:
-                raw = await transport.read_memory_range(addr, size, size)
-                hex_raw = bytes(raw).hex()
-                _LOGGER.debug(
-                    "7142 counter-probe %s addr=%#06x size=%#04x raw=%s",
-                    label,
-                    addr,
-                    size,
-                    hex_raw,
-                )
-                if len(raw) >= 8:
-                    # Try index-based interpretation:
-                    # [0:2],[2:4] -> lastWrittenSlot user1/2
-                    # [4:6],[6:8] -> unread user1/2
-                    lw_u1_le = int.from_bytes(raw[0:2], "little")
-                    lw_u2_le = int.from_bytes(raw[2:4], "little")
-                    ur_u1_le = int.from_bytes(raw[4:6], "little")
-                    ur_u2_le = int.from_bytes(raw[6:8], "little")
-                    lw_u1_be = int.from_bytes(raw[0:2], "big")
-                    lw_u2_be = int.from_bytes(raw[2:4], "big")
-                    ur_u1_be = int.from_bytes(raw[4:6], "big")
-                    ur_u2_be = int.from_bytes(raw[6:8], "big")
-                    _LOGGER.debug(
-                        "7142 counter-probe decoded addr=%#06x "
-                        "LE(last_slot_u1=%d,u2=%d unread_u1=%d,u2=%d) "
-                        "BE(last_slot_u1=%d,u2=%d unread_u1=%d,u2=%d)",
-                        addr,
-                        lw_u1_le,
-                        lw_u2_le,
-                        ur_u1_le,
-                        ur_u2_le,
-                        lw_u1_be,
-                        lw_u2_be,
-                        ur_u1_be,
-                        ur_u2_be,
-                    )
-            self._counter_probe_logged = True
-        except Exception as exc:
-            _LOGGER.debug("7142 counter-probe skipped: %s", exc)
-
     async def get_all_records(
         self, transport: GattTransport
     ) -> list[list[dict[str, Any]]]:
@@ -1751,7 +1693,6 @@ class OmronDeviceDriver:
         await transport.unlock()
         await transport.open_memory_session()
         try:
-            await self._probe_7142_counter_candidates(transport)
             best_records: list[list[dict[str, Any]]] | None = None
             best_latest: dt.datetime | None = None
             best_layout: tuple[list[int], list[int], int] | None = None

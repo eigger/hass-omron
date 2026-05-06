@@ -964,7 +964,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
-        settings_time_sync_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",

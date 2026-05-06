@@ -103,6 +103,7 @@ async def async_sync_device_time(
         return False
 
     # Try CTS first
+    cts_success = False
     if char_cts is not None:
         now = dt.datetime.now().astimezone()
         payload = build_cts_payload(now)
@@ -161,14 +162,14 @@ async def async_sync_device_time(
                     cts_snapshot_ok,
                     cts_notify_ok,
                 )
-                return False
-
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.info(
-                "Synced current time via CTS for %s: %s",
-                model,
-                now.isoformat(timespec="seconds"),
-            )
+            else:
+                await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
+                _LOGGER.info(
+                    "Synced current time via CTS for %s: %s",
+                    model,
+                    now.isoformat(timespec="seconds"),
+                )
+                cts_success = True
             
             # Try Local Time Information (0x2A0F)
             char_lti = services.get_characteristic(LOCAL_TIME_INFO_UUID)
@@ -192,8 +193,6 @@ async def async_sync_device_time(
                         )
                 except Exception as exc:
                     _LOGGER.debug("Local Time Info sync failed for %s: %s", model, exc)
-            
-            return True
         except Exception as exc:
             _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
         finally:
@@ -203,33 +202,34 @@ async def async_sync_device_time(
                 except Exception as exc:
                     _LOGGER.debug("CTS stop_notify failed for %s: %s", model, exc)
 
-    # CTS not available — try EEPROM-based time sync for legacy devices
+    # Try EEPROM-based time sync if supported
+    eeprom_success = False
     if config is None:
         config = get_device_config(model)
     
     if config.supports_eeprom_time_sync:
         _LOGGER.debug(
-            "CTS not found for %s, trying EEPROM time sync",
+            "EEPROM time sync supported for %s, executing sync",
             model,
         )
         if transport is None:
             transport = GattTransport(client, config)
         try:
             driver = OmronDeviceDriver(config)
-            synced = await driver.sync_eeprom_time(transport)
-            if synced:
-                return True
-            _LOGGER.warning("EEPROM time sync returned False for %s", model)
+            eeprom_success = await driver.sync_eeprom_time(transport)
+            if not eeprom_success:
+                _LOGGER.warning("EEPROM time sync returned False for %s", model)
         except Exception as exc:
             _LOGGER.warning("EEPROM time sync failed for %s: %s", model, exc)
     else:
-        _LOGGER.debug(
-            "Skipping time sync for %s: "
-            "CTS characteristic not found and EEPROM time sync not supported",
-            model,
-        )
+        if not cts_success:
+            _LOGGER.debug(
+                "Skipping time sync for %s: "
+                "CTS characteristic not found and EEPROM time sync not supported",
+                model,
+            )
 
-    return False
+    return cts_success or eeprom_success
 
 
 async def async_pair_and_sync_device(
