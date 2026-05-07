@@ -36,22 +36,22 @@ BINARY_SENSOR_DESCRIPTIONS = {
     OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT,
         device_class=BinarySensorDeviceClass.PROBLEM,
-        icon="mdi:account-alert",
+        icon="mdi:account-multiple",
     ),
     OmronExtendedBinarySensorDeviceClass.CUFF_FIT: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.CUFF_FIT,
         device_class=BinarySensorDeviceClass.PROBLEM,
-        icon="mdi:bandage",
+        icon="mdi:arm-flex",
     ),
     OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE,
         device_class=BinarySensorDeviceClass.PROBLEM,
-        icon="mdi:heart-broken",
+        icon="mdi:heart-multiple",
     ),
     OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
         device_class=BinarySensorDeviceClass.PROBLEM,
-        icon="mdi:compass-off",
+        icon="mdi:seat-recline-normal",
     ),
 }
 

@@ -93,10 +93,29 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Estimated Mean Arterial Pressure (mmHg)**
   - **Shock Index (ratio)**
   - **Rate Pressure Product (mmHg*bpm)**
-  - **Blood Pressure Category** (ACC/AHA text label)
+  - **Blood Pressure Category** (ACC/AHA)
   - **Measurement Timestamp**
   - **RSSI / Signal Strength (diagnostic)**
   - **Last Poll Duration (diagnostic)**
+- **Binary & Diagnostic Sensors** (Status from the last measurement):
+  - **Cuff Fit**: `On` indicates the cuff was **not wrapped correctly** (improper fit).
+  - **Body Movement**: `On` indicates that movement was detected during the measurement.
+  - **Irregular Pulse**: `On` indicates that an irregular heart rhythm was detected.
+  - **Improper Position**: `On` indicates the device was not at heart level (wrist models).
+  - **Low Battery**: `On` when the device's batteries should be replaced.
+  - **Connection**: `On` while Home Assistant is actively communicating with the monitor.
+
+## Blood Pressure Categories (ACC/AHA)
+
+The **Blood Pressure Category** sensor classifies readings according to the **ACC/AHA 2017 Guidelines**. If a measurement's systolic and diastolic values fall into different categories, the higher (more severe) category is assigned.
+
+| Category | Systolic (mmHg) | | Diastolic (mmHg) |
+| :--- | :--- | :---: | :--- |
+| **Normal** | < 120 | and | < 80 |
+| **Elevated** | 120 – 129 | and | < 80 |
+| **Hypertension Stage 1** | 130 – 139 | or | 80 – 89 |
+| **Hypertension Stage 2** | ≥ 140 | or | ≥ 90 |
+| **Hypertensive Crisis** | > 180 | or | > 120 |
 
 ## Device note (text entity)
 
