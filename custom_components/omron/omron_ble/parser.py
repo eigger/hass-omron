@@ -17,6 +17,7 @@ from bleak_retry_connector import establish_connection
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import (
+    BinarySensorDeviceClass,
     SensorLibrary,
     SensorUpdate,
     SensorDeviceClass,
@@ -444,7 +445,20 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
         self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
-        status_flags = record.get("status_flags")
+        # Merge EEPROM-parsed ihb/mov into status_flags so both BLS and EEPROM
+        # paths produce binary sensors for irregular pulse and body movement.
+        status_flags = dict(record.get("status_flags") or {})
+        if "ihb" in record and "irregular_pulse" not in status_flags:
+            status_flags["irregular_pulse"] = bool(record["ihb"])
+        if "mov" in record and "body_movement" not in status_flags:
+            status_flags["body_movement"] = bool(record["mov"])
+        if "cuff" in record and "cuff_fit" not in status_flags:
+            status_flags["cuff_fit"] = not bool(record["cuff"])
+        if "pos" in record and "improper_position" not in status_flags:
+            status_flags["improper_position"] = bool(record["pos"])
+        if "battery" in record and "battery" not in status_flags:
+            status_flags["battery"] = bool(record["battery"])
+
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
             for flag_key, class_name in [
@@ -452,6 +466,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ("cuff_fit", ExtendedBinarySensorDeviceClass.CUFF_FIT),
                 ("irregular_pulse", ExtendedBinarySensorDeviceClass.IRREGULAR_PULSE),
                 ("improper_position", ExtendedBinarySensorDeviceClass.IMPROPER_POSITION),
+                ("battery", BinarySensorDeviceClass.BATTERY),
             ]:
                 if flag_key in status_flags:
                     self.update_binary_sensor(
@@ -937,7 +952,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                             SensorDeviceClass.BATTERY,
                             "Battery",
                         )
-                        _LOGGER.debug("Read Battery Level: %s%%", bat_level)
+                        self.update_binary_sensor(
+                            "battery",
+                            bat_level <= 15,
+                            BinarySensorDeviceClass.BATTERY,
+                            "Low Battery",
+                        )
+                        _LOGGER.debug("Read Battery Level: %s%% (low_battery=%s)", bat_level, bat_level <= 15)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Battery Level: %s", exc)
 

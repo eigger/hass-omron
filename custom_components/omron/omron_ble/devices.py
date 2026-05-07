@@ -169,6 +169,10 @@ def parse_record_format_c(data: bytes | bytearray, endianness: str) -> dict[str,
     record["mov"] = (flags1 >> 15) & 0x01
     second = min(flags2 & 0x3F, 59)
     minute = min((flags2 >> 6) & 0x3F, 59)
+    # Modern stack flags2 bits: bit 12=Cuff, bit 13=Battery, bits 14-15=Position
+    record["cuff"] = (flags2 >> 12) & 0x01
+    record["battery"] = (flags2 >> 13) & 0x01
+    record["pos"] = (flags2 >> 14) & 0x03
 
     # Devices may return partially initialized entries that are not 0xFF-filled.
     # Treat obviously empty placeholders as invalid slots.
@@ -212,6 +216,11 @@ def parse_record_format_c_7142(data: bytes | bytearray, endianness: str) -> dict
     record["mov"] = (flags1 >> 15) & 0x01
     second = min(flags2 & 0x3F, 59)
     minute = min((flags2 >> 6) & 0x3F, 59)
+    # 7142 family flags2 bits: bit 12=Cuff, bit 13=Battery, bits 14-15=Position
+    record["cuff"] = (flags2 >> 12) & 0x01
+    record["battery"] = (flags2 >> 13) & 0x01
+    record["pos"] = (flags2 >> 14) & 0x03
+
     # 714x family records appear to carry a trailing record sequence/id field.
     # Keep it for latest-record selection heuristics.
     if len(data) >= 2:
