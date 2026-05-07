@@ -18,12 +18,15 @@ A custom integration for Home Assistant to connect and poll data directly from O
 
 ## Supported Models
 
-- HEM-6232T
-- HEM-7142T2
-- HEM-7320T
-- HEM-7322T
+| Model | Product Name | Type | Verified |
+| :--- | :--- | :--- | :---: |
+| **HEM-6232T** | Wrist (Elite) | Wrist | ✅ |
+| **HEM-7142T2** | Standard | Upper Arm | ✅ |
+| **HEM-7320T** | 7 Series | Upper Arm | ✅ |
+| **HEM-7322T** | M7 Intelli IT | Upper Arm | ✅ |
 
-- *Other Omron BLE devices might work by selecting a similar model, but have not been formally tested. If your device does not work, please share the debug logs for further investigation.*
+> [!NOTE]
+> Other Omron BLE devices might work by selecting a similar model during > setup, but have not been formally tested. If your device does not work, please share the debug logs
 
 ## ⚠️ Warning: Conflict with Official App
 **Omron blood pressure monitors only support one paired device at a time.**
