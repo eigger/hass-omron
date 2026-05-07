@@ -18,12 +18,12 @@ A custom integration for Home Assistant to connect and poll data directly from O
 
 ## Supported Models
 
-| Model | Product Name | Type | Verified |
+| Model | Global Model | Type | Verified |
 | :--- | :--- | :--- | :---: |
-| **HEM-6232T** | Wrist (Elite) | Wrist | ✅ |
-| **HEM-7142T2** | Standard | Upper Arm | ✅ |
-| **HEM-7320T** | 7 Series | Upper Arm | ✅ |
-| **HEM-7322T** | M7 Intelli IT | Upper Arm | ✅ |
+| **HEM-6232T** | BP6350/RS7 Intelli IT | Wrist | ✅ |
+| **HEM-7142T2** | BP7150/M2 Intelli IT | Upper Arm | ✅ |
+| **HEM-7320T** | BP7450/M7 Intelli IT | Upper Arm | ✅ |
+| **HEM-7322T** | BP786/M6 Intelli IT | Upper Arm | ✅ |
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during > setup, but have not been formally tested. If your device does not work, please share the debug logs
