@@ -155,7 +155,7 @@ async def async_sync_device_time(
                 )
 
             if not (cts_snapshot_ok and cts_notify_ok):
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "Skipping CTS write for %s: notify/get precondition not met "
                     "(snapshot_ok=%s notify_ok=%s)",
                     model,
