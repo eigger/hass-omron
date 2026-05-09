@@ -28,6 +28,7 @@ BINARY_SENSOR_DESCRIPTIONS = {
     OmronBinarySensorDeviceClass.BATTERY: BinarySensorEntityDescription(
         key=OmronBinarySensorDeviceClass.BATTERY,
         device_class=BinarySensorDeviceClass.BATTERY,
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
     OmronBinarySensorDeviceClass.PROBLEM: BinarySensorEntityDescription(
         key=OmronBinarySensorDeviceClass.PROBLEM,
