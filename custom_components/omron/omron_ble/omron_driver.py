@@ -39,24 +39,24 @@ def _hex(data: bytes | bytearray) -> str:
 
 
 def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: key programming mode ready (e.g. HEM-7150T-Z uses 8208, others 8200)."""
-    if resp is None or len(resp) < 2:
+    """Unlock notify: key programming mode ready (prefix 0x82; sub-type is in byte 1, not matched)."""
+    if resp is None or len(resp) < 1:
         return False
-    return resp[0] == 0x82 and resp[1] in (0x00, 0x08)
+    return resp[0] == 0x82
 
 
 def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: new pairing key accepted (8000/8004 typical; 8001 observed on some models)."""
-    if resp is None or len(resp) < 2:
+    """Unlock notify: new pairing key accepted (prefix 0x80; sub-type in byte 1, not matched)."""
+    if resp is None or len(resp) < 1:
         return False
-    return resp[0] == 0x80 and resp[1] in (0x00, 0x01, 0x04)
+    return resp[0] == 0x80
 
 
 def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: current pairing key accepted for auth/unlock (8100 or 8104)."""
-    if resp is None or len(resp) < 2:
+    """Unlock notify: current pairing key accepted for auth/unlock (prefix 0x81)."""
+    if resp is None or len(resp) < 1:
         return False
-    return resp[0] == 0x81 and resp[1] in (0x00, 0x04)
+    return resp[0] == 0x81
 
 
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
@@ -706,7 +706,7 @@ class GattTransport:
             _LOGGER.error(
                 "Key programming mode not reached: model=%s legacy_workarounds=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
-                "expected_notify_prefix=8200_or_8208 last_notify_hex=%s samples=%s",
+                "expected_notify_first_byte=0x82 last_notify_hex=%s samples=%s",
                 self._config.model,
                 legacy,
                 self._config.unlock_uuid,
