@@ -713,20 +713,36 @@ class OmronBluetoothDeviceData(BluetoothData):
 
                 # Open a single memory session for both records and time sync
                 if self._device_config.parent_service_stack() == "classic" or self._device_config.supports_eeprom_time_sync:
-                    try:
-                        if self._device_config.legacy_pairing_workarounds:
-                            try:
-                                await transport.pair()
-                            except Exception as exc:
-                                _LOGGER.debug(
-                                    "Legacy poll pair step failed (continuing to unlock): %s",
-                                    exc,
-                                )
-                        await transport.unlock()
-                        await transport.open_memory_session()
-                        session_opened = True
-                    except Exception as exc:
-                        _LOGGER.debug("Could not open memory session globally in poll: %s", exc)
+                    last_session_exc: BaseException | None = None
+                    for session_attempt in range(3):
+                        try:
+                            if self._device_config.legacy_pairing_workarounds:
+                                try:
+                                    await transport.pair()
+                                except Exception as exc:
+                                    _LOGGER.debug(
+                                        "Legacy poll pair step failed (continuing to unlock): %s",
+                                        exc,
+                                    )
+                            await transport.unlock()
+                            await transport.open_memory_session()
+                            session_opened = True
+                            break
+                        except BaseException as exc:
+                            last_session_exc = exc
+                            _LOGGER.debug(
+                                "Memory session open attempt %d/3 failed: %s",
+                                session_attempt + 1,
+                                exc,
+                            )
+                            if session_attempt < 2:
+                                await _bleak_refresh_services(client)
+                                await asyncio.sleep(0.5)
+                    if not session_opened and last_session_exc is not None:
+                        _LOGGER.debug(
+                            "Could not open memory session globally in poll after retries: %s",
+                            last_session_exc,
+                        )
 
                 # Perform time sync first, ensuring the device clock is correct before further actions
                 try:
