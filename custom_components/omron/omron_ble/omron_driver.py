@@ -9,9 +9,15 @@ from typing import Any
 from bleak import BleakClient
 from bleak.exc import BleakError
 
-from .devices import DeviceConfig, bytearray_bits_to_int
+from .devices import DeviceConfig
 
 _LOGGER = logging.getLogger(__name__)
+
+# BLE memory-protocol pacing (extra margin for weak RF / busy stacks).
+_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 3.5
+_MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
+_MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
+_NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
@@ -159,45 +165,8 @@ class GattTransport:
                 raise
 
     def _debug_ble_link(self, tag: str) -> None:
-        """Emit one-line BLE link state for troubleshooting notify/write stalls."""
-        if not _LOGGER.isEnabledFor(logging.DEBUG):
-            return
-        try:
-            connected = bool(self._client.is_connected)
-        except Exception as exc:
-            connected = False
-            conn_note = f"is_connected_error={exc!r}"
-        else:
-            conn_note = ""
-        services_note = ""
-        try:
-            sv = self._client.services
-            if sv is None:
-                services_note = "services=None"
-            else:
-                try:
-                    services_note = f"services_len={len(sv)}"
-                except Exception as exc:
-                    services_note = f"services_len_error={exc!r}"
-        except Exception as exc:
-            services_note = f"services_access_error={exc!r}"
-        frag_bits = []
-        for i in range(min(4, len(self._channel_fragments))):
-            frag_bits.append("1" if self._channel_fragments[i] else "0")
-        _LOGGER.debug(
-            "BLE trace [%s] model=%s connected=%s %s %s "
-            "notify_subscribed=%s rx_handle_map=%d memory_depth=%d unlocked=%s partial_rx=%s",
-            tag,
-            self._config.model,
-            connected,
-            conn_note,
-            services_note,
-            self._notify_subscribed,
-            len(self._notify_handle_to_channel),
-            self._memory_session_depth,
-            self._unlocked,
-            "".join(frag_bits) if frag_bits else "",
-        )
+        """Hook for BLE link tracing (disabled)."""
+        return
 
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
@@ -206,12 +175,6 @@ class GattTransport:
             char = self._client.services.get_characteristic(uuid)
             if char is not None:
                 self._notify_handle_to_channel[char.handle] = idx
-        _LOGGER.debug(
-            "RX notify handle map: %d/%d channels (model=%s)",
-            len(self._notify_handle_to_channel),
-            len(self._config.rx_channel_uuids),
-            self._config.model,
-        )
 
     async def _subscribe_notify_channels(self) -> None:
         """Enable notifications on all RX channels."""
@@ -228,8 +191,7 @@ class GattTransport:
 
         for uuid in self._config.rx_channel_uuids:
             await self._client.start_notify(uuid, self._on_notify_channel_data)
-            _LOGGER.debug("Subscribed notify channel %s", uuid)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         self._notify_subscribed = True
         self._debug_ble_link("after_rx_subscribe")
 
@@ -262,7 +224,6 @@ class GattTransport:
             return
 
         self._channel_fragments[channel_index] = rx_bytes
-        _LOGGER.debug("rx ch%d < %s", channel_index, _hex(rx_bytes))
 
         # Check if we can assemble a complete packet
         if not self._channel_fragments[0]:
@@ -311,11 +272,13 @@ class GattTransport:
         self._reply_ready.set()
 
     async def _write_command_and_wait_reply(
-        self, command: bytearray, timeout: float = 2.0
+        self,
+        command: bytearray,
+        timeout: float = _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC,
     ) -> None:
         """Send a command and wait for response with retry logic."""
-        _MAX_RETRIES = 3
-        for retry in range(_MAX_RETRIES):
+        max_retries = _MEMORY_PROTOCOL_TX_MAX_RETRIES
+        for retry in range(max_retries):
             self._reply_ready.clear()
 
             # Split command across TX channels
@@ -328,7 +291,6 @@ class GattTransport:
             try:
                 for ch_idx in range(num_tx_channels):
                     tx_segment = remaining_cmd[:channel_width]
-                    _LOGGER.debug("tx ch%d > %s", ch_idx, _hex(tx_segment))
                     if self._config.is_single_channel:
                         await self._client.write_gatt_char(
                             self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
@@ -344,7 +306,7 @@ class GattTransport:
                     _LOGGER.debug(
                         "GATT services not ready during write (retry %d/%d): %s",
                         retry + 1,
-                        _MAX_RETRIES,
+                        max_retries,
                         exc,
                     )
                     await _bleak_refresh_services(self._client)
@@ -352,10 +314,10 @@ class GattTransport:
                     _LOGGER.warning(
                         "BLE error during write (retry %d/%d): %s",
                         retry + 1,
-                        _MAX_RETRIES,
+                        max_retries,
                         exc,
                     )
-                if retry + 1 >= _MAX_RETRIES:
+                if retry + 1 >= max_retries:
                     raise
                 continue
 
@@ -367,7 +329,7 @@ class GattTransport:
                 await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
                 return  # Success
             except asyncio.TimeoutError:
-                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, _MAX_RETRIES)
+                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, max_retries)
                 self._debug_ble_link(
                     f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
                 )
@@ -381,8 +343,12 @@ class GattTransport:
                     raise
                 except Exception:
                     pass
+                if retry + 1 < max_retries:
+                    await asyncio.sleep(_MEMORY_PROTOCOL_RETRY_BACKOFF_SEC)
 
-        raise ConnectionError(f"Failed to receive response after {_MAX_RETRIES} retries")
+        raise ConnectionError(
+            f"Failed to receive response after {max_retries} retries"
+        )
 
     async def open_memory_session(self) -> None:
         """Start a data readout session."""
@@ -479,7 +445,6 @@ class GattTransport:
         result = bytearray()
         while bytes_to_read > 0:
             chunk_size = min(bytes_to_read, block_size)
-            _LOGGER.debug("read %#06x size %#04x", start_address, chunk_size)
             result += await self.read_memory_block(start_address, chunk_size)
             start_address += chunk_size
             bytes_to_read -= chunk_size
@@ -491,7 +456,6 @@ class GattTransport:
         """Write continuous data to EEPROM in blocks."""
         while len(data) > 0:
             chunk_size = min(len(data), block_size)
-            _LOGGER.debug("write %#06x size %#04x", start_address, chunk_size)
             await self.write_memory_block(start_address, data[:chunk_size])
             data = data[chunk_size:]
             start_address += chunk_size
@@ -513,12 +477,6 @@ class GattTransport:
         rx_notify_primed = False
 
         def _unlock_callback(_: Any, rx_bytes: bytearray) -> None:
-            _LOGGER.debug(
-                "unlock notify: len=%s hex=%s model=%s",
-                len(rx_bytes),
-                _hex(rx_bytes),
-                self._config.model,
-            )
             response_holder[0] = rx_bytes
             unlock_event.set()
 
@@ -529,13 +487,13 @@ class GattTransport:
                 self._config.rx_channel_uuids[0], lambda _h, _d: None
             )
             rx_notify_primed = True
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         except Exception as exc:
             _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("unlock_before_notify")
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
             # Legacy classic-stack devices are often more stable if we send a
             # short "confirm encryption" probe before auth-key unlock.
@@ -547,31 +505,11 @@ class GattTransport:
                         self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
                     )
                     await asyncio.wait_for(unlock_event.wait(), timeout=2.0)
-                    confirm_resp = response_holder[0]
-                    if _is_unlock_key_programming_ready(confirm_resp):
-                        _LOGGER.debug(
-                            "unlock confirm probe acknowledged: notify_prefix=%s model=%s",
-                            confirm_resp[:2].hex() if confirm_resp is not None else "None",
-                            self._config.model,
-                        )
-                    else:
-                        _LOGGER.debug(
-                            "unlock confirm probe unexpected notify (continuing): len=%s hex=%s model=%s",
-                            len(confirm_resp) if confirm_resp is not None else None,
-                            _hex(confirm_resp) if confirm_resp else "None",
-                            self._config.model,
-                        )
-                except Exception as exc:
-                    _LOGGER.debug("unlock confirm probe skipped/failed (continuing): %s", exc)
+                except Exception:
+                    pass
 
             unlock_event.clear()
             response_holder[0] = None
-            _LOGGER.debug(
-                "unlock write: uuid=%s payload_len=%d model=%s",
-                self._config.unlock_uuid,
-                1 + len(unlock_key),
-                self._config.model,
-            )
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
             )
@@ -587,12 +525,6 @@ class GattTransport:
                 raise ConnectionError("Unlock failed: pairing key mismatch")
             
             self._unlocked = True
-            if response is not None and len(response) >= 2:
-                _LOGGER.debug(
-                    "unlock ok: notify_prefix=%s model=%s",
-                    response[:2].hex(),
-                    self._config.model,
-                )
         except asyncio.TimeoutError:
             self._debug_ble_link("unlock_notify_timeout")
             raise ConnectionError("Unlock failed: notify timeout") from None
@@ -615,7 +547,7 @@ class GattTransport:
 
         # OS-level bonding only (HEM-7380T1 etc.)
         if self._config.supports_os_bonding_only:
-            _LOGGER.info("Performing OS-level BLE bonding")
+            _LOGGER.debug("Performing OS-level BLE bonding")
             # Some stacks fail pair() even when already bonded/encrypted sessions work.
             # Keep this as best-effort and allow caller to proceed to GATT operations.
             max_attempts = 2
@@ -629,7 +561,7 @@ class GattTransport:
                         await self._client.pair()
                     except TypeError:
                         await self._client.pair(protection_level=2)
-                    _LOGGER.info("OS-level BLE bonding completed")
+                    _LOGGER.debug("OS-level BLE bonding completed")
                     return
                 except Exception as exc:
                     last_exc = exc
@@ -693,12 +625,6 @@ class GattTransport:
         response_holder: list[bytes | None] = [None]
 
         def _pair_callback(_: Any, rx_bytes: bytearray) -> None:
-            _LOGGER.debug(
-                "pair unlock notify: len=%s hex=%s model=%s",
-                len(rx_bytes),
-                _hex(rx_bytes),
-                self._config.model,
-            )
             response_holder[0] = rx_bytes
             prog_event.set()
 
@@ -819,17 +745,97 @@ class GattTransport:
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
-        # if legacy:
-        #     _LOGGER.debug("Executing legacy post-pairing handshake to trigger 'sync success' animation...")
-        #     await asyncio.sleep(2.0)
-        #     try:
-        #         await self.open_memory_session()
-        #         await self.close_memory_session()
-        #         await asyncio.sleep(2.0)
-        #     except Exception as exc:
-        #         _LOGGER.warning("Legacy post-pairing handshake failed (may be normal): %s", exc)
+        _LOGGER.debug("Device paired successfully with new key")
 
-        _LOGGER.info("Device paired successfully with new key")
+
+def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
+    """Decode wall time from an EEPROM time-sync section (naive datetime)."""
+    if layout == "eeprom_time_modern_offset8":
+        year_off, month, day, hour, minute, second = (int(b) for b in cached[8:14])
+        return dt.datetime(
+            year_off + 2000, month, day, hour, minute, min(second, 59)
+        )
+    if layout == "eeprom_time_hem6401_prefix":
+        year_off, month, day, hour, minute, second = (int(b) for b in cached[0:6])
+        return dt.datetime(
+            year_off + 2000, month, day, hour, minute, min(second, 59)
+        )
+    if layout == "eeprom_time_linear_10":
+        year_off, month, day, hour, minute, second = (int(b) for b in cached[2:8])
+        return dt.datetime(
+            year_off + 2000, month, day, hour, minute, min(second, 59)
+        )
+    # Default: eeprom_time_classic_mixed
+    month, year_off, hour, day, second, minute = (int(b) for b in cached[2:8])
+    return dt.datetime(
+        year_off + 2000, month, day, hour, minute, min(second, 59)
+    )
+
+
+def _encode_eeprom_time_payload(
+    layout: str, cached: bytearray, now: dt.datetime
+) -> bytearray:
+    """Build EEPROM time-sync bytes for writing (includes checksum/padding per layout)."""
+    if layout == "eeprom_time_modern_offset8":
+        result = bytearray(cached[0:8])
+        result += bytes(
+            [
+                now.year - 2000,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+            ]
+        )
+        result.append(sum(result) & 0xFF)
+        result += bytes([0x00])
+        return result
+    if layout == "eeprom_time_hem6401_prefix":
+        result = bytearray(cached)
+        if len(result) < 16:
+            result.extend([0x00] * (16 - len(result)))
+        result[0:6] = bytes(
+            [
+                now.year - 2000,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+            ]
+        )
+        return result
+    if layout == "eeprom_time_linear_10":
+        result = bytearray(cached[0:2])
+        result += bytes(
+            [
+                now.year - 2000,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+            ]
+        )
+        result += bytes([0x00])
+        result.append(sum(result) & 0xFF)
+        return result
+    # Default: eeprom_time_classic_mixed
+    result = bytearray(cached[0:2])
+    result += bytes(
+        [
+            now.month,
+            now.year - 2000,
+            now.hour,
+            now.day,
+            now.second,
+            now.minute,
+        ]
+    )
+    result += bytes([0x00])
+    result.append(sum(result) & 0xFF)
+    return result
 
 
 class OmronDeviceDriver:
@@ -853,17 +859,23 @@ class OmronDeviceDriver:
         the standard BLE CTS characteristic for time synchronization.  Instead,
         the time is stored in a dedicated region of the EEPROM settings block.
 
-        Two layout families exist:
+        Layout keys (``DeviceConfig.time_sync_layout`` / ``resolved_time_sync_layout``):
 
-        Format A (big-endian devices: HEM-7322T, HEM-7320T, HEM-7600T, HEM-6232T …)
-            settings_time_sync_bytes = [0x14, 0x1E] (10 bytes)
-            Time data bytes [2:8] = [month, year-2000, hour, day, second, minute]
-            Checksum byte [9] = sum(bytes[0:9]) & 0xFF
+        eeprom_time_classic_mixed (default for [0x14, 0x1E] classic block)
+            Time bytes [2:8] = [month, year-2000, hour, day, second, minute]
+            Checksum [9] = sum(bytes[0:9]) & 0xFF
 
-        Format B (little-endian devices: HEM-7150T, HEM-7155T, HEM-7342T, HEM-7361T …)
-            settings_time_sync_bytes = [0x2C, 0x3C] (16 bytes)
-            Time data bytes [8:14] = [year-2000, month, day, hour, minute, second]
-            Checksum byte [14] = sum(bytes[0:14]) & 0xFF
+        eeprom_time_linear_10 (same 10-byte window, chronological field order)
+            Time bytes [2:8] = [year-2000, month, day, hour, minute, second]
+            Checksum [9] = sum(bytes[0:9]) & 0xFF
+
+        eeprom_time_modern_offset8 ([0x2C, 0x3C] 16-byte block)
+            Time bytes [8:14] = [year-2000, month, day, hour, minute, second]
+            Checksum [14] = sum(bytes[0:14]) & 0xFF
+
+        eeprom_time_hem6401_prefix (HEM-6401 family 16-byte settings slice)
+            Time bytes [0:6] = [year-2000, month, day, hour, minute, second]
+            Full 16-byte section write without the classic 10-byte checksum tail.
 
         Returns True on success, False if the device does not support EEPROM time sync.
         """
@@ -918,7 +930,7 @@ class OmronDeviceDriver:
                 cached,
                 block_size=len(cached),
             )
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Synced time via EEPROM for %s: %s",
                 self._config.model,
                 now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -934,31 +946,10 @@ class OmronDeviceDriver:
     def _parse_eeprom_device_time(self, cached: bytearray) -> dt.datetime | None:
         """Parse and return the current time stored on the device (best-effort)."""
         try:
-            if self._config.endianness == "big":
-                # Format A: [2:8] = month, year-2000, hour, day, second, minute
-                month, year_off, hour, day, second, minute = (
-                    int(b) for b in cached[2:8]
-                )
-                device_dt = dt.datetime(
-                    year_off + 2000, month, day, hour, minute, min(second, 59)
-                )
-            else:
-                # Format B: [8:14] = year-2000, month, day, hour, minute, second
-                year_off, month, day, hour, minute, second = (
-                    int(b) for b in cached[8:14]
-                )
-                device_dt = dt.datetime(
-                    year_off + 2000, month, day, hour, minute, min(second, 59)
-                )
-            
+            layout = self._config.resolved_time_sync_layout()
+            device_dt = _decode_eeprom_time_payload(layout, cached)
             # Use local timezone to match the `now` timezone we compare against
             device_dt = device_dt.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
-            
-            _LOGGER.debug(
-                "Device %s current EEPROM time: %s",
-                self._config.model,
-                device_dt.strftime("%Y-%m-%d %H:%M:%S"),
-            )
             return device_dt
         except Exception:
             _LOGGER.warning(
@@ -972,32 +963,17 @@ class OmronDeviceDriver:
         self, cached: bytearray, now: dt.datetime
     ) -> bytearray:
         """Build the EEPROM time sync payload with updated time and checksum."""
-        if self._config.endianness == "big":
-            # Format A: preserve bytes [0:2], write time at [2:8], pad [8]=0x00, checksum [9]
-            result = bytearray(cached[0:2])
-            result += bytes([
-                now.month,
-                now.year - 2000,
-                now.hour,
-                now.day,
-                now.second,
-                now.minute,
-            ])
-            result += bytes([0x00])
-            result.append(sum(result) & 0xFF)
-        else:
-            # Format B: preserve bytes [0:8], write time at [8:14], checksum [14], pad [15]=0x00
-            result = bytearray(cached[0:8])
-            result += bytes([
-                now.year - 2000,
-                now.month,
-                now.day,
-                now.hour,
-                now.minute,
-                now.second,
-            ])
-            result.append(sum(result) & 0xFF)
-            result += bytes([0x00])
+        layout = self._config.resolved_time_sync_layout()
+        return _encode_eeprom_time_payload(layout, cached, now)
+
+    def _finalize_public_latest_record(
+        self, record: dict[str, Any], user: int
+    ) -> dict[str, Any]:
+        """Copy a parsed record for API consumers and strip internal EEPROM offsets."""
+        result = dict(record)
+        result["user"] = user
+        result.pop("_slot_index", None)
+        result.pop("_offset", None)
         return result
 
     async def get_all_records(
@@ -1046,18 +1022,13 @@ class OmronDeviceDriver:
         if indexed is not None:
             return indexed
         if bool(layout.get("skip_full_scan_fallback_when_index_empty")):
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Index path returned no valid candidate for model=%s; skipping full scan fallback",
                 self._config.model,
             )
             return None
-        if self._config.enable_index_debug_logs:
-            _LOGGER.info(
-                "%s index path did not yield a valid latest record; falling back to full scan",
-                self._config.model,
-            )
         _LOGGER.debug(
-            "Falling back to full scan latest selection for model=%s",
+            "%s index path did not yield a valid latest record; falling back to full scan",
             self._config.model,
         )
         return await self._get_latest_via_full_scan(transport)
@@ -1066,10 +1037,7 @@ class OmronDeviceDriver:
         self, transport: GattTransport
     ) -> dict[int, dict[str, Any]]:
         """Return latest valid record per configured user index (1-based)."""
-        if self._config.use_layout_fallback_scan:
-            all_user_records = await self._get_all_records_with_format_c_fallback(transport)
-        else:
-            all_user_records = await self.get_all_records(transport)
+        all_user_records = await self.get_all_records(transport)
 
         latest_by_user: dict[int, dict[str, Any]] = {}
         for user_idx, user_records in enumerate(all_user_records):
@@ -1080,38 +1048,24 @@ class OmronDeviceDriver:
             if selected is None:
                 continue
             _, record = selected
-            result = dict(record)
-            result["user"] = user
-            result.pop("_slot_index", None)
-            result.pop("_offset", None)
-            latest_by_user[user] = result
+            latest_by_user[user] = self._finalize_public_latest_record(record, user)
         return latest_by_user
 
     async def _get_latest_via_full_scan(
         self, transport: GattTransport
     ) -> dict[str, Any] | None:
         """Existing full EEPROM scan path."""
-        if self._config.use_layout_fallback_scan:
-            all_user_records = await self._get_all_records_with_format_c_fallback(transport)
-        else:
-            all_user_records = await self.get_all_records(transport)
+        all_user_records = await self.get_all_records(transport)
         candidates: list[tuple[int, dict[str, Any]]] = []
         for user_idx, user_records in enumerate(all_user_records):
             for record in user_records:
                 candidates.append((user_idx + 1, record))
 
-        if self._config.enable_index_debug_logs:
-            self._log_top_candidates(candidates)
-
         selected = self._select_latest_candidate(candidates)
         if selected is None:
             return None
         user, record = selected
-        result = dict(record)
-        result["user"] = user
-        result.pop("_slot_index", None)
-        result.pop("_offset", None)
-        return result
+        return self._finalize_public_latest_record(record, user)
 
     @staticmethod
     def _wrap_pointer_to_range(pointer: int, pointer_min: int, pointer_max: int) -> int | None:
@@ -1152,15 +1106,6 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
-        if self._config.enable_index_debug_logs:
-            _LOGGER.info(
-                "%s index path start: read_addr=%#06x size=%d record_size=%d record_step=%d",
-                self._config.model,
-                self._config.settings_read_address,
-                index_region_byte_size,
-                record_byte_size,
-                record_step,
-            )
         await transport.unlock()
         await transport.open_memory_session()
         try:
@@ -1169,8 +1114,6 @@ class OmronDeviceDriver:
                 index_region_byte_size,
                 self._config.transmission_block_size,
             )
-            if self._config.enable_index_debug_logs:
-                _LOGGER.info("%s index raw=%s", self._config.model, bytes(index_bytes).hex())
             for idx, user_cfg in enumerate(user_layouts):
                 if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
                     continue
@@ -1198,17 +1141,6 @@ class OmronDeviceDriver:
                     pointer_corrected, pointer_min, pointer_max
                 )
                 if pointer_wrapped is None:
-                    if self._config.enable_index_debug_logs:
-                        _LOGGER.info(
-                            "%s index out_of_range: user=%d raw=%d masked=%d corrected=%d range=[%d,%d]",
-                            self._config.model,
-                            idx + 1,
-                            raw_pointer,
-                            pointer_masked,
-                            pointer_corrected,
-                            pointer_min,
-                            pointer_max,
-                        )
                     continue
                 record_count = (pointer_max - pointer_min) + 1
                 if record_count <= 0:
@@ -1216,31 +1148,13 @@ class OmronDeviceDriver:
                 latest_slot = pointer_wrapped
                 max_probe = min(max(backtrack_slots, 0), max(record_count - 1, 0))
                 parsed = None
-                found_valid_for_user = False
                 base_addr = int(record_addresses[idx])
-                logged_first_raw_fail = False
-                empty_slot_count = 0
-                parse_error_count = 0
-                plausibility_reject_count = 0
-                valid_candidate_count = 0
                 for back in range(max_probe + 1):
                     probe_slot = latest_slot - back
                     while probe_slot < pointer_min:
                         probe_slot += record_count
                     logical_slot = probe_slot - pointer_min
                     probe_addr = base_addr + (logical_slot * record_step)
-                    if self._config.enable_index_debug_logs and back == 0:
-                        _LOGGER.info(
-                            "%s index mapped: user=%d raw=%d masked=%d corrected=%d wrapped=%d slot=%d addr=%#06x",
-                            self._config.model,
-                            idx + 1,
-                            raw_pointer,
-                            pointer_masked,
-                            pointer_corrected,
-                            pointer_wrapped,
-                            probe_slot,
-                            probe_addr,
-                        )
                     raw_record = await transport.read_memory_range(
                         probe_addr,
                         record_byte_size,
@@ -1248,91 +1162,23 @@ class OmronDeviceDriver:
                     )
                     try:
                         parsed = self._config.parse_record(bytes(raw_record))
-                    except Exception as exc:
-                        _LOGGER.debug(
-                            "Index-targeted parse failed model=%s user=%d slot=%d addr=%#06x: %s",
-                            self._config.model,
-                            idx + 1,
-                            probe_slot,
-                            probe_addr,
-                            exc,
-                        )
-                        if self._config.enable_index_debug_logs:
-                            reason = "empty_slot" if "empty" in str(exc).lower() else "parse_error"
-                            if reason == "empty_slot":
-                                empty_slot_count += 1
-                            else:
-                                parse_error_count += 1
-                            if not logged_first_raw_fail:
-                                _LOGGER.info(
-                                    "%s index %s: user=%d slot=%d addr=%#06x raw=%s err=%s",
-                                    self._config.model,
-                                    reason,
-                                    idx + 1,
-                                    probe_slot,
-                                    probe_addr,
-                                    bytes(raw_record).hex(),
-                                    exc,
-                                )
-                                logged_first_raw_fail = True
+                    except Exception:
                         parsed = None
                         continue
                     parsed["_slot_index"] = probe_slot
                     if not self._is_record_plausible(parsed):
-                        plausibility_reject_count += 1
-                        if self._config.enable_index_debug_logs:
-                            _LOGGER.debug(
-                                "%s index plausibility_reject user=%d slot=%d parsed=%s",
-                                self._config.model,
-                                idx + 1,
-                                probe_slot,
-                                {
-                                    "datetime": parsed.get("datetime"),
-                                    "sys": parsed.get("sys"),
-                                    "dia": parsed.get("dia"),
-                                    "bpm": parsed.get("bpm"),
-                                },
-                            )
                         parsed = None
                         continue
                     candidates.append((idx + 1, parsed))
-                    found_valid_for_user = True
-                    valid_candidate_count += 1
                     if not collect_all_valid:
                         break
                     parsed = None
-                if (
-                    found_valid_for_user
-                    and self._config.enable_index_debug_logs
-                    and valid_candidate_count > 0
-                ):
-                    _LOGGER.info(
-                        "%s index probe summary: user=%d valid_candidates=%d",
-                        self._config.model,
-                        idx + 1,
-                        valid_candidate_count,
-                    )
-                if (
-                    not found_valid_for_user
-                    and self._config.enable_index_debug_logs
-                    and (empty_slot_count or parse_error_count or plausibility_reject_count)
-                ):
-                    _LOGGER.info(
-                        "%s index probe summary: user=%d empty_slot=%d parse_error=%d plausibility_reject=%d",
-                        self._config.model,
-                        idx + 1,
-                        empty_slot_count,
-                        parse_error_count,
-                        plausibility_reject_count,
-                    )
         except Exception as exc:
             _LOGGER.debug(
                 "Index-based latest read failed for model=%s: %s",
                 self._config.model,
                 exc,
             )
-            if self._config.enable_index_debug_logs:
-                _LOGGER.info("%s index path exception: %s", self._config.model, exc)
             return None
         finally:
             try:
@@ -1342,98 +1188,9 @@ class OmronDeviceDriver:
 
         selected = self._select_latest_candidate(candidates)
         if selected is None:
-            if self._config.enable_index_debug_logs:
-                _LOGGER.info("%s index path produced no valid candidate (index_empty)", self._config.model)
             return None
         user, record = selected
-        result = dict(record)
-        result["user"] = user
-        result.pop("_slot_index", None)
-        result.pop("_offset", None)
-        _LOGGER.debug(
-            "Index-based latest selected for model=%s user=%d datetime=%s sys=%s dia=%s bpm=%s",
-            self._config.model,
-            user,
-            result.get("datetime"),
-            result.get("sys"),
-            result.get("dia"),
-            result.get("bpm"),
-        )
-        return result
-
-    def _log_top_candidates(
-        self, candidates: list[tuple[int, dict[str, Any]]], limit: int = 8
-    ) -> None:
-        """Log top candidate records for troubleshooting latest selection."""
-        if not candidates:
-            _LOGGER.debug("Top candidates: none")
-            return
-        ranked = sorted(
-            candidates,
-            key=lambda item: (
-                item[1].get("_record_id", -1),
-                item[1].get("_slot_index", -1),
-                item[1].get("datetime", dt.datetime.min),
-            ),
-            reverse=True,
-        )[:limit]
-        _LOGGER.debug(
-            "Top %d candidates (user, slot, record_id, datetime, sys, dia, bpm): %s",
-            len(ranked),
-            [
-                (
-                    user,
-                    rec.get("_slot_index"),
-                    rec.get("_record_id"),
-                    rec.get("datetime"),
-                    rec.get("sys"),
-                    rec.get("dia"),
-                    rec.get("bpm"),
-                )
-                for user, rec in ranked
-            ],
-        )
-
-    def _log_same_datetime_candidates(
-        self,
-        candidates: list[tuple[int, dict[str, Any]]],
-        selected_dt: dt.datetime,
-        *,
-        limit: int = 12,
-    ) -> None:
-        """Log candidates that share the same selected datetime."""
-        same_dt = [
-            (user, rec)
-            for user, rec in candidates
-            if rec.get("datetime") == selected_dt
-        ]
-        if len(same_dt) <= 1:
-            return
-        ranked = sorted(
-            same_dt,
-            key=lambda item: (
-                item[1].get("_slot_index", -1),
-                item[1].get("_record_id", -1),
-            ),
-            reverse=True,
-        )[:limit]
-        _LOGGER.info(
-            "%s latest selector: datetime tie detected dt=%s candidates=%d details=%s",
-            self._config.model,
-            selected_dt,
-            len(same_dt),
-            [
-                (
-                    user,
-                    rec.get("_slot_index"),
-                    rec.get("_record_id"),
-                    rec.get("sys"),
-                    rec.get("dia"),
-                    rec.get("bpm"),
-                )
-                for user, rec in ranked
-            ],
-        )
+        return self._finalize_public_latest_record(record, user)
 
     async def get_all_records_flat(
         self, transport: GattTransport
@@ -1470,149 +1227,17 @@ class OmronDeviceDriver:
                 record["_slot_index"] = offset // size
                 record["_offset"] = offset
                 if not self._is_record_plausible(record):
-                    _LOGGER.debug(
-                        "Skipping implausible record for user%d at offset %d: %s",
-                        user_idx + 1,
-                        offset,
-                        {
-                            "datetime": record.get("datetime"),
-                            "sys": record.get("sys"),
-                            "dia": record.get("dia"),
-                            "bpm": record.get("bpm"),
-                        },
-                    )
                     continue
                 records.append(record)
-            except ValueError as exc:
+            except ValueError:
                 # Many devices leave partially initialized slots (not always all 0xFF).
-                # Treat parse-level ValueError as an empty/invalid slot and skip quietly.
-                _LOGGER.debug(
-                    "Skipping invalid/empty record for user%d at offset %d (data: %s): %s",
-                    user_idx + 1,
-                    offset,
-                    _hex(single),
-                    exc,
-                )
+                pass
             except Exception as exc:
                 _LOGGER.warning(
                     "Error parsing record for user%d at offset %d (data: %s): %s",
                     user_idx + 1, offset, _hex(single), exc,
                 )
         return records
-
-    def _parse_user_records_best_alignment(
-        self,
-        raw_data: bytearray,
-        user_idx: int,
-        record_byte_size: int,
-    ) -> list[dict[str, Any]]:
-        """Parse records and pick best byte alignment for 7142 format-c dumps."""
-        if not self._config.use_layout_fallback_scan or record_byte_size != 0x10:
-            return self._parse_user_records(raw_data, user_idx, record_byte_size=record_byte_size)
-
-        best_records: list[dict[str, Any]] = []
-        best_shift = 0
-        best_score: tuple[int, dt.datetime, int, int] | None = None
-        for shift in range(record_byte_size):
-            shifted = raw_data[shift:]
-            usable_len = len(shifted) - (len(shifted) % record_byte_size)
-            if usable_len <= 0:
-                continue
-            records = self._parse_user_records(
-                bytearray(shifted[:usable_len]),
-                user_idx,
-                record_byte_size=record_byte_size,
-            )
-            if not records:
-                continue
-            latest_dt = max(
-                (
-                    rec.get("datetime")
-                    for rec in records
-                    if isinstance(rec.get("datetime"), dt.datetime)
-                ),
-                default=dt.datetime.min,
-            )
-            best_record_id = max(int(rec.get("_record_id", -1)) for rec in records)
-            score = (
-                1 if latest_dt != dt.datetime.min else 0,
-                latest_dt,
-                best_record_id,
-                len(records),
-            )
-            if best_score is None or score > best_score:
-                best_score = score
-                best_shift = shift
-                best_records = records
-
-        if best_score is not None and best_shift > 0:
-            # Rebase offsets/slots to original raw_data coordinates.
-            for rec in best_records:
-                rec["_offset"] = int(rec.get("_offset", 0)) + best_shift
-                rec["_slot_index"] = int(rec["_offset"]) // record_byte_size
-            _LOGGER.info(
-                "HEM-7142T2 alignment selected shift=%d for user%d (valid=%d latest=%s)",
-                best_shift,
-                user_idx + 1,
-                len(best_records),
-                max(
-                    (
-                        rec.get("datetime")
-                        for rec in best_records
-                        if isinstance(rec.get("datetime"), dt.datetime)
-                    ),
-                    default=None,
-                ),
-            )
-        # Supplemental scan for 7142:
-        # Some dumps appear slightly misaligned in a way constant chunking misses.
-        # Scan every byte window and collect additional plausible records.
-        if len(best_records) < 6:
-            found_by_sig: set[tuple[Any, ...]] = set()
-            merged: list[dict[str, Any]] = []
-            for rec in best_records:
-                sig = (
-                    rec.get("_record_id"),
-                    rec.get("datetime"),
-                    rec.get("sys"),
-                    rec.get("dia"),
-                    rec.get("bpm"),
-                )
-                found_by_sig.add(sig)
-                merged.append(rec)
-
-            for offset in range(0, max(0, len(raw_data) - record_byte_size + 1)):
-                window = raw_data[offset:offset + record_byte_size]
-                if window == (b"\xff" * record_byte_size):
-                    continue
-                try:
-                    rec = self._config.parse_record(window)
-                except Exception:
-                    continue
-                rec["_offset"] = offset
-                rec["_slot_index"] = offset // record_byte_size
-                if not self._is_record_plausible(rec):
-                    continue
-                sig = (
-                    rec.get("_record_id"),
-                    rec.get("datetime"),
-                    rec.get("sys"),
-                    rec.get("dia"),
-                    rec.get("bpm"),
-                )
-                if sig in found_by_sig:
-                    continue
-                found_by_sig.add(sig)
-                merged.append(rec)
-
-            if len(merged) > len(best_records):
-                _LOGGER.info(
-                    "HEM-7142T2 supplemental scan added %d plausible records for user%d",
-                    len(merged) - len(best_records),
-                    user_idx + 1,
-                )
-                return merged
-        return best_records
 
     def _select_latest_candidate(
         self, candidates: list[tuple[int, dict[str, Any]]]
@@ -1621,55 +1246,7 @@ class OmronDeviceDriver:
         if not candidates:
             return None
 
-        strategy = self._config.latest_selection_strategy
-        if strategy == "record_id_slot_datetime":
-            _LOGGER.debug("Selecting latest record using record_id_slot_datetime strategy")
-            # Some devices prefer recent datetime candidate over raw record_id order.
-            if self._config.use_layout_fallback_scan:
-                now = self._now_func()
-                recent_dt_candidates = [
-                    item
-                    for item in candidates
-                    if isinstance(item[1].get("datetime"), dt.datetime)
-                    and (now - dt.timedelta(days=30)) <= item[1]["datetime"] <= (now + dt.timedelta(days=2))
-                ]
-                if recent_dt_candidates:
-                    selected_by_datetime = max(
-                        recent_dt_candidates,
-                        key=lambda item: (
-                            item[1].get("datetime", dt.datetime.min),
-                            item[1].get("_slot_index", -1),
-                            item[1].get("_record_id", -1),
-                        ),
-                    )
-                    _LOGGER.info(
-                        "%s latest selector: using recent datetime candidate "
-                        "(dt=%s sys=%s dia=%s bpm=%s record_id=%s slot=%s)",
-                        self._config.model,
-                        selected_by_datetime[1].get("datetime"),
-                        selected_by_datetime[1].get("sys"),
-                        selected_by_datetime[1].get("dia"),
-                        selected_by_datetime[1].get("bpm"),
-                        selected_by_datetime[1].get("_record_id"),
-                        selected_by_datetime[1].get("_slot_index"),
-                    )
-                    selected_dt = selected_by_datetime[1].get("datetime")
-                    if isinstance(selected_dt, dt.datetime):
-                        self._log_same_datetime_candidates(
-                            recent_dt_candidates,
-                            selected_dt,
-                        )
-                    return selected_by_datetime
-            return max(
-                candidates,
-                key=lambda item: (
-                    item[1].get("_record_id", -1),
-                    item[1].get("_slot_index", -1),
-                    item[1].get("datetime", dt.datetime.min),
-                ),
-            )
-        if strategy == "slot_desc_datetime":
-            _LOGGER.debug("Selecting latest record using slot_desc_datetime strategy")
+        if self._config.prefer_latest_by_slot_index:
             return max(
                 candidates,
                 key=lambda item: (
@@ -1678,7 +1255,6 @@ class OmronDeviceDriver:
                 ),
             )
 
-        _LOGGER.debug("Selecting latest record using datetime strategy")
         return max(
             candidates,
             key=lambda item: (
@@ -1690,20 +1266,14 @@ class OmronDeviceDriver:
     def _is_record_plausible(self, record: dict[str, Any]) -> bool:
         """Sanity-check parsed values to avoid stale/garbage slot selection."""
         date_value = record.get("datetime")
-        allow_missing_datetime = (
-            self._config.use_layout_fallback_scan
-            and self._config.record_parser == "format_c_7142"
-        )
         if not isinstance(date_value, dt.datetime):
-            if not allow_missing_datetime:
-                return False
+            return False
 
-        if isinstance(date_value, dt.datetime):
-            now = self._now_func()
-            if date_value < dt.datetime(2010, 1, 1):
-                return False
-            if date_value > (now + dt.timedelta(days=2)):
-                return False
+        now = self._now_func()
+        if date_value < dt.datetime(2010, 1, 1):
+            return False
+        if date_value > (now + dt.timedelta(days=2)):
+            return False
 
         sys = record.get("sys")
         dia = record.get("dia")
@@ -1719,150 +1289,3 @@ class OmronDeviceDriver:
         if dia >= sys:
             return False
         return True
-
-    async def _get_all_records_with_format_c_fallback(
-        self, transport: GattTransport
-    ) -> list[list[dict[str, Any]]]:
-        """Try EEPROM-aligned layout candidates with early-stop to limit retries."""
-        default_size = self._config.record_byte_size
-        alt_size = 0x0E if default_size == 0x10 else 0x10
-        # Keep attempts intentionally short: configured layout first, then minimal fallbacks.
-        attempts = [
-            (self._config.user_start_addresses, self._config.per_user_records_count, default_size),
-            ([0x01C4], [100], default_size),
-            ([0x0804], [100], default_size),
-            (self._config.user_start_addresses, self._config.per_user_records_count, alt_size),
-        ]
-        if self._config.use_layout_fallback_scan:
-            # Keep extended-range probes only as low-priority fallbacks.
-            # Latest records were not found there during testing.
-            attempts.extend(
-                [
-                    ([0x01C4 + (100 * default_size)], [40], default_size),
-                    ([0x0804 + (100 * default_size)], [40], default_size),
-                ]
-            )
-
-        await transport.unlock()
-        await transport.open_memory_session()
-        try:
-            best_records: list[list[dict[str, Any]]] | None = None
-            best_latest: dt.datetime | None = None
-            best_layout: tuple[list[int], list[int], int] | None = None
-            best_valid_count = -1
-            best_score: tuple[int, int, dt.datetime, int] | None = None
-
-            for attempt_idx, (starts, counts, record_size) in enumerate(attempts, start=1):
-                all_user_records: list[list[dict[str, Any]]] = []
-                for user_idx, (start_addr, count) in enumerate(zip(starts, counts)):
-                    total_bytes = count * record_size
-                    raw_data = await transport.read_memory_range(
-                        start_addr, total_bytes, self._config.transmission_block_size
-                    )
-                    records = self._parse_user_records_best_alignment(
-                        raw_data, user_idx, record_byte_size=record_size
-                    )
-                    all_user_records.append(records)
-
-                if not any(all_user_records):
-                    continue
-
-                candidates: list[tuple[int, dict[str, Any]]] = []
-                for user_idx, user_records in enumerate(all_user_records):
-                    for record in user_records:
-                        candidates.append((user_idx + 1, record))
-                selected = self._select_latest_candidate(candidates)
-                if selected is None:
-                    continue
-
-                _, selected_record = selected
-                selected_dt = selected_record.get("datetime")
-                slot_index = int(selected_record.get("_slot_index", -1))
-                record_id = int(selected_record.get("_record_id", -1))
-                selected_dt_safe = (
-                    selected_dt if isinstance(selected_dt, dt.datetime) else dt.datetime.min
-                )
-                valid_count = len(candidates)
-                if self._config.use_layout_fallback_scan:
-                    # Prefer layout whose selected record has the newest plausible datetime.
-                    # record_id remains a secondary tie-breaker.
-                    score = (
-                        1 if isinstance(selected_dt, dt.datetime) else 0,
-                        selected_dt_safe,
-                        record_id,
-                        slot_index,
-                        valid_count,
-                    )
-                else:
-                    score = (
-                        valid_count,
-                        1 if isinstance(selected_dt, dt.datetime) else 0,
-                        selected_dt_safe,
-                        slot_index,
-                    )
-                _LOGGER.debug(
-                    "Layout candidate (attempt %d/%d) starts=%s counts=%s record_size=0x%02x valid=%d latest=%s slot=%s record_id=%s values=%s/%s/%s",
-                    attempt_idx,
-                    len(attempts),
-                    [f"{addr:#06x}" for addr in starts],
-                    counts,
-                    record_size,
-                    valid_count,
-                    selected_dt if isinstance(selected_dt, dt.datetime) else "None",
-                    slot_index,
-                    record_id,
-                    selected_record.get("sys"),
-                    selected_record.get("dia"),
-                    selected_record.get("bpm"),
-                )
-                if best_score is None or score > best_score:
-                    best_score = score
-                    best_valid_count = valid_count
-                    best_latest = (
-                        selected_dt if isinstance(selected_dt, dt.datetime) else None
-                    )
-                    best_records = all_user_records
-                    best_layout = (starts, counts, record_size)
-
-                # Early-stop: once we got a strong latest signal, avoid excessive scans.
-                has_recent_datetime = isinstance(selected_dt, dt.datetime) and (
-                    selected_dt >= (self._now_func() - dt.timedelta(days=30))
-                )
-                # Avoid premature lock-in when only a tiny number of valid rows were found.
-                # This keeps retries low but still gives one more chance to alternate mapping.
-                if (
-                    not self._config.use_layout_fallback_scan
-                    and record_id > 0
-                    and has_recent_datetime
-                    and valid_count >= 5
-                ):
-                    _LOGGER.info(
-                        "Early-stop fallback scan for %s at attempt %d/%d (record_id=%d latest=%s)",
-                        self._config.model,
-                        attempt_idx,
-                        len(attempts),
-                        record_id,
-                        selected_dt,
-                    )
-                    break
-
-            await transport.close_memory_session()
-            if best_records is not None and best_layout is not None:
-                starts, counts, record_size = best_layout
-                _LOGGER.info(
-                    "Recovered best records for %s using layout starts=%s counts=%s record_size=0x%02x valid=%d latest=%s",
-                    self._config.model,
-                    [f"{addr:#06x}" for addr in starts],
-                    counts,
-                    record_size,
-                    best_valid_count,
-                    best_latest,
-                )
-                return best_records
-            return [[]]
-        except Exception:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
-            raise

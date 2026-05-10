@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from time import perf_counter
-
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
@@ -13,6 +10,7 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
+from .ble_session import omron_poll_ble_telemetry
 from .const import DOMAIN
 from .types import OmronConfigEntry
 
@@ -117,35 +115,14 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
 
         connection_coordinator = self.hass.data[DOMAIN][self._entry_id]["connection_coordinator"]
         duration_coordinator = self.hass.data[DOMAIN][self._entry_id]["duration_coordinator"]
-        started = perf_counter()
-        ticker_task: asyncio.Task[None] | None = None
-
-        async def _duration_ticker() -> None:
-            """Update elapsed duration once per second while connected."""
-            while True:
-                elapsed_tick = round(perf_counter() - started, 3)
-                duration_coordinator.async_set_updated_data(elapsed_tick)
-                await asyncio.sleep(1)
 
         data = self.hass.data[DOMAIN][self._entry_id]["data"]
         try:
-            connection_coordinator.async_set_updated_data(True)
-            duration_coordinator.async_set_updated_data(0.0)
-            ticker_task = asyncio.create_task(_duration_ticker())
-            await data.async_retry_pairing(ble_device)
+            async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
+                await data.async_retry_pairing(ble_device)
             # Mirror setup behavior: run an immediate poll after pairing so
             # protected GATT paths are exercised and bond/session state settles.
             poll_coordinator = self._entry.runtime_data.poll_coordinator
             await poll_coordinator.async_request_refresh()
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
-        finally:
-            if ticker_task is not None:
-                ticker_task.cancel()
-                try:
-                    await ticker_task
-                except asyncio.CancelledError:
-                    pass
-            elapsed = round(perf_counter() - started, 3)
-            duration_coordinator.async_set_updated_data(elapsed)
-            connection_coordinator.async_set_updated_data(False)

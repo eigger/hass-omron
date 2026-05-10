@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from functools import partial
-from time import perf_counter
 import asyncio
 import logging
+
+from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
+from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
+
+from .ble_session import omron_poll_ble_telemetry
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
@@ -36,6 +40,67 @@ PLATFORMS: list[Platform] = [
 
 _LOGGER = logging.getLogger(__name__)
 
+# When a poll fails mid-flight, keep measurement history but drop stale RSSI/battery
+# unless this poll refreshed those keys (avoids showing outdated diagnostics).
+_STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
+    SSDSensorDeviceClass.BATTERY,
+    SSDSensorDeviceClass.SIGNAL_STRENGTH,
+})
+_STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset({
+    SSDBinarySensorDeviceClass.BATTERY,
+})
+
+
+def _merge_poll_sensor_update(prev: SensorUpdate, new: SensorUpdate) -> SensorUpdate:
+    """Overlay the latest poll delta on the previous coordinator snapshot.
+
+    ``SensorData._finish_update`` returns only keys touched during that poll. The
+    poll ``DataUpdateCoordinator`` assigns ``data`` from that return value alone,
+    so a failed or partial poll would otherwise erase measurements still valid
+    on the device.
+    """
+    merged_descriptions = {**prev.entity_descriptions, **new.entity_descriptions}
+    merged_values = {**prev.entity_values, **new.entity_values}
+    merged_b_descriptions = {
+        **prev.binary_entity_descriptions,
+        **new.binary_entity_descriptions,
+    }
+    merged_b_values = {**prev.binary_entity_values, **new.binary_entity_values}
+    merged_events = {**prev.events, **new.events}
+
+    for device_key in list(merged_values.keys()):
+        desc = merged_descriptions.get(device_key)
+        if desc is None or desc.device_class is None:
+            continue
+        if (
+            desc.device_class in _STALE_DROP_SENSOR_DEVICE_CLASSES
+            and device_key not in new.entity_values
+        ):
+            merged_values.pop(device_key, None)
+            merged_descriptions.pop(device_key, None)
+
+    for device_key in list(merged_b_values.keys()):
+        desc = merged_b_descriptions.get(device_key)
+        if desc is None or desc.device_class is None:
+            continue
+        if (
+            desc.device_class in _STALE_DROP_BINARY_DEVICE_CLASSES
+            and device_key not in new.binary_entity_values
+        ):
+            merged_b_values.pop(device_key, None)
+            merged_b_descriptions.pop(device_key, None)
+
+    return SensorUpdate(
+        title=new.title if new.title is not None else prev.title,
+        devices=new.devices or prev.devices,
+        entity_descriptions=merged_descriptions,
+        entity_values=merged_values,
+        binary_entity_descriptions=merged_b_descriptions,
+        binary_entity_values=merged_b_values,
+        events=merged_events,
+    )
+
+
 def process_service_info(
     entry: OmronConfigEntry,
     service_info: BluetoothServiceInfoBleak,
@@ -60,7 +125,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             address,
         )
 
-    # Get device model from config entry data, default to HEM-7322T for backward compatibility
+    # Get device model from config entry data (see DEFAULT_DEVICE_MODEL for fallback)
     device_model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
 
     slot_aliases = aliases_dict_from_entry(entry)
@@ -92,7 +157,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         update_method=partial(process_service_info, entry),
         device_data=data,
         connectable=True,
-        entry=entry,
     )
     connection_coordinator = DataUpdateCoordinator[bool](
         hass,
@@ -110,16 +174,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]["duration_coordinator"] = duration_coordinator
 
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
-        started = perf_counter()
-        ticker_task: asyncio.Task[None] | None = None
-
-        async def _duration_ticker() -> None:
-            """Update elapsed duration once per second while connected."""
-            while True:
-                elapsed_tick = round(perf_counter() - started, 3)
-                duration_coordinator.async_set_updated_data(elapsed_tick)
-                await asyncio.sleep(1)
-
         try:
             device = async_ble_device_from_address(hass, hass.data[DOMAIN][entry.entry_id]['address'])
             if not device:
@@ -132,26 +186,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
-            connection_coordinator.async_set_updated_data(True)
-            duration_coordinator.async_set_updated_data(0.0)
-            ticker_task = asyncio.create_task(_duration_ticker())
-            result = await coordinator.device_data.async_poll(device)
+            async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
+                result = await coordinator.device_data.async_poll(device)
+            prev_data = poll_coordinator.data
+            if prev_data is not None:
+                result = _merge_poll_sensor_update(prev_data, result)
             return result
         except Exception as err:
             _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:
                 return poll_coordinator.data
             return entry.runtime_data.device_data._finish_update()
-        finally:
-            if ticker_task is not None:
-                ticker_task.cancel()
-                try:
-                    await ticker_task
-                except asyncio.CancelledError:
-                    pass
-            elapsed = round(perf_counter() - started, 3)
-            duration_coordinator.async_set_updated_data(elapsed)
-            connection_coordinator.async_set_updated_data(False)
 
     scan_interval = entry.options.get(
         CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, 300)
@@ -189,20 +234,3 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:
     """Unload a config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-
-async def get_entry_id_from_device(hass, device_id: str) -> str:
-    device_reg = dr.async_get(hass)
-    device_entry = device_reg.async_get(device_id)
-    if not device_entry:
-        raise ValueError(f"Unknown device_id: {device_id}")
-    if not device_entry.config_entries:
-        raise ValueError(f"No config entries for device {device_id}")
-
-    _LOGGER.debug(f"{device_id} to {device_entry.config_entries}")
-    try:
-        entry_id = next(iter(device_entry.config_entries))
-    except StopIteration:
-        _LOGGER.error("%s None", device_id)
-        return None
-
-    return entry_id

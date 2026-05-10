@@ -13,11 +13,11 @@ from typing import Any
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
     DeviceConfig,
-    MODEL_VARIANT_MAP,
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
     infer_model_id_from_local_name,
+    resolve_model_catalog,
 )
 import voluptuous as vol
 
@@ -40,7 +40,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
-from .const import CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -78,6 +78,53 @@ def _user_aliases_schema(
         key = f"user_alias_{i}"
         def_val = str(defaults.get(key, f"user{i}") or f"user{i}")
         fields[vol.Required(key, default=def_val)] = vol.All(str, vol.Length(max=64))
+    return vol.Schema(fields)
+
+
+def _options_init_schema(
+    entry: ConfigEntry,
+    cfg: DeviceConfig,
+    *,
+    user_input: dict[str, Any] | None = None,
+) -> vol.Schema:
+    """Options form: scan interval plus multi-user alias fields when applicable."""
+    interval_default: int
+    if user_input is not None:
+        interval_default = int(
+            user_input.get(
+                CONF_SCAN_INTERVAL,
+                entry.options.get(
+                    CONF_SCAN_INTERVAL,
+                    entry.data.get(CONF_SCAN_INTERVAL, 300),
+                ),
+            )
+        )
+    else:
+        interval_default = int(
+            entry.options.get(
+                CONF_SCAN_INTERVAL,
+                entry.data.get(CONF_SCAN_INTERVAL, 300),
+            )
+        )
+    fields: dict[Any, Any] = {
+        vol.Required(CONF_SCAN_INTERVAL, default=interval_default): vol.All(
+            vol.Coerce(int), vol.Range(min=60, max=86400)
+        ),
+    }
+    if cfg.num_users > 1:
+        raw_aliases = entry.options.get(
+            CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
+        )
+        current_aliases: dict[str, Any] = (
+            dict(raw_aliases) if isinstance(raw_aliases, dict) else {}
+        )
+        for i in range(1, cfg.num_users + 1):
+            key = f"user_alias_{i}"
+            if user_input is not None and key in user_input:
+                prev = str(user_input.get(key, "") or "")
+            else:
+                prev = str(current_aliases.get(str(i), f"user{i}") or f"user{i}")
+            fields[vol.Required(key, default=prev)] = vol.All(str, vol.Length(max=64))
     return vol.Schema(fields)
 
 
@@ -337,10 +384,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
-        variant_entry = MODEL_VARIANT_MAP.get(model)
-        if variant_entry:
-            profile_key, variant = variant_entry
-            _LOGGER.info(
+        profile_key, variant = resolve_model_catalog(model)
+        if variant is not None:
+            _LOGGER.debug(
                 "Catalog variant %s -> profile %s (unverified=%s)",
                 model,
                 profile_key,
@@ -357,7 +403,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 f"(services={advertised_services})"
             )
         if advertised_services and not config.is_service_compatible(advertised_services):
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Advertisement lists standard BP service only; Omron service may appear "
                 "after connect (model=%s ads=%s)",
                 model,
@@ -456,7 +502,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         data: dict[str, Any] = {}
         if bindkey:
-            data["bindkey"] = bindkey
+            data[CONF_BINDKEY] = bindkey
         if model:
             data[CONF_DEVICE_MODEL] = model
 
@@ -504,27 +550,11 @@ class OmronOptionsFlowHandler(OptionsFlow):
             if cfg.num_users > 1:
                 resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
                 if not _user_aliases_are_unique(resolved):
-                    interval_default = user_input.get(
-                        CONF_SCAN_INTERVAL,
-                        entry.options.get(
-                            CONF_SCAN_INTERVAL,
-                            entry.data.get(CONF_SCAN_INTERVAL, 300),
-                        ),
-                    )
-                    fields_err: dict[Any, Any] = {
-                        vol.Required(
-                            CONF_SCAN_INTERVAL,
-                            default=interval_default,
-                        ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
-                    }
-                    for i in range(1, cfg.num_users + 1):
-                        key = f"user_alias_{i}"
-                        fields_err[
-                            vol.Required(key, default=str(user_input.get(key, "") or ""))
-                        ] = vol.All(str, vol.Length(max=64))
                     return self.async_show_form(
                         step_id="init",
-                        data_schema=vol.Schema(fields_err),
+                        data_schema=_options_init_schema(
+                            entry, cfg, user_input=user_input
+                        ),
                         errors={"base": "duplicate_user_aliases"},
                         description_placeholders={
                             "num_users": str(cfg.num_users),
@@ -537,33 +567,9 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 out[CONF_USER_ALIASES] = {}
             return self.async_create_entry(title="", data=out)
 
-        current_interval = entry.options.get(
-            CONF_SCAN_INTERVAL,
-            entry.data.get(CONF_SCAN_INTERVAL, 300),
-        )
-        raw_aliases = entry.options.get(
-            CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
-        )
-        current_aliases: dict[str, Any] = (
-            dict(raw_aliases) if isinstance(raw_aliases, dict) else {}
-        )
-
-        fields: dict[Any, Any] = {
-            vol.Required(
-                CONF_SCAN_INTERVAL,
-                default=current_interval,
-            ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
-        }
-        if cfg.num_users > 1:
-            for i in range(1, cfg.num_users + 1):
-                prev = str(current_aliases.get(str(i), f"user{i}") or f"user{i}")
-                fields[
-                    vol.Required(f"user_alias_{i}", default=prev)
-                ] = vol.All(str, vol.Length(max=64))
-
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(fields),
+            data_schema=_options_init_schema(entry, cfg),
             description_placeholders={
                 "num_users": str(cfg.num_users),
             },

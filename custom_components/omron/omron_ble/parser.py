@@ -38,12 +38,7 @@ from .const import (
     DEFAULT_DEVICE_MODEL,
 )
 from .setup import async_sync_device_time
-from .devices import (
-    DeviceConfig,
-    MODEL_VARIANT_MAP,
-    get_device_config,
-    resolve_profile_model_id,
-)
+from .devices import DeviceConfig, get_device_config, resolve_model_catalog
 from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
 from ..util import slugify_for_entity_key
 
@@ -182,8 +177,6 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
-        _LOGGER.debug("service_info: %s", service_info)
-
         # Check if any known Omron service UUID is present
         for uuid in DISCOVERABLE_PARENT_SERVICE_UUIDS:
             if uuid in service_info.service_uuids:
@@ -581,7 +574,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         racp_char = client.services.get_characteristic(BP_RACP_CHAR_UUID)
         if meas_char is None or racp_char is None:
             if not self._bls_racp_unavailable_logged:
-                _LOGGER.info(
+                _LOGGER.debug(
                     "BLS RACP path unavailable: missing characteristics "
                     "(2A35=%s 2A52=%s)",
                     meas_char is not None,
@@ -609,7 +602,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             # RACP: Report Stored Records (0x01), operator Last Record (0x06)
             await client.write_gatt_char(BP_RACP_CHAR_UUID, b"\x01\x06", response=True)
             raw = await asyncio.wait_for(measurement_future, timeout=3.0)
-            _LOGGER.debug("BLS RACP latest raw 0x2A35=%s", raw.hex())
             try:
                 await asyncio.wait_for(racp_done.wait(), timeout=1.5)
             except asyncio.TimeoutError:
@@ -617,10 +609,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             return self._parse_bp_measurement(raw)
         except Exception as exc:
             if not self._bls_racp_unavailable_logged:
-                _LOGGER.info("BLS RACP latest read failed: %s", exc)
                 self._bls_racp_unavailable_logged = True
-            else:
-                _LOGGER.debug("BLS RACP latest read failed: %s", exc)
+            _LOGGER.debug("BLS RACP latest read failed: %s", exc)
             return None
         finally:
             try:
@@ -648,42 +638,26 @@ class OmronBluetoothDeviceData(BluetoothData):
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         async with self._poll_guard:
-            _LOGGER.debug("Polling device: %s (model: %s)", ble_device.address, self._device_model)
-            variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
-            if variant_entry:
-                profile_key, variant = variant_entry
-                _LOGGER.debug(
-                    "Catalog variant: %s -> profile %s (unverified=%s, reason=%s)",
-                    self._device_model,
-                    profile_key,
-                    variant.unverified,
-                    variant.reason,
-                )
-                if variant.unverified and not self._unvalidated_variant_warning_logged:
+            profile_key, catalog_variant = resolve_model_catalog(self._device_model)
+            if catalog_variant is not None:
+                if catalog_variant.unverified and not self._unvalidated_variant_warning_logged:
                     _LOGGER.warning(
                         "Unverified catalog variant: %s -> profile %s (reason=%s). "
                         "If sync fails or values look wrong, choose another registry profile.",
                         self._device_model,
                         profile_key,
-                        variant.reason,
+                        catalog_variant.reason,
                     )
                     self._unvalidated_variant_warning_logged = True
 
             self._events_updates.clear()
 
             client: BleakClient | None = None
-            poll_status = "poll_failed"
             transport: GattTransport | None = None
             session_opened = False
             try:
                 client = await establish_connection(
                     BleakClient, ble_device, ble_device.address
-                )
-                _LOGGER.debug(
-                    "Poll: connected=%s address=%s mtu=%s",
-                    getattr(client, "is_connected", None),
-                    ble_device.address,
-                    getattr(client, "mtu_size", None),
                 )
                 # Ensure Bleak service cache is populated before reading client.services.
                 await _bleak_refresh_services(client)
@@ -705,23 +679,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                     if attempt < 4:
                         await _bleak_refresh_services(client)
-                        await asyncio.sleep(0.25)
+                        await asyncio.sleep(0.35)
 
                 if not service_found:
-                    prof = resolve_profile_model_id(self._device_model)
-                    variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
+                    prof, variant_meta = resolve_model_catalog(self._device_model)
                     _LOGGER.error(
-                        "Required service %s not found on device %s",
+                        "Required service %s not on %s; model=%s profile=%s "
+                        "variant_unverified=%s variant_reason=%s expected_stack=%s",
                         parent_uuid,
                         ble_device.address,
-                    )
-                    _LOGGER.error(
-                        "poll_failed: model/service mismatch (model=%s profile=%s "
-                        "variant_unverified=%s variant_reason=%s expected_stack=%s)",
                         self._device_model,
                         prof,
-                        variant_entry[1].unverified if variant_entry else False,
-                        variant_entry[1].reason if variant_entry else None,
+                        variant_meta.unverified if variant_meta else False,
+                        variant_meta.reason if variant_meta else None,
                         self._device_config.parent_service_stack(),
                     )
                     return self._finish_update()
@@ -729,9 +699,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                 if self.last_service_info and not self._device_config.is_advertisement_compatible(
                     self.last_service_info.service_uuids
                 ):
-                    prof = resolve_profile_model_id(self._device_model)
-                    _LOGGER.warning(
-                        "Configured model %s (profile %s) may not match advertised service family. "
+                    prof, _variant_meta = resolve_model_catalog(self._device_model)
+                    _LOGGER.debug(
+                        "Configured model %s (profile %s) may not match advertised service family; "
                         "advertised=%s expected_stack=%s",
                         self._device_model,
                         prof,
@@ -774,8 +744,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                     live_record: dict[str, Any] | None = None
                     # Preferred live path for BLS devices: request latest via RACP indications.
                     live_record = await self._read_latest_via_bls_racp(client)
-                    if live_record:
-                        _LOGGER.debug("BLS RACP parsed latest: %s", live_record)
                     if not self._bp_char_unavailable:
                         try:
                             bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
@@ -783,17 +751,10 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 # Keep RACP result if present; otherwise use direct read result.
                                 if live_record is None:
                                     live_record = self._parse_bp_measurement(bytes(bp_raw))
-                                _LOGGER.debug(
-                                    "Read BP measurement char 0x2A35: raw=%s parsed=%s",
-                                    bytes(bp_raw).hex(),
-                                    live_record,
-                                )
-                            else:
-                                _LOGGER.debug("Read BP measurement char 0x2A35: empty payload")
                         except Exception as exc:
                             if "Read not permitted" in str(exc):
                                 self._bp_char_unavailable = True
-                                _LOGGER.info(
+                                _LOGGER.debug(
                                     "BP measurement char 0x2A35 read not permitted on %s; "
                                     "disabling live BLS read path",
                                     ble_device.address,
@@ -838,28 +799,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                             if "user" not in merged:
                                 merged["user"] = 1
                             record = merged
-                            _LOGGER.info(
-                                "Using live BP measurement characteristic over EEPROM "
-                                "(sys=%s dia=%s bpm=%s datetime=%s)",
-                                record.get("sys"),
-                                record.get("dia"),
-                                record.get("bpm"),
-                                record.get("datetime"),
-                            )
 
                 if multi_user_mode:
                     if latest_by_user:
-                        has_new = False
                         for user in sorted(latest_by_user):
                             user_record = latest_by_user[user]
-                            _LOGGER.debug(
-                                "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
-                                user,
-                                user_record.get("datetime"),
-                                user_record.get("sys"),
-                                user_record.get("dia"),
-                                user_record.get("bpm"),
-                            )
                             self._update_measurement_sensors(
                                 user_record,
                                 user=user,
@@ -868,64 +812,12 @@ class OmronBluetoothDeviceData(BluetoothData):
                             signature = self._build_record_signature(user_record)
                             previous = self._last_record_signatures_by_user.get(user)
                             if signature != previous:
-                                has_new = True
                                 self._last_record_signatures_by_user[user] = signature
-                        poll_status = "new_measurement" if has_new else "no_new_valid_record"
-                    else:
-                        poll_status = "no_new_valid_record"
-                        _LOGGER.debug("No records found on device for any configured user")
                 elif record:
-                    _LOGGER.info("Got record: %s", record)
-                    _LOGGER.debug(
-                        "Latest measurement selected: datetime=%s user=%s sys=%s dia=%s bpm=%s",
-                        record.get("datetime"),
-                        record.get("user"),
-                        record.get("sys"),
-                        record.get("dia"),
-                        record.get("bpm"),
-                    )
                     self._update_measurement_sensors(record)
                     signature = self._build_record_signature(record)
-                    if signature == self._last_record_signature:
-                        poll_status = "no_new_valid_record"
-                        _LOGGER.debug(
-                            "no_new_valid_record: latest valid record unchanged (model=%s, sig=%s)",
-                            self._device_model,
-                            signature,
-                        )
-                    else:
-                        poll_status = "new_measurement"
-                        _LOGGER.debug(
-                            "new_measurement: latest valid record changed from %s to %s",
-                            self._last_record_signature,
-                            signature,
-                        )
+                    if signature != self._last_record_signature:
                         self._last_record_signature = signature
-                    _LOGGER.debug(
-                        "Prepared sensor update payload for %s: %s",
-                        ble_device.address,
-                        {
-                            "blood_pressure_systolic": record.get("sys"),
-                            "blood_pressure_diastolic": record.get("dia"),
-                            "heart_rate": record.get("bpm"),
-                            "pulse_pressure": (
-                                (record.get("sys") - record.get("dia"))
-                                if isinstance(record.get("sys"), (int, float))
-                                and isinstance(record.get("dia"), (int, float))
-                                and record.get("sys") > record.get("dia")
-                                else None
-                            ),
-                        },
-                    )
-                else:
-                    poll_status = "no_new_valid_record"
-                    prof = resolve_profile_model_id(self._device_model)
-                    _LOGGER.debug("No records found on device")
-                    _LOGGER.debug(
-                        "no_new_valid_record: no valid parsed records (model=%s profile=%s)",
-                        self._device_model,
-                        prof,
-                    )
 
                 # Fetch Battery Level
                 try:
@@ -935,12 +827,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         bat_bytes = await client.read_gatt_char(char_bat)
                     else:
                         # Some stacks do not expose BAS in cached services reliably.
-                        # Fall back to direct UUID read attempt.
-                        _LOGGER.debug(
-                            "Battery characteristic %s not found in services for %s; trying direct UUID read",
-                            BATTERY_LEVEL_UUID,
-                            ble_device.address,
-                        )
                         bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
 
                     if bat_bytes:
@@ -958,7 +844,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                             BinarySensorDeviceClass.BATTERY,
                             "Low Battery",
                         )
-                        _LOGGER.debug("Read Battery Level: %s%% (low_battery=%s)", bat_level, bat_level <= 15)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Battery Level: %s", exc)
 
@@ -970,7 +855,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         if fw_bytes:
                             fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
                             self.set_device_sw_version(fw_rev)
-                            _LOGGER.debug("Read Firmware Revision: %s", fw_rev)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
 
@@ -982,7 +866,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         if hw_bytes:
                             hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
                             self.set_device_hw_version(hw_rev)
-                            _LOGGER.debug("Read Hardware Revision: %s", hw_rev)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
 
@@ -994,7 +877,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         if mfg_bytes:
                             mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
                             self.set_device_manufacturer(mfg_name)
-                            _LOGGER.debug("Read Manufacturer Name: %s", mfg_name)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
 
@@ -1002,34 +884,35 @@ class OmronBluetoothDeviceData(BluetoothData):
                 try:
                     char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
                     if char_model:
-                        model_bytes = await client.read_gatt_char(char_model)
-                        if model_bytes:
-                            model_num = model_bytes.decode("utf-8").strip(" \x00")
-                            # You might use model_num internally, but we don't necessarily want to override
-                            # the user's selected model logic, so we just log it for now.
-                            _LOGGER.debug("Read Model Number from device: %s", model_num)
+                        await client.read_gatt_char(char_model)
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Model Number: %s", exc)
 
-            except Exception as exc:
-                prof = resolve_profile_model_id(self._device_model)
-                variant_entry = MODEL_VARIANT_MAP.get(self._device_model)
-                _LOGGER.error(
-                    "Error polling device model=%s profile=%s address=%s: %s",
+            except ConnectionError as exc:
+                # Expected when the cuff is off, out of range, or the link drops mid-poll.
+                prof, variant_meta = resolve_model_catalog(self._device_model)
+                _LOGGER.warning(
+                    "Poll interrupted (disconnected) model=%s profile=%s address=%s: %s "
+                    "(variant_unverified=%s variant_reason=%s)",
                     self._device_model,
                     prof,
                     ble_device.address,
                     exc,
-                    exc_info=exc,
+                    variant_meta.unverified if variant_meta else False,
+                    variant_meta.reason if variant_meta else None,
                 )
+            except Exception as exc:
+                prof, variant_meta = resolve_model_catalog(self._device_model)
                 _LOGGER.error(
-                    "poll_failed: exc_type=%s model=%s profile=%s variant_unverified=%s "
-                    "variant_reason=%s",
-                    type(exc).__name__,
+                    "Poll failed model=%s profile=%s address=%s: %s "
+                    "(variant_unverified=%s variant_reason=%s)",
                     self._device_model,
                     prof,
-                    variant_entry[1].unverified if variant_entry else False,
-                    variant_entry[1].reason if variant_entry else None,
+                    ble_device.address,
+                    exc,
+                    variant_meta.unverified if variant_meta else False,
+                    variant_meta.reason if variant_meta else None,
+                    exc_info=exc,
                 )
             finally:
                 if session_opened and transport is not None:
@@ -1043,7 +926,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         await client.disconnect()
                     except Exception:
                         pass
-                _LOGGER.debug("poll status for %s: %s", ble_device.address, poll_status)
 
             return self._finish_update()
 
@@ -1067,7 +949,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
             if attempt < 4:
                 await _bleak_refresh_services(client)
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.35)
 
         if not service_found:
             raise ConnectionError(
@@ -1077,11 +959,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         transport = GattTransport(client, self._device_config)
         await transport.pair()
         await _bleak_refresh_services(client)
-        _LOGGER.info(
-            "Manual pairing retry completed for %s (%s)",
-            self._device_model,
-            ble_device.address,
-        )
 
     async def _async_sync_current_time_with_client(
         self, client: BleakClient, address: str,
