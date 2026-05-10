@@ -15,12 +15,15 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import EntityCategory
-from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
+from .entity_helpers import (
+    device_key_entity_id_suffix,
+    hass_device_info_with_ble_connection,
+)
 from .omron_ble import DeviceKey
 from .types import OmronConfigEntry
 
@@ -57,11 +60,6 @@ BINARY_SENSOR_DESCRIPTIONS = {
 }
 
 
-def _device_key_id(device_key: DeviceKey) -> str:
-    """Build a stable identifier from sensor-state device key."""
-    return f"{device_key.device_id}_{device_key.key}"
-
-
 def _binary_description_for_update(
     sensor_update: SensorUpdate,
     device_key: DeviceKey,
@@ -71,14 +69,6 @@ def _binary_description_for_update(
     if state_desc is None or state_desc.device_class is None:
         return None
     return BINARY_SENSOR_DESCRIPTIONS.get(state_desc.device_class)
-
-
-def _binary_device_info(sensor_device_info, address: str) -> dict:
-    """Convert sensor-state device info and ensure BLE connection key exists."""
-    device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
-    if "connections" not in device_info:
-        device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
-    return device_info
 
 
 async def async_setup_entry(
@@ -95,7 +85,7 @@ async def async_setup_entry(
             return []
         new_entities: list[BinarySensorEntity] = []
         for device_key in sensor_update.binary_entity_descriptions:
-            entity_key = _device_key_id(device_key)
+            entity_key = device_key_entity_id_suffix(device_key)
             if entity_key in known_entity_keys:
                 continue
             description = _binary_description_for_update(sensor_update, device_key)
@@ -185,7 +175,11 @@ class OmronBluetoothBinarySensorEntity(
         if sensor_update is not None:
             sensor_device_info = sensor_update.devices.get(self._device_key.device_id)
             if sensor_device_info is not None:
-                return _binary_device_info(sensor_device_info, self._address)
+                return hass_device_info_with_ble_connection(
+                    sensor_device_info,
+                    self._address,
+                    include_revision_attrs=False,
+                )
         return DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, self._address)},
         )

@@ -16,8 +16,6 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.const import (
-    ATTR_SW_VERSION,
-    ATTR_HW_VERSION,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     EntityCategory,
@@ -27,12 +25,15 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
-from homeassistant.helpers.device_registry import DeviceInfo, CONNECTION_BLUETOOTH
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
+from .entity_helpers import (
+    device_key_entity_id_suffix,
+    hass_device_info_with_ble_connection,
+)
 from .omron_ble import DeviceKey
 from .types import OmronConfigEntry
 
@@ -149,19 +150,10 @@ SENSOR_DESCRIPTIONS = {
 }
 
 def hass_device_info(sensor_device_info, address: str | None = None):
-    device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
-    if address is not None and "connections" not in device_info:
-        device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
-    if sensor_device_info.sw_version is not None:
-        device_info[ATTR_SW_VERSION] = sensor_device_info.sw_version
-    if sensor_device_info.hw_version is not None:
-        device_info[ATTR_HW_VERSION] = sensor_device_info.hw_version
-    return device_info
-
-
-def _device_key_id(device_key: DeviceKey) -> str:
-    """Build a stable identifier from sensor-state device key."""
-    return f"{device_key.device_id}_{device_key.key}"
+    """Map SensorDeviceInfo to HA DeviceInfo (BLE connection + firmware fields)."""
+    return hass_device_info_with_ble_connection(
+        sensor_device_info, address, include_revision_attrs=True
+    )
 
 
 def _sensor_description_for_update(sensor_update: SensorUpdate, device_key: DeviceKey) -> SensorEntityDescription | None:
@@ -188,7 +180,7 @@ async def async_setup_entry(
             return []
         new_entities: list[SensorEntity] = []
         for device_key in sensor_update.entity_descriptions:
-            entity_key = _device_key_id(device_key)
+            entity_key = device_key_entity_id_suffix(device_key)
             if entity_key in known_entity_keys:
                 continue
             description = _sensor_description_for_update(sensor_update, device_key)
@@ -383,7 +375,7 @@ class OmronPollDurationSensorEntity(
 
     @property
     def native_value(self) -> float | None:
-        """Return last successful poll duration in seconds."""
+        """Return wall-clock seconds for the last poll attempt (success or failure)."""
         return self.coordinator.data
 
     @property

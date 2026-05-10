@@ -1,0 +1,112 @@
+"""Omron EEPROM record byte-layout parsers."""
+
+from __future__ import annotations
+
+import datetime
+from typing import Any
+
+
+def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
+    """Classic Omron memory-map vital record (14-byte / 0x0E slots).
+
+    Byte layout:
+      [0]   sys - 25 (>0xE1 means empty slot)
+      [1]   dia
+      [2]   bpm
+      [3]   year - 2000 (lower 6 bits)
+      [4:5] flags1 (hour, day, month, ihb, mov)
+      [6:7] flags2 (second, minute)
+    """
+    raw_sys = data[0]
+    if raw_sys > 0xE1:
+        raise ValueError("record slot is empty")
+
+    record: dict[str, Any] = {}
+    record["sys"] = raw_sys + 25
+    record["dia"] = data[1]
+    record["bpm"] = data[2]
+
+    year = 2000 + (data[3] & 0x3F)
+    flags1 = data[4] | (data[5] << 8)
+    flags2 = data[6] | (data[7] << 8)
+
+    hour = flags1 & 0x1F
+    day = (flags1 >> 5) & 0x1F
+    month = (flags1 >> 10) & 0x0F
+    record["ihb"] = (flags1 >> 14) & 0x01
+    record["mov"] = (flags1 >> 15) & 0x01
+    second = min(flags2 & 0x3F, 59)
+    minute = min((flags2 >> 6) & 0x3F, 59)
+    # Modern stack flags2 bits: bit 12=Cuff, bit 13=Battery, bits 14-15=Position
+    record["cuff"] = (flags2 >> 12) & 0x01
+    record["battery"] = (flags2 >> 13) & 0x01
+    record["pos"] = (flags2 >> 14) & 0x03
+
+    # Devices may return partially initialized entries that are not 0xFF-filled.
+    # Treat obviously empty placeholders as invalid slots.
+    if (
+        data[1] == 0
+        and data[2] == 0
+        and (data[3] & 0x3F) == 0
+        and flags1 == 0
+        and flags2 == 0
+    ):
+        raise ValueError("record slot is empty")
+
+    # 714x family records appear to carry a trailing record sequence/id field.
+    # Keep it for latest-record selection heuristics.
+    if len(data) >= 2:
+        record["_record_id"] = int.from_bytes(bytes(data[-2:]), "little")
+
+    try:
+        record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        # Keep record usable for slot-based latest selection.
+        record["datetime"] = None
+    return record
+
+
+def parse_hem6401_vital_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
+    """HEM-6401 family: 16-byte BP record (date/time then pressures)."""
+    if len(data) < 16:
+        raise ValueError("record too short")
+
+    year_off = int(data[0])
+    month = int(data[1])
+    day = int(data[2])
+    hour = int(data[3])
+    minute = int(data[4])
+    second = min(int(data[5]), 59)
+
+    raw_sys = int(data[6])
+    dia = int(data[7])
+    bpm = int(data[8])
+
+    # Empty-slot guard for partially initialized records.
+    if (
+        year_off == 0
+        and month == 0
+        and day == 0
+        and hour == 0
+        and minute == 0
+        and int(data[5]) == 0
+        and raw_sys == 0
+        and dia == 0
+        and bpm == 0
+    ):
+        raise ValueError("record slot is empty")
+
+    if raw_sys > 0xE1:
+        raise ValueError("record slot is empty")
+
+    flags = int(data[11])
+    record: dict[str, Any] = {
+        "sys": raw_sys + 25,
+        "dia": dia,
+        "bpm": bpm,
+        # Map status flags to existing integration keys.
+        "ihb": flags & 0x03,
+        "mov": (flags >> 2) & 0x03,
+        "datetime": datetime.datetime(year_off + 2000, month, day, hour, minute, second),
+    }
+    return record
