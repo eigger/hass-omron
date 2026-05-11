@@ -6,6 +6,61 @@ import datetime
 from typing import Any
 
 
+def _bytearray_bits_to_int(
+    bytes_array: bytes | bytearray,
+    endianness: str,
+    first_bit: int,
+    last_bit: int,
+) -> int:
+    """Extract an integer from a bit range within a byte array."""
+    big_int = int.from_bytes(bytes_array, endianness)
+    num_valid_bits = (last_bit - first_bit) + 1
+    shifted = big_int >> (len(bytes_array) * 8 - (last_bit + 1))
+    bitmask = (2**num_valid_bits) - 1
+    return shifted & bitmask
+
+
+def parse_classic_vital_14_7322_family(
+    data: bytes | bytearray, endianness: str
+) -> dict[str, Any]:
+    """Classic 14-byte parser for HEM-7322T family."""
+    record: dict[str, Any] = {}
+    record["dia"] = _bytearray_bits_to_int(data, endianness, 0, 7)
+    record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25
+    year = _bytearray_bits_to_int(data, endianness, 16, 23) + 2000
+    record["bpm"] = _bytearray_bits_to_int(data, endianness, 24, 31)
+    record["mov"] = _bytearray_bits_to_int(data, endianness, 32, 32)
+    record["ihb"] = _bytearray_bits_to_int(data, endianness, 33, 33)
+    month = _bytearray_bits_to_int(data, endianness, 34, 37)
+    day = _bytearray_bits_to_int(data, endianness, 38, 42)
+    hour = _bytearray_bits_to_int(data, endianness, 43, 47)
+    minute = _bytearray_bits_to_int(data, endianness, 52, 57)
+    second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
+    record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
+    return record
+
+
+def parse_classic_vital_14_6232_family(
+    data: bytes | bytearray, endianness: str
+) -> dict[str, Any]:
+    """Classic 14-byte parser for HEM-6232T family."""
+    record: dict[str, Any] = {}
+    record["dia"] = _bytearray_bits_to_int(data, endianness, 0, 7)
+    record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25
+    year = _bytearray_bits_to_int(data, endianness, 18, 23) + 2000
+    record["bpm"] = _bytearray_bits_to_int(data, endianness, 24, 31)
+    # HEM-6232 has ihb/mov bit order swapped compared with other format-a variants.
+    record["ihb"] = _bytearray_bits_to_int(data, endianness, 32, 32)
+    record["mov"] = _bytearray_bits_to_int(data, endianness, 33, 33)
+    month = _bytearray_bits_to_int(data, endianness, 34, 37)
+    day = _bytearray_bits_to_int(data, endianness, 38, 42)
+    hour = _bytearray_bits_to_int(data, endianness, 43, 47)
+    minute = _bytearray_bits_to_int(data, endianness, 52, 57)
+    second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
+    record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
+    return record
+
+
 def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """Classic Omron memory-map vital record (14-byte / 0x0E slots).
 
@@ -66,8 +121,10 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     return record
 
 
-def parse_hem6401_vital_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
-    """HEM-6401 family: 16-byte BP record (date/time then pressures)."""
+def parse_classic_vital_16_6401_family(
+    data: bytes | bytearray, endianness: str
+) -> dict[str, Any]:
+    """Classic 16-byte parser for HEM-6401 family."""
     if len(data) < 16:
         raise ValueError("record too short")
 

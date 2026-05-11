@@ -19,7 +19,12 @@ from .const import (
     DEFAULT_DEVICE_MODEL,
 )
 
-from .record_parsers import parse_classic_vital_14, parse_hem6401_vital_16
+from .record_parsers import (
+    parse_classic_vital_14,
+    parse_classic_vital_16_6401_family,
+    parse_classic_vital_14_6232_family,
+    parse_classic_vital_14_7322_family,
+)
 
 
 class DeviceModelVariant(NamedTuple):
@@ -115,7 +120,9 @@ class DeviceConfig:
         """Parse a single record using the device-specific parser."""
         parser_map = {
             "classic_vital_14": parse_classic_vital_14,
-            "hem6401_vital_16": parse_hem6401_vital_16,
+            "classic_vital_16_6401_family": parse_classic_vital_16_6401_family,
+            "classic_vital_14_7322_family": parse_classic_vital_14_7322_family,
+            "classic_vital_14_6232_family": parse_classic_vital_14_6232_family,
         }
         parser = parser_map.get(self.record_parser)
         if parser is None:
