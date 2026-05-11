@@ -36,6 +36,11 @@ def parse_classic_vital_14_7322_family(
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
+    # Classic 14-byte extensions used by several cuff families:
+    # bit12=cuff, bit13=battery, bit14-15=position.
+    record["cuff"] = _bytearray_bits_to_int(data, endianness, 52, 52)
+    record["battery"] = _bytearray_bits_to_int(data, endianness, 53, 53)
+    record["pos"] = _bytearray_bits_to_int(data, endianness, 54, 55)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
@@ -57,6 +62,11 @@ def parse_classic_vital_14_6232_family(
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
+    # Classic 14-byte extensions used by several cuff families:
+    # bit12=cuff, bit13=battery, bit14-15=position.
+    record["cuff"] = _bytearray_bits_to_int(data, endianness, 52, 52)
+    record["battery"] = _bytearray_bits_to_int(data, endianness, 53, 53)
+    record["pos"] = _bytearray_bits_to_int(data, endianness, 54, 55)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
@@ -72,39 +82,47 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
       [4:5] flags1 (hour, day, month, ihb, mov)
       [6:7] flags2 (second, minute)
     """
-    raw_sys = data[0]
+    raw_sys = _bytearray_bits_to_int(data, endianness, 0, 7)
     if raw_sys > 0xE1:
         raise ValueError("record slot is empty")
 
     record: dict[str, Any] = {}
     record["sys"] = raw_sys + 25
-    record["dia"] = data[1]
-    record["bpm"] = data[2]
+    record["dia"] = _bytearray_bits_to_int(data, endianness, 8, 15)
+    record["bpm"] = _bytearray_bits_to_int(data, endianness, 16, 23)
 
-    year = 2000 + (data[3] & 0x3F)
-    flags1 = data[4] | (data[5] << 8)
-    flags2 = data[6] | (data[7] << 8)
+    year = 2000 + _bytearray_bits_to_int(data, endianness, 24, 29)
+    hour = _bytearray_bits_to_int(data, endianness, 32, 36)
+    day = _bytearray_bits_to_int(data, endianness, 37, 41)
+    month = _bytearray_bits_to_int(data, endianness, 42, 45)
 
-    hour = flags1 & 0x1F
-    day = (flags1 >> 5) & 0x1F
-    month = (flags1 >> 10) & 0x0F
-    record["ihb"] = (flags1 >> 14) & 0x01
-    record["mov"] = (flags1 >> 15) & 0x01
-    second = min(flags2 & 0x3F, 59)
-    minute = min((flags2 >> 6) & 0x3F, 59)
+    record["ihb"] = _bytearray_bits_to_int(data, endianness, 46, 46)
+    record["mov"] = _bytearray_bits_to_int(data, endianness, 47, 47)
+    second = min(_bytearray_bits_to_int(data, endianness, 48, 53), 59)
+    minute = min(_bytearray_bits_to_int(data, endianness, 54, 59), 59)
     # Modern stack flags2 bits: bit 12=Cuff, bit 13=Battery, bits 14-15=Position
-    record["cuff"] = (flags2 >> 12) & 0x01
-    record["battery"] = (flags2 >> 13) & 0x01
-    record["pos"] = (flags2 >> 14) & 0x03
+    record["cuff"] = _bytearray_bits_to_int(data, endianness, 60, 60)
+    record["battery"] = _bytearray_bits_to_int(data, endianness, 61, 61)
+    record["pos"] = _bytearray_bits_to_int(data, endianness, 62, 63)
 
     # Devices may return partially initialized entries that are not 0xFF-filled.
     # Treat obviously empty placeholders as invalid slots.
+    day_value = _bytearray_bits_to_int(data, endianness, 37, 41)
+    month_value = _bytearray_bits_to_int(data, endianness, 42, 45)
+    second_raw = _bytearray_bits_to_int(data, endianness, 48, 53)
+    minute_raw = _bytearray_bits_to_int(data, endianness, 54, 59)
+    flags1 = _bytearray_bits_to_int(data, endianness, 32, 47)
+    flags2 = _bytearray_bits_to_int(data, endianness, 48, 63)
     if (
-        data[1] == 0
-        and data[2] == 0
-        and (data[3] & 0x3F) == 0
+        record["dia"] == 0
+        and record["bpm"] == 0
+        and _bytearray_bits_to_int(data, endianness, 24, 29) == 0
         and flags1 == 0
         and flags2 == 0
+        and day_value == 0
+        and month_value == 0
+        and second_raw == 0
+        and minute_raw == 0
     ):
         raise ValueError("record slot is empty")
 
@@ -128,16 +146,18 @@ def parse_classic_vital_16_6401_family(
     if len(data) < 16:
         raise ValueError("record too short")
 
-    year_off = int(data[0])
-    month = int(data[1])
-    day = int(data[2])
-    hour = int(data[3])
-    minute = int(data[4])
-    second = min(int(data[5]), 59)
+    # Keep byte-oriented semantics while using the shared bit extractor.
+    year_off = _bytearray_bits_to_int(data[0:1], endianness, 0, 7)
+    month = _bytearray_bits_to_int(data[1:2], endianness, 0, 7)
+    day = _bytearray_bits_to_int(data[2:3], endianness, 0, 7)
+    hour = _bytearray_bits_to_int(data[3:4], endianness, 0, 7)
+    minute = _bytearray_bits_to_int(data[4:5], endianness, 0, 7)
+    second_raw = _bytearray_bits_to_int(data[5:6], endianness, 0, 7)
+    second = min(second_raw, 59)
 
-    raw_sys = int(data[6])
-    dia = int(data[7])
-    bpm = int(data[8])
+    raw_sys = _bytearray_bits_to_int(data[6:7], endianness, 0, 7)
+    dia = _bytearray_bits_to_int(data[7:8], endianness, 0, 7)
+    bpm = _bytearray_bits_to_int(data[8:9], endianness, 0, 7)
 
     # Empty-slot guard for partially initialized records.
     if (
@@ -146,7 +166,7 @@ def parse_classic_vital_16_6401_family(
         and day == 0
         and hour == 0
         and minute == 0
-        and int(data[5]) == 0
+        and second_raw == 0
         and raw_sys == 0
         and dia == 0
         and bpm == 0
@@ -156,14 +176,15 @@ def parse_classic_vital_16_6401_family(
     if raw_sys > 0xE1:
         raise ValueError("record slot is empty")
 
-    flags = int(data[11])
+    ihb = _bytearray_bits_to_int(data[11:12], endianness, 0, 1)
+    mov = _bytearray_bits_to_int(data[11:12], endianness, 2, 3)
     record: dict[str, Any] = {
         "sys": raw_sys + 25,
         "dia": dia,
         "bpm": bpm,
         # Map status flags to existing integration keys.
-        "ihb": flags & 0x03,
-        "mov": (flags >> 2) & 0x03,
+        "ihb": ihb,
+        "mov": mov,
         "datetime": datetime.datetime(year_off + 2000, month, day, hour, minute, second),
     }
     return record
