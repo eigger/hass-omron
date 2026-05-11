@@ -195,7 +195,12 @@ async def async_sync_device_time(
     config: DeviceConfig | None = None,
     transport: GattTransport | None = None,
 ) -> bool:
-    """Sync current local time via CTS or EEPROM fallback."""
+    """Sync current local time via CTS and/or EEPROM.
+
+    EEPROM-capable profiles run EEPROM sync **before** CTS: subscribing/writing CTS on a
+    freshly established BLE link can disconnect some stacks or peripherals (seen after HA
+    restart); EEPROM uses the Omron memory protocol only and should complete first.
+    """
     if not client.is_connected:
         _LOGGER.debug(
             "Skipping time sync for %s: client is not connected",
@@ -203,12 +208,23 @@ async def async_sync_device_time(
         )
         return False
 
-    cts_success = await _sync_time_via_cts(client, model)
-
     if config is None:
         config = get_device_config(model)
 
-    eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
+    eeprom_success = False
+
+    if config.supports_eeprom_time_sync:
+        eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
+        if eeprom_success:
+            return True
+
+    cts_success = await _sync_time_via_cts(client, model)
+
+    if config.supports_eeprom_time_sync:
+        if not eeprom_success:
+            eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
+    else:
+        eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
 
     if not config.supports_eeprom_time_sync and not cts_success:
         _LOGGER.debug(
