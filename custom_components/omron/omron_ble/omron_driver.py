@@ -18,6 +18,7 @@ _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 3.5
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
+_NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
@@ -190,10 +191,54 @@ class GattTransport:
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
-            await self._client.start_notify(uuid, self._on_notify_channel_data)
+            await self._start_notify_with_recovery(uuid)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         self._notify_subscribed = True
         self._debug_ble_link("after_rx_subscribe")
+
+    async def _start_notify_with_recovery(self, uuid: str) -> None:
+        """Start notify with recovery for transient BlueZ/stack races."""
+        last_exc: BaseException | None = None
+        for attempt in range(_NOTIFY_SUBSCRIBE_MAX_RETRIES):
+            try:
+                await self._client.start_notify(uuid, self._on_notify_channel_data)
+                return
+            except BleakError as exc:
+                last_exc = exc
+                msg = str(exc).lower()
+                # BlueZ can keep CCCD/notify acquired briefly after reconnect.
+                # Try to release stale state and re-subscribe.
+                if "notify acquired" in msg or "notpermitted" in msg:
+                    _LOGGER.debug(
+                        "start_notify recovery (%d/%d) for %s on %s: %s",
+                        attempt + 1,
+                        _NOTIFY_SUBSCRIBE_MAX_RETRIES,
+                        uuid,
+                        self._config.model,
+                        exc,
+                    )
+                    try:
+                        await self._client.stop_notify(uuid)
+                    except Exception:
+                        pass
+                    await _bleak_refresh_services(self._client)
+                    if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                        await asyncio.sleep(0.25 * (attempt + 1))
+                    continue
+                if "service discovery has not been performed" in msg or "not been performed" in msg:
+                    await _bleak_refresh_services(self._client)
+                    if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                        await asyncio.sleep(0.2)
+                    continue
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                    await asyncio.sleep(0.2)
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
 
     async def _unsubscribe_notify_channels(self) -> None:
         """Disable notifications on all RX channels."""
