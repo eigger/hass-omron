@@ -710,13 +710,30 @@ class OmronBluetoothDeviceData(BluetoothData):
                     )
 
                 transport = GattTransport(client, self._device_config)
+                _LOGGER.debug(
+                    "Poll start: model=%s addr=%s endian=%s parser=%s "
+                    "users=%d rec_size=%d time_sync=%s",
+                    self._device_config.model,
+                    ble_device.address,
+                    self._device_config.endianness,
+                    self._device_config.record_parser,
+                    self._device_config.num_users,
+                    self._device_config.record_byte_size,
+                    self._device_config.resolved_time_sync_layout()
+                    if self._device_config.supports_eeprom_time_sync
+                    else "none",
+                )
 
                 # Open a single memory session for both records and time sync
                 if self._device_config.parent_service_stack() == "classic" or self._device_config.supports_eeprom_time_sync:
                     last_session_exc: BaseException | None = None
                     for session_attempt in range(3):
                         try:
-                            if self._device_config.legacy_pairing_workarounds:
+                            if self._device_config.legacy_pairing_workarounds and session_attempt == 0:
+                                # pair() triggers start_notify internally; only run on the first attempt.
+                                # Subsequent retries start from reset_session_state() which already
+                                # cleaned up the BlueZ notify state, so re-pairing is unnecessary and
+                                # would only pile up additional `Notify acquired` errors.
                                 try:
                                     await transport.pair()
                                 except Exception as exc:
@@ -736,6 +753,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 exc,
                             )
                             if session_attempt < 2:
+                                # Reset notify subscriptions and unlock state before the next attempt.
+                                # This releases any stale BlueZ `Notify acquired` locks so the next
+                                # open_memory_session() call can re-subscribe from a clean state.
+                                try:
+                                    await transport.reset_session_state()
+                                except Exception as reset_exc:
+                                    _LOGGER.debug("Session state reset failed (ignored): %s", reset_exc)
                                 await _bleak_refresh_services(client)
                                 await asyncio.sleep(0.5)
                     if not session_opened and last_session_exc is not None:
@@ -744,9 +768,18 @@ class OmronBluetoothDeviceData(BluetoothData):
                             last_session_exc,
                         )
 
-                # Perform time sync first, ensuring the device clock is correct before further actions
+                # Perform time sync first, ensuring the device clock is correct before further actions.
+                # Skip EEPROM-based time sync when the memory session could not be opened: the EEPROM
+                # sync path internally calls open_memory_session() again, which would pile up additional
+                # `Notify acquired` errors on an already-broken BLE session state.
                 try:
-                    await self._async_sync_current_time_with_client(client, ble_device.address, transport)
+                    if session_opened or not self._device_config.supports_eeprom_time_sync:
+                        await self._async_sync_current_time_with_client(client, ble_device.address, transport)
+                    else:
+                        _LOGGER.debug(
+                            "Skipping EEPROM time sync for %s: memory session not opened",
+                            ble_device.address,
+                        )
                 except Exception as exc:
                     _LOGGER.warning("Time sync failed during poll for %s: %s", ble_device.address, exc)
 

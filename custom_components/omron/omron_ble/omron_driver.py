@@ -250,6 +250,21 @@ class GattTransport:
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
+    async def reset_session_state(self) -> None:
+        """Release any stale BLE notify subscriptions and reset session flags.
+
+        Call this before retrying ``open_memory_session`` when a previous attempt
+        failed with a BlueZ ``Notify acquired`` error.  The stop_notify calls are
+        best-effort; failures are silently ignored so the caller can proceed with
+        the next attempt regardless.
+        """
+        await self._unsubscribe_notify_channels()
+        self._unlocked = False
+        self._memory_session_depth = 0
+        self._channel_fragments = [None] * 4
+        self._reply_ready.clear()
+        self._debug_ble_link("reset_session_state")
+
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
         # Determine which channel this notification came from
@@ -953,6 +968,15 @@ class OmronDeviceDriver:
                 min(section_size, self._config.transmission_block_size),
             )
             cached = bytearray(cached)
+            _LOGGER.debug(
+                "EEPROM time raw for %s (layout=%s addr=0x%04X+0x%02X size=%d): %s",
+                self._config.model,
+                self._config.resolved_time_sync_layout(),
+                read_addr,
+                section_start,
+                section_size,
+                bytes(cached).hex(),
+            )
 
             # Parse current device time and only write if difference is > 60 seconds
             device_dt = self._parse_eeprom_device_time(cached)
@@ -1159,11 +1183,23 @@ class OmronDeviceDriver:
                 index_region_byte_size,
                 self._config.transmission_block_size,
             )
+            _LOGGER.debug(
+                "Index block [%s]: addr=0x%04X size=%d endian=%s raw=%s",
+                self._config.model,
+                self._config.settings_read_address,
+                index_region_byte_size,
+                ptr_endian,
+                bytes(index_bytes).hex(),
+            )
             for idx, user_cfg in enumerate(user_layouts):
                 if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
                     continue
                 write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
                 if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
+                    _LOGGER.debug(
+                        "User%d [%s]: write_cursor_offset=0x%02X invalid (index_bytes len=%d), skipping",
+                        idx + 1, self._config.model, write_cursor_offset, len(index_bytes),
+                    )
                     continue
 
                 raw_pointer = int.from_bytes(
@@ -1186,11 +1222,26 @@ class OmronDeviceDriver:
                     pointer_corrected, pointer_min, pointer_max
                 )
                 if pointer_wrapped is None:
+                    _LOGGER.debug(
+                        "User%d [%s]: cursor raw=0x%04X masked=0x%02X corrected=%d wrapped=None "
+                        "(range [%d,%d]), skipping",
+                        idx + 1, self._config.model,
+                        raw_pointer, pointer_masked, pointer_corrected,
+                        pointer_min, pointer_max,
+                    )
                     continue
                 record_count = (pointer_max - pointer_min) + 1
                 if record_count <= 0:
                     continue
                 latest_slot = pointer_wrapped
+                _LOGGER.debug(
+                    "User%d [%s]: cursor raw=0x%04X masked=0x%02X bias=%+d "
+                    "→ slot=%d (range [%d,%d]) base_addr=0x%04X record_step=%d",
+                    idx + 1, self._config.model,
+                    raw_pointer, pointer_masked, correction,
+                    latest_slot, pointer_min, pointer_max,
+                    int(record_addresses[idx]), record_step,
+                )
                 max_probe = min(max(backtrack_slots, 0), max(record_count - 1, 0))
                 parsed = None
                 base_addr = int(record_addresses[idx])
@@ -1205,12 +1256,29 @@ class OmronDeviceDriver:
                         record_byte_size,
                         self._config.transmission_block_size,
                     )
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d addr=0x%04X raw=%s",
+                        idx + 1, self._config.model, probe_slot,
+                        probe_addr, bytes(raw_record).hex(),
+                    )
                     try:
                         parsed = self._config.parse_record(bytes(raw_record))
-                    except Exception:
+                    except Exception as parse_exc:
+                        _LOGGER.debug(
+                            "User%d [%s] slot=%d parse error: %s",
+                            idx + 1, self._config.model, probe_slot, parse_exc,
+                        )
                         parsed = None
                         continue
                     parsed["_slot_index"] = probe_slot
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
+                        "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
+                        idx + 1, self._config.model, probe_slot,
+                        parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
+                        parsed.get("datetime"), parsed.get("ihb"),
+                        parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
+                    )
                     if not self._is_record_plausible(parsed):
                         parsed = None
                         continue
@@ -1233,8 +1301,18 @@ class OmronDeviceDriver:
 
         selected = self._select_latest_candidate(candidates)
         if selected is None:
+            _LOGGER.debug(
+                "Index read [%s]: no valid candidate found among %d probe(s)",
+                self._config.model, sum(max_probe + 1 for _ in user_layouts),
+            )
             return None
         user, record = selected
+        _LOGGER.debug(
+            "Index selected [%s]: user=%d slot=%d sys=%s dia=%s bpm=%s dt=%s",
+            self._config.model, user, record.get("_slot_index", "?"),
+            record.get("sys"), record.get("dia"), record.get("bpm"),
+            record.get("datetime"),
+        )
         return self._finalize_public_latest_record(record, user)
 
     async def get_all_records_flat(
@@ -1312,25 +1390,57 @@ class OmronDeviceDriver:
         """Sanity-check parsed values to avoid stale/garbage slot selection."""
         date_value = record.get("datetime")
         if not isinstance(date_value, dt.datetime):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: datetime is %r (not a datetime object)",
+                self._config.model, record.get("_slot_index", "?"), date_value,
+            )
             return False
 
         now = self._now_func()
         if date_value < dt.datetime(2010, 1, 1):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: datetime %s is before 2010 (likely empty/corrupt slot)",
+                self._config.model, record.get("_slot_index", "?"), date_value,
+            )
             return False
         if date_value > (now + dt.timedelta(days=2)):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: datetime %s is in the future (clock sync issue?)",
+                self._config.model, record.get("_slot_index", "?"), date_value,
+            )
             return False
 
         sys = record.get("sys")
         dia = record.get("dia")
         bpm = record.get("bpm")
         if not isinstance(sys, int) or not isinstance(dia, int) or not isinstance(bpm, int):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: non-integer vitals sys=%r dia=%r bpm=%r",
+                self._config.model, record.get("_slot_index", "?"), sys, dia, bpm,
+            )
             return False
         if not (60 <= sys <= 280):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: sys=%d out of range [60, 280]",
+                self._config.model, record.get("_slot_index", "?"), sys,
+            )
             return False
         if not (30 <= dia <= 180):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: dia=%d out of range [30, 180]",
+                self._config.model, record.get("_slot_index", "?"), dia,
+            )
             return False
         if not (30 <= bpm <= 240):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: bpm=%d out of range [30, 240]",
+                self._config.model, record.get("_slot_index", "?"), bpm,
+            )
             return False
         if dia >= sys:
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: dia=%d >= sys=%d (physiologically invalid)",
+                self._config.model, record.get("_slot_index", "?"), dia, sys,
+            )
             return False
         return True
