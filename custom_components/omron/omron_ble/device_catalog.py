@@ -74,7 +74,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0xFFFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
             ],
         },
-        record_parser="hem6401_vital_16",
+        record_parser="classic_vital_16_6401_family",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-6401T-Z", unverified=True, reason="fallback"),
             DeviceModelVariant("HEM-6402T-Z", unverified=True),
@@ -132,7 +132,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser="classic_vital_14_7322_family",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-7321T-CA", unverified=False),
             DeviceModelVariant("HEM-7321T_TI-CA", unverified=False),
@@ -212,7 +212,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser="classic_vital_14_6232_family",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-1026T2-AJC", unverified=True),
             DeviceModelVariant("HEM-1026T2-AJE", unverified=True),
