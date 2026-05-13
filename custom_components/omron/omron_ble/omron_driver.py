@@ -1046,14 +1046,15 @@ class OmronDeviceDriver:
         return result
 
     async def get_all_records(
-        self, transport: GattTransport
+        self, transport: GattTransport, *, manage_session: bool = True
     ) -> list[list[dict[str, Any]]]:
         """Read all records from all users.
 
         Returns a list of lists: [[user1_records], [user2_records], ...]
         """
-        await transport.unlock()
-        await transport.open_memory_session()
+        if manage_session:
+            await transport.unlock()
+            await transport.open_memory_session()
 
         try:
             all_user_records = []
@@ -1071,23 +1072,25 @@ class OmronDeviceDriver:
                 records = self._parse_user_records(raw_data, user_idx)
                 all_user_records.append(records)
 
-            await transport.close_memory_session()
+            if manage_session:
+                await transport.close_memory_session()
         except Exception:
             # Try to cleanly end if possible
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+            if manage_session:
+                try:
+                    await transport.close_memory_session()
+                except Exception:
+                    pass
             raise
 
         return all_user_records
 
     async def get_latest_record(
-        self, transport: GattTransport
+        self, transport: GattTransport, *, manage_session: bool = True
     ) -> dict[str, Any] | None:
         """Read latest record using index first, then fallback to full scan."""
         layout = self._config.index_pointer_layout or {}
-        indexed = await self._get_latest_via_index(transport)
+        indexed = await self._get_latest_via_index(transport, manage_session=manage_session)
         if indexed is not None:
             return indexed
         if bool(layout.get("skip_full_scan_fallback_when_index_empty")):
@@ -1100,15 +1103,24 @@ class OmronDeviceDriver:
             "%s index path did not yield a valid latest record; falling back to full scan",
             self._config.model,
         )
-        return await self._get_latest_via_full_scan(transport)
+        return await self._get_latest_via_full_scan(transport, manage_session=manage_session)
 
     async def get_latest_records_per_user(
-        self, transport: GattTransport
+        self, transport: GattTransport, *, manage_session: bool = True
     ) -> dict[int, dict[str, Any]]:
         """Return latest valid record per configured user index (1-based)."""
-        all_user_records = await self.get_all_records(transport)
-
         latest_by_user: dict[int, dict[str, Any]] = {}
+
+        # Option 2: Try index-based fetch first if possible
+        indexed_candidates = await self._get_latest_via_index(
+            transport, manage_session=manage_session, return_all_users=True
+        )
+        if indexed_candidates:
+            return indexed_candidates
+
+        # Fallback to full scan
+        all_user_records = await self.get_all_records(transport, manage_session=manage_session)
+
         for user_idx, user_records in enumerate(all_user_records):
             user = user_idx + 1
             if not user_records:
@@ -1121,10 +1133,10 @@ class OmronDeviceDriver:
         return latest_by_user
 
     async def _get_latest_via_full_scan(
-        self, transport: GattTransport
+        self, transport: GattTransport, *, manage_session: bool = True
     ) -> dict[str, Any] | None:
         """Existing full EEPROM scan path."""
-        all_user_records = await self.get_all_records(transport)
+        all_user_records = await self.get_all_records(transport, manage_session=manage_session)
         candidates: list[tuple[int, dict[str, Any]]] = []
         for user_idx, user_records in enumerate(all_user_records):
             for record in user_records:
@@ -1151,8 +1163,8 @@ class OmronDeviceDriver:
         return pointer
 
     async def _get_latest_via_index(
-        self, transport: GattTransport
-    ) -> dict[str, Any] | None:
+        self, transport: GattTransport, *, manage_session: bool = True, return_all_users: bool = False
+    ) -> Any | None:
         """Read index block and fetch only the latest slot per configured user."""
         layout = self._config.index_pointer_layout
         if (
@@ -1160,12 +1172,12 @@ class OmronDeviceDriver:
             or self._config.settings_read_address is None
             or self._config.record_byte_size <= 0
         ):
-            return None
+            return None if not return_all_users else {}
 
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
         user_layouts = layout.get("users", [])
         if index_region_byte_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
-            return None
+            return None if not return_all_users else {}
 
         record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
@@ -1175,8 +1187,9 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
-        await transport.unlock()
-        await transport.open_memory_session()
+        if manage_session:
+            await transport.unlock()
+            await transport.open_memory_session()
         try:
             index_bytes = await transport.read_memory_range(
                 self._config.settings_read_address,
@@ -1294,17 +1307,31 @@ class OmronDeviceDriver:
             )
             return None
         finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+            if manage_session:
+                try:
+                    await transport.close_memory_session()
+                except Exception:
+                    pass
 
-        selected = self._select_latest_candidate(candidates)
-        if selected is None:
+        if not candidates:
             _LOGGER.debug(
                 "Index read [%s]: no valid candidate found among %d probe(s)",
                 self._config.model, sum(max_probe + 1 for _ in user_layouts),
             )
+            return None if not return_all_users else {}
+
+        if return_all_users:
+            result_per_user: dict[int, dict[str, Any]] = {}
+            for user_idx in range(len(user_layouts)):
+                user = user_idx + 1
+                user_candidates = [c for c in candidates if c[0] == user]
+                selected = self._select_latest_candidate(user_candidates)
+                if selected:
+                    result_per_user[user] = self._finalize_public_latest_record(selected[1], user)
+            return result_per_user
+
+        selected = self._select_latest_candidate(candidates)
+        if selected is None:
             return None
         user, record = selected
         _LOGGER.debug(
@@ -1316,10 +1343,10 @@ class OmronDeviceDriver:
         return self._finalize_public_latest_record(record, user)
 
     async def get_all_records_flat(
-        self, transport: GattTransport
+        self, transport: GattTransport, *, manage_session: bool = True
     ) -> list[dict[str, Any]]:
         """Read all records, adding user index, and return a flat sorted list."""
-        all_user_records = await self.get_all_records(transport)
+        all_user_records = await self.get_all_records(transport, manage_session=manage_session)
 
         flat = []
         for user_idx, user_records in enumerate(all_user_records):

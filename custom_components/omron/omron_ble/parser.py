@@ -787,9 +787,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                 record: dict[str, Any] | None = None
                 latest_by_user: dict[int, dict[str, Any]] = {}
                 if multi_user_mode:
-                    latest_by_user = await self._driver.get_latest_records_per_user(transport)
+                    latest_by_user = await self._driver.get_latest_records_per_user(transport, manage_session=False)
                 else:
-                    record = await self._driver.get_latest_record(transport)
+                    record = await self._driver.get_latest_record(transport, manage_session=False)
                     live_record: dict[str, Any] | None = None
                     # Preferred live path for BLS devices: request latest via RACP indications.
                     live_record = await self._read_latest_via_bls_racp(client)
