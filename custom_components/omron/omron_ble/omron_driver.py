@@ -806,12 +806,18 @@ class GattTransport:
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         _LOGGER.debug("Device paired successfully with new key")
+        await asyncio.sleep(1.0)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
     """Decode wall time from an EEPROM time-sync section (naive datetime)."""
     if layout == "eeprom_time_modern_offset8":
         year_off, month, day, hour, minute, second = (int(b) for b in cached[8:14])
+        return dt.datetime(
+            year_off + 2000, month, day, hour, minute, min(second, 59)
+        )
+    if layout == "eeprom_time_classic_offset8":
+        month, year_off, hour, day, second, minute = (int(b) for b in cached[8:14])
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
         )
@@ -846,6 +852,21 @@ def _encode_eeprom_time_payload(
                 now.hour,
                 now.minute,
                 now.second,
+            ]
+        )
+        result.append(sum(result) & 0xFF)
+        result += bytes([0x00])
+        return result
+    if layout == "eeprom_time_classic_offset8":
+        result = bytearray(cached[0:8])
+        result += bytes(
+            [
+                now.month,
+                now.year - 2000,
+                now.hour,
+                now.day,
+                now.second,
+                now.minute,
             ]
         )
         result.append(sum(result) & 0xFF)
@@ -999,6 +1020,10 @@ class OmronDeviceDriver:
                 cached,
                 block_size=len(cached),
             )
+            # Allow the device to commit the EEPROM write internally.
+            # Without this settle time, subsequent read commands may time out
+            # because the device is still processing the write operation.
+            await asyncio.sleep(1.0)
             _LOGGER.debug(
                 "Synced time via EEPROM for %s: %s",
                 self._config.model,
@@ -1070,15 +1095,11 @@ class OmronDeviceDriver:
 
                 records = self._parse_user_records(raw_data, user_idx)
                 all_user_records.append(records)
-
-            await transport.close_memory_session()
-        except Exception:
-            # Try to cleanly end if possible
+        finally:
             try:
                 await transport.close_memory_session()
             except Exception:
                 pass
-            raise
 
         return all_user_records
 
@@ -1106,9 +1127,18 @@ class OmronDeviceDriver:
         self, transport: GattTransport
     ) -> dict[int, dict[str, Any]]:
         """Return latest valid record per configured user index (1-based)."""
+        latest_by_user: dict[int, dict[str, Any]] = {}
+
+        # Option 2: Try index-based fetch first if possible
+        indexed_candidates = await self._get_latest_via_index(
+            transport, return_all_users=True
+        )
+        if indexed_candidates:
+            return indexed_candidates
+
+        # Fallback to full scan
         all_user_records = await self.get_all_records(transport)
 
-        latest_by_user: dict[int, dict[str, Any]] = {}
         for user_idx, user_records in enumerate(all_user_records):
             user = user_idx + 1
             if not user_records:
@@ -1151,8 +1181,8 @@ class OmronDeviceDriver:
         return pointer
 
     async def _get_latest_via_index(
-        self, transport: GattTransport
-    ) -> dict[str, Any] | None:
+        self, transport: GattTransport, *, return_all_users: bool = False
+    ) -> Any | None:
         """Read index block and fetch only the latest slot per configured user."""
         layout = self._config.index_pointer_layout
         if (
@@ -1160,12 +1190,12 @@ class OmronDeviceDriver:
             or self._config.settings_read_address is None
             or self._config.record_byte_size <= 0
         ):
-            return None
+            return None if not return_all_users else {}
 
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
         user_layouts = layout.get("users", [])
         if index_region_byte_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
-            return None
+            return None if not return_all_users else {}
 
         record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
@@ -1299,12 +1329,25 @@ class OmronDeviceDriver:
             except Exception:
                 pass
 
-        selected = self._select_latest_candidate(candidates)
-        if selected is None:
+        if not candidates:
             _LOGGER.debug(
                 "Index read [%s]: no valid candidate found among %d probe(s)",
                 self._config.model, sum(max_probe + 1 for _ in user_layouts),
             )
+            return None if not return_all_users else {}
+
+        if return_all_users:
+            result_per_user: dict[int, dict[str, Any]] = {}
+            for user_idx in range(len(user_layouts)):
+                user = user_idx + 1
+                user_candidates = [c for c in candidates if c[0] == user]
+                selected = self._select_latest_candidate(user_candidates)
+                if selected:
+                    result_per_user[user] = self._finalize_public_latest_record(selected[1], user)
+            return result_per_user
+
+        selected = self._select_latest_candidate(candidates)
+        if selected is None:
             return None
         user, record = selected
         _LOGGER.debug(

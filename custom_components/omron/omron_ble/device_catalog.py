@@ -203,7 +203,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout="eeprom_time_classic_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",

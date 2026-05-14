@@ -29,22 +29,18 @@ def parse_classic_vital_14_7322_family(
     record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25
     year = _bytearray_bits_to_int(data, endianness, 16, 23) + 2000
     record["bpm"] = _bytearray_bits_to_int(data, endianness, 24, 31)
-    # JSON memory-map: 0006 ihb = byte[5] startBit=6 (LSB) → BE bit 41
-    #                  0007 mov = byte[5] startBit=7 (LSB) → BE bit 40
-    # NOTE: unconfirmed on hardware — corrected from previous BE bits 32/33 (byte[4]) per JSON spec.
-    record["ihb"] = _bytearray_bits_to_int(data, endianness, 41, 41)
-    record["mov"] = _bytearray_bits_to_int(data, endianness, 40, 40)
+    # BE mappings derived from standard bit packing
+    record["mov"] = _bytearray_bits_to_int(data, endianness, 32, 32)
+    record["ihb"] = _bytearray_bits_to_int(data, endianness, 33, 33)
     month = _bytearray_bits_to_int(data, endianness, 34, 37)
     day = _bytearray_bits_to_int(data, endianness, 38, 42)
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
-    # JSON memory-map (vitalDataIndex):
-    #   0008 cuff:  byte[7] startBit=4 (LSB), bitSize=1 → BE bit 59
-    #   000a pos:   byte[7] startBit=6 (LSB), bitSize=2 → BE bits 56-57
-    #   battery is NOT defined in the device JSON spec for this family.
-    record["cuff"] = _bytearray_bits_to_int(data, endianness, 59, 59)
-    record["pos"] = _bytearray_bits_to_int(data, endianness, 56, 57)
+    # BE mappings derived from standard bit packing
+    record["pos"] = _bytearray_bits_to_int(data, endianness, 48, 49)
+    record["battery"] = _bytearray_bits_to_int(data, endianness, 50, 50)
+    record["cuff"] = _bytearray_bits_to_int(data, endianness, 51, 51)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
@@ -58,22 +54,18 @@ def parse_classic_vital_14_6232_family(
     record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25
     year = _bytearray_bits_to_int(data, endianness, 18, 23) + 2000
     record["bpm"] = _bytearray_bits_to_int(data, endianness, 24, 31)
-    # JSON memory-map: 0006 ihb = bytes[4:5] LE-16 startBit=14 → byte[5] bit 6 (LSB) → BE bit 41
-    #                  0007 mov = bytes[4:5] LE-16 startBit=15 → byte[5] bit 7 (LSB) → BE bit 40
-    # NOTE: unconfirmed on hardware — corrected from previous BE bits 32/33 (byte[4]) per JSON spec.
-    record["ihb"] = _bytearray_bits_to_int(data, endianness, 41, 41)
-    record["mov"] = _bytearray_bits_to_int(data, endianness, 40, 40)
+    # BE mappings derived from standard bit packing
+    record["mov"] = _bytearray_bits_to_int(data, endianness, 32, 32)
+    record["ihb"] = _bytearray_bits_to_int(data, endianness, 33, 33)
     month = _bytearray_bits_to_int(data, endianness, 34, 37)
     day = _bytearray_bits_to_int(data, endianness, 38, 42)
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
-    # JSON memory-map (vitalDataIndex):
-    #   0008 cuff:  byte[7] startBit=4 (LSB), bitSize=1 → BE bit 59
-    #   000a pos:   byte[7] startBit=6 (LSB), bitSize=2 → BE bits 56-57
-    #   battery is NOT defined in the device JSON spec for this family.
-    record["cuff"] = _bytearray_bits_to_int(data, endianness, 59, 59)
-    record["pos"] = _bytearray_bits_to_int(data, endianness, 56, 57)
+    # BE mappings derived from standard bit packing
+    record["pos"] = _bytearray_bits_to_int(data, endianness, 48, 49)
+    record["battery"] = _bytearray_bits_to_int(data, endianness, 50, 50)
+    record["cuff"] = _bytearray_bits_to_int(data, endianness, 51, 51)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
 
