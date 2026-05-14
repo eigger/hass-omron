@@ -873,13 +873,21 @@ class OmronBluetoothDeviceData(BluetoothData):
                     char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
                     bat_bytes = None
                     if char_bat:
+                        _LOGGER.debug("Found battery characteristic in cached services for %s", ble_device.address)
                         bat_bytes = await client.read_gatt_char(char_bat)
                     else:
                         # Some stacks do not expose BAS in cached services reliably.
+                        _LOGGER.debug("Battery char not in cached services, falling back to UUID for %s", ble_device.address)
                         bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
 
                     if bat_bytes:
                         bat_level = int(bat_bytes[0])
+                        _LOGGER.debug(
+                            "Battery level byte received for %s: %s (Parsed: %d%%)",
+                            ble_device.address,
+                            bat_bytes.hex(),
+                            bat_level,
+                        )
                         self.update_sensor(
                             "battery",
                             Units.PERCENTAGE,
