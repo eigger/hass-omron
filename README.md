@@ -22,6 +22,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | :--- | :--- | :--- | :---: |
 | **HEM-6232T** | BP6350/RS7 Intelli IT | Wrist | ✅ |
 | **HEM-7142T2** | BP7150/M2 Intelli IT | Upper Arm | ✅ |
+| **HEM-7151T** | BP5250/M3 Comfort | Upper Arm | ✅ |
 | **HEM-7320T** | BP7450/M7 Intelli IT | Upper Arm | ✅ |
 | **HEM-7322T** | BP786/M6 Intelli IT | Upper Arm | ✅ |
 
