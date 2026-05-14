@@ -449,8 +449,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
-        if "battery" in record and "battery" not in status_flags:
-            status_flags["battery"] = bool(record["battery"])
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
@@ -459,7 +457,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ("cuff_fit", ExtendedBinarySensorDeviceClass.CUFF_FIT),
                 ("irregular_pulse", ExtendedBinarySensorDeviceClass.IRREGULAR_PULSE),
                 ("improper_position", ExtendedBinarySensorDeviceClass.IMPROPER_POSITION),
-                ("battery", BinarySensorDeviceClass.BATTERY),
             ]:
                 if flag_key in status_flags:
                     self.update_binary_sensor(
@@ -882,6 +879,26 @@ class OmronBluetoothDeviceData(BluetoothData):
                     signature = self._build_record_signature(record)
                     if signature != self._last_record_signature:
                         self._last_record_signature = signature
+
+                # Handle Device-Level Battery Flag from Measurements
+                absolute_latest_record = None
+                if multi_user_mode and latest_by_user:
+                    absolute_latest_record = max(
+                        latest_by_user.values(),
+                        key=lambda r: self._ensure_aware_datetime(r.get("datetime"))
+                        if isinstance(r.get("datetime"), dt.datetime)
+                        else dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+                    )
+                elif record:
+                    absolute_latest_record = record
+
+                if absolute_latest_record and "battery" in absolute_latest_record:
+                    self.update_binary_sensor(
+                        "battery",
+                        bool(absolute_latest_record["battery"]),
+                        BinarySensorDeviceClass.BATTERY,
+                        "Low Battery",
+                    )
 
                 # Fetch Battery Level
                 try:
