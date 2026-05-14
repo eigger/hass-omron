@@ -893,9 +893,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                     absolute_latest_record = record
 
                 if absolute_latest_record and "battery" in absolute_latest_record:
+                    is_low_battery = bool(absolute_latest_record["battery"])
+                    _LOGGER.debug(
+                        "Extracted device-level low battery flag from measurements: %s",
+                        is_low_battery,
+                    )
                     self.update_binary_sensor(
                         "battery",
-                        bool(absolute_latest_record["battery"]),
+                        is_low_battery,
                         BinarySensorDeviceClass.BATTERY,
                         "Low Battery",
                     )
