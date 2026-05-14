@@ -853,6 +853,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                     if latest_by_user:
                         for user in sorted(latest_by_user):
                             user_record = latest_by_user[user]
+                            _LOGGER.debug(
+                                "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                                user,
+                                user_record.get("datetime"),
+                                user_record.get("sys"),
+                                user_record.get("dia"),
+                                user_record.get("bpm"),
+                            )
                             self._update_measurement_sensors(
                                 user_record,
                                 user=user,
@@ -863,6 +871,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                             if signature != previous:
                                 self._last_record_signatures_by_user[user] = signature
                 elif record:
+                    _LOGGER.debug(
+                        "Latest selected: datetime=%s sys=%s dia=%s bpm=%s",
+                        record.get("datetime"),
+                        record.get("sys"),
+                        record.get("dia"),
+                        record.get("bpm"),
+                    )
                     self._update_measurement_sensors(record)
                     signature = self._build_record_signature(record)
                     if signature != self._last_record_signature:
