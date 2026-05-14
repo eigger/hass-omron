@@ -806,12 +806,18 @@ class GattTransport:
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         _LOGGER.debug("Device paired successfully with new key")
+        await asyncio.sleep(1.0)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
     """Decode wall time from an EEPROM time-sync section (naive datetime)."""
     if layout == "eeprom_time_modern_offset8":
         year_off, month, day, hour, minute, second = (int(b) for b in cached[8:14])
+        return dt.datetime(
+            year_off + 2000, month, day, hour, minute, min(second, 59)
+        )
+    if layout == "eeprom_time_classic_offset8":
+        month, year_off, hour, day, second, minute = (int(b) for b in cached[8:14])
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
         )
@@ -846,6 +852,21 @@ def _encode_eeprom_time_payload(
                 now.hour,
                 now.minute,
                 now.second,
+            ]
+        )
+        result.append(sum(result) & 0xFF)
+        result += bytes([0x00])
+        return result
+    if layout == "eeprom_time_classic_offset8":
+        result = bytearray(cached[0:8])
+        result += bytes(
+            [
+                now.month,
+                now.year - 2000,
+                now.hour,
+                now.day,
+                now.second,
+                now.minute,
             ]
         )
         result.append(sum(result) & 0xFF)

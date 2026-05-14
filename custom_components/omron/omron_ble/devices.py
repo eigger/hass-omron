@@ -74,6 +74,7 @@ class DeviceConfig:
     # - eeprom_time_classic_mixed: [2:8] = [month, year-2000, hour, day, second, minute]
     # - eeprom_time_linear_10:      [2:8] = [year-2000, month, day, hour, minute, second]
     # - eeprom_time_modern_offset8: [8:14] = [year-2000, month, day, hour, minute, second]
+    # - eeprom_time_classic_offset8: [8:14] = [month, year-2000, hour, day, second, minute]
     # - eeprom_time_hem6401_prefix: [0:6] = [year-2000, month, day, hour, minute, second] in 16-byte block
     time_sync_layout: str | None = None
     index_pointer_layout: dict[str, Any] | None = None
