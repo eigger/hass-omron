@@ -902,7 +902,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         "battery",
                         is_low_battery,
                         BinarySensorDeviceClass.BATTERY,
-                        "Low Battery",
+                        "Battery",
                     )
 
                 # Fetch Battery Level
@@ -936,7 +936,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                             "battery",
                             bat_level <= 15,
                             BinarySensorDeviceClass.BATTERY,
-                            "Low Battery",
+                            "Battery",
                         )
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Battery Level: %s", exc)

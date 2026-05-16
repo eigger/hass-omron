@@ -299,8 +299,6 @@ class OmronBluetoothSensorEntity(
     async def async_added_to_hass(self) -> None:
         """Subscribe to coordinator and restore last state from recorder."""
         await super().async_added_to_hass()
-        if self.entity_description.entity_category == EntityCategory.DIAGNOSTIC:
-            return
         last_state = await self.async_get_last_state()
         if last_state is None:
             return
@@ -318,18 +316,13 @@ class OmronBluetoothSensorEntity(
             sensor_value = sensor_update.entity_values.get(self._device_key)
             if sensor_value is not None and sensor_value.native_value is not None:
                 return self._coerce_native_value(sensor_value.native_value)
-        if (
-            self.entity_description.entity_category != EntityCategory.DIAGNOSTIC
-            and self._restored_native_value is not None
-        ):
+        if self._restored_native_value is not None:
             return self._coerce_native_value(self._restored_native_value)
         return None
 
     @property
     def available(self) -> bool:
         """Keep showing last restored value when coordinator poll has not succeeded yet."""
-        if self.entity_description.entity_category == EntityCategory.DIAGNOSTIC:
-            return super().available
         if self.native_value is not None:
             return True
         return super().available

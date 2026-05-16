@@ -107,7 +107,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Body Movement**: `On` indicates that movement was detected during the measurement.
   - **Irregular Pulse**: `On` indicates that an irregular heart rhythm was detected.
   - **Improper Position**: `On` indicates the device was not at heart level (wrist models).
-  - **Low Battery**: `On` when the device's batteries should be replaced.
+  - **Battery**: `On` when the device's batteries should be replaced.
   - **Connection**: `On` while Home Assistant is actively communicating with the monitor.
 
 ## Blood Pressure Categories (ACC/AHA)

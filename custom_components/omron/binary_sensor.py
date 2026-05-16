@@ -14,9 +14,14 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.const import EntityCategory
+from homeassistant.const import (
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+    EntityCategory,
+)
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
@@ -130,6 +135,7 @@ async def async_setup_entry(
 
 class OmronBluetoothBinarySensorEntity(
     CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
+    RestoreEntity,
     BinarySensorEntity,
 ):
     """Representation of a Omron binary sensor."""
@@ -156,17 +162,36 @@ class OmronBluetoothBinarySensorEntity(
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
         self._attr_unique_id = f"{model_slug}_{identifier}_{key_slug}"
         self._attr_name = sensor_name
+        self._restored_is_on: bool | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to coordinator and restore last state from recorder."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
+            return
+        self._restored_is_on = last_state.state == "on"
 
     @property
     def is_on(self) -> bool | None:
         """Return the native value."""
         sensor_update = self.coordinator.data
-        if sensor_update is None:
-            return None
-        sensor_value = sensor_update.binary_entity_values.get(self._device_key)
-        if sensor_value is None:
-            return None
-        return sensor_value.native_value
+        if sensor_update is not None:
+            sensor_value = sensor_update.binary_entity_values.get(self._device_key)
+            if sensor_value is not None and sensor_value.native_value is not None:
+                return sensor_value.native_value
+        if self._restored_is_on is not None:
+            return self._restored_is_on
+        return None
+
+    @property
+    def available(self) -> bool:
+        """Keep showing last restored value when coordinator poll has not succeeded yet."""
+        if self.is_on is not None:
+            return True
+        return super().available
 
     @property
     def device_info(self) -> DeviceInfo:
