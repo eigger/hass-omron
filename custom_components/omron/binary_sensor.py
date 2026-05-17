@@ -62,6 +62,21 @@ BINARY_SENSOR_DESCRIPTIONS = {
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:seat-recline-normal",
     ),
+    OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+        icon="mdi:sync",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    OmronExtendedBinarySensorDeviceClass.INVALID_TIME: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
+        device_class=BinarySensorDeviceClass.PROBLEM,
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    OmronExtendedBinarySensorDeviceClass.PAIRING_MODE: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.PAIRING_MODE,
+        icon="mdi:bluetooth-connect",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
 }
 
 

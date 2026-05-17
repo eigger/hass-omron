@@ -110,6 +110,41 @@ def process_service_info(
     data = coordinator.device_data
     update = data.update(service_info)
 
+    # Trigger active polling if advertisement indicates new data or time sync needed
+    if getattr(data, "pairing_mode", False):
+        entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
+        if not entry_data.get("pairing_in_progress") and not entry_data.get("poll_in_progress"):
+            entry_data["pairing_in_progress"] = True
+
+            async def _auto_pair() -> None:
+                try:
+                    ble_device = service_info.device
+                    connection_coordinator = entry_data["connection_coordinator"]
+                    duration_coordinator = entry_data["duration_coordinator"]
+                    from .ble_session import omron_poll_ble_telemetry
+                    async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
+                        await data.async_retry_pairing(ble_device)
+                    if coordinator.poll_coordinator:
+                        await coordinator.poll_coordinator.async_request_refresh()
+                except Exception as err:
+                    _LOGGER.error("Auto pairing failed: %s", err)
+                finally:
+                    entry_data["pairing_in_progress"] = False
+
+            coordinator.hass.async_create_task(_auto_pair())
+    elif getattr(data, "forced_transfer", False) or getattr(data, "invalid_time", False):
+        entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
+        if coordinator.poll_coordinator and not entry_data.get("poll_in_progress") and not entry_data.get("pairing_in_progress"):
+            entry_data["poll_in_progress"] = True
+
+            async def _auto_poll() -> None:
+                try:
+                    await coordinator.poll_coordinator.async_request_refresh()
+                finally:
+                    entry_data["poll_in_progress"] = False
+
+            coordinator.hass.async_create_task(_auto_poll())
+
     return update
 
 

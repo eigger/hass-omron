@@ -36,6 +36,7 @@ from .const import (
     OMRON_MANUFACTURER_ID,
     DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DEFAULT_DEVICE_MODEL,
+    ExtendedBinarySensorDeviceClass,
 )
 from .setup import async_sync_device_time
 from .devices import DeviceConfig, get_device_config, resolve_model_catalog
@@ -80,6 +81,12 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
         self._poll_guard = asyncio.Lock()
+
+        # Advertisement Status Flags
+        self.forced_transfer: bool = False
+        self.invalid_time: bool = False
+        self.pairing_mode: bool = False
+
         self._seed_measurement_entities()
 
     @property
@@ -177,6 +184,10 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _start_update(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Update from BLE advertisement data."""
+        md = getattr(service_info, "manufacturer_data", None) or {}
+        if OMRON_MANUFACTURER_ID in md:
+            self._parse_omron_msd(md[OMRON_MANUFACTURER_ID])
+
         # Check if any known Omron service UUID is present
         for uuid in DISCOVERABLE_PARENT_SERVICE_UUIDS:
             if uuid in service_info.service_uuids:
@@ -185,7 +196,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 return
 
         # Omron manufacturer company id (manifest manufacturer_id 526)
-        md = getattr(service_info, "manufacturer_data", None) or {}
         if OMRON_MANUFACTURER_ID in md:
             self._setup_device_info(service_info)
             self.last_service_info = service_info
@@ -201,6 +211,49 @@ class OmronBluetoothDeviceData(BluetoothData):
             if name.upper().startswith("HEM-"):
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
+
+    def _parse_omron_msd(self, payload: bytes) -> None:
+        """Parse Omron Manufacturer Specific Data (MSD) for status flags."""
+        if not payload:
+            return
+
+        b11 = payload[0]
+        invalid_time = False
+        pairing_mode = False
+        forced_transfer = False
+
+        if b11 == 0x03 and len(payload) >= 3:
+            b12 = payload[1]
+            invalid_time = bool(b12 & 0x04)
+            pairing_mode = bool(b12 & 0x08)
+        elif b11 in (0x08, 0x09) and len(payload) >= 2:
+            b_val = payload[1]
+            invalid_time = bool(b_val & 0x04)
+            pairing_mode = bool(b_val & 0x08)
+            forced_transfer = bool(b_val & 0x40)
+
+        self.invalid_time = invalid_time
+        self.pairing_mode = pairing_mode
+        self.forced_transfer = forced_transfer
+
+        self.update_binary_sensor(
+            "forced_transfer",
+            forced_transfer,
+            ExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+            "Data Pending",
+        )
+        self.update_binary_sensor(
+            "invalid_time",
+            invalid_time,
+            ExtendedBinarySensorDeviceClass.INVALID_TIME,
+            "Time Sync Required",
+        )
+        self.update_binary_sensor(
+            "pairing_mode",
+            pairing_mode,
+            ExtendedBinarySensorDeviceClass.PAIRING_MODE,
+            "Pairing Mode",
+        )
 
     def _measurement_user_suffixes(
         self, user: int | None, multi_user: bool
