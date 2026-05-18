@@ -121,10 +121,6 @@ def process_service_info(
 
     entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
 
-    # 2. Skip if a GATT session is already running
-    if entry_data.get("poll_in_progress"):
-        return update
-
     is_pairing = getattr(data, "pairing_mode", False)
     is_invalid_time = getattr(data, "invalid_time", False)
     is_forced_transfer = getattr(data, "forced_transfer", False)
@@ -135,6 +131,47 @@ def process_service_info(
         or (is_forced_transfer and coordinator.poll_coordinator is not None)
     )
     if not is_sync_needed:
+        return update
+
+    # 2. Skip if a GATT session is already running.
+    # Pairing is time-sensitive (~30 s window): defer it to run right after the
+    # current session ends instead of silently dropping it.
+    if entry_data.get("poll_in_progress"):
+        if is_pairing and not entry_data.get("pairing_pending"):
+            entry_data["pairing_pending"] = True
+            _LOGGER.debug(
+                "BLE session in progress; pairing deferred for %s",
+                service_info.address,
+            )
+
+            async def _deferred_pairing() -> None:
+                deadline = time.time() + 25
+                while entry_data.get("poll_in_progress") and time.time() < deadline:
+                    await asyncio.sleep(0.5)
+                entry_data.pop("pairing_pending", None)
+                if entry_data.get("poll_in_progress"):
+                    _LOGGER.warning(
+                        "Pairing trigger timed out: BLE session still active after 25 s for %s",
+                        service_info.address,
+                    )
+                    return
+                now2 = time.time()
+                if now2 - entry_data.get("last_attempt_time", 0.0) < POLL_COOLDOWN_SECONDS:
+                    return
+                entry_data["poll_in_progress"] = True
+                entry_data["last_attempt_time"] = now2
+                try:
+                    ble_device = async_ble_device_from_address(coordinator.hass, service_info.address) or service_info.device
+                    async with omron_poll_ble_telemetry(entry_data):
+                        await data.async_retry_pairing(ble_device)
+                    if coordinator.poll_coordinator:
+                        await coordinator.poll_coordinator.async_request_refresh()
+                except Exception as err:
+                    _LOGGER.error("Deferred auto pairing failed: %s", err)
+                finally:
+                    entry_data["poll_in_progress"] = False
+
+            coordinator.hass.async_create_task(_deferred_pairing())
         return update
 
     # 3. Enforce a shared cooldown between GATT session attempts
