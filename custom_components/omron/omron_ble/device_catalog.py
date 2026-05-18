@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .const import (
     CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID,
+    MODERN_STACK_I2_CHARACTERISTIC_UUID,
     MODERN_STACK_PARENT_SERVICE_UUID,
 )
 from .devices import DeviceConfig, DeviceModelVariant
@@ -562,13 +563,17 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7194T1 family: AFib-capable modern-stack devices, 60 records/user.
     # Verified memory layout from APK DeviceConfig.sys (HEM-7194T1-FLAP):
     #   data_1 at 0x01C4 (60 × 16 B), data_2 at 0x0584 (60 × 16 B)
-    # Subscribes to b305b680 CCCD before WLP4COM session (required per BTSnoop analysis).
+    # Subscribes to b305b680 CCCD before WLP4COM session (required per BTSnoop analysis),
+    # plus 8858eb40 (I2) — secondary notify channel used by the AFib WLP4COM protocol.
     "HEM-7194T1": DeviceConfig(
         model="HEM-7194T1",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        ctrl_notify_uuids=[CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID],
+        ctrl_notify_uuids=[
+            CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID,
+            MODERN_STACK_I2_CHARACTERISTIC_UUID,
+        ],
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=False,
