@@ -240,6 +240,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id] = {}
     hass.data[DOMAIN][entry.entry_id]['address'] = address
     hass.data[DOMAIN][entry.entry_id]['data'] = data
+    # Seed the advertisement-trigger cooldown so a lingering pairing-mode
+    # advertisement arriving moments after the config-flow finishes does not
+    # cause process_service_info to fire another auto-pairing session against
+    # a device that was just paired.
+    hass.data[DOMAIN][entry.entry_id]['last_attempt_time'] = time.time()
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
@@ -322,6 +327,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     
     entry.runtime_data = bt_coordinator
     entry.runtime_data.poll_coordinator = poll_coordinator
+    # Give the radio a moment in case a setup-flow BLE link was just torn down
+    # — initial registration triggers async_setup_entry within ~20 ms of the
+    # config-flow disconnect, before the device is ready to accept a new
+    # connection. 0.5 s is cheap insurance on reloads/restarts too.
+    await asyncio.sleep(0.5)
     await poll_coordinator.async_refresh()
     if not poll_coordinator.last_update_success:
         _LOGGER.warning(

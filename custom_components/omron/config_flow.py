@@ -421,7 +421,19 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             client = await establish_connection(BleakClient, ble_device, address)
             self._cached_client = client
 
-        await async_pair_and_sync_device(client, ble_device, model, config)
+        try:
+            await async_pair_and_sync_device(client, ble_device, model, config)
+        finally:
+            # Tear down the setup-time BLE link cleanly so async_setup_entry's
+            # initial poll starts from a fresh connection. Without this the
+            # first poll after device registration hits a TX timeout on the
+            # half-closed link and the user has to manually refresh.
+            try:
+                if self._cached_client is not None and self._cached_client.is_connected:
+                    await self._cached_client.disconnect()
+            except Exception as exc:
+                _LOGGER.debug("Setup disconnect cleanup failed: %s", exc)
+            self._cached_client = None
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None
