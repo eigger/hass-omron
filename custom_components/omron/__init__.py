@@ -255,12 +255,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             coordinator = entry.runtime_data
             entry_data = hass.data[DOMAIN][entry.entry_id]
 
-            if entry_data.get("poll_in_progress"):
-                _LOGGER.debug("Skipping scheduled poll: a BLE session is already in progress")
-                if poll_coordinator.data is not None:
-                    return poll_coordinator.data
-                return entry.runtime_data.device_data._finish_update()
-
             entry_data["poll_in_progress"] = True
             try:
                 async with omron_poll_ble_telemetry(entry_data):
