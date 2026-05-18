@@ -203,6 +203,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id] = {}
     hass.data[DOMAIN][entry.entry_id]['address'] = address
     hass.data[DOMAIN][entry.entry_id]['data'] = data
+    # Seed the advertisement-trigger cooldown so a lingering pairing-mode
+    # advertisement arriving moments after the config-flow finishes does not
+    # cause process_service_info to fire another auto-pairing session against
+    # a device that was just paired.
+    hass.data[DOMAIN][entry.entry_id]['last_attempt_time'] = time.time()
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
