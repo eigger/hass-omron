@@ -6,18 +6,11 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from time import perf_counter
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-
-
 @asynccontextmanager
-async def omron_poll_ble_telemetry(
-    connection_coordinator: DataUpdateCoordinator[bool],
-    duration_coordinator: DataUpdateCoordinator[float | None],
-) -> AsyncIterator[None]:
+async def omron_poll_ble_telemetry(entry_data: dict) -> AsyncIterator[None]:
     """Mark BLE session active, tick duration each second, finalize elapsed time on exit."""
+    connection_coordinator = entry_data["connection_coordinator"]
+    duration_coordinator = entry_data["duration_coordinator"]
     started = perf_counter()
     ticker_task: asyncio.Task[None] | None = None
 
