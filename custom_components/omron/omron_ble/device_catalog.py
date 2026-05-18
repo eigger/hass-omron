@@ -1,7 +1,10 @@
 """Canonical Omron BLE device profile catalog."""
 from __future__ import annotations
 
-from .const import MODERN_STACK_PARENT_SERVICE_UUID
+from .const import (
+    CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID,
+    MODERN_STACK_PARENT_SERVICE_UUID,
+)
 from .devices import DeviceConfig, DeviceModelVariant
 
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
@@ -556,6 +559,48 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="classic_vital_14",
     ),
+    # HEM-7194T1 family: AFib-capable modern-stack devices, 60 records/user.
+    # Verified memory layout from APK DeviceConfig.sys (HEM-7194T1-FLAP):
+    #   data_1 at 0x01C4 (60 × 16 B), data_2 at 0x0584 (60 × 16 B)
+    # Subscribes to b305b680 CCCD before WLP4COM session (required per BTSnoop analysis).
+    "HEM-7194T1": DeviceConfig(
+        model="HEM-7194T1",
+        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
+        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
+        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
+        ctrl_notify_uuids=[CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID],
+        requires_unlock=False,
+        supports_pairing=False,
+        supports_os_bonding_only=False,
+        endianness="little",
+        user_start_addresses=[0x01C4, 0x0584],
+        per_user_records_count=[60, 60],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0054,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
+        index_pointer_layout={
+            "index_region_byte_size": 0x18,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="classic_vital_14",
+        prefer_latest_by_slot_index=True,
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7194T1-FLAP", unverified=False),
+            DeviceModelVariant("HEM-7194T1-FLCAP", unverified=True),
+            DeviceModelVariant("HEM-7194T1_FLBIN", unverified=True),
+            DeviceModelVariant("HEM-7194T1_FLIN", unverified=True),
+            DeviceModelVariant("HEM-7196T1-FLE", unverified=False),
+            DeviceModelVariant("HEM-7196T1-FLEO", unverified=True),
+        ),
+    ),
     "HEM-7380T1": DeviceConfig(
         model="HEM-7380T1",
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
@@ -585,7 +630,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
-            
             DeviceModelVariant("HEM-7183T1-AP", unverified=True),
             DeviceModelVariant("HEM-7183T1-CAP", unverified=True),
             DeviceModelVariant("HEM-7183T1_FLBIN", unverified=True),
@@ -593,12 +637,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7183T1_LAP", unverified=True),
             DeviceModelVariant("HEM-7188T1-LE", unverified=True),
             DeviceModelVariant("HEM-7188T1-LEO", unverified=True),
-            DeviceModelVariant("HEM-7194T1-FLAP", unverified=True),
-            DeviceModelVariant("HEM-7194T1-FLCAP", unverified=True),
-            DeviceModelVariant("HEM-7194T1_FLBIN", unverified=True),
-            DeviceModelVariant("HEM-7194T1_FLIN", unverified=True),
-            DeviceModelVariant("HEM-7196T1-FLE", unverified=True),
-            DeviceModelVariant("HEM-7196T1-FLEO", unverified=True),
             DeviceModelVariant("HEM-7376T1-ACACD6", unverified=True),
             DeviceModelVariant("HEM-7376T1-Z", unverified=True),
             DeviceModelVariant("HEM-7377T1-ZAZ", unverified=True),

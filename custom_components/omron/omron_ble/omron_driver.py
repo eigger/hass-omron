@@ -178,7 +178,7 @@ class GattTransport:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels."""
+        """Enable notifications on all RX channels (and any ctrl channels if configured)."""
         if self._notify_subscribed:
             _LOGGER.debug(
                 "RX notify subscribe skipped (already flagged) model=%s",
@@ -189,6 +189,13 @@ class GattTransport:
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
+
+        # Subscribe ctrl channels first (device may require CCCD before accepting commands).
+        for uuid in self._config.ctrl_notify_uuids:
+            try:
+                await self._client.start_notify(uuid, lambda _h, _d: None)
+            except Exception as exc:
+                _LOGGER.debug("ctrl_notify subscribe skipped for %s: %s", uuid, exc)
 
         for uuid in self._config.rx_channel_uuids:
             await self._start_notify_with_recovery(uuid)
@@ -241,12 +248,17 @@ class GattTransport:
             raise last_exc
 
     async def _unsubscribe_notify_channels(self) -> None:
-        """Disable notifications on all RX channels."""
+        """Disable notifications on all RX and ctrl channels."""
         for uuid in self._config.rx_channel_uuids:
             try:
                 await self._client.stop_notify(uuid)
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
+        for uuid in self._config.ctrl_notify_uuids:
+            try:
+                await self._client.stop_notify(uuid)
+            except Exception as exc:
+                _LOGGER.debug("ctrl stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 

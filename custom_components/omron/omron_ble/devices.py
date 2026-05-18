@@ -54,6 +54,11 @@ class DeviceConfig:
     requires_unlock: bool = True
     supports_pairing: bool = True
     supports_os_bonding_only: bool = False
+    # Extra UUIDs to subscribe (CCCD write) before the memory session, but whose
+    # notifications are not processed as protocol data.  Required by some modern-stack
+    # devices (e.g. HEM-7194T1/HEM-7196T1 family) that expect the host to enable
+    # b305b680 notifications before accepting WLP4COM session commands.
+    ctrl_notify_uuids: list[str] = field(default_factory=list)
     # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
     # HEM-7380T1 uses OS bonding only; stays False.
     legacy_pairing_workarounds: bool = False
