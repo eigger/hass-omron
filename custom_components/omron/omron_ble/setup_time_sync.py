@@ -111,9 +111,12 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
                 model,
             )
 
-        if not (cts_snapshot_ok and cts_notify_ok):
+        if not cts_snapshot_ok:
+            # Only require a successful read (snapshot) to confirm the CTS characteristic
+            # is accessible.  Some devices never send a CTS notification before the write,
+            # so requiring cts_notify_ok would incorrectly skip time sync on those devices.
             _LOGGER.debug(
-                "Skipping CTS write for %s: notify/get precondition not met "
+                "Skipping CTS write for %s: snapshot read failed "
                 "(snapshot_ok=%s notify_ok=%s)",
                 model,
                 cts_snapshot_ok,
@@ -122,9 +125,10 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
         else:
             await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
             _LOGGER.debug(
-                "Synced current time via CTS for %s: %s",
+                "Synced current time via CTS for %s: %s (notify_ok=%s)",
                 model,
                 now.isoformat(timespec="seconds"),
+                cts_notify_ok,
             )
             cts_success = True
 

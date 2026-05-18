@@ -1126,21 +1126,45 @@ class OmronDeviceDriver:
     async def get_latest_records_per_user(
         self, transport: GattTransport
     ) -> dict[int, dict[str, Any]]:
-        """Return latest valid record per configured user index (1-based)."""
-        latest_by_user: dict[int, dict[str, Any]] = {}
+        """Return latest valid record per configured user index (1-based).
 
-        # Option 2: Try index-based fetch first if possible
+        Tries the index-based fast path first.  If the index covers all expected
+        users the result is returned immediately.  When only a subset of users has
+        a valid index entry the partial result is kept and a full-scan fallback
+        supplies the missing users, avoiding a second round-trip for the users
+        already found via the index.
+        """
+        latest_by_user: dict[int, dict[str, Any]] = {}
+        expected_user_count = len(self._config.per_user_records_count)
+
         indexed_candidates = await self._get_latest_via_index(
             transport, return_all_users=True
         )
+
         if indexed_candidates:
-            return indexed_candidates
+            if len(indexed_candidates) >= expected_user_count:
+                # All users covered — return without a full scan.
+                return indexed_candidates
+            # Partial: keep what the index found; fall back for the rest.
+            latest_by_user.update(indexed_candidates)
+            _LOGGER.debug(
+                "Index path returned %d/%d user(s) for model=%s; "
+                "falling back to full scan for missing user(s)",
+                len(indexed_candidates),
+                expected_user_count,
+                self._config.model,
+            )
 
-        # Fallback to full scan
+        missing_users = set(range(1, expected_user_count + 1)) - set(latest_by_user.keys())
+        if not missing_users:
+            return latest_by_user
+
+        # Full-scan fallback — only processes users absent from latest_by_user.
         all_user_records = await self.get_all_records(transport)
-
         for user_idx, user_records in enumerate(all_user_records):
             user = user_idx + 1
+            if user not in missing_users:
+                continue
             if not user_records:
                 continue
             selected = self._select_latest_candidate([(user, rec) for rec in user_records])
@@ -1205,6 +1229,7 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
+        max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
         await transport.open_memory_session()
         try:
@@ -1317,11 +1342,19 @@ class OmronDeviceDriver:
                         break
                     parsed = None
         except Exception as exc:
-            _LOGGER.debug(
-                "Index-based latest read failed for model=%s: %s",
-                self._config.model,
-                exc,
-            )
+            if self._config.supports_os_bonding_only:
+                _LOGGER.warning(
+                    "Index-based read failed for OS-bonding model=%s addr may need re-bond: %s. "
+                    "If this persists, remove and re-add the device to complete OS-level pairing.",
+                    self._config.model,
+                    exc,
+                )
+            else:
+                _LOGGER.debug(
+                    "Index-based latest read failed for model=%s: %s",
+                    self._config.model,
+                    exc,
+                )
             return None
         finally:
             try:
@@ -1331,8 +1364,8 @@ class OmronDeviceDriver:
 
         if not candidates:
             _LOGGER.debug(
-                "Index read [%s]: no valid candidate found among %d probe(s)",
-                self._config.model, sum(max_probe + 1 for _ in user_layouts),
+                "Index read [%s]: no valid candidate found (checked %d configured user layout(s))",
+                self._config.model, len(user_layouts),
             )
             return None if not return_all_users else {}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from functools import partial
 import asyncio
 import logging
+import time
 
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
@@ -39,6 +40,10 @@ PLATFORMS: list[Platform] = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+
+# BLE advertisement trigger control constants
+POLL_COOLDOWN_SECONDS = 60
+SETTLE_DELAY_SECONDS = 0.5
 
 # When a poll fails mid-flight, keep measurement history but drop stale RSSI/battery
 # unless this poll refreshed those keys (avoids showing outdated diagnostics).
@@ -110,40 +115,67 @@ def process_service_info(
     data = coordinator.device_data
     update = data.update(service_info)
 
-    # Trigger active polling if advertisement indicates new data or time sync needed
-    if getattr(data, "pairing_mode", False):
-        entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
-        if not entry_data.get("pairing_in_progress") and not entry_data.get("poll_in_progress"):
-            entry_data["pairing_in_progress"] = True
+    # 1. Only attempt active sessions when the device is connectable
+    if not service_info.connectable:
+        return update
 
-            async def _auto_pair() -> None:
-                try:
-                    ble_device = service_info.device
-                    connection_coordinator = entry_data["connection_coordinator"]
-                    duration_coordinator = entry_data["duration_coordinator"]
-                    from .ble_session import omron_poll_ble_telemetry
-                    async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
-                        await data.async_retry_pairing(ble_device)
-                    if coordinator.poll_coordinator:
-                        await coordinator.poll_coordinator.async_request_refresh()
-                except Exception as err:
-                    _LOGGER.error("Auto pairing failed: %s", err)
-                finally:
-                    entry_data["pairing_in_progress"] = False
+    entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
 
-            coordinator.hass.async_create_task(_auto_pair())
-    elif getattr(data, "forced_transfer", False) or getattr(data, "invalid_time", False):
-        entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
-        if coordinator.poll_coordinator and not entry_data.get("poll_in_progress") and not entry_data.get("pairing_in_progress"):
-            entry_data["poll_in_progress"] = True
+    # 2. Skip if a GATT session is already running
+    if entry_data.get("poll_in_progress"):
+        return update
 
-            async def _auto_poll() -> None:
-                try:
+    is_pairing = getattr(data, "pairing_mode", False)
+    is_invalid_time = getattr(data, "invalid_time", False)
+    is_forced_transfer = getattr(data, "forced_transfer", False)
+
+    is_sync_needed = (
+        is_pairing
+        or is_invalid_time
+        or (is_forced_transfer and coordinator.poll_coordinator is not None)
+    )
+    if not is_sync_needed:
+        return update
+
+    # 3. Enforce a shared cooldown between GATT session attempts
+    now = time.time()
+    last_attempt = entry_data.get("last_attempt_time", 0.0)
+    if now - last_attempt < POLL_COOLDOWN_SECONDS:
+        _LOGGER.debug(
+            "Skipping advertisement trigger for %s (cooldown active, last attempt %ds ago)",
+            service_info.address,
+            int(now - last_attempt),
+        )
+        return update
+
+    entry_data["poll_in_progress"] = True
+    entry_data["last_attempt_time"] = now
+
+    async def _run_auto_session() -> None:
+        try:
+            await asyncio.sleep(SETTLE_DELAY_SECONDS)
+            ble_device = service_info.device
+            if is_pairing:
+                async with omron_poll_ble_telemetry(entry_data):
+                    await data.async_retry_pairing(ble_device)
+                if coordinator.poll_coordinator:
                     await coordinator.poll_coordinator.async_request_refresh()
-                finally:
-                    entry_data["poll_in_progress"] = False
+            elif is_invalid_time and not is_forced_transfer:
+                async with omron_poll_ble_telemetry(entry_data):
+                    await data.async_sync_time(ble_device)
+            else:
+                await coordinator.poll_coordinator.async_request_refresh()
+        except Exception as err:
+            if is_pairing:
+                _LOGGER.error("Auto pairing failed: %s", err)
+            elif is_invalid_time and not is_forced_transfer:
+                _LOGGER.error("Auto time sync failed: %s", err)
+            else:
+                _LOGGER.error("Auto polling failed: %s", err)
+        finally:
+            entry_data["poll_in_progress"] = False
 
-            coordinator.hass.async_create_task(_auto_poll())
+    coordinator.hass.async_create_task(_run_auto_session())
 
     return update
 
@@ -221,12 +253,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
-            async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
-                result = await coordinator.device_data.async_poll(device)
-            prev_data = poll_coordinator.data
-            if prev_data is not None:
-                result = _merge_poll_sensor_update(prev_data, result)
-            return result
+            entry_data = hass.data[DOMAIN][entry.entry_id]
+
+            if entry_data.get("poll_in_progress"):
+                _LOGGER.debug("Skipping scheduled poll: a BLE session is already in progress")
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                return entry.runtime_data.device_data._finish_update()
+
+            entry_data["poll_in_progress"] = True
+            try:
+                async with omron_poll_ble_telemetry(entry_data):
+                    result = await coordinator.device_data.async_poll(device)
+                prev_data = poll_coordinator.data
+                if prev_data is not None:
+                    result = _merge_poll_sensor_update(prev_data, result)
+                return result
+            finally:
+                entry_data["poll_in_progress"] = False
         except Exception as err:
             _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:

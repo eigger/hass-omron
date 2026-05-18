@@ -113,12 +113,10 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
         if ble_device is None:
             raise HomeAssistantError(f"BLE device not available: {self._address}")
 
-        connection_coordinator = self.hass.data[DOMAIN][self._entry_id]["connection_coordinator"]
-        duration_coordinator = self.hass.data[DOMAIN][self._entry_id]["duration_coordinator"]
-
-        data = self.hass.data[DOMAIN][self._entry_id]["data"]
+        entry_data = self.hass.data[DOMAIN][self._entry_id]
+        data = entry_data["data"]
         try:
-            async with omron_poll_ble_telemetry(connection_coordinator, duration_coordinator):
+            async with omron_poll_ble_telemetry(entry_data):
                 await data.async_retry_pairing(ble_device)
             # Mirror setup behavior: run an immediate poll after pairing so
             # protected GATT paths are exercised and bond/session state settles.

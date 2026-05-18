@@ -83,9 +83,18 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._poll_guard = asyncio.Lock()
 
         # Advertisement Status Flags
+        # Names referenced from __init__.py (poll triggers): forced_transfer,
+        # invalid_time, pairing_mode. Do NOT rename without auditing callers.
         self.forced_transfer: bool = False
         self.invalid_time: bool = False
         self.pairing_mode: bool = False
+        # Additional fields parsed from MSD. Kept as
+        # informational attributes; not exposed as sensors today.
+        self.streaming_mode: bool = False
+        self.service_uuid_mode: bool = False
+        self.user_register_count: int = 0
+        self.guidance_mode: int = 0
+        self.result_identifier_num: int = 0
 
         self._seed_measurement_entities()
 
@@ -213,47 +222,154 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self.last_service_info = service_info
 
     def _parse_omron_msd(self, payload: bytes) -> None:
-        """Parse Omron Manufacturer Specific Data (MSD) for status flags."""
-        if not payload:
+        """Parse Omron Manufacturer Specific Data (MSD) for status flags.
+
+        Bleak's ``manufacturer_data`` value already excludes the 2-byte LE
+        manufacturer ID, so ``payload[0]`` is the first format byte of the
+        Omron MSD body.
+
+        Three advertisement formats are recognized via ``payload[0]``:
+
+        - ``0x03`` — older single/dual-user BPM. Carries ``invalid_time``,
+          ``pairing_mode``, ``guidance_mode``, ``result_identifier_num``.
+        - ``0x08`` — BLS-style fixed length (10 or 13 byte payload). Adds
+          ``streaming_mode``, ``service_uuid_mode``, ``forced_transfer``.
+        - ``0x09`` — newest, variable per registered user count (9/11/13/15).
+          Same status bits as ``0x08`` but distinct length contract.
+
+        Advertisements that fail the length contract are logged at DEBUG and
+        ignored (sensor state is not flipped) to avoid acting on transient
+        or truncated packets.
+        """
+        if not payload or len(payload) < 2:
             return
 
-        b11 = payload[0]
-        invalid_time = False
-        pairing_mode = False
-        forced_transfer = False
+        fields = self._decode_omron_msd_fields(payload)
+        if fields is None:
+            _LOGGER.debug(
+                "Ignoring Omron MSD: format=0x%02X len=%d (length contract mismatch)",
+                payload[0],
+                len(payload),
+            )
+            return
 
-        if b11 == 0x03 and len(payload) >= 3:
-            b12 = payload[1]
-            invalid_time = bool(b12 & 0x04)
-            pairing_mode = bool(b12 & 0x08)
-        elif b11 in (0x08, 0x09) and len(payload) >= 2:
-            b_val = payload[1]
-            invalid_time = bool(b_val & 0x04)
-            pairing_mode = bool(b_val & 0x08)
-            forced_transfer = bool(b_val & 0x40)
-
-        self.invalid_time = invalid_time
-        self.pairing_mode = pairing_mode
-        self.forced_transfer = forced_transfer
+        # Update instance attributes referenced externally (poll triggers in
+        # custom_components/omron/__init__.py).
+        self.invalid_time = fields["invalid_time"]
+        self.pairing_mode = fields["pairing_mode"]
+        self.forced_transfer = fields["forced_transfer"]
+        # Additional fields (informational; not yet exposed as sensors).
+        self.streaming_mode = fields["streaming_mode"]
+        self.service_uuid_mode = fields["service_uuid_mode"]
+        self.user_register_count = fields["user_register_count"]
+        self.guidance_mode = fields["guidance_mode"]
+        self.result_identifier_num = fields["result_identifier_num"]
 
         self.update_binary_sensor(
             "forced_transfer",
-            forced_transfer,
+            self.forced_transfer,
             ExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
             "Data Pending",
         )
         self.update_binary_sensor(
             "invalid_time",
-            invalid_time,
+            self.invalid_time,
             ExtendedBinarySensorDeviceClass.INVALID_TIME,
             "Time Sync Required",
         )
         self.update_binary_sensor(
             "pairing_mode",
-            pairing_mode,
+            self.pairing_mode,
             ExtendedBinarySensorDeviceClass.PAIRING_MODE,
             "Pairing Mode",
         )
+
+    @staticmethod
+    def _decode_omron_msd_fields(payload: bytes) -> dict[str, Any] | None:
+        """Decode OMRON MSD into a normalized dict, or ``None`` on mismatch.
+
+        Bleak strips the 2-byte LE manufacturer ID before delivering the
+        payload, so ``payload[0]`` is the first format byte of the MSD body.
+
+        Format 0x03 (older BPM, MSD >= 5 bytes):
+            ``len(payload) >= 3``; reads ``payload[1]`` (status bits) and
+            ``payload[2]`` (result identifier num).
+
+        Format 0x08 (BLS-style, fixed per user count):
+            user_count == 0 → ``len(payload) == 10`` (MSD 12B)
+            user_count == 1 → ``len(payload) == 13`` (MSD 15B)
+            user_count 2 / 3 → not defined for this format → rejected.
+
+        Format 0x09 (newest, 2 bytes per registered user):
+            user_count == 0 → ``len(payload) == 9``  (MSD 11B)
+            user_count == 1 → ``len(payload) == 11`` (MSD 13B)
+            user_count == 2 → ``len(payload) == 13`` (MSD 15B)
+            user_count == 3 → ``len(payload) == 15`` (MSD 17B)
+
+        Any other ``payload[0]`` value is unsupported → ``None``.
+        Payloads shorter than 2 bytes also return ``None`` (defensive: the
+        caller already filters, but the static method is reusable).
+        """
+        if len(payload) < 2:
+            return None
+        b11 = payload[0]
+
+        if b11 == 0x03:
+            if len(payload) < 3:
+                return None
+            b12 = payload[1]
+            return {
+                "user_register_count": b12 & 0x03,
+                "invalid_time": bool(b12 & 0x04),
+                "pairing_mode": bool(b12 & 0x08),
+                "guidance_mode": (b12 & 0x30) >> 4,
+                "result_identifier_num": payload[2],
+                # Not present in this format.
+                "streaming_mode": False,
+                "service_uuid_mode": False,
+                "forced_transfer": False,
+            }
+
+        if b11 == 0x08:
+            b13 = payload[1]
+            user_count = b13 & 0x03
+            length_ok = (
+                (user_count == 0 and len(payload) == 10)
+                or (user_count == 1 and len(payload) == 13)
+            )
+            if not length_ok:
+                return None
+            return {
+                "user_register_count": user_count,
+                "invalid_time": bool(b13 & 0x04),
+                "pairing_mode": bool(b13 & 0x08),
+                "streaming_mode": bool(b13 & 0x10),
+                "service_uuid_mode": bool(b13 & 0x20),
+                "forced_transfer": bool(b13 & 0x40),
+                # Not present in this format.
+                "guidance_mode": 0,
+                "result_identifier_num": 0,
+            }
+
+        if b11 == 0x09:
+            b10 = payload[1]
+            user_count = b10 & 0x03
+            expected_len = {0: 9, 1: 11, 2: 13, 3: 15}.get(user_count)
+            if expected_len is None or len(payload) != expected_len:
+                return None
+            return {
+                "user_register_count": user_count,
+                "invalid_time": bool(b10 & 0x04),
+                "pairing_mode": bool(b10 & 0x08),
+                "streaming_mode": bool(b10 & 0x10),
+                "service_uuid_mode": bool(b10 & 0x20),
+                "forced_transfer": bool(b10 & 0x40),
+                # Not present in this format.
+                "guidance_mode": 0,
+                "result_identifier_num": 0,
+            }
+
+        return None
 
     def _measurement_user_suffixes(
         self, user: int | None, multi_user: bool
@@ -779,11 +895,20 @@ class OmronBluetoothDeviceData(BluetoothData):
                     last_session_exc: BaseException | None = None
                     for session_attempt in range(3):
                         try:
-                            if self._device_config.legacy_pairing_workarounds and session_attempt == 0:
-                                # pair() triggers start_notify internally; only run on the first attempt.
-                                # Subsequent retries start from reset_session_state() which already
-                                # cleaned up the BlueZ notify state, so re-pairing is unnecessary and
-                                # would only pile up additional `Notify acquired` errors.
+                            if (
+                                self._device_config.legacy_pairing_workarounds
+                                and session_attempt == 0
+                                and self.pairing_mode
+                            ):
+                                # pair() is only needed when the device is actively advertising
+                                # pairing mode (MSD bit 0x08).  Calling pair() on every regular
+                                # poll wastes up to 10 s when the device is not in -P- mode
+                                # because it exhausts all retries before failing.  The pairing_mode
+                                # flag is set by _parse_omron_msd() from the BLE advertisement, so
+                                # it correctly reflects the current device state.
+                                # Only run on the first session attempt — subsequent retries clean up
+                                # BlueZ notify state via reset_session_state(), so re-pairing would
+                                # pile up additional `Notify acquired` errors.
                                 try:
                                     await transport.pair()
                                 except Exception as exc:
@@ -813,10 +938,20 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 await _bleak_refresh_services(client)
                                 await asyncio.sleep(0.5)
                     if not session_opened and last_session_exc is not None:
-                        _LOGGER.debug(
-                            "Could not open memory session globally in poll after retries: %s",
-                            last_session_exc,
-                        )
+                        if self._device_config.supports_os_bonding_only:
+                            _LOGGER.warning(
+                                "Memory session failed for OS-bonding device %s (model=%s): %s. "
+                                "Ensure OS-level BLE bonding is complete — remove and re-add the "
+                                "device if this error persists.",
+                                ble_device.address,
+                                self._device_config.model,
+                                last_session_exc,
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "Could not open memory session globally in poll after retries: %s",
+                                last_session_exc,
+                            )
 
                 # Perform time sync first, ensuring the device clock is correct before further actions.
                 # Skip EEPROM-based time sync when the memory session could not be opened: the EEPROM
@@ -1106,6 +1241,41 @@ class OmronBluetoothDeviceData(BluetoothData):
         transport = GattTransport(client, self._device_config)
         await transport.pair()
         await _bleak_refresh_services(client)
+
+    async def async_sync_time(self, ble_device: BLEDevice) -> None:
+        """Connect to the device and synchronize time only."""
+        client = await establish_connection(BleakClient, ble_device, ble_device.address)
+        try:
+            await _bleak_refresh_services(client)
+            transport = GattTransport(client, self._device_config)
+            session_opened = False
+            if (
+                self._device_config.parent_service_stack() == "classic"
+                or self._device_config.supports_eeprom_time_sync
+            ):
+                try:
+                    await transport.unlock()
+                    await transport.open_memory_session()
+                    session_opened = True
+                except Exception as exc:
+                    _LOGGER.debug("Memory session open failed during time sync: %s", exc)
+            try:
+                if session_opened or not self._device_config.supports_eeprom_time_sync:
+                    await self._async_sync_current_time_with_client(
+                        client, ble_device.address, transport
+                    )
+            finally:
+                if session_opened:
+                    try:
+                        await transport.close_memory_session()
+                    except Exception:
+                        pass
+        finally:
+            if client and client.is_connected:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
 
     async def _async_sync_current_time_with_client(
         self, client: BleakClient, address: str,
