@@ -189,35 +189,33 @@ def process_service_info(
                 service_info.address,
             )
             return
-        await session_lock.acquire()  # fast-path synchronous return since we just checked
-        entry_data["last_attempt_time"] = time.time()
         action = "auto-pairing" if is_pairing else "time-sync"
-        _LOGGER.debug(
-            "Starting %s session for %s (lock acquired)",
-            action,
-            service_info.address,
-        )
         pair_succeeded = False
         try:
-            await asyncio.sleep(SETTLE_DELAY_SECONDS)
-            ble_device = service_info.device
-            if is_pairing:
-                async with omron_poll_ble_telemetry(entry_data):
-                    await data.async_retry_pairing(ble_device)
-                pair_succeeded = True
-            else:  # is_invalid_time and not is_forced_transfer
-                async with omron_poll_ble_telemetry(entry_data):
-                    await data.async_sync_time(ble_device)
+            async with session_lock:
+                entry_data["last_attempt_time"] = time.time()
+                _LOGGER.debug(
+                    "Starting %s session for %s (lock acquired)",
+                    action,
+                    service_info.address,
+                )
+                await asyncio.sleep(SETTLE_DELAY_SECONDS)
+                ble_device = service_info.device
+                if is_pairing:
+                    async with omron_poll_ble_telemetry(entry_data):
+                        await data.async_retry_pairing(ble_device)
+                    pair_succeeded = True
+                else:  # is_invalid_time and not is_forced_transfer
+                    async with omron_poll_ble_telemetry(entry_data):
+                        await data.async_sync_time(ble_device)
         except Exception as err:
             if is_pairing:
                 _LOGGER.error("Auto pairing failed: %s", err)
             else:
                 _LOGGER.error("Auto time sync failed: %s", err)
-        finally:
-            session_lock.release()
 
-        # Post-pairing refresh runs AFTER the lock release so _async_poll_data
-        # can acquire it for the follow-up data fetch.
+        # Lock auto-released by the context manager. Post-pairing refresh runs
+        # AFTER the release so _async_poll_data can acquire it independently.
         if pair_succeeded and coordinator.poll_coordinator:
             try:
                 await coordinator.poll_coordinator.async_request_refresh()
@@ -331,16 +329,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                     return poll_coordinator.data
                 return entry.runtime_data.device_data._finish_update()
 
-            await session_lock.acquire()  # synchronous fast-path since we just checked
-            try:
+            async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
                     result = await coordinator.device_data.async_poll(device)
                 prev_data = poll_coordinator.data
                 if prev_data is not None:
                     result = _merge_poll_sensor_update(prev_data, result)
                 return result
-            finally:
-                session_lock.release()
         except Exception as err:
             _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:
