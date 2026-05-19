@@ -166,8 +166,23 @@ def process_service_info(
         return update
 
     async def _run_auto_session() -> None:
-        # Re-check the lock inside the task: another trigger created earlier
-        # might have already grabbed it between scheduling and execution.
+        # forced_transfer-only path has no direct BLE op here — it just kicks
+        # the poll coordinator, which goes through _async_poll_data and handles
+        # its own lock acquisition. Don't hold the lock during request_refresh,
+        # otherwise the child poll would see lock locked and return cached data.
+        if not is_pairing and not is_invalid_time:
+            entry_data["last_attempt_time"] = time.time()
+            _LOGGER.debug(
+                "Triggering scheduled poll via forced-transfer flag for %s",
+                service_info.address,
+            )
+            try:
+                await coordinator.poll_coordinator.async_request_refresh()
+            except Exception as err:
+                _LOGGER.error("Auto polling failed: %s", err)
+            return
+
+        # Pair / time-sync paths own a direct BLE op — hold the lock for that.
         if session_lock.locked():
             _LOGGER.debug(
                 "BLE session lock held when auto-session task started; aborting for %s",
@@ -176,39 +191,38 @@ def process_service_info(
             return
         await session_lock.acquire()  # fast-path synchronous return since we just checked
         entry_data["last_attempt_time"] = time.time()
-        if is_pairing:
-            action = "auto-pairing"
-        elif is_invalid_time and not is_forced_transfer:
-            action = "time-sync"
-        else:
-            action = "forced-transfer poll"
+        action = "auto-pairing" if is_pairing else "time-sync"
         _LOGGER.debug(
             "Starting %s session for %s (lock acquired)",
             action,
             service_info.address,
         )
+        pair_succeeded = False
         try:
             await asyncio.sleep(SETTLE_DELAY_SECONDS)
             ble_device = service_info.device
             if is_pairing:
                 async with omron_poll_ble_telemetry(entry_data):
                     await data.async_retry_pairing(ble_device)
-                if coordinator.poll_coordinator:
-                    await coordinator.poll_coordinator.async_request_refresh()
-            elif is_invalid_time and not is_forced_transfer:
+                pair_succeeded = True
+            else:  # is_invalid_time and not is_forced_transfer
                 async with omron_poll_ble_telemetry(entry_data):
                     await data.async_sync_time(ble_device)
-            else:
-                await coordinator.poll_coordinator.async_request_refresh()
         except Exception as err:
             if is_pairing:
                 _LOGGER.error("Auto pairing failed: %s", err)
-            elif is_invalid_time and not is_forced_transfer:
-                _LOGGER.error("Auto time sync failed: %s", err)
             else:
-                _LOGGER.error("Auto polling failed: %s", err)
+                _LOGGER.error("Auto time sync failed: %s", err)
         finally:
             session_lock.release()
+
+        # Post-pairing refresh runs AFTER the lock release so _async_poll_data
+        # can acquire it for the follow-up data fetch.
+        if pair_succeeded and coordinator.poll_coordinator:
+            try:
+                await coordinator.poll_coordinator.async_request_refresh()
+            except Exception as err:
+                _LOGGER.error("Post-pairing refresh failed: %s", err)
 
     coordinator.hass.async_create_task(_run_auto_session())
 
