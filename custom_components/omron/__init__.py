@@ -133,6 +133,14 @@ def process_service_info(
     if not is_sync_needed:
         return update
 
+    _LOGGER.debug(
+        "Advertisement flags for %s: pairing_mode=%s invalid_time=%s forced_transfer=%s",
+        service_info.address,
+        is_pairing,
+        is_invalid_time,
+        is_forced_transfer,
+    )
+
     # 2. Fail fast if a GATT session is already running — try-acquire only, no queueing.
     # The device rejects a second concurrent BLE connection with SMP auth fail
     # (reasons 97/102 on ESP32 proxies), so we drop the trigger and rely on the
@@ -168,6 +176,17 @@ def process_service_info(
             return
         await session_lock.acquire()  # fast-path synchronous return since we just checked
         entry_data["last_attempt_time"] = time.time()
+        if is_pairing:
+            action = "auto-pairing"
+        elif is_invalid_time and not is_forced_transfer:
+            action = "time-sync"
+        else:
+            action = "forced-transfer poll"
+        _LOGGER.debug(
+            "Starting %s session for %s (lock acquired)",
+            action,
+            service_info.address,
+        )
         try:
             await asyncio.sleep(SETTLE_DELAY_SECONDS)
             ble_device = service_info.device
