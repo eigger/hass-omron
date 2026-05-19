@@ -114,13 +114,24 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
             raise HomeAssistantError(f"BLE device not available: {self._address}")
 
         entry_data = self.hass.data[DOMAIN][self._entry_id]
+        session_lock = entry_data["session_lock"]
+        # Fail fast if another BLE session is already running; tell the user to
+        # retry rather than racing the existing connection (concurrent BLE
+        # sessions to the same Omron device cause SMP auth failures).
+        if session_lock.locked():
+            raise HomeAssistantError(
+                f"BLE session already in progress for {self._address}; retry in a moment"
+            )
         data = entry_data["data"]
         try:
-            async with omron_poll_ble_telemetry(entry_data):
-                await data.async_retry_pairing(ble_device)
-            # Mirror setup behavior: run an immediate poll after pairing so
-            # protected GATT paths are exercised and bond/session state settles.
-            poll_coordinator = self._entry.runtime_data.poll_coordinator
-            await poll_coordinator.async_request_refresh()
+            async with session_lock:
+                async with omron_poll_ble_telemetry(entry_data):
+                    await data.async_retry_pairing(ble_device)
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
+        # Lock auto-released by the context manager. Mirror setup behavior:
+        # run an immediate poll after pairing so protected GATT paths are
+        # exercised and bond/session state settles. _async_poll_data will
+        # acquire the lock on its own.
+        poll_coordinator = self._entry.runtime_data.poll_coordinator
+        await poll_coordinator.async_request_refresh()
