@@ -374,14 +374,30 @@ class GattTransport:
                     remaining_cmd = remaining_cmd[channel_width:]
             except BleakError as exc:
                 msg = str(exc).lower()
-                if "service discovery has not been performed" in msg:
+                # Refresh the GATT cache when either:
+                #   1. Bleak reports services were never discovered, or
+                #   2. The TX characteristic UUID is not in the local cache
+                #      (typical right after OS bonding completes — the peer
+                #      newly exposes encryption-required characteristics that
+                #      weren't visible in the pre-bond enumeration).
+                stale_cache = (
+                    "service discovery has not been performed" in msg
+                    or "was not found" in msg
+                )
+                if stale_cache:
                     _LOGGER.debug(
-                        "GATT services not ready during write (retry %d/%d): %s",
+                        "GATT cache stale during write (retry %d/%d), refreshing: %s",
                         retry + 1,
                         max_retries,
                         exc,
                     )
-                    await _bleak_refresh_services(self._client)
+                    try:
+                        await _bleak_refresh_services(self._client)
+                    except Exception as refresh_exc:
+                        _LOGGER.debug(
+                            "Service refresh during write retry failed (continuing): %s",
+                            refresh_exc,
+                        )
                 else:
                     _LOGGER.warning(
                         "BLE error during write (retry %d/%d): %s",
@@ -624,6 +640,24 @@ class GattTransport:
             # Keep this as best-effort and allow caller to proceed to GATT operations.
             max_attempts = 2
             last_exc: BaseException | None = None
+
+            async def _post_bond_refresh() -> None:
+                # After OS bonding completes, the peer may newly expose
+                # encryption-required characteristics (e.g. TX channel
+                # ``db5b55e0-…``) that were absent from the pre-bond GATT
+                # cache.  Subsequent ``write_gatt_char`` lookups against
+                # those UUIDs would otherwise fail with "Characteristic …
+                # was not found".  Refresh the service cache so the next
+                # GATT operation sees the post-bond GATT database.
+                try:
+                    await asyncio.sleep(0.3)
+                    await _bleak_refresh_services(self._client)
+                except Exception as refresh_exc:
+                    _LOGGER.debug(
+                        "Post-bond service refresh failed (continuing): %s",
+                        refresh_exc,
+                    )
+
             for attempt in range(1, max_attempts + 1):
                 try:
                     if attempt > 1:
@@ -634,6 +668,7 @@ class GattTransport:
                     except TypeError:
                         await self._client.pair(protection_level=2)
                     _LOGGER.debug("OS-level BLE bonding completed")
+                    await _post_bond_refresh()
                     return
                 except Exception as exc:
                     last_exc = exc
@@ -645,6 +680,9 @@ class GattTransport:
                             type(exc).__name__,
                             exc,
                         )
+                        # "already bonded" / "in progress" still imply the
+                        # bond exists — refresh the GATT cache anyway.
+                        await _post_bond_refresh()
                         return
                     _LOGGER.debug(
                         "OS-level bonding attempt %d/%d failed: %s (%r)",
