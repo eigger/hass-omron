@@ -921,25 +921,26 @@ class OmronBluetoothDeviceData(BluetoothData):
                     last_session_exc: BaseException | None = None
                     for session_attempt in range(3):
                         try:
-                            if (
-                                self._device_config.legacy_pairing_workarounds
-                                and session_attempt == 0
-                                and self.pairing_mode
+                            if session_attempt == 0 and (
+                                self._device_config.supports_os_bonding_only
+                                or (
+                                    self._device_config.legacy_pairing_workarounds
+                                    and self.pairing_mode
+                                )
                             ):
-                                # pair() is only needed when the device is actively advertising
-                                # pairing mode (MSD bit 0x08).  Calling pair() on every regular
-                                # poll wastes up to 10 s when the device is not in -P- mode
-                                # because it exhausts all retries before failing.  The pairing_mode
-                                # flag is set by _parse_omron_msd() from the BLE advertisement, so
-                                # it correctly reflects the current device state.
-                                # Only run on the first session attempt — subsequent retries clean up
-                                # BlueZ notify state via reset_session_state(), so re-pairing would
-                                # pile up additional `Notify acquired` errors.
+                                # OS-bonding models: pair() + GATT refresh on every poll so
+                                # encryption-required TX/RX UUIDs are visible (fixes stale-cache
+                                # "Characteristic … was not found" on periodic polls).
+                                # Legacy custom-key models: pair() only in -P- mode (MSD bit
+                                # 0x08); calling it on every regular poll wastes up to ~10 s
+                                # when the device is not in pairing mode.
+                                # Only on the first session attempt — retries use
+                                # reset_session_state(); re-pairing would pile up notify errors.
                                 try:
                                     await transport.pair()
                                 except Exception as exc:
                                     _LOGGER.debug(
-                                        "Legacy poll pair step failed (continuing to unlock): %s",
+                                        "Poll pair step failed (continuing to unlock): %s",
                                         exc,
                                     )
                             await transport.unlock()
