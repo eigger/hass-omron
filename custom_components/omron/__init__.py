@@ -133,45 +133,17 @@ def process_service_info(
     if not is_sync_needed:
         return update
 
-    # 2. Skip if a GATT session is already running.
-    # Pairing is time-sensitive (~30 s window): defer it to run right after the
-    # current session ends instead of silently dropping it.
-    if entry_data.get("poll_in_progress"):
-        if is_pairing and not entry_data.get("pairing_pending"):
-            entry_data["pairing_pending"] = True
-            _LOGGER.debug(
-                "BLE session in progress; pairing deferred for %s",
-                service_info.address,
-            )
-
-            async def _deferred_pairing() -> None:
-                deadline = time.time() + 25
-                while entry_data.get("poll_in_progress") and time.time() < deadline:
-                    await asyncio.sleep(0.5)
-                entry_data.pop("pairing_pending", None)
-                if entry_data.get("poll_in_progress"):
-                    _LOGGER.warning(
-                        "Pairing trigger timed out: BLE session still active after 25 s for %s",
-                        service_info.address,
-                    )
-                    return
-                now2 = time.time()
-                if now2 - entry_data.get("last_attempt_time", 0.0) < POLL_COOLDOWN_SECONDS:
-                    return
-                entry_data["poll_in_progress"] = True
-                entry_data["last_attempt_time"] = now2
-                try:
-                    ble_device = async_ble_device_from_address(coordinator.hass, service_info.address) or service_info.device
-                    async with omron_poll_ble_telemetry(entry_data):
-                        await data.async_retry_pairing(ble_device)
-                    if coordinator.poll_coordinator:
-                        await coordinator.poll_coordinator.async_request_refresh()
-                except Exception as err:
-                    _LOGGER.error("Deferred auto pairing failed: %s", err)
-                finally:
-                    entry_data["poll_in_progress"] = False
-
-            coordinator.hass.async_create_task(_deferred_pairing())
+    # 2. Fail fast if a GATT session is already running — try-acquire only, no queueing.
+    # The device rejects a second concurrent BLE connection with SMP auth fail
+    # (reasons 97/102 on ESP32 proxies), so we drop the trigger and rely on the
+    # next advertisement (devices keep emitting the flag bits for several seconds)
+    # to retry once the session lock is free.
+    session_lock: asyncio.Lock = entry_data["session_lock"]
+    if session_lock.locked():
+        _LOGGER.debug(
+            "BLE session lock held; skipping advertisement trigger for %s",
+            service_info.address,
+        )
         return update
 
     # 3. Enforce a shared cooldown between GATT session attempts
@@ -185,10 +157,17 @@ def process_service_info(
         )
         return update
 
-    entry_data["poll_in_progress"] = True
-    entry_data["last_attempt_time"] = now
-
     async def _run_auto_session() -> None:
+        # Re-check the lock inside the task: another trigger created earlier
+        # might have already grabbed it between scheduling and execution.
+        if session_lock.locked():
+            _LOGGER.debug(
+                "BLE session lock held when auto-session task started; aborting for %s",
+                service_info.address,
+            )
+            return
+        await session_lock.acquire()  # fast-path synchronous return since we just checked
+        entry_data["last_attempt_time"] = time.time()
         try:
             await asyncio.sleep(SETTLE_DELAY_SECONDS)
             ble_device = service_info.device
@@ -210,7 +189,7 @@ def process_service_info(
             else:
                 _LOGGER.error("Auto polling failed: %s", err)
         finally:
-            entry_data["poll_in_progress"] = False
+            session_lock.release()
 
     coordinator.hass.async_create_task(_run_auto_session())
 
@@ -245,6 +224,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # cause process_service_info to fire another auto-pairing session against
     # a device that was just paired.
     hass.data[DOMAIN][entry.entry_id]['last_attempt_time'] = time.time()
+    # Per-entry serialization lock for BLE GATT sessions. All paths that open
+    # a BLE link (scheduled poll, advertisement-triggered auto-session, deferred
+    # pairing) try-acquire this lock and bail out immediately if it is held —
+    # never queue. Two concurrent BLE connections to the same Omron device
+    # cause SMP auth failures (proxy log: "auth fail reason=97/102").
+    hass.data[DOMAIN][entry.entry_id]['session_lock'] = asyncio.Lock()
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
@@ -296,8 +281,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
             entry_data = hass.data[DOMAIN][entry.entry_id]
+            session_lock: asyncio.Lock = entry_data["session_lock"]
 
-            entry_data["poll_in_progress"] = True
+            # Try-acquire only — if another BLE session is in flight (e.g. an
+            # advertisement-triggered auto-pairing started moments ago), skip
+            # this scheduled poll and serve cached data. The next interval (or
+            # a request_refresh from the active session) will retry once the
+            # lock frees. Two concurrent connections to the same Omron device
+            # provoke SMP auth failures, so we never queue here.
+            if session_lock.locked():
+                _LOGGER.debug(
+                    "Skipping scheduled poll: BLE session lock held for %s",
+                    entry_data["address"],
+                )
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                return entry.runtime_data.device_data._finish_update()
+
+            await session_lock.acquire()  # synchronous fast-path since we just checked
             try:
                 async with omron_poll_ble_telemetry(entry_data):
                     result = await coordinator.device_data.async_poll(device)
@@ -306,7 +307,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                     result = _merge_poll_sensor_update(prev_data, result)
                 return result
             finally:
-                entry_data["poll_in_progress"] = False
+                session_lock.release()
         except Exception as err:
             _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:
