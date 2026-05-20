@@ -932,12 +932,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 # OS-bonding models do NOT call pair() here.  Calling
                                 # pair() during a normal poll can either no-op (already
                                 # bonded), waste up to ~10 s (device not in pairing
-                                # mode), or — worst case — overwrite an intact bond
-                                # with a weaker one.  Bond establishment is the
-                                # responsibility of ``async_retry_pairing`` (user-driven
-                                # via the "Retry Pairing" button), which calls
-                                # ``transport.pair()`` with ``high_protection=True``
-                                # to obtain the strongest bond the backend allows.
+                                # mode), or — worst case — overwrite an intact bond.
+                                # Bond establishment is the responsibility of
+                                # ``async_retry_pairing`` (user-driven via the
+                                # "Retry Pairing" button), which calls
+                                # ``transport.pair()`` once with the backend's default
+                                # protection level (Encryption / Just Works — the only
+                                # level Omron BPMs can satisfy; they have no keypad or
+                                # numeric display for MITM association).
                                 # If a poll fails on an OS-bonding device, the
                                 # session-retry loop below + PR #50's GATT cache
                                 # refresh handle stale state without re-bonding;
