@@ -1247,13 +1247,28 @@ class OmronDeviceDriver:
         a valid index entry the partial result is kept and a full-scan fallback
         supplies the missing users, avoiding a second round-trip for the users
         already found via the index.
+
+        Users whose probed index slot(s) were all ``0xFF`` (the device's
+        empty-slot marker) are reported by ``_get_latest_via_index`` via the
+        ``confirmed_empty_users`` set and are skipped from the full-scan
+        fallback — they demonstrably have never recorded a measurement, so
+        scanning their memory region wastes a BLE session window (~60 s for
+        100-slot users) and tends to produce spurious TX timeouts as the
+        device runs out of payload to send back.
         """
         latest_by_user: dict[int, dict[str, Any]] = {}
         expected_user_count = len(self._config.per_user_records_count)
 
-        indexed_candidates = await self._get_latest_via_index(
+        index_result = await self._get_latest_via_index(
             transport, return_all_users=True
         )
+        # New return shape is ``(dict, set)``.  Tolerate the older ``dict | None``
+        # shape too in case a sub-class or backport returns it.
+        if isinstance(index_result, tuple):
+            indexed_candidates, confirmed_empty_users = index_result
+        else:
+            indexed_candidates = index_result or {}
+            confirmed_empty_users = set()
 
         if indexed_candidates:
             if len(indexed_candidates) >= expected_user_count:
@@ -1261,23 +1276,47 @@ class OmronDeviceDriver:
                 return indexed_candidates
             # Partial: keep what the index found; fall back for the rest.
             latest_by_user.update(indexed_candidates)
-            _LOGGER.debug(
-                "Index path returned %d/%d user(s) for model=%s; "
-                "falling back to full scan for missing user(s)",
-                len(indexed_candidates),
-                expected_user_count,
-                self._config.model,
-            )
 
         missing_users = set(range(1, expected_user_count + 1)) - set(latest_by_user.keys())
         if not missing_users:
             return latest_by_user
 
-        # Full-scan fallback — only processes users absent from latest_by_user.
+        # Skip the full-scan fallback for users whose probed slots were
+        # confirmed all-0xFF.  If every missing user is empty there is
+        # nothing left to scan, so we return immediately.
+        scan_required_users = missing_users - confirmed_empty_users
+        skipped_empty = missing_users & confirmed_empty_users
+        if skipped_empty:
+            _LOGGER.debug(
+                "Index path confirmed user(s) %s as empty for model=%s; "
+                "skipping full-scan fallback for them",
+                sorted(skipped_empty),
+                self._config.model,
+            )
+        if not scan_required_users:
+            _LOGGER.debug(
+                "Index path returned %d/%d user(s) for model=%s; "
+                "remaining user(s) are confirmed empty — skipping full scan",
+                len(indexed_candidates),
+                expected_user_count,
+                self._config.model,
+            )
+            return latest_by_user
+
+        _LOGGER.debug(
+            "Index path returned %d/%d user(s) for model=%s; "
+            "falling back to full scan for user(s) %s",
+            len(indexed_candidates),
+            expected_user_count,
+            self._config.model,
+            sorted(scan_required_users),
+        )
+        # Full-scan fallback — only processes users absent from latest_by_user
+        # *and* not in ``confirmed_empty_users``.
         all_user_records = await self.get_all_records(transport)
         for user_idx, user_records in enumerate(all_user_records):
             user = user_idx + 1
-            if user not in missing_users:
+            if user not in scan_required_users:
                 continue
             if not user_records:
                 continue
@@ -1321,19 +1360,36 @@ class OmronDeviceDriver:
     async def _get_latest_via_index(
         self, transport: GattTransport, *, return_all_users: bool = False
     ) -> Any | None:
-        """Read index block and fetch only the latest slot per configured user."""
+        """Read index block and fetch only the latest slot per configured user.
+
+        When ``return_all_users=True`` the function returns a tuple
+        ``(per_user_records, confirmed_empty_users)``:
+
+        * ``per_user_records`` — ``dict[int, record]`` keyed by 1-based user
+          index, containing the latest valid measurement found via the index
+          probe for that user (only users with a valid record are present).
+        * ``confirmed_empty_users`` — ``set[int]`` of 1-based user indices
+          whose probed slot(s) were *all* ``0xFF`` (the device's empty-slot
+          marker).  These users have demonstrably never recorded a
+          measurement; the caller can skip the expensive full-scan fallback
+          for them.
+
+        When ``return_all_users=False`` the function preserves the original
+        single-record return shape (``dict | None``) for backward
+        compatibility.
+        """
         layout = self._config.index_pointer_layout
         if (
             layout is None
             or self._config.settings_read_address is None
             or self._config.record_byte_size <= 0
         ):
-            return None if not return_all_users else {}
+            return None if not return_all_users else ({}, set())
 
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
         user_layouts = layout.get("users", [])
         if index_region_byte_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
-            return None if not return_all_users else {}
+            return None if not return_all_users else ({}, set())
 
         record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
@@ -1343,6 +1399,11 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
+        # Users whose probed slot(s) were all-0xFF — device has never recorded
+        # a measurement for them.  Used by the caller to skip the full-scan
+        # fallback that would otherwise spend ~60 s scanning a blank region
+        # and produce spurious TX timeouts.
+        confirmed_empty_users: set[int] = set()
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
         await transport.open_memory_session()
@@ -1414,6 +1475,12 @@ class OmronDeviceDriver:
                 max_probe = min(max(backtrack_slots, 0), max(record_count - 1, 0))
                 parsed = None
                 base_addr = int(record_addresses[idx])
+                # Track whether every probed slot for this user was the
+                # device's empty marker (all-0xFF).  If so, the user has
+                # never recorded a measurement and the caller can skip the
+                # full-scan fallback safely.
+                user_had_any_read = False
+                user_all_probed_slots_empty = True
                 for back in range(max_probe + 1):
                     probe_slot = latest_slot - back
                     while probe_slot < pointer_min:
@@ -1430,6 +1497,12 @@ class OmronDeviceDriver:
                         idx + 1, self._config.model, probe_slot,
                         probe_addr, bytes(raw_record).hex(),
                     )
+                    user_had_any_read = True
+                    # The device leaves un-written slots as all-0xFF.  A
+                    # single byte that differs means *something* was stored
+                    # at this slot, even if our parser rejects it.
+                    if any(b != 0xFF for b in raw_record):
+                        user_all_probed_slots_empty = False
                     try:
                         parsed = self._config.parse_record(bytes(raw_record))
                     except Exception as parse_exc:
@@ -1455,6 +1528,16 @@ class OmronDeviceDriver:
                     if not collect_all_valid:
                         break
                     parsed = None
+                # After the backtrack window completes: if every read came
+                # back all-0xFF, mark this user as definitively empty.
+                if user_had_any_read and user_all_probed_slots_empty:
+                    confirmed_empty_users.add(idx + 1)
+                    _LOGGER.debug(
+                        "User%d [%s] confirmed empty: cursor slot and %d "
+                        "backtrack slot(s) all 0xFF — full-scan fallback "
+                        "will be skipped for this user",
+                        idx + 1, self._config.model, max_probe,
+                    )
         except Exception as exc:
             if self._config.supports_os_bonding_only:
                 _LOGGER.warning(
@@ -1469,7 +1552,10 @@ class OmronDeviceDriver:
                     self._config.model,
                     exc,
                 )
-            return None
+            # Transport exception — we cannot confirm any user as empty, so
+            # leave ``confirmed_empty_users`` empty and let the caller fall
+            # back to a full scan as it would have without this feature.
+            return None if not return_all_users else ({}, set())
         finally:
             try:
                 await transport.close_memory_session()
@@ -1481,7 +1567,7 @@ class OmronDeviceDriver:
                 "Index read [%s]: no valid candidate found (checked %d configured user layout(s))",
                 self._config.model, len(user_layouts),
             )
-            return None if not return_all_users else {}
+            return None if not return_all_users else ({}, confirmed_empty_users)
 
         if return_all_users:
             result_per_user: dict[int, dict[str, Any]] = {}
@@ -1491,7 +1577,7 @@ class OmronDeviceDriver:
                 selected = self._select_latest_candidate(user_candidates)
                 if selected:
                     result_per_user[user] = self._finalize_public_latest_record(selected[1], user)
-            return result_per_user
+            return result_per_user, confirmed_empty_users
 
         selected = self._select_latest_candidate(candidates)
         if selected is None:
