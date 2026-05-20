@@ -625,17 +625,42 @@ class GattTransport:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
 
-    async def pair(self, key: bytearray | None = None) -> None:
+    async def pair(
+        self,
+        key: bytearray | None = None,
+        *,
+        high_protection: bool = True,
+    ) -> None:
         """Program a new pairing key into the device.
 
         The device must be in pairing mode (hold bluetooth button until -P- blinks).
         For OS-bonding-only devices (e.g. HEM-7380T1), performs standard BLE pairing.
+
+        ``high_protection`` (default ``True``) requests
+        ``protection_level=4`` (Authenticated + Encrypted, MITM-protected) on
+        the first try.  This is the strongest pairing protection the backend
+        supports and matches the security level the official Omron Connect
+        app obtains via Android's ``BluetoothDevice.createBond()``.
+
+        If ``protection_level=4`` is rejected by the backend (``TypeError``
+        for backends that don't accept the kwarg, e.g. BlueZ) or refused by
+        the device (e.g. ``BleakError``/``ConnectionError`` because the
+        device only supports Just Works), the same attempt falls back to
+        ``pair()`` with no arguments so a weaker-but-still-encrypted bond
+        can be established.
+
+        Pass ``high_protection=False`` to skip the level-4 request entirely
+        and call ``pair()`` directly — useful for non-user-initiated flows
+        that just want best-effort bond confirmation.
         """
         pair_key = key or PAIRING_KEY
 
         # OS-level bonding only (HEM-7380T1 etc.)
         if self._config.supports_os_bonding_only:
-            _LOGGER.debug("Performing OS-level BLE bonding")
+            _LOGGER.debug(
+                "Performing OS-level BLE bonding (high_protection=%s)",
+                high_protection,
+            )
             # Some stacks fail pair() even when already bonded/encrypted sessions work.
             # Keep this as best-effort and allow caller to proceed to GATT operations.
             max_attempts = 2
@@ -658,16 +683,58 @@ class GattTransport:
                         refresh_exc,
                     )
 
+            async def _do_pair_with_optional_high_protection() -> None:
+                """One pairing attempt.
+
+                * ``high_protection=False`` → just call ``client.pair()`` once.
+                * ``high_protection=True``  → call ``client.pair(protection_level=4)``;
+                  if (and only if) that raises, call ``client.pair()`` once as
+                  fallback inside the same attempt.  Never both on success.
+                """
+                if not high_protection:
+                    await self._client.pair()
+                    _LOGGER.debug("OS-level BLE bonding completed (default)")
+                    return
+
+                try:
+                    await self._client.pair(protection_level=4)
+                except TypeError as type_exc:
+                    # Backend doesn't accept the kwarg (BlueZ etc.) —
+                    # call plain pair() as fallback in this same attempt.
+                    _LOGGER.debug(
+                        "Backend rejected protection_level=4 (%s); "
+                        "falling back to default pair() in same attempt",
+                        type_exc,
+                    )
+                except Exception as level_exc:
+                    # Device or backend refused level=4 (e.g. Just Works
+                    # only).  Still in the pairing-mode window — try the
+                    # default pair() immediately so the user's button
+                    # press isn't wasted.
+                    _LOGGER.debug(
+                        "pair(protection_level=4) failed (%s); "
+                        "falling back to default pair() in same attempt",
+                        level_exc,
+                    )
+                else:
+                    # level=4 succeeded — do NOT call pair() again.
+                    _LOGGER.debug(
+                        "OS-level BLE bonding completed (protection_level=4)"
+                    )
+                    return
+
+                # Only reached when the level=4 call raised above.
+                await self._client.pair()
+                _LOGGER.debug(
+                    "OS-level BLE bonding completed (default after level=4 fallback)"
+                )
+
             for attempt in range(1, max_attempts + 1):
                 try:
                     if attempt > 1:
                         await asyncio.sleep(0.5)
                         await _bleak_refresh_services(self._client)
-                    try:
-                        await self._client.pair()
-                    except TypeError:
-                        await self._client.pair(protection_level=2)
-                    _LOGGER.debug("OS-level BLE bonding completed")
+                    await _do_pair_with_optional_high_protection()
                     await _post_bond_refresh()
                     return
                 except Exception as exc:
