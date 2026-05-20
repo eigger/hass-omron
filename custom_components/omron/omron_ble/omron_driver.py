@@ -431,6 +431,7 @@ class GattTransport:
                         exc,
                     )
                     try:
+                        await asyncio.sleep(_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC)
                         await _bleak_refresh_services(self._client)
                     except Exception as refresh_exc:
                         _LOGGER.debug(
