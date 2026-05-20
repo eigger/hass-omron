@@ -12,7 +12,6 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
-from bleak_retry_connector import establish_connection
 
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
@@ -40,7 +39,12 @@ from .const import (
 )
 from .setup import async_sync_device_time
 from .devices import DeviceConfig, get_device_config, resolve_model_catalog
-from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
+from .omron_driver import (
+    GattTransport,
+    OmronDeviceDriver,
+    _bleak_refresh_services,
+    establish_connection_with_bond_settle,
+)
 from ..util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -848,11 +852,15 @@ class OmronBluetoothDeviceData(BluetoothData):
             transport: GattTransport | None = None
             session_opened = False
             try:
-                client = await establish_connection(
-                    BleakClient, ble_device, ble_device.address
+                # ``establish_connection_with_bond_settle`` inserts a short
+                # post-connect pause and then refreshes the service cache so
+                # OS bonding / link encryption has time to finalise before
+                # the first GATT operation (avoids racey "Characteristic not
+                # found" or silently-dropped CCCD writes on encryption-
+                # required characteristics).
+                client = await establish_connection_with_bond_settle(
+                    ble_device, ble_device.address
                 )
-                # Ensure Bleak service cache is populated before reading client.services.
-                await _bleak_refresh_services(client)
 
                 # Verify the device has expected services
                 parent_uuid = self._device_config.parent_service_uuid
@@ -1250,8 +1258,9 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     async def async_retry_pairing(self, ble_device: BLEDevice) -> None:
         """Connect to the device and retry pairing/bonding (setup-like flow)."""
-        client = await establish_connection(BleakClient, ble_device, ble_device.address)
-        await _bleak_refresh_services(client)
+        client = await establish_connection_with_bond_settle(
+            ble_device, ble_device.address
+        )
         parent_uuid = self._device_config.parent_service_uuid
         service_found = False
         for attempt in range(5):
@@ -1281,9 +1290,10 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""
-        client = await establish_connection(BleakClient, ble_device, ble_device.address)
+        client = await establish_connection_with_bond_settle(
+            ble_device, ble_device.address
+        )
         try:
-            await _bleak_refresh_services(client)
             transport = GattTransport(client, self._device_config)
             session_opened = False
             if (
