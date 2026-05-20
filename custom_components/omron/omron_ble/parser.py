@@ -922,20 +922,28 @@ class OmronBluetoothDeviceData(BluetoothData):
                     for session_attempt in range(3):
                         try:
                             if session_attempt == 0 and (
-                                self._device_config.supports_os_bonding_only
-                                or (
-                                    self._device_config.legacy_pairing_workarounds
-                                    and self.pairing_mode
-                                )
+                                self._device_config.legacy_pairing_workarounds
+                                and self.pairing_mode
                             ):
-                                # OS-bonding models: pair() + GATT refresh on every poll so
-                                # encryption-required TX/RX UUIDs are visible (fixes stale-cache
-                                # "Characteristic … was not found" on periodic polls).
-                                # Legacy custom-key models: pair() only in -P- mode (MSD bit
-                                # 0x08); calling it on every regular poll wastes up to ~10 s
-                                # when the device is not in pairing mode.
-                                # Only on the first session attempt — retries use
-                                # reset_session_state(); re-pairing would pile up notify errors.
+                                # Legacy custom-key models in -P- mode (MSD bit 0x08):
+                                # an in-line pair() finalises the new key the user just
+                                # programmed before we open the memory session.
+                                #
+                                # OS-bonding models do NOT call pair() here.  Calling
+                                # pair() during a normal poll can either no-op (already
+                                # bonded), waste up to ~10 s (device not in pairing
+                                # mode), or — worst case — overwrite an intact bond
+                                # with a weaker one.  Bond establishment is the
+                                # responsibility of ``async_retry_pairing`` (user-driven
+                                # via the "Retry Pairing" button), which calls
+                                # ``transport.pair()`` with ``high_protection=True``
+                                # to obtain the strongest bond the backend allows.
+                                # If a poll fails on an OS-bonding device, the
+                                # session-retry loop below + PR #50's GATT cache
+                                # refresh handle stale state without re-bonding;
+                                # if the bond is genuinely lost, the user is
+                                # surfaced a clear warning to re-press the
+                                # pairing button.
                                 try:
                                     await transport.pair()
                                 except Exception as exc:
