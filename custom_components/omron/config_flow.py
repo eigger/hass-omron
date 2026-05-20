@@ -22,7 +22,6 @@ from .omron_ble.devices import (
 import voluptuous as vol
 
 from bleak import BleakClient
-from bleak_retry_connector import establish_connection
 
 from homeassistant.components import onboarding
 from homeassistant.components.bluetooth import (
@@ -41,6 +40,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .omron_ble.omron_driver import establish_connection_with_bond_settle
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -418,7 +418,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if self._cached_client and self._cached_client.is_connected:
             client = self._cached_client
         else:
-            client = await establish_connection(BleakClient, ble_device, address)
+            client = await establish_connection_with_bond_settle(ble_device, address)
             self._cached_client = client
 
         try:

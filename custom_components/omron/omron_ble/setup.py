@@ -6,10 +6,13 @@ import logging
 from typing import TYPE_CHECKING
 
 from bleak import BleakClient
-from bleak_retry_connector import establish_connection
 
 from .const import MODEL_NUMBER_UUID
-from .omron_driver import GattTransport, _bleak_refresh_services
+from .omron_driver import (
+    GattTransport,
+    _bleak_refresh_services,
+    establish_connection_with_bond_settle,
+)
 from .setup_time_sync import async_sync_device_time, build_cts_payload
 
 if TYPE_CHECKING:
@@ -31,9 +34,10 @@ async def async_fetch_device_model_number(
 ) -> tuple[BleakClient | None, str | None]:
     """Connect to the device and read the model number."""
     try:
-        client = await establish_connection(BleakClient, ble_device, ble_device.address)
+        client = await establish_connection_with_bond_settle(
+            ble_device, ble_device.address
+        )
         try:
-            await _bleak_refresh_services(client)
             char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
             if char_model:
                 model_bytes = await client.read_gatt_char(char_model)

@@ -7,7 +7,9 @@ import traceback
 from typing import Any
 
 from bleak import BleakClient
+from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from bleak_retry_connector import establish_connection
 
 from .devices import DeviceConfig
 
@@ -19,6 +21,20 @@ _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
 _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
+
+# Pause inserted between establish_connection() returning and the first GATT
+# operation.  On OS-bonding Omron devices (and through the ESP32
+# bluetooth_proxy in particular) the L2CAP link comes up before the BLE
+# stack finishes:
+#   * LL_ENC_REQ / LL_ENC_RSP encryption negotiation using a previously
+#     stored LTK,
+#   * any service-changed indication processing, and
+#   * encryption-required characteristic visibility refresh.
+# Issuing GATT operations immediately races this settling and produces
+# sporadic "Characteristic not found" or silently-dropped CCCD writes.  An
+# explicit short wait gives the stack a stable starting point before the
+# follow-up service-cache refresh below.
+_POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
@@ -32,6 +48,29 @@ async def _bleak_refresh_services(client: BleakClient) -> None:
         await gs()
     except Exception as exc:
         _LOGGER.debug("get_services refresh: %s", exc)
+
+
+async def establish_connection_with_bond_settle(
+    ble_device: BLEDevice, name: str
+) -> BleakClient:
+    """Connect, wait for bonding/encryption to settle, then refresh GATT cache.
+
+    Wraps ``bleak_retry_connector.establish_connection`` with a fixed
+    :data:`_POST_CONNECT_BOND_SETTLE_SEC` pause plus a service-cache refresh.
+    All Omron integration code paths should use this helper instead of
+    calling ``establish_connection`` directly so the bond-settle behaviour
+    is consistent.
+    """
+    client = await establish_connection(BleakClient, ble_device, name)
+    _LOGGER.debug(
+        "BLE link established to %s; settling %.1fs for bonding/encryption "
+        "before first GATT op",
+        name,
+        _POST_CONNECT_BOND_SETTLE_SEC,
+    )
+    await asyncio.sleep(_POST_CONNECT_BOND_SETTLE_SEC)
+    await _bleak_refresh_services(client)
+    return client
 
 
 def _hex(data: bytes | bytearray) -> str:
