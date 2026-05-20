@@ -684,34 +684,50 @@ class GattTransport:
                     )
 
             async def _do_pair_with_optional_high_protection() -> None:
-                """Try level=4 first, fall back to default in the same attempt."""
-                if high_protection:
-                    try:
-                        await self._client.pair(protection_level=4)
-                        _LOGGER.debug(
-                            "OS-level BLE bonding completed (protection_level=4)"
-                        )
-                        return
-                    except TypeError as type_exc:
-                        # Backend doesn't accept the kwarg (BlueZ etc.) —
-                        # fall through to plain pair() in this same attempt.
-                        _LOGGER.debug(
-                            "Backend rejected protection_level=4 (%s); "
-                            "falling back to default pair() in same attempt",
-                            type_exc,
-                        )
-                    except Exception as level_exc:
-                        # Device or backend refused level=4 (e.g. Just Works
-                        # only).  Still in the pairing-mode window — try the
-                        # default pair() immediately so the user's button
-                        # press isn't wasted.
-                        _LOGGER.debug(
-                            "pair(protection_level=4) failed (%s); "
-                            "falling back to default pair() in same attempt",
-                            level_exc,
-                        )
+                """One pairing attempt.
+
+                * ``high_protection=False`` → just call ``client.pair()`` once.
+                * ``high_protection=True``  → call ``client.pair(protection_level=4)``;
+                  if (and only if) that raises, call ``client.pair()`` once as
+                  fallback inside the same attempt.  Never both on success.
+                """
+                if not high_protection:
+                    await self._client.pair()
+                    _LOGGER.debug("OS-level BLE bonding completed (default)")
+                    return
+
+                try:
+                    await self._client.pair(protection_level=4)
+                except TypeError as type_exc:
+                    # Backend doesn't accept the kwarg (BlueZ etc.) —
+                    # call plain pair() as fallback in this same attempt.
+                    _LOGGER.debug(
+                        "Backend rejected protection_level=4 (%s); "
+                        "falling back to default pair() in same attempt",
+                        type_exc,
+                    )
+                except Exception as level_exc:
+                    # Device or backend refused level=4 (e.g. Just Works
+                    # only).  Still in the pairing-mode window — try the
+                    # default pair() immediately so the user's button
+                    # press isn't wasted.
+                    _LOGGER.debug(
+                        "pair(protection_level=4) failed (%s); "
+                        "falling back to default pair() in same attempt",
+                        level_exc,
+                    )
+                else:
+                    # level=4 succeeded — do NOT call pair() again.
+                    _LOGGER.debug(
+                        "OS-level BLE bonding completed (protection_level=4)"
+                    )
+                    return
+
+                # Only reached when the level=4 call raised above.
                 await self._client.pair()
-                _LOGGER.debug("OS-level BLE bonding completed (default)")
+                _LOGGER.debug(
+                    "OS-level BLE bonding completed (default after level=4 fallback)"
+                )
 
             for attempt in range(1, max_attempts + 1):
                 try:
