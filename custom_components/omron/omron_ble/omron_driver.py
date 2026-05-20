@@ -625,42 +625,38 @@ class GattTransport:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
 
-    async def pair(
-        self,
-        key: bytearray | None = None,
-        *,
-        high_protection: bool = True,
-    ) -> None:
+    async def pair(self, key: bytearray | None = None) -> None:
         """Program a new pairing key into the device.
 
         The device must be in pairing mode (hold bluetooth button until -P- blinks).
         For OS-bonding-only devices (e.g. HEM-7380T1), performs standard BLE pairing.
 
-        ``high_protection`` (default ``True``) requests
-        ``protection_level=4`` (Authenticated + Encrypted, MITM-protected) on
-        the first try.  This is the strongest pairing protection the backend
-        supports and matches the security level the official Omron Connect
-        app obtains via Android's ``BluetoothDevice.createBond()``.
+        Calls ``client.pair()`` without ``protection_level``.  This lets the
+        backend pick the strongest level the device's IO Capabilities can
+        actually satisfy — on Bleak WinRT this resolves to
+        ``DevicePairingProtectionLevel.Encryption`` (= 2, "Just Works").
 
-        If ``protection_level=4`` is rejected by the backend (``TypeError``
-        for backends that don't accept the kwarg, e.g. BlueZ) or refused by
-        the device (e.g. ``BleakError``/``ConnectionError`` because the
-        device only supports Just Works), the same attempt falls back to
-        ``pair()`` with no arguments so a weaker-but-still-encrypted bond
-        can be established.
+        We deliberately do **not** request the higher
+        ``EncryptionAndAuthentication`` (= 3) level.  That would force a
+        MITM-protected association model (Numeric Comparison, Passkey
+        Entry, or OOB), and Omron blood pressure monitors have no
+        6-digit display and no keypad — their IO Capabilities are
+        ``DisplayOnly`` or ``NoInputNoOutput``.  Windows' API rejects
+        level-3 pairing on such devices before any SMP packet is sent.
+        The previously-shipped value ``protection_level=4`` is outside
+        the Windows enum entirely (max is 3) and always raised, so the
+        fallback path was the only one ever exercised.
 
-        Pass ``high_protection=False`` to skip the level-4 request entirely
-        and call ``pair()`` directly — useful for non-user-initiated flows
-        that just want best-effort bond confirmation.
+        The official Omron Connect app reaches the same outcome: its
+        ``BluetoothDevice.createBond()`` call lands on Just Works
+        (level 2 / Encryption) because that is the only model compatible
+        with the device's IO Capabilities.
         """
         pair_key = key or PAIRING_KEY
 
         # OS-level bonding only (HEM-7380T1 etc.)
         if self._config.supports_os_bonding_only:
-            _LOGGER.debug(
-                "Performing OS-level BLE bonding (high_protection=%s)",
-                high_protection,
-            )
+            _LOGGER.debug("Performing OS-level BLE bonding")
             # Some stacks fail pair() even when already bonded/encrypted sessions work.
             # Keep this as best-effort and allow caller to proceed to GATT operations.
             max_attempts = 2
@@ -683,58 +679,19 @@ class GattTransport:
                         refresh_exc,
                     )
 
-            async def _do_pair_with_optional_high_protection() -> None:
-                """One pairing attempt.
-
-                * ``high_protection=False`` → just call ``client.pair()`` once.
-                * ``high_protection=True``  → call ``client.pair(protection_level=4)``;
-                  if (and only if) that raises, call ``client.pair()`` once as
-                  fallback inside the same attempt.  Never both on success.
-                """
-                if not high_protection:
-                    await self._client.pair()
-                    _LOGGER.debug("OS-level BLE bonding completed (default)")
-                    return
-
-                try:
-                    await self._client.pair(protection_level=4)
-                except TypeError as type_exc:
-                    # Backend doesn't accept the kwarg (BlueZ etc.) —
-                    # call plain pair() as fallback in this same attempt.
-                    _LOGGER.debug(
-                        "Backend rejected protection_level=4 (%s); "
-                        "falling back to default pair() in same attempt",
-                        type_exc,
-                    )
-                except Exception as level_exc:
-                    # Device or backend refused level=4 (e.g. Just Works
-                    # only).  Still in the pairing-mode window — try the
-                    # default pair() immediately so the user's button
-                    # press isn't wasted.
-                    _LOGGER.debug(
-                        "pair(protection_level=4) failed (%s); "
-                        "falling back to default pair() in same attempt",
-                        level_exc,
-                    )
-                else:
-                    # level=4 succeeded — do NOT call pair() again.
-                    _LOGGER.debug(
-                        "OS-level BLE bonding completed (protection_level=4)"
-                    )
-                    return
-
-                # Only reached when the level=4 call raised above.
-                await self._client.pair()
-                _LOGGER.debug(
-                    "OS-level BLE bonding completed (default after level=4 fallback)"
-                )
-
             for attempt in range(1, max_attempts + 1):
                 try:
                     if attempt > 1:
                         await asyncio.sleep(0.5)
                         await _bleak_refresh_services(self._client)
-                    await _do_pair_with_optional_high_protection()
+                    try:
+                        await self._client.pair()
+                    except TypeError:
+                        # Backend signature requires ``protection_level``;
+                        # explicitly pass 2 (Encryption / Just Works) which
+                        # is also the Bleak default.
+                        await self._client.pair(protection_level=2)
+                    _LOGGER.debug("OS-level BLE bonding completed")
                     await _post_bond_refresh()
                     return
                 except Exception as exc:
