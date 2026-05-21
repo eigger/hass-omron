@@ -258,8 +258,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Per-entry serialization lock for BLE GATT sessions. All paths that open
     # a BLE link (scheduled poll, advertisement-triggered auto-session, deferred
     # pairing) try-acquire this lock and bail out immediately if it is held —
-    # never queue. Two concurrent BLE connections to the same Omron device
-    # cause SMP auth failures (proxy log: "auth fail reason=97/102").
+    # never queue. Serialisation also prevents a post-pairing forced-poll from
+    # racing with the still-open pairing BLE connection (which previously caused
+    # SMP auth failures on the second simultaneous connection).
     hass.data[DOMAIN][entry.entry_id]['session_lock'] = asyncio.Lock()
 
     # Ensure device registry entry exists even before first successful poll.

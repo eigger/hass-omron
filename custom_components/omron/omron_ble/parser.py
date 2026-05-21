@@ -883,17 +883,31 @@ class OmronBluetoothDeviceData(BluetoothData):
 
                 if not service_found:
                     prof, variant_meta = resolve_model_catalog(self._device_model)
-                    _LOGGER.error(
-                        "Required service %s not on %s; model=%s profile=%s "
-                        "variant_unverified=%s variant_reason=%s expected_stack=%s",
-                        parent_uuid,
-                        ble_device.address,
-                        self._device_model,
-                        prof,
-                        variant_meta.unverified if variant_meta else False,
-                        variant_meta.reason if variant_meta else None,
-                        self._device_config.parent_service_stack(),
-                    )
+                    if self._device_config.supports_os_bonding_only:
+                        # The parent service (fe4a) is only visible over an
+                        # encrypted link.  If it is absent the BLE bond has
+                        # been lost on one or both sides.  The user must put
+                        # the device back into pairing mode (-P- blinking) so
+                        # that async_retry_pairing can re-establish the bond.
+                        _LOGGER.warning(
+                            "OS-bonding device %s (model=%s) is not encrypted: "
+                            "BLE bond appears lost. Press and hold the Bluetooth "
+                            "button until -P- blinks, then use 'Retry Pairing'.",
+                            ble_device.address,
+                            self._device_config.model,
+                        )
+                    else:
+                        _LOGGER.error(
+                            "Required service %s not on %s; model=%s profile=%s "
+                            "variant_unverified=%s variant_reason=%s expected_stack=%s",
+                            parent_uuid,
+                            ble_device.address,
+                            self._device_model,
+                            prof,
+                            variant_meta.unverified if variant_meta else False,
+                            variant_meta.reason if variant_meta else None,
+                            self._device_config.parent_service_stack(),
+                        )
                     return self._finish_update()
 
                 if self.last_service_info and not self._device_config.is_advertisement_compatible(
@@ -1261,32 +1275,70 @@ class OmronBluetoothDeviceData(BluetoothData):
         client = await establish_connection_with_bond_settle(
             ble_device, ble_device.address
         )
-        parent_uuid = self._device_config.parent_service_uuid
-        service_found = False
-        for attempt in range(5):
-            try:
-                if parent_uuid in [s.uuid for s in client.services]:
-                    service_found = True
-                    break
-            except Exception as exc:
-                _LOGGER.debug(
-                    "Services not ready during manual pairing retry (%d/5) for %s: %s",
-                    attempt + 1,
-                    ble_device.address,
-                    exc,
+        try:
+            parent_uuid = self._device_config.parent_service_uuid
+            service_found = False
+            for attempt in range(5):
+                try:
+                    if parent_uuid in [s.uuid for s in client.services]:
+                        service_found = True
+                        break
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Services not ready during manual pairing retry (%d/5) for %s: %s",
+                        attempt + 1,
+                        ble_device.address,
+                        exc,
+                    )
+                if attempt < 4:
+                    await _bleak_refresh_services(client)
+                    await asyncio.sleep(0.35)
+
+            if not service_found:
+                raise ConnectionError(
+                    f"Required service {parent_uuid} not found on device {ble_device.address}"
                 )
-            if attempt < 4:
-                await _bleak_refresh_services(client)
-                await asyncio.sleep(0.35)
 
-        if not service_found:
-            raise ConnectionError(
-                f"Required service {parent_uuid} not found on device {ble_device.address}"
-            )
+            transport = GattTransport(client, self._device_config)
+            await transport.pair()
+            await _bleak_refresh_services(client)
 
-        transport = GattTransport(client, self._device_config)
-        await transport.pair()
-        await _bleak_refresh_services(client)
+            # Best-effort WLP4COM session open/close after bonding.
+            # For OS-bonding-only devices (e.g. HEM-7380T1) this sends the
+            # standard memory-session init/close commands which some device
+            # firmwares require to commit the bond as permanent — the
+            # "registration" step observed in the official Omron Connect app
+            # flow via BLE captures.  Non-fatal: the bond may already persist
+            # without it depending on device firmware version.
+            if self._device_config.supports_eeprom_time_sync:
+                try:
+                    await transport.unlock()
+                    await transport.open_memory_session()
+                    try:
+                        await transport.close_memory_session()
+                    except Exception as close_exc:
+                        _LOGGER.debug(
+                            "Post-pair session close failed for %s (ignored): %s",
+                            ble_device.address,
+                            close_exc,
+                        )
+                    _LOGGER.debug(
+                        "Post-pair WLP4COM registration exchange completed for %s",
+                        ble_device.address,
+                    )
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Post-pair WLP4COM registration exchange failed for %s "
+                        "(non-fatal, bond may still persist): %s",
+                        ble_device.address,
+                        exc,
+                    )
+        finally:
+            if client and client.is_connected:
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""

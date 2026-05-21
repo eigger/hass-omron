@@ -733,7 +733,9 @@ class GattTransport:
                         await self._client.pair(protection_level=2)
                     _LOGGER.debug("OS-level BLE bonding completed")
                     await _post_bond_refresh()
-                    return
+                    if not self._config.supports_pairing:
+                        return
+                    break
                 except Exception as exc:
                     last_exc = exc
                     if _is_non_fatal_os_pairing_error(exc):
@@ -747,7 +749,9 @@ class GattTransport:
                         # "already bonded" / "in progress" still imply the
                         # bond exists — refresh the GATT cache anyway.
                         await _post_bond_refresh()
-                        return
+                        if not self._config.supports_pairing:
+                            return
+                        break
                     _LOGGER.debug(
                         "OS-level bonding attempt %d/%d failed: %s (%r)",
                         attempt,
@@ -755,13 +759,13 @@ class GattTransport:
                         type(exc).__name__,
                         exc,
                     )
-            if last_exc is not None:
-                _log_pairing_failure_detail(
-                    f"OS-level BLE bonding failed after {max_attempts} attempts",
-                    last_exc,
-                )
-                raise last_exc
-            return
+            else:
+                if last_exc is not None:
+                    _log_pairing_failure_detail(
+                        f"OS-level BLE bonding failed after {max_attempts} attempts",
+                        last_exc,
+                    )
+                    raise last_exc
 
         # Custom pairing key (most classic-stack devices)
         if not self._config.supports_pairing:
