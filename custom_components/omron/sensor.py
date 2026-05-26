@@ -116,6 +116,7 @@ SENSOR_DESCRIPTIONS = {
         key=f"{OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY}",
         icon="mdi:clipboard-pulse-outline",
     ),
+
     # Timestamp (datetime object)
     (
         OmronSensorDeviceClass.TIMESTAMP,
@@ -247,7 +248,8 @@ class OmronBluetoothSensorEntity(
         self.entity_description = description
         self._device_key = device_key
         self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._omron_device_data = hass.data[DOMAIN][entry.entry_id]["data"]
+        model = self._omron_device_data.device_model
         identifier = self._address.replace(":", "")[-4:].lower()
         model_slug = model.lower().replace("-", "_")
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
@@ -307,6 +309,24 @@ class OmronBluetoothSensorEntity(
         self._restored_native_value = self._parse_restored_state_string(
             str(last_state.state)
         )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the state attributes."""
+        attrs = {}
+        try:
+            device_id = self._device_key.device_id
+            if not device_id:
+                import re
+                match = re.search(r'_([0-9]+)$', str(self._device_key.key))
+                device_id = f"user_{match.group(1)}" if match else 'user_1'
+
+            if hasattr(self._omron_device_data, 'omron_extra_attributes'):
+                if device_id in self._omron_device_data.omron_extra_attributes:
+                    attrs.update(self._omron_device_data.omron_extra_attributes[device_id])
+        except Exception:
+            pass
+        return attrs if attrs else None
 
     @property
     def native_value(self) -> Any:

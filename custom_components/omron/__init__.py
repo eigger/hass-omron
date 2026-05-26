@@ -125,10 +125,12 @@ def process_service_info(
     is_invalid_time = getattr(data, "invalid_time", False)
     is_forced_transfer = getattr(data, "forced_transfer", False)
 
+    # Modified: Always trigger sync on any advertisement if we have a poll coordinator.
+    # The POLL_COOLDOWN_SECONDS prevents spamming the proxy.
     is_sync_needed = (
         is_pairing
         or is_invalid_time
-        or (is_forced_transfer and coordinator.poll_coordinator is not None)
+        or (coordinator.poll_coordinator is not None)
     )
     if not is_sync_needed:
         return update

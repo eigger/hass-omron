@@ -85,6 +85,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._bls_racp_unavailable_logged = False
         self._unvalidated_variant_warning_logged = False
         self._poll_guard = asyncio.Lock()
+        self.omron_extra_attributes = {}
 
         # Advertisement Status Flags
         # Names referenced from __init__.py (poll triggers): forced_transfer,
@@ -637,6 +638,17 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
         self._publish_measurement_timestamp(record, key_suffix, name_suffix)
 
+        user_id = f"user_{user}" if multi_user else "user_1"
+        if user_id not in self.omron_extra_attributes:
+            self.omron_extra_attributes[user_id] = {}
+            
+        if 'measurement_type' in record:
+            self.omron_extra_attributes[user_id]['measurement_type'] = record['measurement_type']
+        if 'truread_details' in record:
+            self.omron_extra_attributes[user_id]['truread_details'] = record['truread_details']
+        else:
+            self.omron_extra_attributes[user_id].pop('truread_details', None)
+
         # Merge EEPROM-parsed ihb/mov into status_flags so both BLS and EEPROM
         # paths produce binary sensors for irregular pulse and body movement.
         status_flags = dict(record.get("status_flags") or {})
@@ -647,7 +659,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         if "cuff" in record and "cuff_fit" not in status_flags:
             status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
-            status_flags["improper_position"] = bool(record["pos"])
+            # Only map record "pos" to posture error for wrist-positioning devices.
+            # On arm devices, "pos" is the TruRead sequence index, not a posture error.
+            if self._device_config.record_parser == "classic_vital_14_6232_family":
+                status_flags["improper_position"] = bool(record["pos"])
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
@@ -932,7 +947,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                             if session_attempt == 0 and (
                                 self._device_config.legacy_pairing_workarounds
                                 and self.pairing_mode
-                            ):
+                             ):
                                 # Legacy custom-key models in -P- mode (MSD bit 0x08):
                                 # an in-line pair() finalises the new key the user just
                                 # programmed before we open the memory session.
@@ -1332,4 +1347,3 @@ class OmronBluetoothDeviceData(BluetoothData):
         return await async_sync_device_time(
             client, self._device_model, self._device_config, transport
         )
-
