@@ -1600,6 +1600,10 @@ class OmronDeviceDriver:
                                 avg_record['dia'] = avg_dia
                                 avg_record['bpm'] = avg_bpm
                                 avg_record['measurement_type'] = 'TruRead Average'
+                                # c3 carries pos=3 (sequence index); overwrite with 0
+                                # so the aggregate doesn't report improper_position=True,
+                                # while still pushing a fresh value to the sensor.
+                                avg_record['pos'] = 0
                                 
                                 # Store individual records for attributes
                                 def _clean_rec(r):

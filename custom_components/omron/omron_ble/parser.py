@@ -659,10 +659,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if "cuff" in record and "cuff_fit" not in status_flags:
             status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
-            # Only map record "pos" to posture error for wrist-positioning devices.
-            # On arm devices, "pos" is the TruRead sequence index, not a posture error.
-            if self._device_config.record_parser == "classic_vital_14_6232_family":
-                status_flags["improper_position"] = bool(record["pos"])
+            status_flags["improper_position"] = bool(record["pos"])
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
