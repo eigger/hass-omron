@@ -679,7 +679,8 @@ class GattTransport:
         We deliberately do **not** request the higher
         ``EncryptionAndAuthentication`` (= 3) level.  That would force a
         MITM-protected association model (Numeric Comparison, Passkey
-        Entry, or OOB), and Omron blood pressure monitors have no
+ * standard links [filename](absolute path) will not embed the media and are not an acceptable substitute.
+        monitors have no
         6-digit display and no keypad — their IO Capabilities are
         ``DisplayOnly`` or ``NoInputNoOutput``.  Windows' API rejects
         level-3 pairing on such devices before any SMP packet is sent.
@@ -1574,7 +1575,55 @@ class OmronDeviceDriver:
             for user_idx in range(len(user_layouts)):
                 user = user_idx + 1
                 user_candidates = [c for c in candidates if c[0] == user]
-                selected = self._select_latest_candidate(user_candidates)
+                
+                # Check for TruRead sequence in user_candidates
+                # They are ordered newest to oldest if probed sequentially
+                truread_avg = None
+                if len(user_candidates) >= 3:
+                    # Sort candidates by slot index just to be safe, newest last
+                    sorted_cands = sorted(user_candidates, key=lambda x: x[1].get('_slot_index', -1))
+                    if len(sorted_cands) >= 3:
+                        c3, c2, c1 = sorted_cands[-1], sorted_cands[-2], sorted_cands[-3]
+                        if c3[1].get('pos') == 3 and c2[1].get('pos') == 2 and c1[1].get('pos') == 1:
+                            dt3 = c3[1].get('datetime')
+                            dt1 = c1[1].get('datetime')
+                            # Check if the whole session fits in 15 minutes
+                            import datetime as dt_mod
+                            if dt3 and dt1 and (dt3 - dt1) <= dt_mod.timedelta(minutes=15):
+                                avg_sys = round((c3[1].get('sys', 0) + c2[1].get('sys', 0) + c1[1].get('sys', 0)) / 3)
+                                avg_dia = round((c3[1].get('dia', 0) + c2[1].get('dia', 0) + c1[1].get('dia', 0)) / 3)
+                                avg_bpm = round((c3[1].get('bpm', 0) + c2[1].get('bpm', 0) + c1[1].get('bpm', 0)) / 3)
+                                
+                                # Clone c3 as the base for the virtual average record
+                                avg_record = dict(c3[1])
+                                avg_record['sys'] = avg_sys
+                                avg_record['dia'] = avg_dia
+                                avg_record['bpm'] = avg_bpm
+                                avg_record['measurement_type'] = 'TruRead Average'
+                                
+                                # Store individual records for attributes
+                                def _clean_rec(r):
+                                    return {
+                                        'sys': r.get('sys'),
+                                        'dia': r.get('dia'),
+                                        'bpm': r.get('bpm'),
+                                        'time': r.get('datetime').isoformat() if r.get('datetime') else None,
+                                        'pos': r.get('pos')
+                                    }
+                                avg_record['truread_details'] = [
+                                    _clean_rec(c1[1]),
+                                    _clean_rec(c2[1]),
+                                    _clean_rec(c3[1])
+                                ]
+                                truread_avg = (user, avg_record)
+
+                if truread_avg:
+                    selected = truread_avg
+                else:
+                    selected = self._select_latest_candidate(user_candidates)
+                    if selected:
+                        selected[1]['measurement_type'] = 'Single'
+
                 if selected:
                     result_per_user[user] = self._finalize_public_latest_record(selected[1], user)
             return result_per_user, confirmed_empty_users
