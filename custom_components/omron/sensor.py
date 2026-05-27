@@ -310,6 +310,24 @@ class OmronBluetoothSensorEntity(
             str(last_state.state)
         )
 
+    def _resolve_user_id_from_key(self) -> str:
+        """Resolve user_id from sensor key using aliases or numeric suffix."""
+        key = str(self._device_key.key)
+        # Reverse search using aliases (dynamic, works when names change)
+        aliases = getattr(self._omron_device_data, '_user_aliases', {})
+        if aliases:
+            from .util import slugify_for_entity_key
+            for u_idx, label in aliases.items():
+                slug = slugify_for_entity_key(label)
+                if slug and key.endswith(f"_{slug}"):
+                    return f"user_{u_idx}"
+        # Fallback: numeric suffix (_2, _user2)
+        import re
+        match = re.search(r'_(?:user)?([0-9]+)$', key)
+        if match:
+            return f"user_{match.group(1)}"
+        return 'user_1'
+
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Return the state attributes."""
@@ -317,9 +335,7 @@ class OmronBluetoothSensorEntity(
         try:
             device_id = self._device_key.device_id
             if not device_id:
-                import re
-                match = re.search(r'_([0-9]+)$', str(self._device_key.key))
-                device_id = f"user_{match.group(1)}" if match else 'user_1'
+                device_id = self._resolve_user_id_from_key()
 
             if hasattr(self._omron_device_data, 'omron_extra_attributes'):
                 if device_id in self._omron_device_data.omron_extra_attributes:
