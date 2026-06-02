@@ -304,6 +304,21 @@ class OmronBluetoothSensorEntity(
         last_state = await self.async_get_last_state()
         if last_state is None:
             return
+
+        # Restore custom attributes (like truread_details) across reboots
+        device_id = self._device_key.device_id
+        if not device_id:
+            device_id = self._resolve_user_id_from_key()
+
+        if not hasattr(self._omron_device_data, 'omron_extra_attributes'):
+            self._omron_device_data.omron_extra_attributes = {}
+        if device_id not in self._omron_device_data.omron_extra_attributes:
+            self._omron_device_data.omron_extra_attributes[device_id] = {}
+
+        for key in ['truread_details', 'measurement_type', 'improper_position']:
+            if key in last_state.attributes:
+                self._omron_device_data.omron_extra_attributes[device_id][key] = last_state.attributes[key]
+
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return
         self._restored_native_value = self._parse_restored_state_string(
