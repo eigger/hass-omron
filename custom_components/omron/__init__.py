@@ -125,12 +125,12 @@ def process_service_info(
     is_invalid_time = getattr(data, "invalid_time", False)
     is_forced_transfer = getattr(data, "forced_transfer", False)
 
-    # Modified: Always trigger sync on any advertisement if we have a poll coordinator.
-    # The POLL_COOLDOWN_SECONDS prevents spamming the proxy.
+    # Trigger sync only for explicit device flags. A poll coordinator being present
+    # is not itself a reason to connect on every advertisement.
     is_sync_needed = (
         is_pairing
         or is_invalid_time
-        or (coordinator.poll_coordinator is not None)
+        or is_forced_transfer
     )
     if not is_sync_needed:
         return update
@@ -172,7 +172,7 @@ def process_service_info(
         # the poll coordinator, which goes through _async_poll_data and handles
         # its own lock acquisition. Don't hold the lock during request_refresh,
         # otherwise the child poll would see lock locked and return cached data.
-        if not is_pairing and not is_invalid_time:
+        if is_forced_transfer and not is_pairing and not is_invalid_time:
             entry_data["last_attempt_time"] = time.time()
             _LOGGER.debug(
                 "Triggering scheduled poll via forced-transfer flag for %s",
