@@ -564,6 +564,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
+        # Drop the bond after each session; a leftover bond is rejected on the
+        # next normal-mode connection.
+        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
