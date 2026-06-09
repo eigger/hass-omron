@@ -375,6 +375,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7155T-ALRU", unverified=False),
             DeviceModelVariant("HEM-7155T-D", unverified=False),
             DeviceModelVariant("HEM-7155T-EBK", unverified=False),
+            DeviceModelVariant("HEM-7155T-EBL", unverified=False),
             DeviceModelVariant("HEM-7155T_AP", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3BK", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3SL", unverified=False),
