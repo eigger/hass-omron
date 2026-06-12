@@ -379,7 +379,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7155T_AP", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3BK", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3SL", unverified=False),
-            DeviceModelVariant("HEM-7155T_ESL", unverified=False),
             DeviceModelVariant("HEM-7155T_K4-D", unverified=True),
             DeviceModelVariant("HEM-7155T_K4-EBK", unverified=True),
             DeviceModelVariant("HEM-7155T_K4-ESL", unverified=True),
@@ -467,6 +466,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
+        equivalent_model_ids=(
+            # HEM-7155T_ESL (marketed "X4 Smart") ships in two hardware
+            # revisions: an older classic-stack one and this newer modern-stack
+            # (FE4A) V3. The tester's unit registered as MW3 and parsed records
+            # correctly, so map the code here. Moved out of the classic
+            # HEM-7155T profile, where the modern-stack revision did not work.
+            DeviceModelVariant("HEM-7155T_ESL", unverified=False),
+        ),
     ),
     # HEM-7146T modern stack — OS bonding only, 1 user, 30 records
     "HEM-7146T": DeviceConfig(
