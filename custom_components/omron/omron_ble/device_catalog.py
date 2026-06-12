@@ -400,6 +400,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
+        # Drop the bond after each session; the FE4A data service is only
+        # visible over an encrypted link, and a leftover bond is rejected on
+        # the next normal-mode connection (same fix as HEM-7380T1). Without
+        # this, only the first poll after pairing returns data.
+        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -408,7 +413,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0010,
         settings_write_address=0x0054,
         settings_unread_records_bytes=None,
-        settings_time_sync_bytes=None,
+        # EEPROM time sync confirmed via omblepy hem-7155t.py (settings block at
+        # 0x0010, time bytes [0x2C, 0x3C], modern offset8 layout). Addresses
+        # match the classic HEM-7155T V1 profile exactly.
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -429,6 +438,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
+        # Drop the bond after each session; the FE4A data service is only
+        # visible over an encrypted link, and a leftover bond is rejected on
+        # the next normal-mode connection (same fix as HEM-7380T1). Without
+        # this, only the first poll after pairing returns data.
+        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -437,7 +451,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
-        settings_time_sync_bytes=None,
+        # EEPROM time sync: the V3 settings block moved to 0x0260, but the
+        # time-bytes slice [0x2C, 0x3C] is a block-relative offset (same as the
+        # 7155T family) so it applies unchanged. EEPROM sync runs before CTS and
+        # falls back to it, so CTS still works if these offsets are wrong.
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
