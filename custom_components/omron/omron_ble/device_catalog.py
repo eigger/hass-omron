@@ -379,7 +379,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7155T_AP", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3BK", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3SL", unverified=False),
-            DeviceModelVariant("HEM-7155T_ESL", unverified=False),
             DeviceModelVariant("HEM-7155T_K4-D", unverified=True),
             DeviceModelVariant("HEM-7155T_K4-EBK", unverified=True),
             DeviceModelVariant("HEM-7155T_K4-ESL", unverified=True),
@@ -400,6 +399,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
+        # Drop the bond after each session; the FE4A data service is only
+        # visible over an encrypted link, and a leftover bond is rejected on
+        # the next normal-mode connection (same fix as HEM-7380T1). Without
+        # this, only the first poll after pairing returns data.
+        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -408,7 +412,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0010,
         settings_write_address=0x0054,
         settings_unread_records_bytes=None,
-        settings_time_sync_bytes=None,
+        # EEPROM time sync confirmed via omblepy hem-7155t.py (settings block at
+        # 0x0010, time bytes [0x2C, 0x3C], modern offset8 layout). Addresses
+        # match the classic HEM-7155T V1 profile exactly.
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -429,6 +437,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
+        # Drop the bond after each session; the FE4A data service is only
+        # visible over an encrypted link, and a leftover bond is rejected on
+        # the next normal-mode connection (same fix as HEM-7380T1). Without
+        # this, only the first poll after pairing returns data.
+        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -437,7 +450,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
-        settings_time_sync_bytes=None,
+        # EEPROM time sync: the V3 settings block moved to 0x0260, but the
+        # time-bytes slice [0x2C, 0x3C] is a block-relative offset (same as the
+        # 7155T family) so it applies unchanged. EEPROM sync runs before CTS and
+        # falls back to it, so CTS still works if these offsets are wrong.
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -448,6 +466,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
+        equivalent_model_ids=(
+            # HEM-7155T_ESL (marketed "X4 Smart") ships in two hardware
+            # revisions: an older classic-stack one and this newer modern-stack
+            # (FE4A) V3. The tester's unit registered as MW3 and parsed records
+            # correctly, so map the code here. Moved out of the classic
+            # HEM-7155T profile, where the modern-stack revision did not work.
+            DeviceModelVariant("HEM-7155T_ESL", unverified=False),
+        ),
     ),
     # HEM-7146T modern stack — OS bonding only, 1 user, 30 records
     "HEM-7146T": DeviceConfig(
