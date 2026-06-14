@@ -25,6 +25,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7146T2** | X2 Smart+ | Upper Arm | ✅ |
 | **HEM-7151T** | BP5250/M3 Comfort | Upper Arm | ✅ |
 | **HEM-7155T** | BP7350/M4 Intelli IT | Upper Arm | ✅ |
+| **HEM-716BT2** | BP5255/M4 Smart | Upper Arm | ✅ |
 | **HEM-7320T** | BP7450/M7 Intelli IT | Upper Arm | ✅ |
 | **HEM-7322T** | BP786/M6 Intelli IT | Upper Arm | ✅ |
 | **HEM-7343T** | BP5450/Platinum Series | Upper Arm | ✅ |
