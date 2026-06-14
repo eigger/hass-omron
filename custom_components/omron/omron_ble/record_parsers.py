@@ -20,10 +20,15 @@ def _bytearray_bits_to_int(
     return shifted & bitmask
 
 
-def parse_classic_vital_14_7322_family(
+def parse_classic_vital_14_bitpacked(
     data: bytes | bytearray, endianness: str
 ) -> dict[str, Any]:
-    """Classic 14-byte parser for HEM-7322T family."""
+    """Classic 14-byte bit-packed vital record (big-endian bitfields).
+
+    Unlike ``parse_classic_vital_14`` (byte-aligned fields), this layout packs
+    sys/dia/bpm/date into a continuous bitfield read big-endian.  Used by the
+    HEM-7322T and HEM-7600T families.
+    """
     record: dict[str, Any] = {}
     record["dia"] = _bytearray_bits_to_int(data, endianness, 0, 7)
     record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25

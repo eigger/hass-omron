@@ -132,7 +132,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_7322_family",
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-7321T-CA", unverified=False),
             DeviceModelVariant("HEM-7321T_TI-CA", unverified=False),
@@ -172,7 +172,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        # bit-packed big-endian record layout (confirmed from HEM-7600T-E:
+        # byte-aligned classic_vital_14 yielded dia>sys / bpm=26 / no date)
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-7270C", unverified=False),
             DeviceModelVariant("HEM-7271T", unverified=False),
