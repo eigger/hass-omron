@@ -23,7 +23,7 @@ from .record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_16_6401_family,
     parse_classic_vital_14_6232_family,
-    parse_classic_vital_14_7322_family,
+    parse_classic_vital_14_bitpacked,
 )
 
 
@@ -131,7 +131,7 @@ class DeviceConfig:
         parser_map = {
             "classic_vital_14": parse_classic_vital_14,
             "classic_vital_16_6401_family": parse_classic_vital_16_6401_family,
-            "classic_vital_14_7322_family": parse_classic_vital_14_7322_family,
+            "classic_vital_14_bitpacked": parse_classic_vital_14_bitpacked,
             "classic_vital_14_6232_family": parse_classic_vital_14_6232_family,
         }
         parser = parser_map.get(self.record_parser)
