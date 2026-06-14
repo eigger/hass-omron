@@ -99,6 +99,135 @@ def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x81
 
 
+async def _bluez_agent_pair(client: BleakClient) -> bool:
+    """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
+
+    On BlueZ 5.72+ (Linux), calling ``Device1.Pair()`` without a registered
+    agent causes the Just Works confirmation to go unanswered, producing
+    ``AuthenticationFailed`` even though the device supports the pairing
+    method.  Registering a ``KeyboardDisplay`` agent that auto-confirms
+    passkeys resolves this for OS-bonding-only devices like the HEM-716BT2.
+
+    Uses ``dbus-fast`` (already a bleak dependency) so no extra packages
+    are needed.  Silently returns False on non-Linux platforms or when the
+    BlueZ DBus path is unavailable.
+    """
+    try:
+        from dbus_fast.aio.message_bus import MessageBus
+        from dbus_fast.constants import BusType, MessageType
+        from dbus_fast.message import Message
+        from dbus_fast.service import ServiceInterface, method as dbus_method
+    except ImportError:
+        return False
+
+    # BlueZ device path is in the BLEDevice details on Linux/BlueZ backends.
+    details = getattr(getattr(client, "_device", None), "details", None) or {}
+    device_path: str | None = details.get("path")
+    if not device_path:
+        # Try bleak's internal _backend attribute for older versions.
+        backend = getattr(client, "_backend", None)
+        device_path = getattr(getattr(backend, "_device", None), "path", None)
+    if not device_path:
+        return False
+
+    _AGENT_PATH = "/omron/ble/pairagent"
+
+    class _AutoConfirmAgent(ServiceInterface):
+        """Minimal BlueZ pairing agent that auto-accepts Just Works."""
+
+        def __init__(self) -> None:
+            super().__init__("org.bluez.Agent1")
+
+        @dbus_method()
+        def Release(self) -> None:  # type: ignore[override]
+            pass
+
+        @dbus_method()
+        def RequestConfirmation(self, device: "o", passkey: "u") -> None:  # type: ignore[override]
+            _LOGGER.debug("BlueZ agent: auto-confirming passkey %06d", passkey)
+
+        @dbus_method()
+        def RequestPasskey(self, device: "o") -> "u":  # type: ignore[override]
+            return 0
+
+        @dbus_method()
+        def RequestAuthorization(self, device: "o") -> None:  # type: ignore[override]
+            pass
+
+        @dbus_method()
+        def Cancel(self) -> None:  # type: ignore[override]
+            pass
+
+    try:
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    except Exception as exc:
+        _LOGGER.debug("BlueZ agent pair: cannot connect to system bus: %s", exc)
+        return False
+
+    agent = _AutoConfirmAgent()
+    try:
+        bus.export(_AGENT_PATH, agent)
+
+        await bus.call(
+            Message(
+                destination="org.bluez",
+                path="/org/bluez",
+                interface="org.bluez.AgentManager1",
+                member="RegisterAgent",
+                signature="os",
+                body=[_AGENT_PATH, "KeyboardDisplay"],
+            )
+        )
+        await bus.call(
+            Message(
+                destination="org.bluez",
+                path="/org/bluez",
+                interface="org.bluez.AgentManager1",
+                member="RequestDefaultAgent",
+                signature="o",
+                body=[_AGENT_PATH],
+            )
+        )
+        _LOGGER.debug("BlueZ KeyboardDisplay agent registered; calling Pair()")
+
+        reply = await bus.call(
+            Message(
+                destination="org.bluez",
+                path=device_path,
+                interface="org.bluez.Device1",
+                member="Pair",
+            )
+        )
+        success = reply.message_type == MessageType.METHOD_RETURN
+        if success:
+            _LOGGER.debug("BlueZ agent pair succeeded for %s", device_path)
+        else:
+            _LOGGER.debug(
+                "BlueZ agent pair returned non-success for %s: %s",
+                device_path,
+                reply,
+            )
+        return success
+    except Exception as exc:
+        _LOGGER.debug("BlueZ agent pair failed for %s: %s", device_path, exc)
+        return False
+    finally:
+        try:
+            await bus.call(
+                Message(
+                    destination="org.bluez",
+                    path="/org/bluez",
+                    interface="org.bluez.AgentManager1",
+                    member="UnregisterAgent",
+                    signature="o",
+                    body=[_AGENT_PATH],
+                )
+            )
+        except Exception:
+            pass
+        bus.disconnect()
+
+
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
     """Whether an OS-level BLE pairing exception can be safely ignored.
 
@@ -725,13 +854,22 @@ class GattTransport:
                     if attempt > 1:
                         await asyncio.sleep(0.5)
                         await _bleak_refresh_services(self._client)
-                    try:
-                        await self._client.pair()
-                    except TypeError:
-                        # Backend signature requires ``protection_level``;
-                        # explicitly pass 2 (Encryption / Just Works) which
-                        # is also the Bleak default.
-                        await self._client.pair(protection_level=2)
+                    # On BlueZ (Linux) the standard pair() call does not
+                    # register a pairing agent, so the Just Works passkey
+                    # confirmation goes unanswered and pairing fails with
+                    # AuthenticationFailed on BlueZ 5.72+ (including HAOS).
+                    # Try a DBus-agent-assisted pair first; fall back to the
+                    # standard bleak pair() if the helper is unavailable
+                    # (non-Linux platforms, missing dbus-fast, etc.).
+                    agent_paired = await _bluez_agent_pair(self._client)
+                    if not agent_paired:
+                        try:
+                            await self._client.pair()
+                        except TypeError:
+                            # Backend signature requires ``protection_level``;
+                            # explicitly pass 2 (Encryption / Just Works) which
+                            # is also the Bleak default.
+                            await self._client.pair(protection_level=2)
                     _LOGGER.debug("OS-level BLE bonding completed")
                     await _post_bond_refresh()
                     return
