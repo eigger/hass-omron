@@ -163,7 +163,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0286,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout="eeprom_time_linear_10",
+        # classic-mixed field order (confirmed from HEM-7600T-E EEPROM dumps)
+        time_sync_layout="eeprom_time_classic_mixed",
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
