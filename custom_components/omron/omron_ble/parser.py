@@ -1170,19 +1170,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                             bat_bytes.hex(),
                             bat_level,
                         )
-                        self.update_sensor(
-                            "battery",
-                            Units.PERCENTAGE,
-                            bat_level,
-                            SensorDeviceClass.BATTERY,
-                            "Battery",
-                        )
-                        self.update_binary_sensor(
-                            "battery",
-                            bat_level <= 15,
-                            BinarySensorDeviceClass.BATTERY,
-                            "Battery",
-                        )
+                        # self.update_sensor(
+                        #     "battery",
+                        #     Units.PERCENTAGE,
+                        #     bat_level,
+                        #     SensorDeviceClass.BATTERY,
+                        #     "Battery",
+                        # )
+                        # self.update_binary_sensor(
+                        #     "battery",
+                        #     bat_level <= 15,
+                        #     BinarySensorDeviceClass.BATTERY,
+                        #     "Battery",
+                        # )
                 except Exception as exc:
                     _LOGGER.debug("Failed to read Battery Level: %s", exc)
 
