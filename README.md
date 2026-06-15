@@ -29,6 +29,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7320T** | BP7450/M7 Intelli IT | Upper Arm | ✅ |
 | **HEM-7322T** | BP786/M6 Intelli IT | Upper Arm | ✅ |
 | **HEM-7343T** | BP5450/Platinum Series | Upper Arm | ✅ |
+| **HEM-7530T** | BP7900/Complete | Upper Arm | ✅ |
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during > setup, but have not been formally tested. If your device does not work, please share the debug logs
