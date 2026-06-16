@@ -62,10 +62,6 @@ class DeviceConfig:
     # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
     # HEM-7380T1 uses OS bonding only; stays False.
     legacy_pairing_workarounds: bool = False
-    # Remove the OS-level bond at the end of every BLE session so the next
-    # connection starts bond-less. Needed for profiles that reject a leftover
-    # bond on normal-mode reconnect (HEM-7380T1 AFib family).
-    unpair_after_session: bool = False
 
     # EEPROM layout
     endianness: str = "big"

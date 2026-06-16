@@ -1061,24 +1061,6 @@ class GattTransport:
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(1.0)
 
-    async def unpair(self) -> None:
-        """Remove the OS-level bond for this device (best-effort).
-
-        Not all backends implement ``BleakClient.unpair``; unsupported ones
-        raise ``NotImplementedError``. All failures are swallowed so this
-        never breaks the surrounding teardown.
-        """
-        try:
-            await self._client.unpair()
-            _LOGGER.debug("Removed OS bond for %s after session", self._config.model)
-        except NotImplementedError:
-            _LOGGER.debug(
-                "unpair() not supported by this BLE backend for %s; "
-                "bond (if any) left in place",
-                self._config.model,
-            )
-        except Exception as exc:
-            _LOGGER.debug("unpair() failed for %s (ignored): %s", self._config.model, exc)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:

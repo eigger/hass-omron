@@ -402,11 +402,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
-        # Drop the bond after each session; the FE4A data service is only
-        # visible over an encrypted link, and a leftover bond is rejected on
-        # the next normal-mode connection (same fix as HEM-7380T1). Without
-        # this, only the first poll after pairing returns data.
-        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -437,14 +432,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
+        requires_unlock=True,
         supports_pairing=False,
         supports_os_bonding_only=True,
-        # Drop the bond after each session; the FE4A data service is only
-        # visible over an encrypted link, and a leftover bond is rejected on
-        # the next normal-mode connection (same fix as HEM-7380T1). Without
-        # this, only the first poll after pairing returns data.
-        unpair_after_session=True,
+        legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -594,9 +585,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         requires_unlock=False,
         supports_pairing=False,
         supports_os_bonding_only=True,
-        # Drop the bond after each session; a leftover bond is rejected on the
-        # next normal-mode connection.
-        unpair_after_session=True,
         endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
