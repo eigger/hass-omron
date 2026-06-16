@@ -1260,13 +1260,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                     except Exception:
                         pass
 
-                # Tear down the OS bond for profiles that must stay bond-less.
-                if (
-                    transport is not None
-                    and self._device_config.unpair_after_session
-                ):
-                    await transport.unpair()
-
                 if client and client.is_connected:
                     try:
                         await client.disconnect()
