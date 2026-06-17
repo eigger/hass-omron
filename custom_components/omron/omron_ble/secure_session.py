@@ -233,7 +233,8 @@ class SecureSession:
         # Extract peer's encryption challenge and salt
         peer_enc_challenge = start_enc_resp[2:18]
         peer_enc_salt = start_enc_resp[18:46]
-        self.enc_peer_salt_nonce = peer_enc_salt[8:12]
+        # 8-byte device value embedded in every CCM nonce (bytes 5..13).
+        self.enc_peer_salt_nonce = peer_enc_salt[8:16]
 
         # Session key = AES-CMAC(LTK, peer_salt[:8] || own_salt[:8])
         session_kdf_msg = peer_enc_salt[0:8] + self.enc_own_salt[0:8]
@@ -245,8 +246,8 @@ class SecureSession:
         # Challenge payload: peer_challenge(16) || padding(16) || random(4)
         challenge_payload = peer_enc_challenge + b"\x00" * 16 + secrets.token_bytes(4)
 
-        # 8-byte CCM nonce: counter(4, zero) || direction(1, 0x80) || salt(3)
-        ccm_nonce = b"\x00\x00\x00\x00\x80" + self.enc_peer_salt_nonce[:3]
+        # 13-byte CCM nonce: counter(4 LE, =0) || direction(1, 0x80=send) || device(8)
+        ccm_nonce = b"\x00\x00\x00\x00" + b"\x80" + self.enc_peer_salt_nonce
         ccm_aad = b"\x00\x00\x00\x00"
 
         # AES-CCM encrypt with 8-byte tag
@@ -272,7 +273,8 @@ class SecureSession:
             raise ValueError(f"Invalid Challenge Response headers: {resp[:2].hex()}")
 
         ciphertext = resp[2:]
-        ccm_nonce = b"\x00\x00\x00\x00\x00" + self.enc_peer_salt_nonce[:3]
+        # 13-byte CCM nonce: counter(4 LE, =0) || direction(1, 0x00=recv) || device(8)
+        ccm_nonce = b"\x00\x00\x00\x00" + b"\x00" + self.enc_peer_salt_nonce
         ccm_aad = b"\x00\x00\x00\x00"
 
         aesccm = AESCCM(self.session_key, tag_length=8)
@@ -292,7 +294,7 @@ class SecureSession:
         """Encrypt a data-plane command packet.
 
         Returns:
-            ``0xC0 || counter(4 LE) || ciphertext || tag(8)``
+            ``0xC0 || counter(4 LE) || zero(8) || ciphertext || tag(8)`` (13-byte header)
         """
         _require_cryptography()
         from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -305,14 +307,15 @@ class SecureSession:
         self.own_packet_counter += 1
         counter_bytes = self.own_packet_counter.to_bytes(4, "little")
 
-        # 8-byte CCM nonce: counter(4 LE) || direction(0x80=send) || salt(3)
-        nonce = counter_bytes + b"\x80" + self.enc_peer_salt_nonce[:3]
+        # 13-byte CCM nonce: counter(4 LE) || direction(0x80=send) || device(8)
+        nonce = counter_bytes + b"\x80" + self.enc_peer_salt_nonce
         aad = counter_bytes
 
         aesccm = AESCCM(self.session_key, tag_length=8)
         ciphertext = aesccm.encrypt(nonce, plaintext, aad)
 
-        header = b"\xc0" + counter_bytes
+        # 13-byte transport header: 0xC0 || counter(4 LE) || zero(8)
+        header = b"\xc0" + counter_bytes + b"\x00" * (PACKET_HEADER_SIZE - 5)
         return header + ciphertext
 
     def decrypt(self, packet: bytes) -> bytes:
@@ -322,7 +325,7 @@ class SecureSession:
 
         if self.state != self.STATE_PAIRED:
             raise RuntimeError("decrypt is only valid in PAIRED state.")
-        if len(packet) < 5:
+        if len(packet) < PACKET_HEADER_SIZE:
             raise ValueError("Encrypted data packet too short.")
         if packet[0] != 0xc0:
             raise ValueError(f"Invalid packet prefix ID: {packet[0]:02x}")
@@ -335,10 +338,10 @@ class SecureSession:
             )
 
         counter_bytes = packet[1:5]
-        ciphertext = packet[5:]
+        ciphertext = packet[PACKET_HEADER_SIZE:]
 
-        # 8-byte CCM nonce: counter(4 LE) || direction(0x00=recv) || salt(3)
-        nonce = counter_bytes + b"\x00" + self.enc_peer_salt_nonce[:3]
+        # 13-byte CCM nonce: counter(4 LE) || direction(0x00=recv) || device(8)
+        nonce = counter_bytes + b"\x00" + self.enc_peer_salt_nonce
         aad = counter_bytes
 
         aesccm = AESCCM(self.session_key, tag_length=8)
