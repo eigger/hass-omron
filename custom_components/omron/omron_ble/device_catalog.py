@@ -507,8 +507,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
-        requires_unlock=False,
-        requires_secure_unlock=True,
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
