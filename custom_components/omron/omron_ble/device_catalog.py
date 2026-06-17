@@ -261,7 +261,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        # bit-packed record layout (confirmed from HEM-6161T-RU; byte-aligned
+        # classic_vital_14 yields bpm=26 and no valid datetime on this family).
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-6231T2-JC", unverified=False),
             DeviceModelVariant("HEM-6231T2-JE", unverified=False),
@@ -298,7 +300,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-6161T-E", unverified=True),
             DeviceModelVariant("HEM-6161T-RU", unverified=True),
@@ -327,7 +329,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-7136T-SH3", unverified=True),
             DeviceModelVariant("HEM-7138JT-SH", unverified=True),
@@ -356,7 +358,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser="classic_vital_14_bitpacked",
         equivalent_model_ids=(
             DeviceModelVariant("HEM-6231T-SH", unverified=True),
             DeviceModelVariant("HEM-6231T_Z", unverified=True),
