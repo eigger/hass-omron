@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Any, NamedTuple
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,23 @@ class DeviceModelVariant(NamedTuple):
     reason: str | None = None
 
 
+class UnlockMode(str, Enum):
+    """Transport unlock strategy for a device profile."""
+
+    NONE = "none"
+    CLASSIC_KEY = "classic_key"
+    SECURE_SESSION = "secure_session"
+
+
+class HostPairingMode(str, Enum):
+    """Host-side pairing strategy for BLE security establishment."""
+
+    CUSTOM_KEY = "custom_key"
+    OS_BONDING = "os_bonding"
+    # Reserved for future profiles that intentionally skip host-side pairing.
+    NONE = "none"
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -51,18 +69,11 @@ class DeviceConfig:
         default_factory=lambda: list(CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS)
     )
     unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
-    requires_unlock: bool = True
-    requires_secure_unlock: bool = False
-    supports_pairing: bool = True
-    supports_os_bonding_only: bool = False
-    # Extra UUIDs to subscribe (CCCD write) before the memory session, but whose
-    # notifications are not processed as protocol data.  Required by some modern-stack
-    # devices (e.g. HEM-7194T1/HEM-7196T1 family) that expect the host to enable
-    # b305b680 notifications before accepting WLP4COM session commands.
-    ctrl_notify_uuids: list[str] = field(default_factory=list)
-    # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
-    # HEM-7380T1 uses OS bonding only; stays False.
-    legacy_pairing_workarounds: bool = False
+    unlock_mode: UnlockMode = UnlockMode.CLASSIC_KEY
+    host_pairing_mode: HostPairingMode = HostPairingMode.CUSTOM_KEY
+    # Enable more aggressive GATT timing for classic custom-key profiles
+    # (extra refresh/retry and pre-unlock 0x02 probe).
+    aggressive_gatt_timing: bool = False
 
     # EEPROM layout
     endianness: str = "big"
@@ -90,6 +101,56 @@ class DeviceConfig:
     # When True, pick latest record by highest EEPROM slot index, then datetime (index-pointer devices).
     prefer_latest_by_slot_index: bool = False
     equivalent_model_ids: tuple[DeviceModelVariant, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Validate unlock/pairing strategy combinations."""
+        if (
+            self.unlock_mode == UnlockMode.SECURE_SESSION
+            and self.host_pairing_mode != HostPairingMode.OS_BONDING
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: secure-session unlock requires "
+                "host_pairing_mode=OS_BONDING (unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.host_pairing_mode == HostPairingMode.OS_BONDING
+            and self.unlock_mode == UnlockMode.CLASSIC_KEY
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: OS_BONDING cannot use classic-key unlock "
+                "(unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.host_pairing_mode == HostPairingMode.NONE
+            and self.unlock_mode != UnlockMode.NONE
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: host_pairing_mode=NONE requires unlock_mode=NONE "
+                "(unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.unlock_mode == UnlockMode.NONE
+            and self.host_pairing_mode == HostPairingMode.CUSTOM_KEY
+        ):
+            _LOGGER.warning(
+                "Profile %s uses custom-key pairing with unlock_mode=NONE; verify catalog settings",
+                self.model,
+            )
 
     @property
     def num_users(self) -> int:
@@ -136,15 +197,19 @@ class DeviceConfig:
             raise ValueError(f"Unknown record parser: {self.record_parser}")
         return parser(data, self.endianness)
 
-    def parent_service_stack(self) -> str:
-        """Return which BLE parent-service layout this profile expects (classic vs modern)."""
-        if self.parent_service_uuid == MODERN_STACK_PARENT_SERVICE_UUID:
-            return "modern"
-        return "classic"
+    @property
+    def is_modern_stack(self) -> bool:
+        """Whether this profile uses the modern FE4A parent-service layout."""
+        return self.parent_service_uuid == MODERN_STACK_PARENT_SERVICE_UUID
+
+    @property
+    def is_classic_stack(self) -> bool:
+        """Whether this profile uses the classic 1812 parent-service layout."""
+        return not self.is_modern_stack
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""
-        if self.parent_service_stack() == "modern":
+        if self.is_modern_stack:
             return MODERN_STACK_PARENT_SERVICE_UUID in service_uuids
         return CLASSIC_STACK_PARENT_SERVICE_UUID in service_uuids
 

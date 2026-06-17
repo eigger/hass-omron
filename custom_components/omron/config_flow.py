@@ -13,6 +13,7 @@ from typing import Any
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
     DeviceConfig,
+    HostPairingMode,
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
@@ -356,7 +357,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
-        step_id = "pairing_os" if config.supports_os_bonding_only else "pairing"
+        step_id = "pairing_os" if config.host_pairing_mode == HostPairingMode.OS_BONDING else "pairing"
 
         title_ph = self.context.get("title_placeholders") or {}
         device_name = str(title_ph.get("name") or model)

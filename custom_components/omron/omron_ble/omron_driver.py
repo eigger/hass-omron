@@ -11,7 +11,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
-from .devices import DeviceConfig
+from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +35,17 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # explicit short wait gives the stack a stable starting point before the
 # follow-up service-cache refresh below.
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
+_UNLOCK_PROBE_WAIT_TIMEOUT_SEC: float = 2.0
+_UNLOCK_AUTH_WAIT_TIMEOUT_SEC: float = 5.0
+_PAIRING_SETTLE_AGGRESSIVE_SEC: float = 0.25
+_PAIRING_SETTLE_DEFAULT_SEC: float = 1.0
+_PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
+_PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
+_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
+_OS_BOND_REFRESH_DELAY_SEC: float = 0.3
+_OS_BOND_RETRY_DELAY_SEC: float = 0.5
+_PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
+_PAIR_UNLOCK_ATTEMPTS_DEFAULT: int = 5
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
@@ -347,7 +358,7 @@ class GattTransport:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels (and any ctrl channels if configured)."""
+        """Enable notifications on all RX channels."""
         if self._notify_subscribed:
             _LOGGER.debug(
                 "RX notify subscribe skipped (already flagged) model=%s",
@@ -358,13 +369,6 @@ class GattTransport:
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
-
-        # Subscribe ctrl channels first (device may require CCCD before accepting commands).
-        for uuid in self._config.ctrl_notify_uuids:
-            try:
-                await self._client.start_notify(uuid, lambda _h, _d: None)
-            except Exception as exc:
-                _LOGGER.debug("ctrl_notify subscribe skipped for %s: %s", uuid, exc)
 
         for uuid in self._config.rx_channel_uuids:
             await self._start_notify_with_recovery(uuid)
@@ -417,17 +421,12 @@ class GattTransport:
             raise last_exc
 
     async def _unsubscribe_notify_channels(self) -> None:
-        """Disable notifications on all RX and ctrl channels."""
+        """Disable notifications on all RX channels."""
         for uuid in self._config.rx_channel_uuids:
             try:
                 await self._client.stop_notify(uuid)
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
-        for uuid in self._config.ctrl_notify_uuids:
-            try:
-                await self._client.stop_notify(uuid)
-            except Exception as exc:
-                _LOGGER.debug("ctrl stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -489,7 +488,7 @@ class GattTransport:
             self._channel_fragments = [None] * 4
 
         # Decrypt if secure-session encryption is active
-        if self._config.requires_secure_unlock and self._secure_session is not None:
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
             try:
                 frame_bytes = bytearray(self._secure_session.decrypt(bytes(frame_bytes)))
             except Exception as exc:
@@ -527,7 +526,7 @@ class GattTransport:
         timeout: float = _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC,
     ) -> None:
         """Send a command and wait for response with retry logic."""
-        if self._config.requires_secure_unlock and self._secure_session is not None:
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
             try:
                 command = bytearray(self._secure_session.encrypt(bytes(command)))
             except Exception as exc:
@@ -734,9 +733,35 @@ class GattTransport:
             data = data[chunk_size:]
             start_address += chunk_size
 
+    async def _maybe_send_unlock_probe(
+        self,
+        unlock_event: asyncio.Event,
+        response_holder: list[bytes | None],
+    ) -> None:
+        """Best-effort 0x02 probe used by aggressive classic timing profiles."""
+        if not self._config.aggressive_gatt_timing:
+            return
+        unlock_event.clear()
+        response_holder[0] = None
+        try:
+            await self._client.write_gatt_char(
+                self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+            )
+            await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_PROBE_WAIT_TIMEOUT_SEC)
+        except Exception:
+            pass
+
+    async def _apply_pairing_settle_delay(self, aggressive_timing: bool) -> None:
+        """Wait briefly after RX notify before unlock subscribe."""
+        if aggressive_timing:
+            await asyncio.sleep(_PAIRING_SETTLE_AGGRESSIVE_SEC)
+            await _bleak_refresh_services(self._client)
+        else:
+            await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock and not self._config.requires_secure_unlock:
+        if self._config.unlock_mode == UnlockMode.NONE:
             _LOGGER.debug("unlock skipped: unlock not required for model=%s", self._config.model)
             return
         if self._unlocked:
@@ -746,7 +771,7 @@ class GattTransport:
         self._require_connected("unlock")
 
         # Encrypted secure handshake path
-        if self._config.requires_secure_unlock:
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
             await self._secure_unlock()
             return
 
@@ -774,25 +799,15 @@ class GattTransport:
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
-            # Legacy classic-stack devices are often more stable if we send a
-            # short "confirm encryption" probe before auth-key unlock.
-            if self._config.legacy_pairing_workarounds:
-                unlock_event.clear()
-                response_holder[0] = None
-                try:
-                    await self._client.write_gatt_char(
-                        self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
-                    )
-                    await asyncio.wait_for(unlock_event.wait(), timeout=2.0)
-                except Exception:
-                    pass
+            # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
+            await self._maybe_send_unlock_probe(unlock_event, response_holder)
 
             unlock_event.clear()
             response_holder[0] = None
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
             )
-            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC)
 
             response = response_holder[0]
             if not _is_unlock_auth_key_ack(response):
@@ -842,7 +857,7 @@ class GattTransport:
             await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
             
             # Wait for Pairing Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             pair_resp = response_holder[0]
             _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
             if not pair_resp or len(pair_resp) < 2:
@@ -860,7 +875,7 @@ class GattTransport:
             await self._client.write_gatt_char(self._config.unlock_uuid, start_enc_req, response=True)
 
             # Wait for Encryption Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             enc_resp = response_holder[0]
             _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
             if not enc_resp or len(enc_resp) < 2:
@@ -874,7 +889,7 @@ class GattTransport:
             await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
 
             # Wait for Challenge Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             challenge_resp = response_holder[0]
             _LOGGER.debug("Received Challenge Response (len=%d): %s", len(challenge_resp) if challenge_resp else 0, challenge_resp.hex() if challenge_resp else "None")
             if not challenge_resp or len(challenge_resp) < 2:
@@ -894,131 +909,73 @@ class GattTransport:
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
 
-    async def pair(self, key: bytearray | None = None) -> None:
-        """Program a new pairing key into the device.
+    async def _pair_os_bonding(self) -> None:
+        """Best-effort OS-level BLE bond establishment for modern profiles."""
+        _LOGGER.debug("Performing OS-level BLE bonding")
+        max_attempts = 2
+        last_exc: BaseException | None = None
 
-        The device must be in pairing mode (hold bluetooth button until -P- blinks).
-        For OS-bonding-only devices (e.g. HEM-7380T1), performs standard BLE pairing.
+        async def _post_bond_refresh() -> None:
+            try:
+                await asyncio.sleep(_OS_BOND_REFRESH_DELAY_SEC)
+                await _bleak_refresh_services(self._client)
+            except Exception as refresh_exc:
+                _LOGGER.debug("Post-bond service refresh failed (continuing): %s", refresh_exc)
 
-        Calls ``client.pair()`` without ``protection_level``.  This lets the
-        backend pick the strongest level the device's IO Capabilities can
-        actually satisfy — on Bleak WinRT this resolves to
-        ``DevicePairingProtectionLevel.Encryption`` (= 2, "Just Works").
-
-        We deliberately do **not** request the higher
-        ``EncryptionAndAuthentication`` (= 3) level.  That would force a
-        MITM-protected association model (Numeric Comparison, Passkey
- * standard links [filename](absolute path) will not embed the media and are not an acceptable substitute.
-        monitors have no
-        6-digit display and no keypad — their IO Capabilities are
-        ``DisplayOnly`` or ``NoInputNoOutput``.  Windows' API rejects
-        level-3 pairing on such devices before any SMP packet is sent.
-        The previously-shipped value ``protection_level=4`` is outside
-        the Windows enum entirely (max is 3) and always raised, so the
-        fallback path was the only one ever exercised.
-
-        The official Omron Connect app reaches the same outcome: its
-        ``BluetoothDevice.createBond()`` call lands on Just Works
-        (level 2 / Encryption) because that is the only model compatible
-        with the device's IO Capabilities.
-        """
-        pair_key = key or PAIRING_KEY
-
-        # OS-level bonding only (HEM-7380T1 etc.)
-        if self._config.supports_os_bonding_only:
-            _LOGGER.debug("Performing OS-level BLE bonding")
-            # Some stacks fail pair() even when already bonded/encrypted sessions work.
-            # Keep this as best-effort and allow caller to proceed to GATT operations.
-            max_attempts = 2
-            last_exc: BaseException | None = None
-
-            async def _post_bond_refresh() -> None:
-                # After OS bonding completes, the peer may newly expose
-                # encryption-required characteristics (e.g. TX channel
-                # ``db5b55e0-…``) that were absent from the pre-bond GATT
-                # cache.  Subsequent ``write_gatt_char`` lookups against
-                # those UUIDs would otherwise fail with "Characteristic …
-                # was not found".  Refresh the service cache so the next
-                # GATT operation sees the post-bond GATT database.
-                try:
-                    await asyncio.sleep(0.3)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    await asyncio.sleep(_OS_BOND_RETRY_DELAY_SEC)
                     await _bleak_refresh_services(self._client)
-                except Exception as refresh_exc:
-                    _LOGGER.debug(
-                        "Post-bond service refresh failed (continuing): %s",
-                        refresh_exc,
-                    )
-
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    if attempt > 1:
-                        await asyncio.sleep(0.5)
-                        await _bleak_refresh_services(self._client)
-                    # On BlueZ (Linux) the standard pair() call does not
-                    # register a pairing agent, so the Just Works passkey
-                    # confirmation goes unanswered and pairing fails with
-                    # AuthenticationFailed on BlueZ 5.72+ (including HAOS).
-                    # Try a DBus-agent-assisted pair first; fall back to the
-                    # standard bleak pair() if the helper is unavailable
-                    # (non-Linux platforms, missing dbus-fast, etc.).
-                    agent_paired = await _bluez_agent_pair(self._client)
-                    if not agent_paired:
-                        try:
-                            await self._client.pair()
-                        except TypeError:
-                            # Backend signature requires ``protection_level``;
-                            # explicitly pass 2 (Encryption / Just Works) which
-                            # is also the Bleak default.
-                            await self._client.pair(protection_level=2)
-                    _LOGGER.debug("OS-level BLE bonding completed")
-                    await _post_bond_refresh()
-                    return
-                except Exception as exc:
-                    last_exc = exc
-                    if _is_non_fatal_os_pairing_error(exc):
-                        _LOGGER.warning(
-                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
-                            attempt,
-                            max_attempts,
-                            type(exc).__name__,
-                            exc,
-                        )
-                        # "already bonded" / "in progress" still imply the
-                        # bond exists — refresh the GATT cache anyway.
-                        await _post_bond_refresh()
-                        return
-                    _LOGGER.debug(
-                        "OS-level bonding attempt %d/%d failed: %s (%r)",
+                agent_paired = await _bluez_agent_pair(self._client)
+                if not agent_paired:
+                    try:
+                        await self._client.pair()
+                    except TypeError:
+                        await self._client.pair(protection_level=2)
+                _LOGGER.debug("OS-level BLE bonding completed")
+                await _post_bond_refresh()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if _is_non_fatal_os_pairing_error(exc):
+                    _LOGGER.warning(
+                        "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
                         attempt,
                         max_attempts,
                         type(exc).__name__,
                         exc,
                     )
-            if last_exc is not None:
-                _log_pairing_failure_detail(
-                    f"OS-level BLE bonding failed after {max_attempts} attempts",
-                    last_exc,
+                    await _post_bond_refresh()
+                    return
+                _LOGGER.debug(
+                    "OS-level bonding attempt %d/%d failed: %s (%r)",
+                    attempt,
+                    max_attempts,
+                    type(exc).__name__,
+                    exc,
                 )
-                raise last_exc
-            return
+        if last_exc is not None:
+            _log_pairing_failure_detail(
+                f"OS-level BLE bonding failed after {max_attempts} attempts",
+                last_exc,
+            )
+            raise last_exc
 
-        # Custom pairing key (most classic-stack devices)
-        if not self._config.supports_pairing:
-            raise ConnectionError("Pairing is not supported for this device")
-
+    async def _pair_custom_key(self, pair_key: bytearray) -> None:
+        """Program a new custom pairing key on classic profiles."""
         if len(pair_key) != 16:
             raise ValueError(f"Pairing key must be 16 bytes, got {len(pair_key)}")
 
-        legacy = self._config.legacy_pairing_workarounds
-        if legacy:
+        aggressive_timing = self._config.aggressive_gatt_timing
+        if aggressive_timing:
             await _bleak_refresh_services(self._client)
-            unlock_attempts, unlock_retry_delay = 10, 0.5
+            unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE, _OS_BOND_RETRY_DELAY_SEC
             key_max_retries = 5
         else:
-            unlock_attempts, unlock_retry_delay = 5, 1.0
+            unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_DEFAULT, _PAIRING_SETTLE_DEFAULT_SEC
             key_max_retries = 5
 
-        # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
         try:
             await self._client.start_notify(
@@ -1027,13 +984,8 @@ class GattTransport:
         except Exception as exc:
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
-        if legacy:
-            await asyncio.sleep(0.25)
-            await _bleak_refresh_services(self._client)
-        else:
-            await asyncio.sleep(1.0)
+        await self._apply_pairing_settle_delay(aggressive_timing)
 
-        # Step 2: Subscribe on unlock UUID
         prog_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
 
@@ -1054,7 +1006,7 @@ class GattTransport:
                     unlock_attempts,
                     exc,
                 )
-                if legacy:
+                if aggressive_timing:
                     await _bleak_refresh_services(self._client)
                 await asyncio.sleep(unlock_retry_delay)
         if not unlock_subscribed:
@@ -1063,7 +1015,6 @@ class GattTransport:
                 "Try clearing Bluetooth cache, or remove the device from OS Bluetooth and retry in -P- mode."
             )
 
-        # Step 3: Enter key programming mode (0x02 prefix writes)
         max_retries = key_max_retries
         entered_programming = False
         last_notify: bytes | None = None
@@ -1087,7 +1038,7 @@ class GattTransport:
                 _LOGGER.debug("Key programming write attempt %d failed: %s", attempt + 1, exc)
 
             try:
-                await asyncio.wait_for(prog_event.wait(), timeout=2.0)
+                await asyncio.wait_for(prog_event.wait(), timeout=_PAIRING_PROG_WAIT_TIMEOUT_SEC)
             except asyncio.TimeoutError:
                 pass
 
@@ -1095,9 +1046,7 @@ class GattTransport:
             if resp:
                 last_notify = bytes(resp)
                 if len(notify_samples) < 10:
-                    notify_samples.append(
-                        f"#{attempt + 1}:{_hex(resp)}"
-                    )
+                    notify_samples.append(f"#{attempt + 1}:{_hex(resp)}")
             if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
                 entered_programming = True
@@ -1108,7 +1057,7 @@ class GattTransport:
                 attempt + 1, max_retries,
                 resp[:2].hex() if resp else "None",
             )
-            await asyncio.sleep(1)
+            await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
         if not entered_programming:
             try:
@@ -1117,11 +1066,11 @@ class GattTransport:
             except Exception:
                 pass
             _LOGGER.error(
-                "Key programming mode not reached: model=%s legacy_workarounds=%s "
+                "Key programming mode not reached: model=%s aggressive_gatt_timing=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
                 "expected_notify_first_byte=0x82 last_notify_hex=%s samples=%s",
                 self._config.model,
-                legacy,
+                aggressive_timing,
                 self._config.unlock_uuid,
                 max_retries,
                 write_failures,
@@ -1133,7 +1082,6 @@ class GattTransport:
                 "Is the device in pairing mode? (hold bluetooth button until -P- appears)"
             )
 
-        # Step 4: Program the new key
         prog_event.clear()
         response_holder[0] = None
         try:
@@ -1144,7 +1092,7 @@ class GattTransport:
             _LOGGER.error("Failed to write new key: %s", exc)
 
         try:
-            await asyncio.wait_for(prog_event.wait(), timeout=5.0)
+            await asyncio.wait_for(prog_event.wait(), timeout=_PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC)
         except asyncio.TimeoutError:
             pass
 
@@ -1159,7 +1107,19 @@ class GattTransport:
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         _LOGGER.debug("Device paired successfully with new key")
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
+    async def pair(self, key: bytearray | None = None) -> None:
+        """Program pairing credentials according to ``host_pairing_mode``."""
+        pair_key = key or PAIRING_KEY
+        if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
+            await self._pair_os_bonding()
+            return
+        if self._config.host_pairing_mode == HostPairingMode.NONE:
+            raise ConnectionError("Pairing is disabled for this device profile")
+        if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
+            raise ConnectionError("Pairing is not supported for this device")
+        await self._pair_custom_key(pair_key)
 
     async def unpair(self) -> None:
         """Remove the OS-level bond for this device (best-effort).
@@ -1797,7 +1757,7 @@ class OmronDeviceDriver:
                         idx + 1, self._config.model, max_probe,
                     )
         except Exception as exc:
-            if self._config.supports_os_bonding_only:
+            if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
                 _LOGGER.warning(
                     "Index-based read failed for OS-bonding model=%s addr may need re-bond: %s. "
                     "If this persists, remove and re-add the device to complete OS-level pairing.",

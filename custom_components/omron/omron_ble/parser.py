@@ -38,7 +38,7 @@ from .const import (
     ExtendedBinarySensorDeviceClass,
 )
 from .setup import async_sync_device_time
-from .devices import DeviceConfig, get_device_config, resolve_model_catalog
+from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_model_catalog
 from .omron_driver import (
     GattTransport,
     OmronDeviceDriver,
@@ -895,6 +895,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
                 if not service_found:
                     prof, variant_meta = resolve_model_catalog(self._device_model)
+                    stack_label = "modern" if self._device_config.is_modern_stack else "classic"
                     _LOGGER.error(
                         "Required service %s not on %s; model=%s profile=%s "
                         "variant_unverified=%s variant_reason=%s expected_stack=%s",
@@ -904,7 +905,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         prof,
                         variant_meta.unverified if variant_meta else False,
                         variant_meta.reason if variant_meta else None,
-                        self._device_config.parent_service_stack(),
+                        stack_label,
                     )
                     return self._finish_update()
 
@@ -912,13 +913,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                     self.last_service_info.service_uuids
                 ):
                     prof, _variant_meta = resolve_model_catalog(self._device_model)
+                    stack_label = "modern" if self._device_config.is_modern_stack else "classic"
                     _LOGGER.debug(
                         "Configured model %s (profile %s) may not match advertised service family; "
                         "advertised=%s expected_stack=%s",
                         self._device_model,
                         prof,
                         self.last_service_info.service_uuids,
-                        self._device_config.parent_service_stack(),
+                        stack_label,
                     )
 
                 transport = GattTransport(client, self._device_config)
@@ -937,15 +939,15 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
 
                 # Open a single memory session for both records and time sync
-                if self._device_config.parent_service_stack() == "classic" or self._device_config.supports_eeprom_time_sync:
+                if self._device_config.is_classic_stack or self._device_config.supports_eeprom_time_sync:
                     last_session_exc: BaseException | None = None
                     for session_attempt in range(3):
                         try:
                             if session_attempt == 0 and (
-                                self._device_config.legacy_pairing_workarounds
+                                self._device_config.host_pairing_mode == HostPairingMode.CUSTOM_KEY
                                 and self.pairing_mode
                              ):
-                                # Legacy custom-key models in -P- mode (MSD bit 0x08):
+                                # Custom-key pairing models in -P- mode (MSD bit 0x08):
                                 # an in-line pair() finalises the new key the user just
                                 # programmed before we open the memory session.
                                 #
@@ -961,8 +963,8 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 # level Omron BPMs can satisfy; they have no keypad or
                                 # numeric display for MITM association).
                                 # If a poll fails on an OS-bonding device, the
-                                # session-retry loop below + PR #50's GATT cache
-                                # refresh handle stale state without re-bonding;
+                                # session-retry loop below and GATT cache refresh
+                                # handle stale state without re-bonding;
                                 # if the bond is genuinely lost, the user is
                                 # surfaced a clear warning to re-press the
                                 # pairing button.
@@ -995,7 +997,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 await _bleak_refresh_services(client)
                                 await asyncio.sleep(0.5)
                     if not session_opened and last_session_exc is not None:
-                        if self._device_config.supports_os_bonding_only:
+                        if self._device_config.host_pairing_mode == HostPairingMode.OS_BONDING:
                             _LOGGER.warning(
                                 "Memory session failed for OS-bonding device %s (model=%s): %s. "
                                 "Ensure OS-level BLE bonding is complete — remove and re-add the "
@@ -1308,10 +1310,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         try:
             transport = GattTransport(client, self._device_config)
             session_opened = False
-            if (
-                self._device_config.parent_service_stack() == "classic"
-                or self._device_config.supports_eeprom_time_sync
-            ):
+            if self._device_config.is_classic_stack or self._device_config.supports_eeprom_time_sync:
                 try:
                     await transport.unlock()
                     await transport.open_memory_session()

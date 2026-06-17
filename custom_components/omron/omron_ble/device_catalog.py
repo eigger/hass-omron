@@ -2,7 +2,14 @@
 from __future__ import annotations
 
 from .const import MODERN_STACK_PARENT_SERVICE_UUID
-from .devices import DeviceConfig, DeviceModelVariant
+from .devices import DeviceConfig, DeviceModelVariant, HostPairingMode, UnlockMode
+
+_MODERN_OS_BONDING_BASE = {
+    "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
+    "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
+    "tx_channel_uuids": ["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
+    "host_pairing_mode": HostPairingMode.OS_BONDING,
+}
 
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6320T": DeviceConfig(
@@ -113,7 +120,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="big",
         user_start_addresses=[0x02AC, 0x0824],
         per_user_records_count=[100, 100],
@@ -153,7 +160,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="big",
         user_start_addresses=[0x02AC],
         per_user_records_count=[100],
@@ -196,7 +203,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="big",
         user_start_addresses=[0x02E8, 0x0860],
         per_user_records_count=[100, 100],
@@ -234,7 +241,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="big",
         user_start_addresses=[0x02E8],
         per_user_records_count=[90],
@@ -256,31 +263,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser="classic_vital_14",
         equivalent_model_ids=(
-            DeviceModelVariant("HEM-6161T-E", unverified=True),
-            DeviceModelVariant("HEM-6161T-RU", unverified=True),
-            DeviceModelVariant("HEM-6161T2-BR", unverified=True),
-            DeviceModelVariant("HEM-6231T-SH", unverified=True),
-            DeviceModelVariant("HEM-6231T_Z", unverified=True),
             DeviceModelVariant("HEM-6231T2-JC", unverified=False),
             DeviceModelVariant("HEM-6231T2-JE", unverified=False),
             DeviceModelVariant("HEM-6231T2-JT3", unverified=False),
-            DeviceModelVariant("HEM-7136T-SH3", unverified=True),
-            DeviceModelVariant("HEM-7138JT-SH", unverified=True),
-            DeviceModelVariant("HEM-7138T-SH", unverified=True),
-            DeviceModelVariant("HEM-7139T-SH3", unverified=True),
-            DeviceModelVariant("HEM-7143T1-AIN", unverified=True),
-            DeviceModelVariant("HEM-7143T1-AP", unverified=True),
-            DeviceModelVariant("HEM-7143T1-D", unverified=True),
-            DeviceModelVariant("HEM-7143T1-E", unverified=True),
-            DeviceModelVariant("HEM-7143T1_D", unverified=True),
-            DeviceModelVariant("HEM-7143T1_EBK", unverified=True),
-            DeviceModelVariant("HEM-7143T2-E", unverified=True),
-            DeviceModelVariant("HEM-7143T2_ESL", unverified=True),
-            DeviceModelVariant("HEM-7144T1-AU", unverified=True),
-            DeviceModelVariant("HEM-7144T2-BR", unverified=True),
-            DeviceModelVariant("HEM-7144T2-LA", unverified=True),
-            DeviceModelVariant("HEM-716DT2-LA", unverified=True),
-            DeviceModelVariant("HEM-7271L-SH3", unverified=True),
             DeviceModelVariant("HEM-7271P-SH3", unverified=False),
             DeviceModelVariant("HEM-7271T_SH3", unverified=False),
             DeviceModelVariant("HEM-7530T-Z", unverified=True),
@@ -292,9 +277,94 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-8630T-SH", unverified=False),
         ),
     ),
+    # Single-user 30-slot variant of the 7530T EEPROM family (0x260/0x2E8).
+    "HEM-6161T": DeviceConfig(
+        model="HEM-6161T",
+        aggressive_gatt_timing=True,
+        endianness="big",
+        user_start_addresses=[0x02E8],
+        per_user_records_count=[30],
+        record_byte_size=0x0E,
+        transmission_block_size=0x10,
+        settings_read_address=0x0260,
+        settings_write_address=0x02A4,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_classic_offset8",
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="classic_vital_14",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6161T-E", unverified=True),
+            DeviceModelVariant("HEM-6161T-RU", unverified=True),
+            DeviceModelVariant("HEM-6161T2-BR", unverified=True),
+            DeviceModelVariant("HEM-7271L-SH3", unverified=True),
+        ),
+    ),
+    # Single-user 60-slot variant of the 7530T EEPROM family (0x260/0x2E8).
+    "HEM-7136T": DeviceConfig(
+        model="HEM-7136T",
+        aggressive_gatt_timing=True,
+        endianness="big",
+        user_start_addresses=[0x02E8],
+        per_user_records_count=[60],
+        record_byte_size=0x0E,
+        transmission_block_size=0x10,
+        settings_read_address=0x0260,
+        settings_write_address=0x02A4,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_classic_offset8",
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="classic_vital_14",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7136T-SH3", unverified=True),
+            DeviceModelVariant("HEM-7138JT-SH", unverified=True),
+            DeviceModelVariant("HEM-7138T-SH", unverified=True),
+            DeviceModelVariant("HEM-7139T-SH3", unverified=True),
+        ),
+    ),
+    # Single-user 100-slot variant of the 7530T EEPROM family (0x260/0x2E8).
+    "HEM-6231T": DeviceConfig(
+        model="HEM-6231T",
+        aggressive_gatt_timing=True,
+        endianness="big",
+        user_start_addresses=[0x02E8],
+        per_user_records_count=[100],
+        record_byte_size=0x0E,
+        transmission_block_size=0x10,
+        settings_read_address=0x0260,
+        settings_write_address=0x02A4,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_classic_offset8",
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="classic_vital_14",
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-6231T-SH", unverified=True),
+            DeviceModelVariant("HEM-6231T_Z", unverified=True),
+        ),
+    ),
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[60],
@@ -330,7 +400,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7151T: same layout as HEM-7150T but has 80 record slots
     "HEM-7151T": DeviceConfig(
         model="HEM-7151T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="little",
         user_start_addresses=[0x0098],
         per_user_records_count=[80],
@@ -355,7 +425,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -383,26 +453,16 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7155T_AP", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3BK", unverified=False),
             DeviceModelVariant("HEM-7155T_ASH3SL", unverified=False),
-            DeviceModelVariant("HEM-7155T_K4-D", unverified=True),
-            DeviceModelVariant("HEM-7155T_K4-EBK", unverified=True),
-            DeviceModelVariant("HEM-7155T_K4-ESL", unverified=True),
             DeviceModelVariant("HEM-7340T-CA", unverified=True),
             DeviceModelVariant("HEM-7340T-Z", unverified=False),
-            DeviceModelVariant("HEM-7340T_K4-CA", unverified=True),
-            DeviceModelVariant("HEM-7340T_K4-Z", unverified=True),
             DeviceModelVariant("HEM-7341T-Z", unverified=False),
-            DeviceModelVariant("HEM-7341T_K4-Z", unverified=True),
         ),
     ),
     # HEM-7155T modern stack V2 — OS bonding only, same EEPROM addresses as V1
     "HEM-7155T-MW": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-MW",
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
-        supports_pairing=False,
-        supports_os_bonding_only=True,
+        unlock_mode=UnlockMode.NONE,
         endianness="little",
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
@@ -427,16 +487,45 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
     ),
+    # HEM-7155T K4 — modern stack, MW3 EEPROM layout, no secure session.
+    "HEM-7155T-K4": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7155T-K4",
+        unlock_mode=UnlockMode.NONE,
+        endianness="little",
+        user_start_addresses=[0x02E8, 0x06A8],
+        per_user_records_count=[60, 60],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0260,
+        settings_write_address=0x02A4,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout="eeprom_time_modern_offset8",
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser="classic_vital_14",
+        prefer_latest_by_slot_index=True,
+        equivalent_model_ids=(
+            DeviceModelVariant("HEM-7155T_K4-D", unverified=True),
+            DeviceModelVariant("HEM-7155T_K4-EBK", unverified=True),
+            DeviceModelVariant("HEM-7155T_K4-ESL", unverified=True),
+            DeviceModelVariant("HEM-7340T_K4-CA", unverified=True),
+            DeviceModelVariant("HEM-7340T_K4-Z", unverified=True),
+            DeviceModelVariant("HEM-7341T_K4-Z", unverified=True),
+        ),
+    ),
     # HEM-7155T modern stack V3 — OS bonding only, different EEPROM addresses
     "HEM-7155T-MW3": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-MW3",
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
-        requires_secure_unlock=True,
-        supports_pairing=False,
-        supports_os_bonding_only=True,
+        unlock_mode=UnlockMode.SECURE_SESSION,
         endianness="little",
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -462,23 +551,17 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
-            # HEM-7155T_ESL (marketed "X4 Smart") ships in two hardware
-            # revisions: an older classic-stack one and this newer modern-stack
-            # (FE4A) V3. The tester's unit registered as MW3 and parsed records
-            # correctly, so map the code here. Moved out of the classic
-            # HEM-7155T profile, where the modern-stack revision did not work.
+            # HEM-7155T_ESL ("X4 Smart"): retail units use the modern FE4A stack
+            # (V3 EEPROM at 0x0260, secure session). Older classic revisions need
+            # the HEM-7155T profile instead.
             DeviceModelVariant("HEM-7155T_ESL", unverified=False),
         ),
     ),
     # HEM-7146T modern stack — OS bonding only, 1 user, 30 records
     "HEM-7146T": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
         model="HEM-7146T",
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
-        supports_pairing=False,
-        supports_os_bonding_only=True,
+        unlock_mode=UnlockMode.NONE,
         endianness="little",
         user_start_addresses=[0x02E8],
         per_user_records_count=[30],
@@ -499,15 +582,27 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
+            DeviceModelVariant("HEM-7143T1-AIN", unverified=True),
+            DeviceModelVariant("HEM-7143T1-AP", unverified=True),
+            DeviceModelVariant("HEM-7143T1-D", unverified=True),
+            DeviceModelVariant("HEM-7143T1-E", unverified=True),
+            DeviceModelVariant("HEM-7143T1_D", unverified=True),
+            DeviceModelVariant("HEM-7143T1_EBK", unverified=True),
+            DeviceModelVariant("HEM-7143T2-E", unverified=True),
+            DeviceModelVariant("HEM-7143T2_ESL", unverified=True),
+            DeviceModelVariant("HEM-7144T1-AU", unverified=True),
+            DeviceModelVariant("HEM-7144T2-BR", unverified=True),
+            DeviceModelVariant("HEM-7144T2-LA", unverified=True),
             DeviceModelVariant("HEM-7146T2-EBK", unverified=True),
             DeviceModelVariant("HEM-7146T2-ESL", unverified=True),
             DeviceModelVariant("HEM-7146T2-JD", unverified=True),
             DeviceModelVariant("HEM-7146T2-JF", unverified=True),
+            DeviceModelVariant("HEM-716DT2-LA", unverified=True),
         ),
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
@@ -557,7 +652,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
-        legacy_pairing_workarounds=True,
+        aggressive_gatt_timing=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
@@ -579,14 +674,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
     ),
     "HEM-7380T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
-        requires_secure_unlock=True,
-        supports_pairing=False,
-        supports_os_bonding_only=True,
+        unlock_mode=UnlockMode.SECURE_SESSION,
         endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
@@ -615,11 +705,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7183T1_LAP", unverified=True),
             DeviceModelVariant("HEM-7188T1-LE", unverified=True),
             DeviceModelVariant("HEM-7188T1-LEO", unverified=True),
-            # HEM-7194T1 / HEM-7196T1 family: share the same modern-stack profile
-            # (OS-bonding only, fe4a parent service, same TX/RX UUIDs and EEPROM
-            # layout entry points).  Merging them here restores the pre-2.2.0
-            # behaviour where these AFib variants worked because they inherited
-            # supports_os_bonding_only=True from the HEM-7380T1 profile.
+            # HEM-7194T1 / HEM-7196T1 family shares this modern-stack profile
+            # (OS bonding, FE4A parent service, same TX/RX UUIDs and EEPROM layout).
             DeviceModelVariant("HEM-7194T1-FLAP", unverified=False),
             DeviceModelVariant("HEM-7194T1-FLCAP", unverified=True),
             DeviceModelVariant("HEM-7194T1_FLBIN", unverified=True),
@@ -645,13 +732,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         ),
     ),
     "HEM-7142T2": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
         model="HEM-7142T2",
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        requires_unlock=False,
-        supports_pairing=False,
-        supports_os_bonding_only=True,
+        unlock_mode=UnlockMode.NONE,
         endianness="little",
         # Single on-device measurement buffer region for this profile.
         user_start_addresses=[0x02E8],
