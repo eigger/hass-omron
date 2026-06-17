@@ -857,15 +857,35 @@ class GattTransport:
         bytes are not a stored secret — confirmed via HCI btsnoop where the same
         device echoed two different host-chosen values — so a fresh random nonce
         is used each time and verified against the echo.
+
+        HCI btsnoop (HEM-7142T2) shows the official app enables the RX-channel
+        CCCD before the unlock-channel CCCD, then issues the 0x11 write — mirror
+        that ordering here (same RX pre-notify priming as CLASSIC_KEY unlock).
         """
         token = secrets.token_bytes(4)
         packet = b"\x11" + token + b"\x00" * 15
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
+        rx_notify_primed = False
 
         def _token_callback(_: Any, rx_bytes: bytearray) -> None:
-            response_holder[0] = bytes(rx_bytes)
+            data = bytes(rx_bytes)
+            if not _is_token_unlock_ack(data, token):
+                return
+            response_holder[0] = data
             unlock_event.set()
+
+        await self._ensure_services_cache()
+
+        # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
+        try:
+            await self._client.start_notify(
+                self._config.rx_channel_uuids[0], lambda _h, _d: None
+            )
+            rx_notify_primed = True
+            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        except Exception as exc:
+            _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("token_unlock_before_notify")
         await self._client.start_notify(self._config.unlock_uuid, _token_callback)
@@ -873,13 +893,34 @@ class GattTransport:
         try:
             unlock_event.clear()
             response_holder[0] = None
-            # Write-without-response mirrors the official app (ATT Write Command).
-            await self._client.write_gatt_char(
-                self._config.unlock_uuid, packet, response=False
-            )
-            await asyncio.wait_for(
-                unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC
-            )
+            # Prefer write-without-response (ATT Write Command, per btsnoop); fall
+            # back to write-with-response when stacks/proxies drop command writes.
+            for use_response in (False, True):
+                _LOGGER.debug(
+                    "Token unlock write nonce=%s response=%s",
+                    token.hex(),
+                    use_response,
+                )
+                await self._client.write_gatt_char(
+                    self._config.unlock_uuid, packet, response=use_response
+                )
+                try:
+                    await asyncio.wait_for(
+                        unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    if use_response:
+                        self._debug_ble_link("token_unlock_notify_timeout")
+                        raise ConnectionError(
+                            "Token unlock failed: notify timeout"
+                        ) from None
+                    unlock_event.clear()
+                    response_holder[0] = None
+                    _LOGGER.debug(
+                        "Token unlock notify timeout with response=False; "
+                        "retrying write with response=True"
+                    )
 
             response = response_holder[0]
             if not _is_token_unlock_ack(response, token):
@@ -893,14 +934,16 @@ class GattTransport:
 
             self._unlocked = True
             _LOGGER.debug("Token unlock OK (nonce=%s)", token.hex())
-        except asyncio.TimeoutError:
-            self._debug_ble_link("token_unlock_notify_timeout")
-            raise ConnectionError("Token unlock failed: notify timeout") from None
         finally:
             try:
                 await self._client.stop_notify(self._config.unlock_uuid)
             except Exception as exc:
                 _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
+            if rx_notify_primed:
+                try:
+                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                except Exception as exc:
+                    _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("token_unlock_after_stop_notify")
 
     async def _secure_unlock(self) -> None:
