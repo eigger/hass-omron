@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import secrets
 import traceback
 from typing import Any
 
@@ -108,6 +109,17 @@ def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
     if resp is None or len(resp) < 1:
         return False
     return resp[0] == 0x81
+
+
+def _is_token_unlock_ack(resp: bytes | bytearray | None, token: bytes) -> bool:
+    """Token-unlock notify: prefix 0x91, status 0x00, and 4-byte token echo.
+
+    The device echoes the exact 4 host-chosen bytes, so we both check the
+    success status and confirm the echo matches the value we sent.
+    """
+    if resp is None or len(resp) < 6:
+        return False
+    return resp[0] == 0x91 and resp[1] == 0x00 and bytes(resp[2:6]) == token
 
 
 async def _bluez_agent_pair(client: BleakClient) -> bool:
@@ -775,6 +787,11 @@ class GattTransport:
             await self._secure_unlock()
             return
 
+        # Stateless token handshake (0x11 / 0x91)
+        if self._config.unlock_mode == UnlockMode.TOKEN_KEY:
+            await self._token_unlock()
+            return
+
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
@@ -830,6 +847,61 @@ class GattTransport:
                 except Exception as exc:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
+
+    async def _token_unlock(self) -> None:
+        """Unlock via the stateless 0x11/0x91 token handshake.
+
+        The host sends ``0x11 + 4 nonce bytes + 15 zero pad`` (a 20-byte frame,
+        matching the official app's write-without-response) and the device
+        replies on the same characteristic with ``0x91 0x00 + echo``.  The 4
+        bytes are not a stored secret — confirmed via HCI btsnoop where the same
+        device echoed two different host-chosen values — so a fresh random nonce
+        is used each time and verified against the echo.
+        """
+        token = secrets.token_bytes(4)
+        packet = b"\x11" + token + b"\x00" * 15
+        unlock_event = asyncio.Event()
+        response_holder: list[bytes | None] = [None]
+
+        def _token_callback(_: Any, rx_bytes: bytearray) -> None:
+            response_holder[0] = bytes(rx_bytes)
+            unlock_event.set()
+
+        self._debug_ble_link("token_unlock_before_notify")
+        await self._client.start_notify(self._config.unlock_uuid, _token_callback)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        try:
+            unlock_event.clear()
+            response_holder[0] = None
+            # Write-without-response mirrors the official app (ATT Write Command).
+            await self._client.write_gatt_char(
+                self._config.unlock_uuid, packet, response=False
+            )
+            await asyncio.wait_for(
+                unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC
+            )
+
+            response = response_holder[0]
+            if not _is_token_unlock_ack(response, token):
+                _LOGGER.debug(
+                    "Token unlock failed: sent=%s notify len=%s hex=%s",
+                    token.hex(),
+                    len(response) if response is not None else None,
+                    _hex(response) if response else "None",
+                )
+                raise ConnectionError("Token unlock failed: missing/invalid 0x91 ack")
+
+            self._unlocked = True
+            _LOGGER.debug("Token unlock OK (nonce=%s)", token.hex())
+        except asyncio.TimeoutError:
+            self._debug_ble_link("token_unlock_notify_timeout")
+            raise ConnectionError("Token unlock failed: notify timeout") from None
+        finally:
+            try:
+                await self._client.stop_notify(self._config.unlock_uuid)
+            except Exception as exc:
+                _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
+            self._debug_ble_link("token_unlock_after_stop_notify")
 
     async def _secure_unlock(self) -> None:
         """Perform encrypted secure handshake to unlock the device."""

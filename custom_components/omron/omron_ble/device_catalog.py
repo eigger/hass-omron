@@ -521,11 +521,17 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7341T_K4-Z", unverified=True),
         ),
     ),
-    # HEM-7155T modern stack V3 — OS bonding only, different EEPROM addresses
+    # HEM-7155T modern stack V3 — OS bonding + stateless token handshake.
+    # Confirmed via HCI btsnoop of HEM-7155T-ESL ("X4 Smart"): a Just Works bond
+    # plus a 0x11/0x91 token handshake (host sends 0x11 + 4 nonce bytes, device
+    # echoes them in a 0x91 0x00 ack), then plaintext 08-frame memory protocol
+    # with XOR CRC — NOT the app-layer secure session (no ECDH/AES-CCM).
+    # The token is required for memory access outside the device's -P- pairing
+    # grace window: a normal-mode poll without it returns no data.
     "HEM-7155T-MW3": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-MW3",
-        unlock_mode=UnlockMode.SECURE_SESSION,
+        unlock_mode=UnlockMode.TOKEN_KEY,
         endianness="little",
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -551,9 +557,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
-            # HEM-7155T_ESL ("X4 Smart"): retail units use the modern FE4A stack
-            # (V3 EEPROM at 0x0260, secure session). Older classic revisions need
-            # the HEM-7155T profile instead.
+            # HEM-7155T_ESL / HEM-7155T-ESLI ("X4 Smart"): modern FE4A stack with
+            # V3 EEPROM at 0x0260, but classic plaintext transport over a Just
+            # Works bond (NOT secure session) — confirmed via HCI btsnoop.
             DeviceModelVariant("HEM-7155T_ESL", unverified=False),
         ),
     ),
@@ -731,10 +737,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             DeviceModelVariant("HEM-7389T1-JM3", unverified=True),
         ),
     ),
+    # HEM-7142T2 — modern stack, MW3-style EEPROM, stateless 0x11/0x91 token
+    # handshake (same pattern as HEM-7155T-MW3; confirmed via HCI btsnoop).
     "HEM-7142T2": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7142T2",
-        unlock_mode=UnlockMode.NONE,
+        unlock_mode=UnlockMode.TOKEN_KEY,
         endianness="little",
         # Single on-device measurement buffer region for this profile.
         user_start_addresses=[0x02E8],

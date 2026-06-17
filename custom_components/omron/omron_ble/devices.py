@@ -41,6 +41,12 @@ class UnlockMode(str, Enum):
 
     NONE = "none"
     CLASSIC_KEY = "classic_key"
+    # Stateless 0x11/0x91 handshake: host sends 0x11 + 4 arbitrary (nonce)
+    # bytes, device echoes them in a 0x91 0x00 ack. Not a stored secret —
+    # confirmed via HCI btsnoop where the same device echoed two different
+    # host-chosen values across two connections. Required for memory access
+    # outside the device's -P- pairing grace window on some modern-stack units.
+    TOKEN_KEY = "token_key"
     SECURE_SESSION = "secure_session"
 
 
