@@ -242,10 +242,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         transmission_block_size=0x10,
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
-        # Unread counter unsupported; time sync follows [0x2C, 0x3C] layout
+        # Unread counter unsupported; time sync at [0x2C, 0x3C] uses classic offset8
+        # field order (same 16-byte block as HEM-6232T, not modern linear order).
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout="eeprom_time_classic_offset8",
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
