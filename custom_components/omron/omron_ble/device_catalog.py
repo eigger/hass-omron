@@ -234,6 +234,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
+        requires_unlock=False,
+        requires_secure_unlock=True,
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8],
@@ -507,6 +509,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
+        requires_unlock=False,
+        requires_secure_unlock=True,
         legacy_pairing_workarounds=True,
         endianness="little",
         user_start_addresses=[0x0098, 0x06D8],
@@ -584,6 +588,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
         tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
         requires_unlock=False,
+        requires_secure_unlock=True,
         supports_pairing=False,
         supports_os_bonding_only=True,
         endianness="little",
