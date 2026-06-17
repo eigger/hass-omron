@@ -306,6 +306,7 @@ class GattTransport:
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_depth = 0
         self._unlocked = False
+        self._secure_session = None
 
     def _require_connected(self, context: str) -> None:
         """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
@@ -440,6 +441,7 @@ class GattTransport:
         """
         await self._unsubscribe_notify_channels()
         self._unlocked = False
+        self._secure_session = None
         self._memory_session_depth = 0
         self._channel_fragments = [None] * 4
         self._reply_ready.clear()
@@ -486,15 +488,23 @@ class GattTransport:
             frame_bytes = frame_bytes[:packet_size]
             self._channel_fragments = [None] * 4
 
-        # Verify XOR CRC
-        xor_crc = 0
-        for byte in frame_bytes:
-            xor_crc ^= byte
-        if xor_crc:
-            _LOGGER.error(
-                "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
-            )
-            return
+        # Decrypt if secure-session encryption is active
+        if self._config.requires_secure_unlock and self._secure_session is not None:
+            try:
+                frame_bytes = bytearray(self._secure_session.decrypt(bytes(frame_bytes)))
+            except Exception as exc:
+                _LOGGER.error("Secure session decryption failed: %s", exc)
+                return
+        else:
+            # Verify XOR CRC
+            xor_crc = 0
+            for byte in frame_bytes:
+                xor_crc ^= byte
+            if xor_crc:
+                _LOGGER.error(
+                    "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
+                )
+                return
 
         # Extract packet fields
         self._last_reply_packet_type = frame_bytes[1:3]
@@ -517,6 +527,13 @@ class GattTransport:
         timeout: float = _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC,
     ) -> None:
         """Send a command and wait for response with retry logic."""
+        if self._config.requires_secure_unlock and self._secure_session is not None:
+            try:
+                command = bytearray(self._secure_session.encrypt(bytes(command)))
+            except Exception as exc:
+                _LOGGER.error("Secure session encryption failed for command: %s", exc)
+                raise
+
         max_retries = _MEMORY_PROTOCOL_TX_MAX_RETRIES
         for retry in range(max_retries):
             self._reply_ready.clear()
@@ -719,14 +736,19 @@ class GattTransport:
 
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock:
-            _LOGGER.debug("unlock skipped: requires_unlock=False model=%s", self._config.model)
+        if not self._config.requires_unlock and not self._config.requires_secure_unlock:
+            _LOGGER.debug("unlock skipped: unlock not required for model=%s", self._config.model)
             return
         if self._unlocked:
             _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
             return
 
         self._require_connected("unlock")
+
+        # Encrypted secure handshake path
+        if self._config.requires_secure_unlock:
+            await self._secure_unlock()
+            return
 
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
@@ -793,6 +815,84 @@ class GattTransport:
                 except Exception as exc:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
+
+    async def _secure_unlock(self) -> None:
+        """Perform encrypted secure handshake to unlock the device."""
+        _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
+        from .secure_session import SecureSession
+
+        self._secure_session = SecureSession()
+        unlock_event = asyncio.Event()
+        response_holder: list[bytes | None] = [None]
+
+        def _secure_callback(_: Any, rx_bytes: bytearray) -> None:
+            response_holder[0] = bytes(rx_bytes)
+            unlock_event.set()
+
+        # Subscribe to unlock characteristic notifications
+        await self._client.start_notify(self._config.unlock_uuid, _secure_callback)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+
+        try:
+            # Step 1: Send Pairing Request
+            pair_req = self._secure_session.build_pair_req()
+            _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
+            
+            # Wait for Pairing Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            pair_resp = response_holder[0]
+            _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
+            if not pair_resp or len(pair_resp) < 2:
+                raise ConnectionError("Invalid or empty pairing response")
+            
+            # Process Pairing Response and derive LTK
+            self._secure_session.process_pair_resp(pair_resp)
+            _LOGGER.debug("Key exchange complete")
+
+            # Step 2: Send Encryption Start Request
+            start_enc_req = self._secure_session.build_start_enc_req()
+            _LOGGER.debug("Sending Encryption Start Request (len=%d): %s", len(start_enc_req), start_enc_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, start_enc_req, response=True)
+
+            # Wait for Encryption Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            enc_resp = response_holder[0]
+            _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
+            if not enc_resp or len(enc_resp) < 2:
+                raise ConnectionError("Invalid or empty encryption response")
+
+            # Step 3: Challenge-Response mutual authentication
+            challenge_req = self._secure_session.build_challenge_req(enc_resp)
+            _LOGGER.debug("Sending Challenge Request (len=%d): %s", len(challenge_req), challenge_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
+
+            # Wait for Challenge Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            challenge_resp = response_holder[0]
+            _LOGGER.debug("Received Challenge Response (len=%d): %s", len(challenge_resp) if challenge_resp else 0, challenge_resp.hex() if challenge_resp else "None")
+            if not challenge_resp or len(challenge_resp) < 2:
+                raise ConnectionError("Invalid or empty challenge response")
+
+            # Finalize: verify peer's challenge response
+            self._secure_session.process_challenge_resp(challenge_resp)
+            _LOGGER.info("Secure handshake succeeded. Session unlocked.")
+            self._unlocked = True
+
+        except asyncio.TimeoutError as exc:
+            _LOGGER.error("Secure handshake timed out during negotiation")
+            raise ConnectionError("Secure unlock timeout") from exc
+        except Exception as exc:
+            _LOGGER.error("Secure handshake failed: %s", exc)
+            raise ConnectionError(f"Secure unlock failed: {exc}") from exc
+        finally:
+            await self._client.stop_notify(self._config.unlock_uuid)
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program a new pairing key into the device.
@@ -1061,6 +1161,24 @@ class GattTransport:
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(1.0)
 
+    async def unpair(self) -> None:
+        """Remove the OS-level bond for this device (best-effort).
+
+        Not all backends implement ``BleakClient.unpair``; unsupported ones
+        raise ``NotImplementedError``. All failures are swallowed so this
+        never breaks the surrounding teardown.
+        """
+        try:
+            await self._client.unpair()
+            _LOGGER.debug("Removed OS bond for %s after session", self._config.model)
+        except NotImplementedError:
+            _LOGGER.debug(
+                "unpair() not supported by this BLE backend for %s; "
+                "bond (if any) left in place",
+                self._config.model,
+            )
+        except Exception as exc:
+            _LOGGER.debug("unpair() failed for %s (ignored): %s", self._config.model, exc)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:

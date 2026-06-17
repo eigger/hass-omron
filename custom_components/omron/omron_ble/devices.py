@@ -52,6 +52,7 @@ class DeviceConfig:
     )
     unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
     requires_unlock: bool = True
+    requires_secure_unlock: bool = False
     supports_pairing: bool = True
     supports_os_bonding_only: bool = False
     # Extra UUIDs to subscribe (CCCD write) before the memory session, but whose
