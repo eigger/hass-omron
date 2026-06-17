@@ -234,8 +234,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
-        requires_unlock=False,
-        requires_secure_unlock=True,
         legacy_pairing_workarounds=True,
         endianness="big",
         user_start_addresses=[0x02E8],
