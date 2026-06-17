@@ -12,6 +12,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
+from .const import MODEL_NUMBER_UUID
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -311,15 +312,25 @@ def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
     _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
-class GattTransport:
-    """BLE GATT read/write and notify handling for Omron measurement memory access.
+class OmronDeviceSession:
+    """A connected BLE session to one Omron device.
 
-    Supports single-channel (OS-bonding) and multi-channel (classic pairing) profiles.
+    Owns the connection lifecycle (use as an ``async with`` context manager, or
+    ``connect()`` / ``aclose()``) together with all GATT read/write, notify,
+    pairing, unlock and memory-session operations. Supports single-channel
+    (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
-    def __init__(self, client: BleakClient, device_config: DeviceConfig) -> None:
-        self._client = client
+    def __init__(self, ble_device: BLEDevice, device_config: DeviceConfig) -> None:
+        self._ble_device = ble_device
         self._config = device_config
+        self._init_session_state(client=None, owns_connection=True)
+
+    def _init_session_state(
+        self, *, client: BleakClient | None, owns_connection: bool
+    ) -> None:
+        self._client = client
+        self._owns_connection = owns_connection
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
@@ -330,6 +341,122 @@ class GattTransport:
         self._memory_session_depth = 0
         self._unlocked = False
         self._secure_session = None
+
+    # -- connection lifecycle -------------------------------------------------
+
+    @classmethod
+    def adopt(
+        cls, client: BleakClient, device_config: DeviceConfig
+    ) -> "OmronDeviceSession":
+        """Wrap an already-open client to run ops over a connection owned elsewhere.
+
+        ``aclose()`` will not disconnect an adopted client.
+        """
+        session = cls.__new__(cls)
+        session._ble_device = getattr(client, "_device", None)
+        session._config = device_config
+        session._init_session_state(client=client, owns_connection=False)
+        return session
+
+    @property
+    def client(self) -> BleakClient:
+        """Return the live Bleak client, raising if the session is not connected."""
+        if self._client is None:
+            raise ConnectionError("OmronDeviceSession is not connected")
+        return self._client
+
+    @property
+    def config(self) -> DeviceConfig:
+        """Return the device profile this session was opened for."""
+        return self._config
+
+    @property
+    def address(self) -> str:
+        """Return the device BLE address (best effort)."""
+        if self._ble_device is not None:
+            addr = getattr(self._ble_device, "address", None)
+            if addr:
+                return addr
+        if self._client is not None:
+            return getattr(self._client, "address", "") or ""
+        return ""
+
+    @property
+    def is_connected(self) -> bool:
+        return self._client is not None and self._client.is_connected
+
+    async def connect(self) -> "OmronDeviceSession":
+        """Open the BLE link and let bonding/encryption settle before first use."""
+        if self._client is not None and self._client.is_connected:
+            return self
+        if self._ble_device is None:
+            raise ConnectionError(
+                "OmronDeviceSession.adopt() sessions cannot connect; open the client first"
+            )
+        self._client = await establish_connection_with_bond_settle(
+            self._ble_device, self.address
+        )
+        return self
+
+    async def refresh_services(self) -> None:
+        """Re-run GATT discovery so characteristics appear after connection."""
+        await _bleak_refresh_services(self.client)
+
+    async def verify_parent_service(self, attempts: int = 5) -> bool:
+        """Refresh services until the profile's parent service is present."""
+        parent_uuid = self._config.parent_service_uuid
+        for attempt in range(attempts):
+            try:
+                if parent_uuid in [s.uuid for s in self.client.services]:
+                    return True
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Services not ready (%d/%d) for %s: %s",
+                    attempt + 1, attempts, self.address, exc,
+                )
+            if attempt + 1 < attempts:
+                await self.refresh_services()
+                await asyncio.sleep(0.35)
+        return False
+
+    async def read_model_number(self) -> str | None:
+        """Read the standard Model Number string characteristic (if present)."""
+        char = self.client.services.get_characteristic(MODEL_NUMBER_UUID)
+        if char is None:
+            return None
+        raw = await self.client.read_gatt_char(char)
+        if not raw:
+            return None
+        return raw.decode("utf-8").strip(" \x00")
+
+    def release_client(self) -> BleakClient:
+        """Hand off the live Bleak client; ``aclose()`` will not disconnect afterward."""
+        self._owns_connection = False
+        return self.client
+
+    async def aclose(self) -> None:
+        """Close any open memory session and (if owned) drop the BLE link."""
+        client = self._client
+        if client is None:
+            return
+        try:
+            if self._memory_session_depth > 0:
+                try:
+                    await self.close_memory_session()
+                except Exception:
+                    pass
+            if self._owns_connection and client.is_connected:
+                await client.disconnect()
+        except Exception:
+            pass
+        finally:
+            self._client = None
+
+    async def __aenter__(self) -> "OmronDeviceSession":
+        return await self.connect()
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
 
     def _require_connected(self, context: str) -> None:
         """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
@@ -1379,7 +1506,7 @@ class OmronDeviceDriver:
         self._counter_probe_logged = False
 
     async def sync_eeprom_time(
-        self, transport: GattTransport, now: dt.datetime | None = None
+        self, transport: OmronDeviceSession, now: dt.datetime | None = None
     ) -> bool:
         """Synchronize time to legacy devices via EEPROM settings write.
 
@@ -1518,7 +1645,7 @@ class OmronDeviceDriver:
         return result
 
     async def get_all_records(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> list[list[dict[str, Any]]]:
         """Read all records from all users.
 
@@ -1551,7 +1678,7 @@ class OmronDeviceDriver:
         return all_user_records
 
     async def get_latest_record(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[str, Any] | None:
         """Read latest record using index first, then fallback to full scan."""
         layout = self._config.index_pointer_layout or {}
@@ -1571,7 +1698,7 @@ class OmronDeviceDriver:
         return await self._get_latest_via_full_scan(transport)
 
     async def get_latest_records_per_user(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[int, dict[str, Any]]:
         """Return latest valid record per configured user index (1-based).
 
@@ -1661,7 +1788,7 @@ class OmronDeviceDriver:
         return latest_by_user
 
     async def _get_latest_via_full_scan(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[str, Any] | None:
         """Existing full EEPROM scan path."""
         all_user_records = await self.get_all_records(transport)
@@ -1691,7 +1818,7 @@ class OmronDeviceDriver:
         return pointer
 
     async def _get_latest_via_index(
-        self, transport: GattTransport, *, return_all_users: bool = False
+        self, transport: OmronDeviceSession, *, return_all_users: bool = False
     ) -> Any | None:
         """Read index block and fetch only the latest slot per configured user.
 
@@ -1977,7 +2104,7 @@ class OmronDeviceDriver:
         return self._finalize_public_latest_record(record, user)
 
     async def get_all_records_flat(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> list[dict[str, Any]]:
         """Read all records, adding user index, and return a flat sorted list."""
         all_user_records = await self.get_all_records(transport)

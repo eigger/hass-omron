@@ -11,7 +11,7 @@ from bleak import BleakClient
 
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
-from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
+from .omron_driver import OmronDeviceSession, _bleak_refresh_services
 
 if TYPE_CHECKING:
     from .devices import DeviceConfig
@@ -171,7 +171,7 @@ async def _sync_time_via_eeprom(
     client: BleakClient,
     model: str,
     config: DeviceConfig,
-    transport: GattTransport | None,
+    transport: OmronDeviceSession | None,
 ) -> bool:
     """EEPROM-based time sync when the profile supports it."""
     if not config.supports_eeprom_time_sync:
@@ -181,7 +181,7 @@ async def _sync_time_via_eeprom(
         model,
     )
     if transport is None:
-        transport = GattTransport(client, config)
+        transport = OmronDeviceSession.adopt(client, config)
     try:
         driver = OmronDeviceDriver(config)
         eeprom_success = await driver.sync_eeprom_time(transport)
@@ -197,7 +197,7 @@ async def async_sync_device_time(
     client: BleakClient,
     model: str,
     config: DeviceConfig | None = None,
-    transport: GattTransport | None = None,
+    transport: OmronDeviceSession | None = None,
 ) -> bool:
     """Sync current local time via CTS and/or EEPROM.
 
