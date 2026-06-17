@@ -5,7 +5,8 @@ import datetime as dt
 import logging
 import secrets
 import traceback
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -338,7 +339,7 @@ class OmronDeviceSession:
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
-        self._memory_session_depth = 0
+        self._memory_session_active = False
         self._unlocked = False
         self._secure_session = None
 
@@ -439,18 +440,23 @@ class OmronDeviceSession:
         client = self._client
         if client is None:
             return
+        addr = self.address or getattr(client, "address", "")
+        disconnected = False
         try:
-            if self._memory_session_depth > 0:
+            if self._memory_session_active:
                 try:
                     await self.close_memory_session()
                 except Exception:
                     pass
             if self._owns_connection and client.is_connected:
                 await client.disconnect()
+                disconnected = True
         except Exception:
             pass
         finally:
             self._client = None
+            if disconnected:
+                _LOGGER.debug("BLE link closed for %s", addr)
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()
@@ -580,7 +586,7 @@ class OmronDeviceSession:
         await self._unsubscribe_notify_channels()
         self._unlocked = False
         self._secure_session = None
-        self._memory_session_depth = 0
+        self._memory_session_active = False
         self._channel_fragments = [None] * 4
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
@@ -762,11 +768,39 @@ class OmronDeviceSession:
             f"Failed to receive response after {max_retries} retries"
         )
 
+    @property
+    def memory_session_active(self) -> bool:
+        """True while the EEPROM readout GATT session is open."""
+        return self._memory_session_active
+
+    @asynccontextmanager
+    async def memory_session(self) -> AsyncIterator[None]:
+        """Hold one EEPROM readout session (idempotent if already open)."""
+        await self.open_memory_session()
+        try:
+            yield
+        finally:
+            await self.close_memory_session()
+
+    @asynccontextmanager
+    async def memory_session_after_unlock(
+        self, *, pair_first: bool = False
+    ) -> AsyncIterator[None]:
+        """Unlock (optional pair) then hold one memory readout session."""
+        if pair_first:
+            try:
+                await self.pair()
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Poll pair step failed (continuing to unlock): %s", exc
+                )
+        await self.unlock()
+        async with self.memory_session():
+            yield
+
     async def open_memory_session(self) -> None:
-        """Start a data readout session."""
-        self._memory_session_depth += 1
-        if self._memory_session_depth > 1:
-            _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
+        """Start a data readout session (no-op if already open)."""
+        if self._memory_session_active:
             return
 
         try:
@@ -778,33 +812,35 @@ class OmronDeviceSession:
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
+            self._memory_session_active = True
             self._debug_ble_link("open_memory_session_ok")
+            _LOGGER.debug("Memory session opened for %s", self.address)
         except BaseException:
-            if self._memory_session_depth > 0:
-                self._memory_session_depth -= 1
+            self._memory_session_active = False
             self._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels()
             raise
 
     async def close_memory_session(self) -> None:
-        """End a data readout session."""
-        if self._memory_session_depth <= 0:
-            return
-        self._memory_session_depth -= 1
-        if self._memory_session_depth > 0:
-            _LOGGER.debug("Decreasing memory session depth to %d", self._memory_session_depth)
+        """End a data readout session (no-op if not open)."""
+        if not self._memory_session_active:
             return
 
-        stop_cmd = bytearray.fromhex("080f000000000007")
-        await self._write_command_and_wait_reply(stop_cmd)
-        if self._last_reply_packet_type != bytearray.fromhex("8f00"):
-            _LOGGER.warning("Invalid response to data readout end")
-        elif self._last_reply_payload and self._last_reply_payload[0]:
-            _LOGGER.warning(
-                "Device reported error code %d during session close", self._last_reply_payload[0]
-            )
-        await self._unsubscribe_notify_channels()
+        try:
+            stop_cmd = bytearray.fromhex("080f000000000007")
+            await self._write_command_and_wait_reply(stop_cmd)
+            if self._last_reply_packet_type != bytearray.fromhex("8f00"):
+                _LOGGER.warning("Invalid response to data readout end")
+            elif self._last_reply_payload and self._last_reply_payload[0]:
+                _LOGGER.warning(
+                    "Device reported error code %d during session close",
+                    self._last_reply_payload[0],
+                )
+        finally:
+            self._memory_session_active = False
+            await self._unsubscribe_notify_channels()
+            _LOGGER.debug("Memory session closed for %s", self.address)
 
     async def read_memory_block(self, address: int, blocksize: int) -> bytes:
         """Read a block of data from device EEPROM."""
@@ -1554,60 +1590,54 @@ class OmronDeviceDriver:
             now = now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
 
         await transport.unlock()
-        await transport.open_memory_session()
-        try:
-            # Read current time sync settings from EEPROM
-            cached = await transport.read_memory_range(
-                read_addr + section_start,
-                section_size,
-                min(section_size, self._config.transmission_block_size),
-            )
-            cached = bytearray(cached)
-            _LOGGER.debug(
-                "EEPROM time raw for %s (layout=%s addr=0x%04X+0x%02X size=%d): %s",
-                self._config.model,
-                self._config.resolved_time_sync_layout(),
-                read_addr,
-                section_start,
-                section_size,
-                bytes(cached).hex(),
-            )
 
-            # Parse current device time and only write if difference is > 60 seconds
-            device_dt = self._parse_eeprom_device_time(cached)
-            if device_dt is not None:
-                diff = abs((device_dt - now).total_seconds())
-                if diff <= 60:
-                    _LOGGER.debug(
-                        "Device %s time is already in sync (%s), skipping EEPROM write",
-                        self._config.model,
-                        device_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    )
-                    return True
+        # Read current time sync settings from EEPROM
+        cached = await transport.read_memory_range(
+            read_addr + section_start,
+            section_size,
+            min(section_size, self._config.transmission_block_size),
+        )
+        cached = bytearray(cached)
+        _LOGGER.debug(
+            "EEPROM time raw for %s (layout=%s addr=0x%04X+0x%02X size=%d): %s",
+            self._config.model,
+            self._config.resolved_time_sync_layout(),
+            read_addr,
+            section_start,
+            section_size,
+            bytes(cached).hex(),
+        )
 
-            # Write new time into the cached settings
-            cached = self._build_eeprom_time_data(cached, now)
+        # Parse current device time and only write if difference is > 60 seconds
+        device_dt = self._parse_eeprom_device_time(cached)
+        if device_dt is not None:
+            diff = abs((device_dt - now).total_seconds())
+            if diff <= 60:
+                _LOGGER.debug(
+                    "Device %s time is already in sync (%s), skipping EEPROM write",
+                    self._config.model,
+                    device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                return True
 
-            # Write the modified settings back to EEPROM
-            await transport.write_memory_range(
-                write_addr + section_start,
-                cached,
-                block_size=len(cached),
-            )
-            # Allow the device to commit the EEPROM write internally.
-            # Without this settle time, subsequent read commands may time out
-            # because the device is still processing the write operation.
-            await asyncio.sleep(1.0)
-            _LOGGER.debug(
-                "Synced time via EEPROM for %s: %s",
-                self._config.model,
-                now.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+        # Write new time into the cached settings
+        cached = self._build_eeprom_time_data(cached, now)
+
+        # Write the modified settings back to EEPROM
+        await transport.write_memory_range(
+            write_addr + section_start,
+            cached,
+            block_size=len(cached),
+        )
+        # Allow the device to commit the EEPROM write internally.
+        # Without this settle time, subsequent read commands may time out
+        # because the device is still processing the write operation.
+        await asyncio.sleep(1.0)
+        _LOGGER.debug(
+            "Synced time via EEPROM for %s: %s",
+            self._config.model,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         return True
 
@@ -1652,28 +1682,21 @@ class OmronDeviceDriver:
         Returns a list of lists: [[user1_records], [user2_records], ...]
         """
         await transport.unlock()
-        await transport.open_memory_session()
 
-        try:
-            all_user_records = []
-            for user_idx in range(self._config.num_users):
-                start_addr = self._config.user_start_addresses[user_idx]
-                total_bytes = (
-                    self._config.per_user_records_count[user_idx]
-                    * self._config.record_byte_size
-                )
+        all_user_records = []
+        for user_idx in range(self._config.num_users):
+            start_addr = self._config.user_start_addresses[user_idx]
+            total_bytes = (
+                self._config.per_user_records_count[user_idx]
+                * self._config.record_byte_size
+            )
 
-                raw_data = await transport.read_memory_range(
-                    start_addr, total_bytes, self._config.transmission_block_size
-                )
+            raw_data = await transport.read_memory_range(
+                start_addr, total_bytes, self._config.transmission_block_size
+            )
 
-                records = self._parse_user_records(raw_data, user_idx)
-                all_user_records.append(records)
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+            records = self._parse_user_records(raw_data, user_idx)
+            all_user_records.append(records)
 
         return all_user_records
 
@@ -1866,7 +1889,6 @@ class OmronDeviceDriver:
         confirmed_empty_users: set[int] = set()
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
-        await transport.open_memory_session()
         try:
             index_bytes = await transport.read_memory_range(
                 self._config.settings_read_address,
@@ -2016,11 +2038,6 @@ class OmronDeviceDriver:
             # leave ``confirmed_empty_users`` empty and let the caller fall
             # back to a full scan as it would have without this feature.
             return None if not return_all_users else ({}, set())
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
 
         if not candidates:
             _LOGGER.debug(

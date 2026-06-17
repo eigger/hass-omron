@@ -12,7 +12,11 @@ from .omron_driver import (
     OmronDeviceSession,
     _bleak_refresh_services,
 )
-from .setup_time_sync import async_sync_device_time, build_cts_payload
+from .setup_time_sync import (
+    async_sync_device_time,
+    async_sync_eeprom_time,
+    build_cts_payload,
+)
 
 if TYPE_CHECKING:
     from homeassistant.components.bluetooth import BLEDevice
@@ -24,6 +28,7 @@ __all__ = [
     "async_fetch_device_model_number",
     "async_pair_and_sync_device",
     "async_sync_device_time",
+    "async_sync_eeprom_time",
     "build_cts_payload",
 ]
 

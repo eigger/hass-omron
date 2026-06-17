@@ -37,7 +37,7 @@ from .const import (
     DEFAULT_DEVICE_MODEL,
     ExtendedBinarySensorDeviceClass,
 )
-from .setup import async_sync_device_time
+from .setup import async_sync_device_time, async_sync_eeprom_time
 from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_model_catalog
 from .omron_driver import (
     OmronDeviceSession,
@@ -841,6 +841,223 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
+    async def _poll_device_readout(
+        self,
+        session: OmronDeviceSession,
+        client: BleakClient,
+        ble_device: BLEDevice,
+        *,
+        memory_session_active: bool,
+    ) -> None:
+        """Time sync, record fetch, and device info reads for one poll cycle."""
+        try:
+            if memory_session_active:
+                if self._device_config.supports_eeprom_time_sync:
+                    await async_sync_eeprom_time(
+                        client,
+                        self._device_model,
+                        self._device_config,
+                        session,
+                    )
+            elif not self._device_config.supports_eeprom_time_sync:
+                await self._async_sync_current_time_with_client(
+                    client, ble_device.address, session
+                )
+            else:
+                _LOGGER.debug(
+                    "Skipping EEPROM time sync for %s: memory session not opened",
+                    ble_device.address,
+                )
+        except Exception as exc:
+            _LOGGER.warning(
+                "Time sync failed during poll for %s: %s", ble_device.address, exc
+            )
+
+        multi_user_mode = self._device_config.num_users > 1
+        record: dict[str, Any] | None = None
+        latest_by_user: dict[int, dict[str, Any]] = {}
+        if multi_user_mode:
+            latest_by_user = await self._driver.get_latest_records_per_user(session)
+        else:
+            record = await self._driver.get_latest_record(session)
+            live_record: dict[str, Any] | None = None
+            live_record = await self._read_latest_via_bls_racp(client)
+            if not self._bp_char_unavailable:
+                try:
+                    bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
+                    if bp_raw:
+                        if live_record is None:
+                            live_record = self._parse_bp_measurement(bytes(bp_raw))
+                except Exception as exc:
+                    if "Read not permitted" in str(exc):
+                        self._bp_char_unavailable = True
+                        _LOGGER.debug(
+                            "BP measurement char 0x2A35 read not permitted on %s; "
+                            "disabling live BLS read path",
+                            ble_device.address,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "Read BP measurement char 0x2A35 failed for %s: %s",
+                            ble_device.address,
+                            exc,
+                        )
+                    live_record = None
+
+            if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
+                eeprom_dt = record.get("datetime") if record else None
+                live_dt = live_record.get("datetime")
+                use_live = False
+                if record is None:
+                    use_live = True
+                elif isinstance(live_dt, dt.datetime) and (
+                    not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
+                ):
+                    use_live = True
+                elif (
+                    not isinstance(live_dt, dt.datetime)
+                    and isinstance(record.get("sys"), int)
+                    and isinstance(record.get("dia"), int)
+                    and (
+                        int(live_record["sys"]) != int(record.get("sys"))
+                        or int(live_record["dia"]) != int(record.get("dia"))
+                    )
+                ):
+                    use_live = True
+                if use_live:
+                    merged = dict(record or {})
+                    merged["sys"] = live_record["sys"]
+                    merged["dia"] = live_record["dia"]
+                    if isinstance(live_record.get("bpm"), int):
+                        merged["bpm"] = live_record["bpm"]
+                    if isinstance(live_dt, dt.datetime):
+                        merged["datetime"] = live_dt
+                    if "user" not in merged:
+                        merged["user"] = 1
+                    record = merged
+
+        if multi_user_mode:
+            if latest_by_user:
+                for user in sorted(latest_by_user):
+                    user_record = latest_by_user[user]
+                    _LOGGER.debug(
+                        "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                        user,
+                        user_record.get("datetime"),
+                        user_record.get("sys"),
+                        user_record.get("dia"),
+                        user_record.get("bpm"),
+                    )
+                    self._update_measurement_sensors(
+                        user_record,
+                        user=user,
+                        multi_user=True,
+                    )
+                    signature = self._build_record_signature(user_record)
+                    previous = self._last_record_signatures_by_user.get(user)
+                    if signature != previous:
+                        self._last_record_signatures_by_user[user] = signature
+        elif record:
+            _LOGGER.debug(
+                "Latest selected: datetime=%s sys=%s dia=%s bpm=%s",
+                record.get("datetime"),
+                record.get("sys"),
+                record.get("dia"),
+                record.get("bpm"),
+            )
+            self._update_measurement_sensors(record)
+            signature = self._build_record_signature(record)
+            if signature != self._last_record_signature:
+                self._last_record_signature = signature
+
+        absolute_latest_record = None
+        if multi_user_mode and latest_by_user:
+            absolute_latest_record = max(
+                latest_by_user.values(),
+                key=lambda r: self._ensure_aware_datetime(r.get("datetime"))
+                if isinstance(r.get("datetime"), dt.datetime)
+                else dt.datetime.min.replace(tzinfo=dt.timezone.utc),
+            )
+        elif record:
+            absolute_latest_record = record
+
+        if absolute_latest_record and "battery" in absolute_latest_record:
+            is_low_battery = bool(absolute_latest_record["battery"])
+            _LOGGER.debug(
+                "Extracted device-level low battery flag from measurements: %s",
+                is_low_battery,
+            )
+            self.update_binary_sensor(
+                "battery",
+                is_low_battery,
+                BinarySensorDeviceClass.BATTERY,
+                "Battery",
+            )
+
+        try:
+            char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+            bat_bytes = None
+            if char_bat:
+                _LOGGER.debug(
+                    "Found battery characteristic in cached services for %s",
+                    ble_device.address,
+                )
+                bat_bytes = await client.read_gatt_char(char_bat)
+            else:
+                _LOGGER.debug(
+                    "Battery char not in cached services, falling back to UUID for %s",
+                    ble_device.address,
+                )
+                bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
+
+            if bat_bytes:
+                bat_level = int(bat_bytes[0])
+                _LOGGER.debug(
+                    "Battery level byte received for %s: %s (Parsed: %d%%)",
+                    ble_device.address,
+                    bat_bytes.hex(),
+                    bat_level,
+                )
+        except Exception as exc:
+            _LOGGER.debug("Failed to read Battery Level: %s", exc)
+
+        try:
+            char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
+            if char_fw:
+                fw_bytes = await client.read_gatt_char(char_fw)
+                if fw_bytes:
+                    fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
+                    self.set_device_sw_version(fw_rev)
+        except Exception as exc:
+            _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
+
+        try:
+            char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
+            if char_hw:
+                hw_bytes = await client.read_gatt_char(char_hw)
+                if hw_bytes:
+                    hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
+                    self.set_device_hw_version(hw_rev)
+        except Exception as exc:
+            _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
+
+        try:
+            char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
+            if char_mfg:
+                mfg_bytes = await client.read_gatt_char(char_mfg)
+                if mfg_bytes:
+                    mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
+                    self.set_device_manufacturer(mfg_name)
+        except Exception as exc:
+            _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
+
+        try:
+            char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
+            if char_model:
+                await client.read_gatt_char(char_model)
+        except Exception as exc:
+            _LOGGER.debug("Failed to read Model Number: %s", exc)
+
     async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection."""
         async with self._poll_guard:
@@ -858,7 +1075,6 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             self._events_updates.clear()
 
-            session_opened = False
             try:
                 async with OmronDeviceSession(
                     ble_device, self._device_config
@@ -913,46 +1129,31 @@ class OmronBluetoothDeviceData(BluetoothData):
                         else "none",
                     )
 
-                    # Open a single memory session for both records and time sync
-                    if self._device_config.is_classic_stack or self._device_config.supports_eeprom_time_sync:
+                    needs_memory = (
+                        self._device_config.is_classic_stack
+                        or self._device_config.supports_eeprom_time_sync
+                    )
+                    if needs_memory:
+                        memory_session_active = False
                         last_session_exc: BaseException | None = None
                         for session_attempt in range(3):
                             try:
-                                if session_attempt == 0 and (
-                                    self._device_config.host_pairing_mode == HostPairingMode.CUSTOM_KEY
+                                pair_first = (
+                                    session_attempt == 0
+                                    and self._device_config.host_pairing_mode
+                                    == HostPairingMode.CUSTOM_KEY
                                     and self.pairing_mode
-                                 ):
-                                    # Custom-key pairing models in -P- mode (MSD bit 0x08):
-                                    # an in-line pair() finalises the new key the user just
-                                    # programmed before we open the memory session.
-                                    #
-                                    # OS-bonding models do NOT call pair() here.  Calling
-                                    # pair() during a normal poll can either no-op (already
-                                    # bonded), waste up to ~10 s (device not in pairing
-                                    # mode), or — worst case — overwrite an intact bond.
-                                    # Bond establishment is the responsibility of
-                                    # ``async_retry_pairing`` (user-driven via the
-                                    # "Retry Pairing" button), which calls
-                                    # ``session.pair()`` once with the backend's default
-                                    # protection level (Encryption / Just Works — the only
-                                    # level Omron BPMs can satisfy; they have no keypad or
-                                    # numeric display for MITM association).
-                                    # If a poll fails on an OS-bonding device, the
-                                    # session-retry loop below and GATT cache refresh
-                                    # handle stale state without re-bonding;
-                                    # if the bond is genuinely lost, the user is
-                                    # surfaced a clear warning to re-press the
-                                    # pairing button.
-                                    try:
-                                        await session.pair()
-                                    except Exception as exc:
-                                        _LOGGER.debug(
-                                            "Poll pair step failed (continuing to unlock): %s",
-                                            exc,
-                                        )
-                                await session.unlock()
-                                await session.open_memory_session()
-                                session_opened = True
+                                )
+                                async with session.memory_session_after_unlock(
+                                    pair_first=pair_first
+                                ):
+                                    memory_session_active = True
+                                    await self._poll_device_readout(
+                                        session,
+                                        client,
+                                        ble_device,
+                                        memory_session_active=True,
+                                    )
                                 break
                             except BaseException as exc:
                                 last_session_exc = exc
@@ -962,244 +1163,55 @@ class OmronBluetoothDeviceData(BluetoothData):
                                     exc,
                                 )
                                 if session_attempt < 2:
-                                    # Reset notify subscriptions and unlock state before the next attempt.
-                                    # This releases any stale BlueZ `Notify acquired` locks so the next
-                                    # open_memory_session() call can re-subscribe from a clean state.
                                     try:
                                         await session.reset_session_state()
                                     except Exception as reset_exc:
-                                        _LOGGER.debug("Session state reset failed (ignored): %s", reset_exc)
+                                        _LOGGER.debug(
+                                            "Session state reset failed (ignored): %s",
+                                            reset_exc,
+                                        )
                                     await session.refresh_services()
                                     await asyncio.sleep(0.5)
-                        if not session_opened and last_session_exc is not None:
-                            if self._device_config.host_pairing_mode == HostPairingMode.OS_BONDING:
+                        if not memory_session_active and last_session_exc is not None:
+                            if (
+                                self._device_config.host_pairing_mode
+                                == HostPairingMode.OS_BONDING
+                            ):
                                 _LOGGER.warning(
-                                    "Memory session failed for OS-bonding device %s (model=%s): %s. "
-                                    "Ensure OS-level BLE bonding is complete — remove and re-add the "
-                                    "device if this error persists.",
+                                    "Memory session failed for OS-bonding device %s "
+                                    "(model=%s): %s. Ensure OS-level BLE bonding is "
+                                    "complete — remove and re-add the device if this "
+                                    "error persists.",
                                     ble_device.address,
                                     self._device_config.model,
                                     last_session_exc,
                                 )
                             else:
                                 _LOGGER.debug(
-                                    "Could not open memory session globally in poll after retries: %s",
+                                    "Could not open memory session globally in poll "
+                                    "after retries: %s",
                                     last_session_exc,
                                 )
-
-                    # Perform time sync first, ensuring the device clock is correct before further actions.
-                    # Skip EEPROM-based time sync when the memory session could not be opened: the EEPROM
-                    # sync path internally calls open_memory_session() again, which would pile up additional
-                    # `Notify acquired` errors on an already-broken BLE session state.
-                    try:
-                        if session_opened or not self._device_config.supports_eeprom_time_sync:
-                            await self._async_sync_current_time_with_client(
-                                client, ble_device.address, session
-                            )
-                        else:
-                            _LOGGER.debug(
-                                "Skipping EEPROM time sync for %s: memory session not opened",
-                                ble_device.address,
-                            )
-                    except Exception as exc:
-                        _LOGGER.warning(
-                            "Time sync failed during poll for %s: %s", ble_device.address, exc
-                        )
-
-                    multi_user_mode = self._device_config.num_users > 1
-                    record: dict[str, Any] | None = None
-                    latest_by_user: dict[int, dict[str, Any]] = {}
-                    if multi_user_mode:
-                        latest_by_user = await self._driver.get_latest_records_per_user(session)
-                    else:
-                        record = await self._driver.get_latest_record(session)
-                        live_record: dict[str, Any] | None = None
-                        # Preferred live path for BLS devices: request latest via RACP indications.
-                        live_record = await self._read_latest_via_bls_racp(client)
-                        if not self._bp_char_unavailable:
                             try:
-                                bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
-                                if bp_raw:
-                                    # Keep RACP result if present; otherwise use direct read result.
-                                    if live_record is None:
-                                        live_record = self._parse_bp_measurement(bytes(bp_raw))
-                            except Exception as exc:
-                                if "Read not permitted" in str(exc):
-                                    self._bp_char_unavailable = True
-                                    _LOGGER.debug(
-                                        "BP measurement char 0x2A35 read not permitted on %s; "
-                                        "disabling live BLS read path",
-                                        ble_device.address,
+                                async with session.memory_session_after_unlock():
+                                    await self._poll_device_readout(
+                                        session,
+                                        client,
+                                        ble_device,
+                                        memory_session_active=True,
                                     )
-                                else:
-                                    _LOGGER.debug(
-                                        "Read BP measurement char 0x2A35 failed for %s: %s",
-                                        ble_device.address,
-                                        exc,
-                                    )
-                                live_record = None
-
-                        if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
-                            eeprom_dt = record.get("datetime") if record else None
-                            live_dt = live_record.get("datetime")
-                            use_live = False
-                            if record is None:
-                                use_live = True
-                            elif isinstance(live_dt, dt.datetime) and (
-                                not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
-                            ):
-                                use_live = True
-                            elif (
-                                not isinstance(live_dt, dt.datetime)
-                                and isinstance(record.get("sys"), int)
-                                and isinstance(record.get("dia"), int)
-                                and (
-                                    int(live_record["sys"]) != int(record.get("sys"))
-                                    or int(live_record["dia"]) != int(record.get("dia"))
-                                )
-                            ):
-                                # Some devices expose recent measurement values in 0x2A35 without timestamp.
-                                use_live = True
-                            if use_live:
-                                merged = dict(record or {})
-                                merged["sys"] = live_record["sys"]
-                                merged["dia"] = live_record["dia"]
-                                if isinstance(live_record.get("bpm"), int):
-                                    merged["bpm"] = live_record["bpm"]
-                                if isinstance(live_dt, dt.datetime):
-                                    merged["datetime"] = live_dt
-                                if "user" not in merged:
-                                    merged["user"] = 1
-                                record = merged
-
-                    if multi_user_mode:
-                        if latest_by_user:
-                            for user in sorted(latest_by_user):
-                                user_record = latest_by_user[user]
+                            except BaseException as fallback_exc:
                                 _LOGGER.debug(
-                                    "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
-                                    user,
-                                    user_record.get("datetime"),
-                                    user_record.get("sys"),
-                                    user_record.get("dia"),
-                                    user_record.get("bpm"),
+                                    "Fallback memory session readout failed: %s",
+                                    fallback_exc,
                                 )
-                                self._update_measurement_sensors(
-                                    user_record,
-                                    user=user,
-                                    multi_user=True,
-                                )
-                                signature = self._build_record_signature(user_record)
-                                previous = self._last_record_signatures_by_user.get(user)
-                                if signature != previous:
-                                    self._last_record_signatures_by_user[user] = signature
-                    elif record:
-                        _LOGGER.debug(
-                            "Latest selected: datetime=%s sys=%s dia=%s bpm=%s",
-                            record.get("datetime"),
-                            record.get("sys"),
-                            record.get("dia"),
-                            record.get("bpm"),
+                    else:
+                        await self._poll_device_readout(
+                            session,
+                            client,
+                            ble_device,
+                            memory_session_active=False,
                         )
-                        self._update_measurement_sensors(record)
-                        signature = self._build_record_signature(record)
-                        if signature != self._last_record_signature:
-                            self._last_record_signature = signature
-
-                    # Handle Device-Level Battery Flag from Measurements
-                    absolute_latest_record = None
-                    if multi_user_mode and latest_by_user:
-                        absolute_latest_record = max(
-                            latest_by_user.values(),
-                            key=lambda r: self._ensure_aware_datetime(r.get("datetime"))
-                            if isinstance(r.get("datetime"), dt.datetime)
-                            else dt.datetime.min.replace(tzinfo=dt.timezone.utc),
-                        )
-                    elif record:
-                        absolute_latest_record = record
-
-                    if absolute_latest_record and "battery" in absolute_latest_record:
-                        is_low_battery = bool(absolute_latest_record["battery"])
-                        _LOGGER.debug(
-                            "Extracted device-level low battery flag from measurements: %s",
-                            is_low_battery,
-                        )
-                        self.update_binary_sensor(
-                            "battery",
-                            is_low_battery,
-                            BinarySensorDeviceClass.BATTERY,
-                            "Battery",
-                        )
-
-                    # Fetch Battery Level
-                    try:
-                        char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
-                        bat_bytes = None
-                        if char_bat:
-                            _LOGGER.debug("Found battery characteristic in cached services for %s", ble_device.address)
-                            bat_bytes = await client.read_gatt_char(char_bat)
-                        else:
-                            # Some stacks do not expose BAS in cached services reliably.
-                            _LOGGER.debug("Battery char not in cached services, falling back to UUID for %s", ble_device.address)
-                            bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
-
-                        if bat_bytes:
-                            bat_level = int(bat_bytes[0])
-                            _LOGGER.debug(
-                                "Battery level byte received for %s: %s (Parsed: %d%%)",
-                                ble_device.address,
-                                bat_bytes.hex(),
-                                bat_level,
-                            )
-                    except Exception as exc:
-                        _LOGGER.debug("Failed to read Battery Level: %s", exc)
-
-                    # Fetch Firmware Revision
-                    try:
-                        char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
-                        if char_fw:
-                            fw_bytes = await client.read_gatt_char(char_fw)
-                            if fw_bytes:
-                                fw_rev = fw_bytes.decode("utf-8").strip(" \x00")
-                                self.set_device_sw_version(fw_rev)
-                    except Exception as exc:
-                        _LOGGER.debug("Failed to read Firmware Revision: %s", exc)
-
-                    # Fetch Hardware Revision
-                    try:
-                        char_hw = client.services.get_characteristic(HARDWARE_REVISION_UUID)
-                        if char_hw:
-                            hw_bytes = await client.read_gatt_char(char_hw)
-                            if hw_bytes:
-                                hw_rev = hw_bytes.decode("utf-8").strip(" \x00")
-                                self.set_device_hw_version(hw_rev)
-                    except Exception as exc:
-                        _LOGGER.debug("Failed to read Hardware Revision: %s", exc)
-
-                    # Fetch Manufacturer Name
-                    try:
-                        char_mfg = client.services.get_characteristic(MANUFACTURER_NAME_UUID)
-                        if char_mfg:
-                            mfg_bytes = await client.read_gatt_char(char_mfg)
-                            if mfg_bytes:
-                                mfg_name = mfg_bytes.decode("utf-8").strip(" \x00")
-                                self.set_device_manufacturer(mfg_name)
-                    except Exception as exc:
-                        _LOGGER.debug("Failed to read Manufacturer Name: %s", exc)
-
-                    # Fetch Model Number
-                    try:
-                        char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)
-                        if char_model:
-                            await client.read_gatt_char(char_model)
-                    except Exception as exc:
-                        _LOGGER.debug("Failed to read Model Number: %s", exc)
-
-                    if session_opened:
-                        try:
-                            await session.close_memory_session()
-                        except Exception:
-                            pass
 
             except ConnectionError as exc:
                 # Expected when the cuff is off, out of range, or the link drops mid-poll.
@@ -1240,29 +1252,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                 )
             await session.pair()
             await session.refresh_services()
+            await async_sync_device_time(
+                session.client,
+                self._device_model,
+                self._device_config,
+                session,
+            )
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""
         async with OmronDeviceSession(ble_device, self._device_config) as session:
-            session_opened = False
-            if self._device_config.is_classic_stack or self._device_config.supports_eeprom_time_sync:
-                try:
-                    await session.unlock()
-                    await session.open_memory_session()
-                    session_opened = True
-                except Exception as exc:
-                    _LOGGER.debug("Memory session open failed during time sync: %s", exc)
-            try:
-                if session_opened or not self._device_config.supports_eeprom_time_sync:
-                    await self._async_sync_current_time_with_client(
-                        session.client, ble_device.address, session
-                    )
-            finally:
-                if session_opened:
-                    try:
-                        await session.close_memory_session()
-                    except Exception:
-                        pass
+            await self._async_sync_current_time_with_client(
+                session.client, ble_device.address, session
+            )
 
     async def _async_sync_current_time_with_client(
         self, client: BleakClient, address: str,
