@@ -551,9 +551,13 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
+            # Index entries are 8 bytes per user (uint32 write cursor + uint32
+            # unread counter), confirmed via HCI btsnoop of HEM-7155T-ESL:
+            # user1 cursor at 0x00, user2 cursor at 0x08 (NOT 0x02 — that offset
+            # lands in the high half of user1's word and reads the 0x80 flag).
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
-                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x08, "unread_counter_offset": 0x0C, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
         record_parser="classic_vital_14",
