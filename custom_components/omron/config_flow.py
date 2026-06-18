@@ -22,8 +22,6 @@ from .omron_ble.devices import (
 )
 import voluptuous as vol
 
-from bleak import BleakClient
-
 from homeassistant.components import onboarding
 from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
@@ -41,7 +39,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
-from .omron_ble.omron_driver import establish_connection_with_bond_settle
+from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -200,7 +198,6 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_model: str | None = None
         self._scan_interval: int = 300
         self._user_aliases: dict[str, str] = {}
-        self._cached_client: BleakClient | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -255,13 +252,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
                 ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
                 if ble_device:
-                    client, model_num = await async_fetch_device_model_number(ble_device)
-                    if client:
-                        self._cached_client = client
-                        if model_num:
-                            inferred = infer_model_id_from_local_name(model_num)
-                            if inferred:
-                                default_model = inferred
+                    model_num = await async_fetch_device_model_number(ble_device)
+                    if model_num:
+                        inferred = infer_model_id_from_local_name(model_num)
+                        if inferred:
+                            default_model = inferred
 
         desc_ph = {
             **self.context.get("title_placeholders", {}),
@@ -416,25 +411,21 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        if self._cached_client and self._cached_client.is_connected:
-            client = self._cached_client
-        else:
-            client = await establish_connection_with_bond_settle(ble_device, address)
-            self._cached_client = client
-
+        session = OmronDeviceSession(ble_device, config)
         try:
-            await async_pair_and_sync_device(client, ble_device, model, config)
-        finally:
-            # Tear down the setup-time BLE link cleanly so async_setup_entry's
-            # initial poll starts from a fresh connection. Without this the
-            # first poll after device registration hits a TX timeout on the
-            # half-closed link and the user has to manually refresh.
-            try:
-                if self._cached_client is not None and self._cached_client.is_connected:
-                    await self._cached_client.disconnect()
-            except Exception as exc:
-                _LOGGER.debug("Setup disconnect cleanup failed: %s", exc)
-            self._cached_client = None
+            await session.connect()
+            await async_pair_and_sync_device(session, model)
+        except Exception:
+            # Pairing failed: drop the link so a later retry starts clean.
+            await session.aclose()
+            raise
+        else:
+            # Pairing succeeded: hand the still-open link to the first poll
+            # instead of dropping it here, so pairing and the initial read share
+            # one connection (no disconnect-then-immediate-reconnect race). The
+            # poll path closes it; if it drops first, the poll reconnects fresh.
+            handoff = self.hass.data.setdefault(DOMAIN, {}).setdefault("_setup_clients", {})
+            handoff[address] = session.release_client()
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

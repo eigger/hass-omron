@@ -435,6 +435,16 @@ class OmronDeviceSession:
         self._owns_connection = False
         return self.client
 
+    def attach(self, client: BleakClient) -> None:
+        """Adopt an already-open client that this session will own and close.
+
+        Used to take over a link handed off from setup so the first poll reads
+        the device to completion on the same connection. ``connect()`` is a
+        no-op while the attached client stays connected; ``aclose()`` closes it.
+        """
+        self._client = client
+        self._owns_connection = True
+
     async def aclose(self) -> None:
         """Close any open memory session and (if owned) drop the BLE link."""
         client = self._client

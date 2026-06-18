@@ -1058,8 +1058,16 @@ class OmronBluetoothDeviceData(BluetoothData):
         except Exception as exc:
             _LOGGER.debug("Failed to read Model Number: %s", exc)
 
-    async def async_poll(self, ble_device: BLEDevice) -> SensorUpdate:
-        """Poll the device to retrieve measurement records via GATT connection."""
+    async def async_poll(
+        self, ble_device: BLEDevice, preconnected_client: BleakClient | None = None
+    ) -> SensorUpdate:
+        """Poll the device to retrieve measurement records via GATT connection.
+
+        If ``preconnected_client`` is supplied and still connected, the session
+        adopts that link (handed off from setup) so pairing and the first read
+        share one connection; otherwise a new link is opened. Either way the
+        link is closed when the session context exits.
+        """
         async with self._poll_guard:
             profile_key, catalog_variant = resolve_model_catalog(self._device_model)
             if catalog_variant is not None:
@@ -1076,9 +1084,10 @@ class OmronBluetoothDeviceData(BluetoothData):
             self._events_updates.clear()
 
             try:
-                async with OmronDeviceSession(
-                    ble_device, self._device_config
-                ) as session:
+                session = OmronDeviceSession(ble_device, self._device_config)
+                if preconnected_client is not None and preconnected_client.is_connected:
+                    session.attach(preconnected_client)
+                async with session:
                     client = session.client
 
                     if not await session.verify_parent_service():

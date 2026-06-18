@@ -301,8 +301,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]["duration_coordinator"] = duration_coordinator
 
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
+        entry_data = hass.data[DOMAIN][entry.entry_id]
+        address = entry_data["address"]
+        # First poll after setup adopts the link the config flow left open, so
+        # pairing and the initial read share one connection. async_poll owns it
+        # once handed off; otherwise the finally below drops it so a reused link
+        # is never left dangling (which would block later polls).
+        preconnected_client = hass.data[DOMAIN].get("_setup_clients", {}).pop(address, None)
+        handed_off = False
         try:
-            device = async_ble_device_from_address(hass, hass.data[DOMAIN][entry.entry_id]['address'])
+            device = async_ble_device_from_address(hass, address)
             if not device:
                 _LOGGER.debug("BLE device not found; keeping last successful poll data")
                 if poll_coordinator.data is not None:
@@ -313,7 +321,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
-            entry_data = hass.data[DOMAIN][entry.entry_id]
             session_lock: asyncio.Lock = entry_data["session_lock"]
 
             # Try-acquire only — if another BLE session is in flight (e.g. an
@@ -323,17 +330,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             # lock frees. Two concurrent connections to the same Omron device
             # provoke SMP auth failures, so we never queue here.
             if session_lock.locked():
-                _LOGGER.debug(
-                    "Skipping scheduled poll: BLE session lock held for %s",
-                    entry_data["address"],
-                )
+                _LOGGER.debug("Skipping scheduled poll: BLE session lock held for %s", address)
                 if poll_coordinator.data is not None:
                     return poll_coordinator.data
                 return entry.runtime_data.device_data._finish_update()
 
             async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
-                    result = await coordinator.device_data.async_poll(device)
+                    handed_off = True
+                    result = await coordinator.device_data.async_poll(
+                        device, preconnected_client=preconnected_client
+                    )
                 prev_data = poll_coordinator.data
                 if prev_data is not None:
                     result = _merge_poll_sensor_update(prev_data, result)
@@ -343,6 +350,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             if poll_coordinator.data is not None:
                 return poll_coordinator.data
             return entry.runtime_data.device_data._finish_update()
+        finally:
+            if not handed_off and preconnected_client and preconnected_client.is_connected:
+                try:
+                    await preconnected_client.disconnect()
+                except Exception:
+                    pass
 
     scan_interval = entry.options.get(
         CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, 300)
