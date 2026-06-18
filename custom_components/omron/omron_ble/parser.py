@@ -1057,22 +1057,26 @@ class OmronBluetoothDeviceData(BluetoothData):
             _LOGGER.debug("Failed to read Model Number: %s", exc)
 
     async def async_poll(
-        self, ble_device: BLEDevice, preconnected_client: BleakClient | None = None
+        self, ble_device: BLEDevice, preconnected_session: OmronDeviceSession | None = None
     ) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection.
 
-        If ``preconnected_client`` is supplied and still connected, the session
-        adopts that link (handed off from setup) so pairing and the first read
-        share one connection; otherwise a new link is opened. Either way the
-        link is closed when the session context exits.
+        If ``preconnected_session`` is supplied and still connected, the poll
+        adopts that setup session (unlock + memory session state preserved) so
+        pairing, time sync, and the initial read share one connection.
         """
         async with self._poll_guard:
             self._events_updates.clear()
 
             try:
-                session = OmronDeviceSession(ble_device, self._device_config)
-                if preconnected_client is not None and preconnected_client.is_connected:
-                    session.attach(preconnected_client)
+                if (
+                    preconnected_session is not None
+                    and preconnected_session.is_connected
+                ):
+                    session = preconnected_session
+                    session.reclaim_ownership()
+                else:
+                    session = OmronDeviceSession(ble_device, self._device_config)
                 async with session:
                     client = session.client
 
@@ -1126,77 +1130,89 @@ class OmronBluetoothDeviceData(BluetoothData):
                         or self._device_config.supports_eeprom_time_sync
                     )
                     if needs_memory:
-                        memory_session_active = False
-                        last_session_exc: BaseException | None = None
-                        for session_attempt in range(3):
-                            try:
-                                pair_first = (
-                                    session_attempt == 0
-                                    and self._device_config.host_pairing_mode
-                                    == HostPairingMode.CUSTOM_KEY
-                                    and self.pairing_mode
-                                )
-                                async with session.memory_session_after_unlock(
-                                    pair_first=pair_first
-                                ):
-                                    memory_session_active = True
-                                    await self._poll_device_readout(
-                                        session,
-                                        client,
-                                        ble_device,
-                                        memory_session_active=True,
+                        if session.memory_session_active:
+                            _LOGGER.debug(
+                                "Reusing setup memory session for %s",
+                                ble_device.address,
+                            )
+                            await self._poll_device_readout(
+                                session,
+                                client,
+                                ble_device,
+                                memory_session_active=True,
+                            )
+                        else:
+                            memory_session_active = False
+                            last_session_exc: BaseException | None = None
+                            for session_attempt in range(3):
+                                try:
+                                    pair_first = (
+                                        session_attempt == 0
+                                        and self._device_config.host_pairing_mode
+                                        == HostPairingMode.CUSTOM_KEY
+                                        and self.pairing_mode
                                     )
-                                break
-                            except BaseException as exc:
-                                last_session_exc = exc
-                                _LOGGER.debug(
-                                    "Memory session open attempt %d/3 failed: %s",
-                                    session_attempt + 1,
-                                    exc,
-                                )
-                                if session_attempt < 2:
-                                    try:
-                                        await session.reset_session_state()
-                                    except Exception as reset_exc:
-                                        _LOGGER.debug(
-                                            "Session state reset failed (ignored): %s",
-                                            reset_exc,
+                                    async with session.memory_session_after_unlock(
+                                        pair_first=pair_first
+                                    ):
+                                        memory_session_active = True
+                                        await self._poll_device_readout(
+                                            session,
+                                            client,
+                                            ble_device,
+                                            memory_session_active=True,
                                         )
-                                    await session.refresh_services()
-                                    await asyncio.sleep(0.5)
-                        if not memory_session_active and last_session_exc is not None:
-                            if (
-                                self._device_config.host_pairing_mode
-                                == HostPairingMode.OS_BONDING
-                            ):
-                                _LOGGER.warning(
-                                    "Memory session failed for OS-bonding device %s "
-                                    "(model=%s): %s. Ensure OS-level BLE bonding is "
-                                    "complete — remove and re-add the device if this "
-                                    "error persists.",
-                                    ble_device.address,
-                                    self._device_config.model,
-                                    last_session_exc,
-                                )
-                            else:
-                                _LOGGER.debug(
-                                    "Could not open memory session globally in poll "
-                                    "after retries: %s",
-                                    last_session_exc,
-                                )
-                            try:
-                                async with session.memory_session_after_unlock():
-                                    await self._poll_device_readout(
-                                        session,
-                                        client,
-                                        ble_device,
-                                        memory_session_active=True,
+                                    break
+                                except BaseException as exc:
+                                    last_session_exc = exc
+                                    _LOGGER.debug(
+                                        "Memory session open attempt %d/3 failed: %s",
+                                        session_attempt + 1,
+                                        exc,
                                     )
-                            except BaseException as fallback_exc:
-                                _LOGGER.debug(
-                                    "Fallback memory session readout failed: %s",
-                                    fallback_exc,
-                                )
+                                    if session_attempt < 2:
+                                        try:
+                                            await session.reset_session_state()
+                                        except Exception as reset_exc:
+                                            _LOGGER.debug(
+                                                "Session state reset failed (ignored): %s",
+                                                reset_exc,
+                                            )
+                                        await session.refresh_services()
+                                        await asyncio.sleep(0.5)
+                            if not memory_session_active and last_session_exc is not None:
+                                if (
+                                    self._device_config.host_pairing_mode
+                                    == HostPairingMode.OS_BONDING
+                                ):
+                                    _LOGGER.warning(
+                                        "Memory session failed for OS-bonding device %s "
+                                        "(model=%s): %s. Ensure OS-level BLE bonding is "
+                                        "complete — remove and re-add the device if this "
+                                        "error persists.",
+                                        ble_device.address,
+                                        self._device_config.model,
+                                        last_session_exc,
+                                    )
+                                else:
+                                    _LOGGER.debug(
+                                        "Could not open memory session globally in poll "
+                                        "after retries: %s",
+                                        last_session_exc,
+                                    )
+                                try:
+                                    async with session.memory_session_after_unlock():
+                                        await self._poll_device_readout(
+                                            session,
+                                            client,
+                                            ble_device,
+                                            memory_session_active=True,
+                                        )
+                                except BaseException as fallback_exc:
+                                    _LOGGER.debug(
+                                        "Fallback memory session readout failed: %s",
+                                        fallback_exc,
+                                    )
                     else:
                         await self._poll_device_readout(
                             session,

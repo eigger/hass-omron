@@ -303,11 +303,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         address = entry_data["address"]
-        # First poll after setup adopts the link the config flow left open, so
-        # pairing and the initial read share one connection. async_poll owns it
-        # once handed off; otherwise the finally below drops it so a reused link
-        # is never left dangling (which would block later polls).
-        preconnected_client = hass.data[DOMAIN].get("_setup_clients", {}).pop(address, None)
+        # First poll after setup adopts the session the config flow left open
+        # (memory readout session still active) so pairing, time sync, and the
+        # initial EEPROM read share one connection without a close/reopen race.
+        preconnected_session = hass.data[DOMAIN].get("_setup_sessions", {}).pop(
+            address, None
+        )
         handed_off = False
         try:
             device = async_ble_device_from_address(hass, address)
@@ -339,7 +340,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 async with omron_poll_ble_telemetry(entry_data):
                     handed_off = True
                     result = await coordinator.device_data.async_poll(
-                        device, preconnected_client=preconnected_client
+                        device, preconnected_session=preconnected_session
                     )
                 prev_data = poll_coordinator.data
                 if prev_data is not None:
@@ -351,9 +352,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 return poll_coordinator.data
             return entry.runtime_data.device_data._finish_update()
         finally:
-            if not handed_off and preconnected_client and preconnected_client.is_connected:
+            if not handed_off and preconnected_session is not None:
                 try:
-                    await preconnected_client.disconnect()
+                    await preconnected_session.aclose()
                 except Exception:
                     pass
 

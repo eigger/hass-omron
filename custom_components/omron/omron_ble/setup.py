@@ -53,6 +53,8 @@ async def async_fetch_device_model_number(
 async def async_pair_and_sync_device(
     session: OmronDeviceSession,
     model: str,
+    *,
+    leave_memory_session_open: bool = False,
 ) -> None:
     """Pair and run the initial time sync on an already-open device session."""
     if not await session.verify_parent_service():
@@ -64,5 +66,11 @@ async def async_pair_and_sync_device(
         )
 
     await session.pair()
-    await async_sync_device_time(session.client, model, session.config, session)
+    await async_sync_device_time(
+        session.client,
+        model,
+        session.config,
+        session,
+        leave_memory_session_open=leave_memory_session_open,
+    )
     _LOGGER.debug("Successfully paired and synced with %s (%s)", model, session.address)

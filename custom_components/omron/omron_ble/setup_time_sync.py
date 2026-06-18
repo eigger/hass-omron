@@ -196,6 +196,8 @@ async def _sync_eeprom_with_session(
     model: str,
     config: DeviceConfig,
     transport: OmronDeviceSession | None,
+    *,
+    leave_memory_session_open: bool = False,
 ) -> bool:
     """EEPROM time sync, opening a memory session when one is not already held."""
     if not config.supports_eeprom_time_sync:
@@ -203,6 +205,10 @@ async def _sync_eeprom_with_session(
     if transport is None:
         transport = OmronDeviceSession.adopt(client, config)
     if transport.memory_session_active:
+        return await _sync_time_via_eeprom(client, model, config, transport)
+    if leave_memory_session_open:
+        await transport.unlock()
+        await transport.open_memory_session()
         return await _sync_time_via_eeprom(client, model, config, transport)
     async with transport.memory_session_after_unlock():
         return await _sync_time_via_eeprom(client, model, config, transport)
@@ -231,6 +237,8 @@ async def async_sync_device_time(
     model: str,
     config: DeviceConfig | None = None,
     transport: OmronDeviceSession | None = None,
+    *,
+    leave_memory_session_open: bool = False,
 ) -> bool:
     """Sync current local time via EEPROM (memory session) then CTS.
 
@@ -253,7 +261,8 @@ async def async_sync_device_time(
 
     if config.supports_eeprom_time_sync:
         eeprom_success = await _sync_eeprom_with_session(
-            client, model, config, transport
+            client, model, config, transport,
+            leave_memory_session_open=leave_memory_session_open,
         )
         if eeprom_success:
             return True
@@ -262,7 +271,8 @@ async def async_sync_device_time(
 
     if config.supports_eeprom_time_sync and not eeprom_success:
         eeprom_success = await _sync_eeprom_with_session(
-            client, model, config, transport
+            client, model, config, transport,
+            leave_memory_session_open=leave_memory_session_open,
         )
 
     if not config.supports_eeprom_time_sync and not cts_success:

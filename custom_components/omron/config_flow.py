@@ -413,18 +413,22 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         session = OmronDeviceSession(ble_device, config)
         try:
             await session.connect()
-            await async_pair_and_sync_device(session, model)
+            await async_pair_and_sync_device(
+                session, model, leave_memory_session_open=True
+            )
         except Exception:
             # Pairing failed: drop the link so a later retry starts clean.
             await session.aclose()
             raise
         else:
-            # Pairing succeeded: hand the still-open link to the first poll
-            # instead of dropping it here, so pairing and the initial read share
-            # one connection (no disconnect-then-immediate-reconnect race). The
-            # poll path closes it; if it drops first, the poll reconnects fresh.
-            handoff = self.hass.data.setdefault(DOMAIN, {}).setdefault("_setup_clients", {})
-            handoff[address] = session.release_client()
+            # Pairing succeeded: hand the still-open session to the first poll
+            # with the memory readout session left open so setup does not
+            # close-then-immediately-reopen on the same link (which breaks
+            # GATT on some stacks). The poll path closes it when finished.
+            handoff = self.hass.data.setdefault(DOMAIN, {}).setdefault(
+                "_setup_sessions", {}
+            )
+            handoff[address] = session.release_for_handoff()
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

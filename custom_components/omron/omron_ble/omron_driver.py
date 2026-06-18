@@ -430,20 +430,19 @@ class OmronDeviceSession:
             return None
         return raw.decode("utf-8").strip(" \x00")
 
+    def release_for_handoff(self) -> "OmronDeviceSession":
+        """Hand off this session for the first poll; ``aclose()`` will not disconnect."""
+        self._owns_connection = False
+        return self
+
+    def reclaim_ownership(self) -> None:
+        """Take back disconnect responsibility after a setup handoff."""
+        self._owns_connection = True
+
     def release_client(self) -> BleakClient:
         """Hand off the live Bleak client; ``aclose()`` will not disconnect afterward."""
-        self._owns_connection = False
+        self.release_for_handoff()
         return self.client
-
-    def attach(self, client: BleakClient) -> None:
-        """Adopt an already-open client that this session will own and close.
-
-        Used to take over a link handed off from setup so the first poll reads
-        the device to completion on the same connection. ``connect()`` is a
-        no-op while the attached client stays connected; ``aclose()`` closes it.
-        """
-        self._client = client
-        self._owns_connection = True
 
     async def aclose(self) -> None:
         """Close any open memory session and (if owned) drop the BLE link."""
