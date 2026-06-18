@@ -13,15 +13,14 @@ from typing import Any
 from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
     DeviceConfig,
+    HostPairingMode,
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
     infer_model_id_from_local_name,
-    resolve_model_catalog,
+    resolve_profile_model_id,
 )
 import voluptuous as vol
-
-from bleak import BleakClient
 
 from homeassistant.components import onboarding
 from homeassistant.components.bluetooth import (
@@ -40,7 +39,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
-from .omron_ble.omron_driver import establish_connection_with_bond_settle
+from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -199,7 +198,6 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_model: str | None = None
         self._scan_interval: int = 300
         self._user_aliases: dict[str, str] = {}
-        self._cached_client: BleakClient | None = None
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -254,13 +252,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
                 ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
                 if ble_device:
-                    client, model_num = await async_fetch_device_model_number(ble_device)
-                    if client:
-                        self._cached_client = client
-                        if model_num:
-                            inferred = infer_model_id_from_local_name(model_num)
-                            if inferred:
-                                default_model = inferred
+                    model_num = await async_fetch_device_model_number(ble_device)
+                    if model_num:
+                        inferred = infer_model_id_from_local_name(model_num)
+                        if inferred:
+                            default_model = inferred
 
         desc_ph = {
             **self.context.get("title_placeholders", {}),
@@ -356,7 +352,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
-        step_id = "pairing_os" if config.supports_os_bonding_only else "pairing"
+        step_id = "pairing_os" if config.host_pairing_mode == HostPairingMode.OS_BONDING else "pairing"
 
         title_ph = self.context.get("title_placeholders") or {}
         device_name = str(title_ph.get("name") or model)
@@ -384,13 +380,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
-        profile_key, variant = resolve_model_catalog(model)
-        if variant is not None:
+        profile_key = resolve_profile_model_id(model)
+        if model != profile_key:
             _LOGGER.debug(
-                "Catalog variant %s -> profile %s (unverified=%s)",
+                "Catalog variant %s -> profile %s",
                 model,
                 profile_key,
-                variant.unverified,
             )
         address = self._discovery_info.address
         advertised_services = self._discovery_info.service_uuids
@@ -415,25 +410,25 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        if self._cached_client and self._cached_client.is_connected:
-            client = self._cached_client
-        else:
-            client = await establish_connection_with_bond_settle(ble_device, address)
-            self._cached_client = client
-
+        session = OmronDeviceSession(ble_device, config)
         try:
-            await async_pair_and_sync_device(client, ble_device, model, config)
-        finally:
-            # Tear down the setup-time BLE link cleanly so async_setup_entry's
-            # initial poll starts from a fresh connection. Without this the
-            # first poll after device registration hits a TX timeout on the
-            # half-closed link and the user has to manually refresh.
-            try:
-                if self._cached_client is not None and self._cached_client.is_connected:
-                    await self._cached_client.disconnect()
-            except Exception as exc:
-                _LOGGER.debug("Setup disconnect cleanup failed: %s", exc)
-            self._cached_client = None
+            await session.connect()
+            await async_pair_and_sync_device(
+                session, model, leave_memory_session_open=True
+            )
+        except Exception:
+            # Pairing failed: drop the link so a later retry starts clean.
+            await session.aclose()
+            raise
+        else:
+            # Pairing succeeded: hand the still-open session to the first poll
+            # with the memory readout session left open so setup does not
+            # close-then-immediately-reopen on the same link (which breaks
+            # GATT on some stacks). The poll path closes it when finished.
+            handoff = self.hass.data.setdefault(DOMAIN, {}).setdefault(
+                "_setup_sessions", {}
+            )
+            handoff[address] = session.release_for_handoff()
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

@@ -4,7 +4,8 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field, replace
-from typing import Any, NamedTuple
+from enum import Enum
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -27,12 +28,27 @@ from .record_parsers import (
 )
 
 
-class DeviceModelVariant(NamedTuple):
-    """Alternate catalog model ID that shares EEPROM layout with a canonical profile."""
+class UnlockMode(str, Enum):
+    """Transport unlock strategy for a device profile."""
 
-    model_id: str
-    unverified: bool = False
-    reason: str | None = None
+    NONE = "none"
+    CLASSIC_KEY = "classic_key"
+    # Stateless 0x11/0x91 handshake: host sends 0x11 + 4 arbitrary (nonce)
+    # bytes, device echoes them in a 0x91 0x00 ack. Not a stored secret —
+    # confirmed via HCI btsnoop where the same device echoed two different
+    # host-chosen values across two connections. Required for memory access
+    # outside the device's -P- pairing grace window on some modern-stack units.
+    TOKEN_KEY = "token_key"
+    SECURE_SESSION = "secure_session"
+
+
+class HostPairingMode(str, Enum):
+    """Host-side pairing strategy for BLE security establishment."""
+
+    CUSTOM_KEY = "custom_key"
+    OS_BONDING = "os_bonding"
+    # Reserved for future profiles that intentionally skip host-side pairing.
+    NONE = "none"
 
 
 @dataclass
@@ -51,17 +67,11 @@ class DeviceConfig:
         default_factory=lambda: list(CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS)
     )
     unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
-    requires_unlock: bool = True
-    supports_pairing: bool = True
-    supports_os_bonding_only: bool = False
-    # Extra UUIDs to subscribe (CCCD write) before the memory session, but whose
-    # notifications are not processed as protocol data.  Required by some modern-stack
-    # devices (e.g. HEM-7194T1/HEM-7196T1 family) that expect the host to enable
-    # b305b680 notifications before accepting WLP4COM session commands.
-    ctrl_notify_uuids: list[str] = field(default_factory=list)
-    # True: faster GATT refresh / RX→unlock timing for classic custom-key pairing. False: conservative defaults.
-    # HEM-7380T1 uses OS bonding only; stays False.
-    legacy_pairing_workarounds: bool = False
+    unlock_mode: UnlockMode = UnlockMode.CLASSIC_KEY
+    host_pairing_mode: HostPairingMode = HostPairingMode.CUSTOM_KEY
+    # Enable more aggressive GATT timing for classic custom-key profiles
+    # (extra refresh/retry and pre-unlock 0x02 probe).
+    aggressive_gatt_timing: bool = False
 
     # EEPROM layout
     endianness: str = "big"
@@ -88,7 +98,57 @@ class DeviceConfig:
     record_parser: str = "classic_vital_14"
     # When True, pick latest record by highest EEPROM slot index, then datetime (index-pointer devices).
     prefer_latest_by_slot_index: bool = False
-    equivalent_model_ids: tuple[DeviceModelVariant, ...] = ()
+    equivalent_model_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Validate unlock/pairing strategy combinations."""
+        if (
+            self.unlock_mode == UnlockMode.SECURE_SESSION
+            and self.host_pairing_mode != HostPairingMode.OS_BONDING
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: secure-session unlock requires "
+                "host_pairing_mode=OS_BONDING (unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.host_pairing_mode == HostPairingMode.OS_BONDING
+            and self.unlock_mode == UnlockMode.CLASSIC_KEY
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: OS_BONDING cannot use classic-key unlock "
+                "(unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.host_pairing_mode == HostPairingMode.NONE
+            and self.unlock_mode != UnlockMode.NONE
+        ):
+            raise ValueError(
+                "Invalid profile config for %s: host_pairing_mode=NONE requires unlock_mode=NONE "
+                "(unlock_mode=%s host_pairing_mode=%s)"
+                % (
+                    self.model,
+                    self.unlock_mode,
+                    self.host_pairing_mode,
+                )
+            )
+        if (
+            self.unlock_mode == UnlockMode.NONE
+            and self.host_pairing_mode == HostPairingMode.CUSTOM_KEY
+        ):
+            _LOGGER.warning(
+                "Profile %s uses custom-key pairing with unlock_mode=NONE; verify catalog settings",
+                self.model,
+            )
 
     @property
     def num_users(self) -> int:
@@ -135,15 +195,19 @@ class DeviceConfig:
             raise ValueError(f"Unknown record parser: {self.record_parser}")
         return parser(data, self.endianness)
 
-    def parent_service_stack(self) -> str:
-        """Return which BLE parent-service layout this profile expects (classic vs modern)."""
-        if self.parent_service_uuid == MODERN_STACK_PARENT_SERVICE_UUID:
-            return "modern"
-        return "classic"
+    @property
+    def is_modern_stack(self) -> bool:
+        """Whether this profile uses the modern FE4A parent-service layout."""
+        return self.parent_service_uuid == MODERN_STACK_PARENT_SERVICE_UUID
+
+    @property
+    def is_classic_stack(self) -> bool:
+        """Whether this profile uses the classic 1812 parent-service layout."""
+        return not self.is_modern_stack
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""
-        if self.parent_service_stack() == "modern":
+        if self.is_modern_stack:
             return MODERN_STACK_PARENT_SERVICE_UUID in service_uuids
         return CLASSIC_STACK_PARENT_SERVICE_UUID in service_uuids
 
@@ -166,17 +230,17 @@ class DeviceConfig:
 
 from .device_catalog import CANONICAL_DEVICE_PROFILES
 
-def _build_model_variant_map() -> dict[str, tuple[str, DeviceModelVariant]]:
-    idx: dict[str, tuple[str, DeviceModelVariant]] = {}
+def _build_model_variant_map() -> dict[str, str]:
+    idx: dict[str, str] = {}
     for canonical_model_id, profile in CANONICAL_DEVICE_PROFILES.items():
-        for variant in profile.equivalent_model_ids:
-            if variant.model_id in idx:
-                raise ValueError(f"Duplicate catalog model variant {variant.model_id!r}")
-            idx[variant.model_id] = (canonical_model_id, variant)
+        for variant_id in profile.equivalent_model_ids:
+            if variant_id in idx:
+                raise ValueError(f"Duplicate catalog model variant {variant_id!r}")
+            idx[variant_id] = canonical_model_id
     return idx
 
 
-MODEL_VARIANT_MAP: dict[str, tuple[str, DeviceModelVariant]] = _build_model_variant_map()
+MODEL_VARIANT_MAP: dict[str, str] = _build_model_variant_map()
 
 
 def get_device_config(model: str) -> DeviceConfig:
@@ -187,10 +251,9 @@ def get_device_config(model: str) -> DeviceConfig:
     canonical_profile = CANONICAL_DEVICE_PROFILES.get(model)
     if canonical_profile is not None:
         return canonical_profile
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        profile_key, _variant = variant_entry
-        config = CANONICAL_DEVICE_PROFILES[profile_key]
+    variant_profile = MODEL_VARIANT_MAP.get(model)
+    if variant_profile:
+        config = CANONICAL_DEVICE_PROFILES[variant_profile]
         return replace(config, model=model)
     _LOGGER.warning(
         "Unknown device model '%s', falling back to %s",
@@ -253,16 +316,8 @@ def resolve_profile_model_id(model: str) -> str:
     """Registry profile key (EEPROM layout) for a model string, including catalog variants."""
     if model in CANONICAL_DEVICE_PROFILES:
         return model
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        return variant_entry[0]
+    variant_profile = MODEL_VARIANT_MAP.get(model)
+    if variant_profile:
+        return variant_profile
     return DEFAULT_DEVICE_MODEL
-
-
-def resolve_model_catalog(model: str) -> tuple[str, DeviceModelVariant | None]:
-    """Return EEPROM profile key and catalog variant metadata when ``model`` is an alias."""
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        return variant_entry[0], variant_entry[1]
-    return resolve_profile_model_id(model), None
 

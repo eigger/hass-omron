@@ -3,15 +3,18 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import secrets
 import traceback
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
-from .devices import DeviceConfig
+from .const import MODEL_NUMBER_UUID
+from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +38,17 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # explicit short wait gives the stack a stable starting point before the
 # follow-up service-cache refresh below.
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
+_UNLOCK_PROBE_WAIT_TIMEOUT_SEC: float = 2.0
+_UNLOCK_AUTH_WAIT_TIMEOUT_SEC: float = 5.0
+_PAIRING_SETTLE_AGGRESSIVE_SEC: float = 0.25
+_PAIRING_SETTLE_DEFAULT_SEC: float = 1.0
+_PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
+_PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
+_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
+_OS_BOND_REFRESH_DELAY_SEC: float = 0.3
+_OS_BOND_RETRY_DELAY_SEC: float = 0.5
+_PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
+_PAIR_UNLOCK_ATTEMPTS_DEFAULT: int = 5
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
@@ -97,6 +111,17 @@ def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
     if resp is None or len(resp) < 1:
         return False
     return resp[0] == 0x81
+
+
+def _is_token_unlock_ack(resp: bytes | bytearray | None, token: bytes) -> bool:
+    """Token-unlock notify: prefix 0x91, status 0x00, and 4-byte token echo.
+
+    The device echoes the exact 4 host-chosen bytes, so we both check the
+    success status and confirm the echo matches the value we sent.
+    """
+    if resp is None or len(resp) < 6:
+        return False
+    return resp[0] == 0x91 and resp[1] == 0x00 and bytes(resp[2:6]) == token
 
 
 async def _bluez_agent_pair(client: BleakClient) -> bool:
@@ -288,15 +313,25 @@ def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
     _LOGGER.debug("%s (full traceback)\n%s", prefix, "".join(tb_lines))
 
 
-class GattTransport:
-    """BLE GATT read/write and notify handling for Omron measurement memory access.
+class OmronDeviceSession:
+    """A connected BLE session to one Omron device.
 
-    Supports single-channel (OS-bonding) and multi-channel (classic pairing) profiles.
+    Owns the connection lifecycle (use as an ``async with`` context manager, or
+    ``connect()`` / ``aclose()``) together with all GATT read/write, notify,
+    pairing, unlock and memory-session operations. Supports single-channel
+    (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
-    def __init__(self, client: BleakClient, device_config: DeviceConfig) -> None:
-        self._client = client
+    def __init__(self, ble_device: BLEDevice, device_config: DeviceConfig) -> None:
+        self._ble_device = ble_device
         self._config = device_config
+        self._init_session_state(client=None, owns_connection=True)
+
+    def _init_session_state(
+        self, *, client: BleakClient | None, owns_connection: bool
+    ) -> None:
+        self._client = client
+        self._owns_connection = owns_connection
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
@@ -304,8 +339,139 @@ class GattTransport:
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
-        self._memory_session_depth = 0
+        self._memory_session_active = False
         self._unlocked = False
+        self._secure_session = None
+
+    # -- connection lifecycle -------------------------------------------------
+
+    @classmethod
+    def adopt(
+        cls, client: BleakClient, device_config: DeviceConfig
+    ) -> "OmronDeviceSession":
+        """Wrap an already-open client to run ops over a connection owned elsewhere.
+
+        ``aclose()`` will not disconnect an adopted client.
+        """
+        session = cls.__new__(cls)
+        session._ble_device = getattr(client, "_device", None)
+        session._config = device_config
+        session._init_session_state(client=client, owns_connection=False)
+        return session
+
+    @property
+    def client(self) -> BleakClient:
+        """Return the live Bleak client, raising if the session is not connected."""
+        if self._client is None:
+            raise ConnectionError("OmronDeviceSession is not connected")
+        return self._client
+
+    @property
+    def config(self) -> DeviceConfig:
+        """Return the device profile this session was opened for."""
+        return self._config
+
+    @property
+    def address(self) -> str:
+        """Return the device BLE address (best effort)."""
+        if self._ble_device is not None:
+            addr = getattr(self._ble_device, "address", None)
+            if addr:
+                return addr
+        if self._client is not None:
+            return getattr(self._client, "address", "") or ""
+        return ""
+
+    @property
+    def is_connected(self) -> bool:
+        return self._client is not None and self._client.is_connected
+
+    async def connect(self) -> "OmronDeviceSession":
+        """Open the BLE link and let bonding/encryption settle before first use."""
+        if self._client is not None and self._client.is_connected:
+            return self
+        if self._ble_device is None:
+            raise ConnectionError(
+                "OmronDeviceSession.adopt() sessions cannot connect; open the client first"
+            )
+        self._client = await establish_connection_with_bond_settle(
+            self._ble_device, self.address
+        )
+        return self
+
+    async def refresh_services(self) -> None:
+        """Re-run GATT discovery so characteristics appear after connection."""
+        await _bleak_refresh_services(self.client)
+
+    async def verify_parent_service(self, attempts: int = 5) -> bool:
+        """Refresh services until the profile's parent service is present."""
+        parent_uuid = self._config.parent_service_uuid
+        for attempt in range(attempts):
+            try:
+                if parent_uuid in [s.uuid for s in self.client.services]:
+                    return True
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Services not ready (%d/%d) for %s: %s",
+                    attempt + 1, attempts, self.address, exc,
+                )
+            if attempt + 1 < attempts:
+                await self.refresh_services()
+                await asyncio.sleep(0.35)
+        return False
+
+    async def read_model_number(self) -> str | None:
+        """Read the standard Model Number string characteristic (if present)."""
+        char = self.client.services.get_characteristic(MODEL_NUMBER_UUID)
+        if char is None:
+            return None
+        raw = await self.client.read_gatt_char(char)
+        if not raw:
+            return None
+        return raw.decode("utf-8").strip(" \x00")
+
+    def release_for_handoff(self) -> "OmronDeviceSession":
+        """Hand off this session for the first poll; ``aclose()`` will not disconnect."""
+        self._owns_connection = False
+        return self
+
+    def reclaim_ownership(self) -> None:
+        """Take back disconnect responsibility after a setup handoff."""
+        self._owns_connection = True
+
+    def release_client(self) -> BleakClient:
+        """Hand off the live Bleak client; ``aclose()`` will not disconnect afterward."""
+        self.release_for_handoff()
+        return self.client
+
+    async def aclose(self) -> None:
+        """Close any open memory session and (if owned) drop the BLE link."""
+        client = self._client
+        if client is None:
+            return
+        addr = self.address or getattr(client, "address", "")
+        disconnected = False
+        try:
+            if self._memory_session_active:
+                try:
+                    await self.close_memory_session()
+                except Exception:
+                    pass
+            if self._owns_connection and client.is_connected:
+                await client.disconnect()
+                disconnected = True
+        except Exception:
+            pass
+        finally:
+            self._client = None
+            if disconnected:
+                _LOGGER.debug("BLE link closed for %s", addr)
+
+    async def __aenter__(self) -> "OmronDeviceSession":
+        return await self.connect()
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
 
     def _require_connected(self, context: str) -> None:
         """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
@@ -346,7 +512,7 @@ class GattTransport:
                 self._notify_handle_to_channel[char.handle] = idx
 
     async def _subscribe_notify_channels(self) -> None:
-        """Enable notifications on all RX channels (and any ctrl channels if configured)."""
+        """Enable notifications on all RX channels."""
         if self._notify_subscribed:
             _LOGGER.debug(
                 "RX notify subscribe skipped (already flagged) model=%s",
@@ -357,13 +523,6 @@ class GattTransport:
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
-
-        # Subscribe ctrl channels first (device may require CCCD before accepting commands).
-        for uuid in self._config.ctrl_notify_uuids:
-            try:
-                await self._client.start_notify(uuid, lambda _h, _d: None)
-            except Exception as exc:
-                _LOGGER.debug("ctrl_notify subscribe skipped for %s: %s", uuid, exc)
 
         for uuid in self._config.rx_channel_uuids:
             await self._start_notify_with_recovery(uuid)
@@ -416,17 +575,12 @@ class GattTransport:
             raise last_exc
 
     async def _unsubscribe_notify_channels(self) -> None:
-        """Disable notifications on all RX and ctrl channels."""
+        """Disable notifications on all RX channels."""
         for uuid in self._config.rx_channel_uuids:
             try:
                 await self._client.stop_notify(uuid)
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
-        for uuid in self._config.ctrl_notify_uuids:
-            try:
-                await self._client.stop_notify(uuid)
-            except Exception as exc:
-                _LOGGER.debug("ctrl stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -440,7 +594,8 @@ class GattTransport:
         """
         await self._unsubscribe_notify_channels()
         self._unlocked = False
-        self._memory_session_depth = 0
+        self._secure_session = None
+        self._memory_session_active = False
         self._channel_fragments = [None] * 4
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
@@ -486,15 +641,23 @@ class GattTransport:
             frame_bytes = frame_bytes[:packet_size]
             self._channel_fragments = [None] * 4
 
-        # Verify XOR CRC
-        xor_crc = 0
-        for byte in frame_bytes:
-            xor_crc ^= byte
-        if xor_crc:
-            _LOGGER.error(
-                "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
-            )
-            return
+        # Decrypt if secure-session encryption is active
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
+            try:
+                frame_bytes = bytearray(self._secure_session.decrypt(bytes(frame_bytes)))
+            except Exception as exc:
+                _LOGGER.error("Secure session decryption failed: %s", exc)
+                return
+        else:
+            # Verify XOR CRC
+            xor_crc = 0
+            for byte in frame_bytes:
+                xor_crc ^= byte
+            if xor_crc:
+                _LOGGER.error(
+                    "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
+                )
+                return
 
         # Extract packet fields
         self._last_reply_packet_type = frame_bytes[1:3]
@@ -517,6 +680,13 @@ class GattTransport:
         timeout: float = _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC,
     ) -> None:
         """Send a command and wait for response with retry logic."""
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
+            try:
+                command = bytearray(self._secure_session.encrypt(bytes(command)))
+            except Exception as exc:
+                _LOGGER.error("Secure session encryption failed for command: %s", exc)
+                raise
+
         max_retries = _MEMORY_PROTOCOL_TX_MAX_RETRIES
         for retry in range(max_retries):
             self._reply_ready.clear()
@@ -607,11 +777,39 @@ class GattTransport:
             f"Failed to receive response after {max_retries} retries"
         )
 
+    @property
+    def memory_session_active(self) -> bool:
+        """True while the EEPROM readout GATT session is open."""
+        return self._memory_session_active
+
+    @asynccontextmanager
+    async def memory_session(self) -> AsyncIterator[None]:
+        """Hold one EEPROM readout session (idempotent if already open)."""
+        await self.open_memory_session()
+        try:
+            yield
+        finally:
+            await self.close_memory_session()
+
+    @asynccontextmanager
+    async def memory_session_after_unlock(
+        self, *, pair_first: bool = False
+    ) -> AsyncIterator[None]:
+        """Unlock (optional pair) then hold one memory readout session."""
+        if pair_first:
+            try:
+                await self.pair()
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Poll pair step failed (continuing to unlock): %s", exc
+                )
+        await self.unlock()
+        async with self.memory_session():
+            yield
+
     async def open_memory_session(self) -> None:
-        """Start a data readout session."""
-        self._memory_session_depth += 1
-        if self._memory_session_depth > 1:
-            _LOGGER.debug("Memory session already open, increasing depth to %d", self._memory_session_depth)
+        """Start a data readout session (no-op if already open)."""
+        if self._memory_session_active:
             return
 
         try:
@@ -623,33 +821,35 @@ class GattTransport:
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
+            self._memory_session_active = True
             self._debug_ble_link("open_memory_session_ok")
+            _LOGGER.debug("Memory session opened for %s", self.address)
         except BaseException:
-            if self._memory_session_depth > 0:
-                self._memory_session_depth -= 1
+            self._memory_session_active = False
             self._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels()
             raise
 
     async def close_memory_session(self) -> None:
-        """End a data readout session."""
-        if self._memory_session_depth <= 0:
-            return
-        self._memory_session_depth -= 1
-        if self._memory_session_depth > 0:
-            _LOGGER.debug("Decreasing memory session depth to %d", self._memory_session_depth)
+        """End a data readout session (no-op if not open)."""
+        if not self._memory_session_active:
             return
 
-        stop_cmd = bytearray.fromhex("080f000000000007")
-        await self._write_command_and_wait_reply(stop_cmd)
-        if self._last_reply_packet_type != bytearray.fromhex("8f00"):
-            _LOGGER.warning("Invalid response to data readout end")
-        elif self._last_reply_payload and self._last_reply_payload[0]:
-            _LOGGER.warning(
-                "Device reported error code %d during session close", self._last_reply_payload[0]
-            )
-        await self._unsubscribe_notify_channels()
+        try:
+            stop_cmd = bytearray.fromhex("080f000000000007")
+            await self._write_command_and_wait_reply(stop_cmd)
+            if self._last_reply_packet_type != bytearray.fromhex("8f00"):
+                _LOGGER.warning("Invalid response to data readout end")
+            elif self._last_reply_payload and self._last_reply_payload[0]:
+                _LOGGER.warning(
+                    "Device reported error code %d during session close",
+                    self._last_reply_payload[0],
+                )
+        finally:
+            self._memory_session_active = False
+            await self._unsubscribe_notify_channels()
+            _LOGGER.debug("Memory session closed for %s", self.address)
 
     async def read_memory_block(self, address: int, blocksize: int) -> bytes:
         """Read a block of data from device EEPROM."""
@@ -717,16 +917,52 @@ class GattTransport:
             data = data[chunk_size:]
             start_address += chunk_size
 
+    async def _maybe_send_unlock_probe(
+        self,
+        unlock_event: asyncio.Event,
+        response_holder: list[bytes | None],
+    ) -> None:
+        """Best-effort 0x02 probe used by aggressive classic timing profiles."""
+        if not self._config.aggressive_gatt_timing:
+            return
+        unlock_event.clear()
+        response_holder[0] = None
+        try:
+            await self._client.write_gatt_char(
+                self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+            )
+            await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_PROBE_WAIT_TIMEOUT_SEC)
+        except Exception:
+            pass
+
+    async def _apply_pairing_settle_delay(self, aggressive_timing: bool) -> None:
+        """Wait briefly after RX notify before unlock subscribe."""
+        if aggressive_timing:
+            await asyncio.sleep(_PAIRING_SETTLE_AGGRESSIVE_SEC)
+            await _bleak_refresh_services(self._client)
+        else:
+            await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
-        if not self._config.requires_unlock:
-            _LOGGER.debug("unlock skipped: requires_unlock=False model=%s", self._config.model)
+        if self._config.unlock_mode == UnlockMode.NONE:
+            _LOGGER.debug("unlock skipped: unlock not required for model=%s", self._config.model)
             return
         if self._unlocked:
             _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
             return
 
         self._require_connected("unlock")
+
+        # Encrypted secure handshake path
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
+            await self._secure_unlock()
+            return
+
+        # Stateless token handshake (0x11 / 0x91)
+        if self._config.unlock_mode == UnlockMode.TOKEN_KEY:
+            await self._token_unlock()
+            return
 
         unlock_key = key or PAIRING_KEY
         unlock_event = asyncio.Event()
@@ -752,25 +988,15 @@ class GattTransport:
         await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
-            # Legacy classic-stack devices are often more stable if we send a
-            # short "confirm encryption" probe before auth-key unlock.
-            if self._config.legacy_pairing_workarounds:
-                unlock_event.clear()
-                response_holder[0] = None
-                try:
-                    await self._client.write_gatt_char(
-                        self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
-                    )
-                    await asyncio.wait_for(unlock_event.wait(), timeout=2.0)
-                except Exception:
-                    pass
+            # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
+            await self._maybe_send_unlock_probe(unlock_event, response_holder)
 
             unlock_event.clear()
             response_holder[0] = None
             await self._client.write_gatt_char(
                 self._config.unlock_uuid, b'\x01' + unlock_key, response=True
             )
-            await asyncio.wait_for(unlock_event.wait(), timeout=5.0)
+            await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC)
 
             response = response_holder[0]
             if not _is_unlock_auth_key_ack(response):
@@ -794,131 +1020,249 @@ class GattTransport:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
 
-    async def pair(self, key: bytearray | None = None) -> None:
-        """Program a new pairing key into the device.
+    async def _token_unlock(self) -> None:
+        """Unlock via the stateless 0x11/0x91 token handshake.
 
-        The device must be in pairing mode (hold bluetooth button until -P- blinks).
-        For OS-bonding-only devices (e.g. HEM-7380T1), performs standard BLE pairing.
+        The host sends ``0x11 + 4 nonce bytes + 15 zero pad`` (a 20-byte frame,
+        matching the official app's write-without-response) and the device
+        replies on the same characteristic with ``0x91 0x00 + echo``.  The 4
+        bytes are not a stored secret — confirmed via HCI btsnoop where the same
+        device echoed two different host-chosen values — so a fresh random nonce
+        is used each time and verified against the echo.
 
-        Calls ``client.pair()`` without ``protection_level``.  This lets the
-        backend pick the strongest level the device's IO Capabilities can
-        actually satisfy — on Bleak WinRT this resolves to
-        ``DevicePairingProtectionLevel.Encryption`` (= 2, "Just Works").
-
-        We deliberately do **not** request the higher
-        ``EncryptionAndAuthentication`` (= 3) level.  That would force a
-        MITM-protected association model (Numeric Comparison, Passkey
- * standard links [filename](absolute path) will not embed the media and are not an acceptable substitute.
-        monitors have no
-        6-digit display and no keypad — their IO Capabilities are
-        ``DisplayOnly`` or ``NoInputNoOutput``.  Windows' API rejects
-        level-3 pairing on such devices before any SMP packet is sent.
-        The previously-shipped value ``protection_level=4`` is outside
-        the Windows enum entirely (max is 3) and always raised, so the
-        fallback path was the only one ever exercised.
-
-        The official Omron Connect app reaches the same outcome: its
-        ``BluetoothDevice.createBond()`` call lands on Just Works
-        (level 2 / Encryption) because that is the only model compatible
-        with the device's IO Capabilities.
+        HCI btsnoop (HEM-7142T2) shows the official app enables the RX-channel
+        CCCD before the unlock-channel CCCD, then issues the 0x11 write — mirror
+        that ordering here (same RX pre-notify priming as CLASSIC_KEY unlock).
         """
-        pair_key = key or PAIRING_KEY
+        token = secrets.token_bytes(4)
+        packet = b"\x11" + token + b"\x00" * 15
+        unlock_event = asyncio.Event()
+        response_holder: list[bytes | None] = [None]
+        rx_notify_primed = False
 
-        # OS-level bonding only (HEM-7380T1 etc.)
-        if self._config.supports_os_bonding_only:
-            _LOGGER.debug("Performing OS-level BLE bonding")
-            # Some stacks fail pair() even when already bonded/encrypted sessions work.
-            # Keep this as best-effort and allow caller to proceed to GATT operations.
-            max_attempts = 2
-            last_exc: BaseException | None = None
+        def _token_callback(_: Any, rx_bytes: bytearray) -> None:
+            data = bytes(rx_bytes)
+            if not _is_token_unlock_ack(data, token):
+                return
+            response_holder[0] = data
+            unlock_event.set()
 
-            async def _post_bond_refresh() -> None:
-                # After OS bonding completes, the peer may newly expose
-                # encryption-required characteristics (e.g. TX channel
-                # ``db5b55e0-…``) that were absent from the pre-bond GATT
-                # cache.  Subsequent ``write_gatt_char`` lookups against
-                # those UUIDs would otherwise fail with "Characteristic …
-                # was not found".  Refresh the service cache so the next
-                # GATT operation sees the post-bond GATT database.
+        await self._ensure_services_cache()
+
+        # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
+        try:
+            await self._client.start_notify(
+                self._config.rx_channel_uuids[0], lambda _h, _d: None
+            )
+            rx_notify_primed = True
+            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        except Exception as exc:
+            _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
+
+        self._debug_ble_link("token_unlock_before_notify")
+        await self._client.start_notify(self._config.unlock_uuid, _token_callback)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        try:
+            unlock_event.clear()
+            response_holder[0] = None
+            # Prefer write-without-response (ATT Write Command, per btsnoop); fall
+            # back to write-with-response when stacks/proxies drop command writes.
+            for use_response in (False, True):
+                _LOGGER.debug(
+                    "Token unlock write nonce=%s response=%s",
+                    token.hex(),
+                    use_response,
+                )
+                await self._client.write_gatt_char(
+                    self._config.unlock_uuid, packet, response=use_response
+                )
                 try:
-                    await asyncio.sleep(0.3)
-                    await _bleak_refresh_services(self._client)
-                except Exception as refresh_exc:
+                    await asyncio.wait_for(
+                        unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    if use_response:
+                        self._debug_ble_link("token_unlock_notify_timeout")
+                        raise ConnectionError(
+                            "Token unlock failed: notify timeout"
+                        ) from None
+                    unlock_event.clear()
+                    response_holder[0] = None
                     _LOGGER.debug(
-                        "Post-bond service refresh failed (continuing): %s",
-                        refresh_exc,
+                        "Token unlock notify timeout with response=False; "
+                        "retrying write with response=True"
                     )
 
-            for attempt in range(1, max_attempts + 1):
+            response = response_holder[0]
+            if not _is_token_unlock_ack(response, token):
+                _LOGGER.debug(
+                    "Token unlock failed: sent=%s notify len=%s hex=%s",
+                    token.hex(),
+                    len(response) if response is not None else None,
+                    _hex(response) if response else "None",
+                )
+                raise ConnectionError("Token unlock failed: missing/invalid 0x91 ack")
+
+            self._unlocked = True
+            _LOGGER.debug("Token unlock OK (nonce=%s)", token.hex())
+        finally:
+            try:
+                await self._client.stop_notify(self._config.unlock_uuid)
+            except Exception as exc:
+                _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
+            if rx_notify_primed:
                 try:
-                    if attempt > 1:
-                        await asyncio.sleep(0.5)
-                        await _bleak_refresh_services(self._client)
-                    # On BlueZ (Linux) the standard pair() call does not
-                    # register a pairing agent, so the Just Works passkey
-                    # confirmation goes unanswered and pairing fails with
-                    # AuthenticationFailed on BlueZ 5.72+ (including HAOS).
-                    # Try a DBus-agent-assisted pair first; fall back to the
-                    # standard bleak pair() if the helper is unavailable
-                    # (non-Linux platforms, missing dbus-fast, etc.).
-                    agent_paired = await _bluez_agent_pair(self._client)
-                    if not agent_paired:
-                        try:
-                            await self._client.pair()
-                        except TypeError:
-                            # Backend signature requires ``protection_level``;
-                            # explicitly pass 2 (Encryption / Just Works) which
-                            # is also the Bleak default.
-                            await self._client.pair(protection_level=2)
-                    _LOGGER.debug("OS-level BLE bonding completed")
-                    await _post_bond_refresh()
-                    return
+                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
                 except Exception as exc:
-                    last_exc = exc
-                    if _is_non_fatal_os_pairing_error(exc):
-                        _LOGGER.warning(
-                            "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
-                            attempt,
-                            max_attempts,
-                            type(exc).__name__,
-                            exc,
-                        )
-                        # "already bonded" / "in progress" still imply the
-                        # bond exists — refresh the GATT cache anyway.
-                        await _post_bond_refresh()
-                        return
-                    _LOGGER.debug(
-                        "OS-level bonding attempt %d/%d failed: %s (%r)",
+                    _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
+            self._debug_ble_link("token_unlock_after_stop_notify")
+
+    async def _secure_unlock(self) -> None:
+        """Perform encrypted secure handshake to unlock the device."""
+        _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
+        from .secure_session import SecureSession
+
+        self._secure_session = SecureSession()
+        unlock_event = asyncio.Event()
+        response_holder: list[bytes | None] = [None]
+
+        def _secure_callback(_: Any, rx_bytes: bytearray) -> None:
+            response_holder[0] = bytes(rx_bytes)
+            unlock_event.set()
+
+        # Subscribe to unlock characteristic notifications
+        await self._client.start_notify(self._config.unlock_uuid, _secure_callback)
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+
+        try:
+            # Step 1: Send Pairing Request
+            pair_req = self._secure_session.build_pair_req()
+            _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
+            
+            # Wait for Pairing Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
+            pair_resp = response_holder[0]
+            _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
+            if not pair_resp or len(pair_resp) < 2:
+                raise ConnectionError("Invalid or empty pairing response")
+            
+            # Process Pairing Response and derive LTK
+            self._secure_session.process_pair_resp(pair_resp)
+            _LOGGER.debug("Key exchange complete")
+
+            # Step 2: Send Encryption Start Request
+            start_enc_req = self._secure_session.build_start_enc_req()
+            _LOGGER.debug("Sending Encryption Start Request (len=%d): %s", len(start_enc_req), start_enc_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, start_enc_req, response=True)
+
+            # Wait for Encryption Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
+            enc_resp = response_holder[0]
+            _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
+            if not enc_resp or len(enc_resp) < 2:
+                raise ConnectionError("Invalid or empty encryption response")
+
+            # Step 3: Challenge-Response mutual authentication
+            challenge_req = self._secure_session.build_challenge_req(enc_resp)
+            _LOGGER.debug("Sending Challenge Request (len=%d): %s", len(challenge_req), challenge_req.hex())
+            unlock_event.clear()
+            response_holder[0] = None
+            await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
+
+            # Wait for Challenge Response
+            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
+            challenge_resp = response_holder[0]
+            _LOGGER.debug("Received Challenge Response (len=%d): %s", len(challenge_resp) if challenge_resp else 0, challenge_resp.hex() if challenge_resp else "None")
+            if not challenge_resp or len(challenge_resp) < 2:
+                raise ConnectionError("Invalid or empty challenge response")
+
+            # Finalize: verify peer's challenge response
+            self._secure_session.process_challenge_resp(challenge_resp)
+            _LOGGER.info("Secure handshake succeeded. Session unlocked.")
+            self._unlocked = True
+
+        except asyncio.TimeoutError as exc:
+            _LOGGER.error("Secure handshake timed out during negotiation")
+            raise ConnectionError("Secure unlock timeout") from exc
+        except Exception as exc:
+            _LOGGER.error("Secure handshake failed: %s", exc)
+            raise ConnectionError(f"Secure unlock failed: {exc}") from exc
+        finally:
+            await self._client.stop_notify(self._config.unlock_uuid)
+
+    async def _pair_os_bonding(self) -> None:
+        """Best-effort OS-level BLE bond establishment for modern profiles."""
+        _LOGGER.debug("Performing OS-level BLE bonding")
+        max_attempts = 2
+        last_exc: BaseException | None = None
+
+        async def _post_bond_refresh() -> None:
+            try:
+                await asyncio.sleep(_OS_BOND_REFRESH_DELAY_SEC)
+                await _bleak_refresh_services(self._client)
+            except Exception as refresh_exc:
+                _LOGGER.debug("Post-bond service refresh failed (continuing): %s", refresh_exc)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if attempt > 1:
+                    await asyncio.sleep(_OS_BOND_RETRY_DELAY_SEC)
+                    await _bleak_refresh_services(self._client)
+                agent_paired = await _bluez_agent_pair(self._client)
+                if not agent_paired:
+                    try:
+                        await self._client.pair()
+                    except TypeError:
+                        await self._client.pair(protection_level=2)
+                _LOGGER.debug("OS-level BLE bonding completed")
+                await _post_bond_refresh()
+                return
+            except Exception as exc:
+                last_exc = exc
+                if _is_non_fatal_os_pairing_error(exc):
+                    _LOGGER.warning(
+                        "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
                         attempt,
                         max_attempts,
                         type(exc).__name__,
                         exc,
                     )
-            if last_exc is not None:
-                _log_pairing_failure_detail(
-                    f"OS-level BLE bonding failed after {max_attempts} attempts",
-                    last_exc,
+                    await _post_bond_refresh()
+                    return
+                _LOGGER.debug(
+                    "OS-level bonding attempt %d/%d failed: %s (%r)",
+                    attempt,
+                    max_attempts,
+                    type(exc).__name__,
+                    exc,
                 )
-                raise last_exc
-            return
+        if last_exc is not None:
+            _log_pairing_failure_detail(
+                f"OS-level BLE bonding failed after {max_attempts} attempts",
+                last_exc,
+            )
+            raise last_exc
 
-        # Custom pairing key (most classic-stack devices)
-        if not self._config.supports_pairing:
-            raise ConnectionError("Pairing is not supported for this device")
-
+    async def _pair_custom_key(self, pair_key: bytearray) -> None:
+        """Program a new custom pairing key on classic profiles."""
         if len(pair_key) != 16:
             raise ValueError(f"Pairing key must be 16 bytes, got {len(pair_key)}")
 
-        legacy = self._config.legacy_pairing_workarounds
-        if legacy:
+        aggressive_timing = self._config.aggressive_gatt_timing
+        if aggressive_timing:
             await _bleak_refresh_services(self._client)
-            unlock_attempts, unlock_retry_delay = 10, 0.5
+            unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE, _OS_BOND_RETRY_DELAY_SEC
             key_max_retries = 5
         else:
-            unlock_attempts, unlock_retry_delay = 5, 1.0
+            unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_DEFAULT, _PAIRING_SETTLE_DEFAULT_SEC
             key_max_retries = 5
 
-        # Step 1: Enable RX channel notification to trigger SMP Security Request (RX notify first, then unlock)
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
         try:
             await self._client.start_notify(
@@ -927,13 +1271,8 @@ class GattTransport:
         except Exception as exc:
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
-        if legacy:
-            await asyncio.sleep(0.25)
-            await _bleak_refresh_services(self._client)
-        else:
-            await asyncio.sleep(1.0)
+        await self._apply_pairing_settle_delay(aggressive_timing)
 
-        # Step 2: Subscribe on unlock UUID
         prog_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
 
@@ -954,7 +1293,7 @@ class GattTransport:
                     unlock_attempts,
                     exc,
                 )
-                if legacy:
+                if aggressive_timing:
                     await _bleak_refresh_services(self._client)
                 await asyncio.sleep(unlock_retry_delay)
         if not unlock_subscribed:
@@ -963,7 +1302,6 @@ class GattTransport:
                 "Try clearing Bluetooth cache, or remove the device from OS Bluetooth and retry in -P- mode."
             )
 
-        # Step 3: Enter key programming mode (0x02 prefix writes)
         max_retries = key_max_retries
         entered_programming = False
         last_notify: bytes | None = None
@@ -987,7 +1325,7 @@ class GattTransport:
                 _LOGGER.debug("Key programming write attempt %d failed: %s", attempt + 1, exc)
 
             try:
-                await asyncio.wait_for(prog_event.wait(), timeout=2.0)
+                await asyncio.wait_for(prog_event.wait(), timeout=_PAIRING_PROG_WAIT_TIMEOUT_SEC)
             except asyncio.TimeoutError:
                 pass
 
@@ -995,9 +1333,7 @@ class GattTransport:
             if resp:
                 last_notify = bytes(resp)
                 if len(notify_samples) < 10:
-                    notify_samples.append(
-                        f"#{attempt + 1}:{_hex(resp)}"
-                    )
+                    notify_samples.append(f"#{attempt + 1}:{_hex(resp)}")
             if _is_unlock_key_programming_ready(resp):
                 _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
                 entered_programming = True
@@ -1008,7 +1344,7 @@ class GattTransport:
                 attempt + 1, max_retries,
                 resp[:2].hex() if resp else "None",
             )
-            await asyncio.sleep(1)
+            await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
         if not entered_programming:
             try:
@@ -1017,11 +1353,11 @@ class GattTransport:
             except Exception:
                 pass
             _LOGGER.error(
-                "Key programming mode not reached: model=%s legacy_workarounds=%s "
+                "Key programming mode not reached: model=%s aggressive_gatt_timing=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
                 "expected_notify_first_byte=0x82 last_notify_hex=%s samples=%s",
                 self._config.model,
-                legacy,
+                aggressive_timing,
                 self._config.unlock_uuid,
                 max_retries,
                 write_failures,
@@ -1033,7 +1369,6 @@ class GattTransport:
                 "Is the device in pairing mode? (hold bluetooth button until -P- appears)"
             )
 
-        # Step 4: Program the new key
         prog_event.clear()
         response_holder[0] = None
         try:
@@ -1044,7 +1379,7 @@ class GattTransport:
             _LOGGER.error("Failed to write new key: %s", exc)
 
         try:
-            await asyncio.wait_for(prog_event.wait(), timeout=5.0)
+            await asyncio.wait_for(prog_event.wait(), timeout=_PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC)
         except asyncio.TimeoutError:
             pass
 
@@ -1059,8 +1394,38 @@ class GattTransport:
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
 
         _LOGGER.debug("Device paired successfully with new key")
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
+    async def pair(self, key: bytearray | None = None) -> None:
+        """Program pairing credentials according to ``host_pairing_mode``."""
+        pair_key = key or PAIRING_KEY
+        if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
+            await self._pair_os_bonding()
+            return
+        if self._config.host_pairing_mode == HostPairingMode.NONE:
+            raise ConnectionError("Pairing is disabled for this device profile")
+        if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
+            raise ConnectionError("Pairing is not supported for this device")
+        await self._pair_custom_key(pair_key)
+
+    async def unpair(self) -> None:
+        """Remove the OS-level bond for this device (best-effort).
+
+        Not all backends implement ``BleakClient.unpair``; unsupported ones
+        raise ``NotImplementedError``. All failures are swallowed so this
+        never breaks the surrounding teardown.
+        """
+        try:
+            await self._client.unpair()
+            _LOGGER.debug("Removed OS bond for %s after session", self._config.model)
+        except NotImplementedError:
+            _LOGGER.debug(
+                "unpair() not supported by this BLE backend for %s; "
+                "bond (if any) left in place",
+                self._config.model,
+            )
+        except Exception as exc:
+            _LOGGER.debug("unpair() failed for %s (ignored): %s", self._config.model, exc)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
@@ -1186,7 +1551,7 @@ class OmronDeviceDriver:
         self._counter_probe_logged = False
 
     async def sync_eeprom_time(
-        self, transport: GattTransport, now: dt.datetime | None = None
+        self, transport: OmronDeviceSession, now: dt.datetime | None = None
     ) -> bool:
         """Synchronize time to legacy devices via EEPROM settings write.
 
@@ -1234,60 +1599,54 @@ class OmronDeviceDriver:
             now = now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
 
         await transport.unlock()
-        await transport.open_memory_session()
-        try:
-            # Read current time sync settings from EEPROM
-            cached = await transport.read_memory_range(
-                read_addr + section_start,
-                section_size,
-                min(section_size, self._config.transmission_block_size),
-            )
-            cached = bytearray(cached)
-            _LOGGER.debug(
-                "EEPROM time raw for %s (layout=%s addr=0x%04X+0x%02X size=%d): %s",
-                self._config.model,
-                self._config.resolved_time_sync_layout(),
-                read_addr,
-                section_start,
-                section_size,
-                bytes(cached).hex(),
-            )
 
-            # Parse current device time and only write if difference is > 60 seconds
-            device_dt = self._parse_eeprom_device_time(cached)
-            if device_dt is not None:
-                diff = abs((device_dt - now).total_seconds())
-                if diff <= 60:
-                    _LOGGER.debug(
-                        "Device %s time is already in sync (%s), skipping EEPROM write",
-                        self._config.model,
-                        device_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                    )
-                    return True
+        # Read current time sync settings from EEPROM
+        cached = await transport.read_memory_range(
+            read_addr + section_start,
+            section_size,
+            min(section_size, self._config.transmission_block_size),
+        )
+        cached = bytearray(cached)
+        _LOGGER.debug(
+            "EEPROM time raw for %s (layout=%s addr=0x%04X+0x%02X size=%d): %s",
+            self._config.model,
+            self._config.resolved_time_sync_layout(),
+            read_addr,
+            section_start,
+            section_size,
+            bytes(cached).hex(),
+        )
 
-            # Write new time into the cached settings
-            cached = self._build_eeprom_time_data(cached, now)
+        # Parse current device time and only write if difference is > 60 seconds
+        device_dt = self._parse_eeprom_device_time(cached)
+        if device_dt is not None:
+            diff = abs((device_dt - now).total_seconds())
+            if diff <= 60:
+                _LOGGER.debug(
+                    "Device %s time is already in sync (%s), skipping EEPROM write",
+                    self._config.model,
+                    device_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                return True
 
-            # Write the modified settings back to EEPROM
-            await transport.write_memory_range(
-                write_addr + section_start,
-                cached,
-                block_size=len(cached),
-            )
-            # Allow the device to commit the EEPROM write internally.
-            # Without this settle time, subsequent read commands may time out
-            # because the device is still processing the write operation.
-            await asyncio.sleep(1.0)
-            _LOGGER.debug(
-                "Synced time via EEPROM for %s: %s",
-                self._config.model,
-                now.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+        # Write new time into the cached settings
+        cached = self._build_eeprom_time_data(cached, now)
+
+        # Write the modified settings back to EEPROM
+        await transport.write_memory_range(
+            write_addr + section_start,
+            cached,
+            block_size=len(cached),
+        )
+        # Allow the device to commit the EEPROM write internally.
+        # Without this settle time, subsequent read commands may time out
+        # because the device is still processing the write operation.
+        await asyncio.sleep(1.0)
+        _LOGGER.debug(
+            "Synced time via EEPROM for %s: %s",
+            self._config.model,
+            now.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         return True
 
@@ -1325,40 +1684,33 @@ class OmronDeviceDriver:
         return result
 
     async def get_all_records(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> list[list[dict[str, Any]]]:
         """Read all records from all users.
 
         Returns a list of lists: [[user1_records], [user2_records], ...]
         """
         await transport.unlock()
-        await transport.open_memory_session()
 
-        try:
-            all_user_records = []
-            for user_idx in range(self._config.num_users):
-                start_addr = self._config.user_start_addresses[user_idx]
-                total_bytes = (
-                    self._config.per_user_records_count[user_idx]
-                    * self._config.record_byte_size
-                )
+        all_user_records = []
+        for user_idx in range(self._config.num_users):
+            start_addr = self._config.user_start_addresses[user_idx]
+            total_bytes = (
+                self._config.per_user_records_count[user_idx]
+                * self._config.record_byte_size
+            )
 
-                raw_data = await transport.read_memory_range(
-                    start_addr, total_bytes, self._config.transmission_block_size
-                )
+            raw_data = await transport.read_memory_range(
+                start_addr, total_bytes, self._config.transmission_block_size
+            )
 
-                records = self._parse_user_records(raw_data, user_idx)
-                all_user_records.append(records)
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
+            records = self._parse_user_records(raw_data, user_idx)
+            all_user_records.append(records)
 
         return all_user_records
 
     async def get_latest_record(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[str, Any] | None:
         """Read latest record using index first, then fallback to full scan."""
         layout = self._config.index_pointer_layout or {}
@@ -1378,7 +1730,7 @@ class OmronDeviceDriver:
         return await self._get_latest_via_full_scan(transport)
 
     async def get_latest_records_per_user(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[int, dict[str, Any]]:
         """Return latest valid record per configured user index (1-based).
 
@@ -1468,7 +1820,7 @@ class OmronDeviceDriver:
         return latest_by_user
 
     async def _get_latest_via_full_scan(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> dict[str, Any] | None:
         """Existing full EEPROM scan path."""
         all_user_records = await self.get_all_records(transport)
@@ -1498,7 +1850,7 @@ class OmronDeviceDriver:
         return pointer
 
     async def _get_latest_via_index(
-        self, transport: GattTransport, *, return_all_users: bool = False
+        self, transport: OmronDeviceSession, *, return_all_users: bool = False
     ) -> Any | None:
         """Read index block and fetch only the latest slot per configured user.
 
@@ -1546,7 +1898,6 @@ class OmronDeviceDriver:
         confirmed_empty_users: set[int] = set()
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
-        await transport.open_memory_session()
         try:
             index_bytes = await transport.read_memory_range(
                 self._config.settings_read_address,
@@ -1679,7 +2030,7 @@ class OmronDeviceDriver:
                         idx + 1, self._config.model, max_probe,
                     )
         except Exception as exc:
-            if self._config.supports_os_bonding_only:
+            if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
                 _LOGGER.warning(
                     "Index-based read failed for OS-bonding model=%s addr may need re-bond: %s. "
                     "If this persists, remove and re-add the device to complete OS-level pairing.",
@@ -1696,11 +2047,6 @@ class OmronDeviceDriver:
             # leave ``confirmed_empty_users`` empty and let the caller fall
             # back to a full scan as it would have without this feature.
             return None if not return_all_users else ({}, set())
-        finally:
-            try:
-                await transport.close_memory_session()
-            except Exception:
-                pass
 
         if not candidates:
             _LOGGER.debug(
@@ -1784,7 +2130,7 @@ class OmronDeviceDriver:
         return self._finalize_public_latest_record(record, user)
 
     async def get_all_records_flat(
-        self, transport: GattTransport
+        self, transport: OmronDeviceSession
     ) -> list[dict[str, Any]]:
         """Read all records, adding user index, and return a flat sorted list."""
         all_user_records = await self.get_all_records(transport)

@@ -11,7 +11,7 @@ from bleak import BleakClient
 
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
-from .omron_driver import GattTransport, OmronDeviceDriver, _bleak_refresh_services
+from .omron_driver import OmronDeviceDriver, OmronDeviceSession, _bleak_refresh_services
 
 if TYPE_CHECKING:
     from .devices import DeviceConfig
@@ -171,17 +171,15 @@ async def _sync_time_via_eeprom(
     client: BleakClient,
     model: str,
     config: DeviceConfig,
-    transport: GattTransport | None,
+    transport: OmronDeviceSession,
 ) -> bool:
-    """EEPROM-based time sync when the profile supports it."""
+    """EEPROM-based time sync; caller must hold an open memory readout session."""
     if not config.supports_eeprom_time_sync:
         return False
     _LOGGER.debug(
         "EEPROM time sync supported for %s, executing sync",
         model,
     )
-    if transport is None:
-        transport = GattTransport(client, config)
     try:
         driver = OmronDeviceDriver(config)
         eeprom_success = await driver.sync_eeprom_time(transport)
@@ -193,17 +191,61 @@ async def _sync_time_via_eeprom(
         return False
 
 
+async def _sync_eeprom_with_session(
+    client: BleakClient,
+    model: str,
+    config: DeviceConfig,
+    transport: OmronDeviceSession | None,
+    *,
+    leave_memory_session_open: bool = False,
+) -> bool:
+    """EEPROM time sync, opening a memory session when one is not already held."""
+    if not config.supports_eeprom_time_sync:
+        return False
+    if transport is None:
+        transport = OmronDeviceSession.adopt(client, config)
+    if transport.memory_session_active:
+        return await _sync_time_via_eeprom(client, model, config, transport)
+    if leave_memory_session_open:
+        await transport.unlock()
+        await transport.open_memory_session()
+        return await _sync_time_via_eeprom(client, model, config, transport)
+    async with transport.memory_session_after_unlock():
+        return await _sync_time_via_eeprom(client, model, config, transport)
+
+
+async def async_sync_eeprom_time(
+    client: BleakClient,
+    model: str,
+    config: DeviceConfig | None = None,
+    transport: OmronDeviceSession | None = None,
+) -> bool:
+    """EEPROM-only time sync (uses or opens a memory readout session)."""
+    if not client.is_connected:
+        _LOGGER.debug(
+            "Skipping EEPROM time sync for %s: client is not connected",
+            model,
+        )
+        return False
+    if config is None:
+        config = get_device_config(model)
+    return await _sync_eeprom_with_session(client, model, config, transport)
+
+
 async def async_sync_device_time(
     client: BleakClient,
     model: str,
     config: DeviceConfig | None = None,
-    transport: GattTransport | None = None,
+    transport: OmronDeviceSession | None = None,
+    *,
+    leave_memory_session_open: bool = False,
 ) -> bool:
-    """Sync current local time via CTS and/or EEPROM.
+    """Sync current local time via EEPROM (memory session) then CTS.
 
-    EEPROM-capable profiles run EEPROM sync **before** CTS: subscribing/writing CTS on a
-    freshly established BLE link can disconnect some stacks or peripherals (seen after HA
-    restart); EEPROM uses the Omron memory protocol only and should complete first.
+    EEPROM runs inside a memory readout session. CTS always runs only after that
+    session is closed so notify/write on 0x1801 does not overlap the Omron
+    memory protocol. During an active poll memory session, use
+    :func:`async_sync_eeprom_time` instead so CTS is not attempted mid-readout.
     """
     if not client.is_connected:
         _LOGGER.debug(
@@ -218,17 +260,20 @@ async def async_sync_device_time(
     eeprom_success = False
 
     if config.supports_eeprom_time_sync:
-        eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
+        eeprom_success = await _sync_eeprom_with_session(
+            client, model, config, transport,
+            leave_memory_session_open=leave_memory_session_open,
+        )
         if eeprom_success:
             return True
 
     cts_success = await _sync_time_via_cts(client, model)
 
-    if config.supports_eeprom_time_sync:
-        if not eeprom_success:
-            eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
-    else:
-        eeprom_success = await _sync_time_via_eeprom(client, model, config, transport)
+    if config.supports_eeprom_time_sync and not eeprom_success:
+        eeprom_success = await _sync_eeprom_with_session(
+            client, model, config, transport,
+            leave_memory_session_open=leave_memory_session_open,
+        )
 
     if not config.supports_eeprom_time_sync and not cts_success:
         _LOGGER.debug(
