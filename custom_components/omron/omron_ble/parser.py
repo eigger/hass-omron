@@ -38,7 +38,7 @@ from .const import (
     ExtendedBinarySensorDeviceClass,
 )
 from .setup import async_sync_device_time, async_sync_eeprom_time
-from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_model_catalog
+from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
 from .omron_driver import (
     OmronDeviceSession,
     OmronDeviceDriver,
@@ -81,7 +81,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
-        self._unvalidated_variant_warning_logged = False
         self._poll_guard = asyncio.Lock()
         self.omron_extra_attributes = {}
 
@@ -114,7 +113,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
-        self._unvalidated_variant_warning_logged = False
 
     def _seed_measurement_entities(self) -> None:
         """Pre-register measurement sensor descriptions for offline startup.
@@ -1069,18 +1067,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         link is closed when the session context exits.
         """
         async with self._poll_guard:
-            profile_key, catalog_variant = resolve_model_catalog(self._device_model)
-            if catalog_variant is not None:
-                if catalog_variant.unverified and not self._unvalidated_variant_warning_logged:
-                    _LOGGER.warning(
-                        "Unverified catalog variant: %s -> profile %s (reason=%s). "
-                        "If sync fails or values look wrong, choose another registry profile.",
-                        self._device_model,
-                        profile_key,
-                        catalog_variant.reason,
-                    )
-                    self._unvalidated_variant_warning_logged = True
-
             self._events_updates.clear()
 
             try:
@@ -1091,19 +1077,16 @@ class OmronBluetoothDeviceData(BluetoothData):
                     client = session.client
 
                     if not await session.verify_parent_service():
-                        prof, variant_meta = resolve_model_catalog(self._device_model)
+                        prof = resolve_profile_model_id(self._device_model)
                         stack_label = (
                             "modern" if self._device_config.is_modern_stack else "classic"
                         )
                         _LOGGER.error(
-                            "Required service %s not on %s; model=%s profile=%s "
-                            "variant_unverified=%s variant_reason=%s expected_stack=%s",
+                            "Required service %s not on %s; model=%s profile=%s expected_stack=%s",
                             self._device_config.parent_service_uuid,
                             ble_device.address,
                             self._device_model,
                             prof,
-                            variant_meta.unverified if variant_meta else False,
-                            variant_meta.reason if variant_meta else None,
                             stack_label,
                         )
                         return self._finish_update()
@@ -1111,7 +1094,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     if self.last_service_info and not self._device_config.is_advertisement_compatible(
                         self.last_service_info.service_uuids
                     ):
-                        prof, _variant_meta = resolve_model_catalog(self._device_model)
+                        prof = resolve_profile_model_id(self._device_model)
                         stack_label = (
                             "modern" if self._device_config.is_modern_stack else "classic"
                         )
@@ -1224,28 +1207,22 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             except ConnectionError as exc:
                 # Expected when the cuff is off, out of range, or the link drops mid-poll.
-                prof, variant_meta = resolve_model_catalog(self._device_model)
+                prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.warning(
-                    "Poll interrupted (disconnected) model=%s profile=%s address=%s: %s "
-                    "(variant_unverified=%s variant_reason=%s)",
+                    "Poll interrupted (disconnected) model=%s profile=%s address=%s: %s",
                     self._device_model,
                     prof,
                     ble_device.address,
                     exc,
-                    variant_meta.unverified if variant_meta else False,
-                    variant_meta.reason if variant_meta else None,
                 )
             except Exception as exc:
-                prof, variant_meta = resolve_model_catalog(self._device_model)
+                prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.error(
-                    "Poll failed model=%s profile=%s address=%s: %s "
-                    "(variant_unverified=%s variant_reason=%s)",
+                    "Poll failed model=%s profile=%s address=%s: %s",
                     self._device_model,
                     prof,
                     ble_device.address,
                     exc,
-                    variant_meta.unverified if variant_meta else False,
-                    variant_meta.reason if variant_meta else None,
                     exc_info=exc,
                 )
 

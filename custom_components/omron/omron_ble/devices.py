@@ -5,7 +5,7 @@ import logging
 import re
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Any, NamedTuple
+from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,14 +26,6 @@ from .record_parsers import (
     parse_classic_vital_14_6232_family,
     parse_classic_vital_14_bitpacked,
 )
-
-
-class DeviceModelVariant(NamedTuple):
-    """Alternate catalog model ID that shares EEPROM layout with a canonical profile."""
-
-    model_id: str
-    unverified: bool = False
-    reason: str | None = None
 
 
 class UnlockMode(str, Enum):
@@ -106,7 +98,7 @@ class DeviceConfig:
     record_parser: str = "classic_vital_14"
     # When True, pick latest record by highest EEPROM slot index, then datetime (index-pointer devices).
     prefer_latest_by_slot_index: bool = False
-    equivalent_model_ids: tuple[DeviceModelVariant, ...] = ()
+    equivalent_model_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Validate unlock/pairing strategy combinations."""
@@ -238,17 +230,17 @@ class DeviceConfig:
 
 from .device_catalog import CANONICAL_DEVICE_PROFILES
 
-def _build_model_variant_map() -> dict[str, tuple[str, DeviceModelVariant]]:
-    idx: dict[str, tuple[str, DeviceModelVariant]] = {}
+def _build_model_variant_map() -> dict[str, str]:
+    idx: dict[str, str] = {}
     for canonical_model_id, profile in CANONICAL_DEVICE_PROFILES.items():
-        for variant in profile.equivalent_model_ids:
-            if variant.model_id in idx:
-                raise ValueError(f"Duplicate catalog model variant {variant.model_id!r}")
-            idx[variant.model_id] = (canonical_model_id, variant)
+        for variant_id in profile.equivalent_model_ids:
+            if variant_id in idx:
+                raise ValueError(f"Duplicate catalog model variant {variant_id!r}")
+            idx[variant_id] = canonical_model_id
     return idx
 
 
-MODEL_VARIANT_MAP: dict[str, tuple[str, DeviceModelVariant]] = _build_model_variant_map()
+MODEL_VARIANT_MAP: dict[str, str] = _build_model_variant_map()
 
 
 def get_device_config(model: str) -> DeviceConfig:
@@ -259,10 +251,9 @@ def get_device_config(model: str) -> DeviceConfig:
     canonical_profile = CANONICAL_DEVICE_PROFILES.get(model)
     if canonical_profile is not None:
         return canonical_profile
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        profile_key, _variant = variant_entry
-        config = CANONICAL_DEVICE_PROFILES[profile_key]
+    variant_profile = MODEL_VARIANT_MAP.get(model)
+    if variant_profile:
+        config = CANONICAL_DEVICE_PROFILES[variant_profile]
         return replace(config, model=model)
     _LOGGER.warning(
         "Unknown device model '%s', falling back to %s",
@@ -325,16 +316,8 @@ def resolve_profile_model_id(model: str) -> str:
     """Registry profile key (EEPROM layout) for a model string, including catalog variants."""
     if model in CANONICAL_DEVICE_PROFILES:
         return model
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        return variant_entry[0]
+    variant_profile = MODEL_VARIANT_MAP.get(model)
+    if variant_profile:
+        return variant_profile
     return DEFAULT_DEVICE_MODEL
-
-
-def resolve_model_catalog(model: str) -> tuple[str, DeviceModelVariant | None]:
-    """Return EEPROM profile key and catalog variant metadata when ``model`` is an alias."""
-    variant_entry = MODEL_VARIANT_MAP.get(model)
-    if variant_entry:
-        return variant_entry[0], variant_entry[1]
-    return resolve_profile_model_id(model), None
 

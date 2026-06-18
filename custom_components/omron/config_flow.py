@@ -18,7 +18,7 @@ from .omron_ble.devices import (
     get_supported_model_stats,
     get_supported_models,
     infer_model_id_from_local_name,
-    resolve_model_catalog,
+    resolve_profile_model_id,
 )
 import voluptuous as vol
 
@@ -380,13 +380,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._selected_model or DEFAULT_DEVICE_MODEL
         config = get_device_config(model)
-        profile_key, variant = resolve_model_catalog(model)
-        if variant is not None:
+        profile_key = resolve_profile_model_id(model)
+        if model != profile_key:
             _LOGGER.debug(
-                "Catalog variant %s -> profile %s (unverified=%s)",
+                "Catalog variant %s -> profile %s",
                 model,
                 profile_key,
-                variant.unverified,
             )
         address = self._discovery_info.address
         advertised_services = self._discovery_info.service_uuids

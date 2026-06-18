@@ -20,6 +20,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 
 | Model | Global Model | Type | Verified |
 | :--- | :--- | :--- | :---: |
+| **HEM-6161T** | RS2 Intelli IT | Wrist | ✅ |
 | **HEM-6232T** | BP6350/RS7 Intelli IT | Wrist | ✅ |
 | **HEM-7142T2** | BP7150/M2 Intelli IT | Upper Arm | ✅ |
 | **HEM-7146T2** | X2 Smart+ | Upper Arm | ✅ |
