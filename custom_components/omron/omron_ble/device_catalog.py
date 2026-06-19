@@ -455,6 +455,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7155T_AP",
             "HEM-7155T_ASH3BK",
             "HEM-7155T_ASH3SL",
+            # Classic-stack X4 Smart. The modern-firmware variant is
+            # "HEM-7155T_ESL1" under the HEM-7155T-MW3 profile.
+            "HEM-7155T_ESL",
             "HEM-7340T-CA",
             "HEM-7340T-Z",
             "HEM-7341T-Z",
@@ -563,10 +566,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser="classic_vital_14",
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
-            # HEM-7155T_ESL / HEM-7155T-ESLI ("X4 Smart"): modern FE4A stack with
-            # V3 EEPROM at 0x0260, but classic plaintext transport over a Just
-            # Works bond (NOT secure session) — confirmed via HCI btsnoop.
-            "HEM-7155T_ESL",
+            # HEM-7155T_ESL1 ("X4 Smart", modern firmware): modern FE4A stack
+            # with V3 EEPROM at 0x0260, classic plaintext transport over a Just
+            # Works bond (NOT secure session) plus a 0x11/0x91 token unlock —
+            # confirmed via HCI btsnoop. The classic-stack HEM-7155T_ESL maps to
+            # the "HEM-7155T" profile instead.
+            "HEM-7155T_ESL1",
         ),
     ),
     # HEM-7146T modern stack — OS bonding only, 1 user, 30 records
@@ -688,7 +693,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7380T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
-        unlock_mode=UnlockMode.SECURE_SESSION,
+        unlock_mode=UnlockMode.TOKEN_KEY,
         endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
