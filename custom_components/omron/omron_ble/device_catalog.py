@@ -693,7 +693,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7380T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
-        unlock_mode=UnlockMode.SECURE_SESSION,
+        unlock_mode=UnlockMode.TOKEN_KEY,
         endianness="little",
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
