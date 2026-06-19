@@ -253,6 +253,63 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
         bus.disconnect()
 
 
+async def _bluez_remove_device(client: BleakClient) -> bool:
+    """Remove the BlueZ device and its bond via ``Adapter1.RemoveDevice``.
+
+    BlueZ persists bonds under ``/var/lib/bluetooth`` across reboots, so a
+    stale/rotated bond cannot be cleared by reconnecting or rebooting — it
+    must be explicitly removed.  ``BleakClient.unpair()`` is not implemented
+    on every backend (notably the HA/habluetooth BlueZ wrapper), so go
+    straight to BlueZ over DBus (same transport used by the pairing agent).
+
+    Returns True if RemoveDevice succeeded; False on any failure or when the
+    DBus path is unavailable (caller should fall back to ``unpair()``).
+    """
+    try:
+        from dbus_fast.aio.message_bus import MessageBus
+        from dbus_fast.constants import BusType, MessageType
+        from dbus_fast.message import Message
+    except ImportError:
+        return False
+
+    details = getattr(getattr(client, "_device", None), "details", None) or {}
+    device_path: str | None = details.get("path")
+    if not device_path:
+        backend = getattr(client, "_backend", None)
+        device_path = getattr(getattr(backend, "_device", None), "path", None)
+    if not device_path or "/dev_" not in device_path:
+        return False
+    # Adapter path is the device path minus the trailing dev_XX_.. segment.
+    adapter_path = device_path.rsplit("/", 1)[0]
+
+    try:
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    except Exception as exc:
+        _LOGGER.debug("BlueZ RemoveDevice: cannot connect to system bus: %s", exc)
+        return False
+    try:
+        reply = await bus.call(
+            Message(
+                destination="org.bluez",
+                path=adapter_path,
+                interface="org.bluez.Adapter1",
+                member="RemoveDevice",
+                signature="o",
+                body=[device_path],
+            )
+        )
+        ok = reply.message_type == MessageType.METHOD_RETURN
+        _LOGGER.debug(
+            "BlueZ RemoveDevice(%s) -> %s", device_path, "ok" if ok else reply
+        )
+        return ok
+    except Exception as exc:
+        _LOGGER.debug("BlueZ RemoveDevice failed for %s: %s", device_path, exc)
+        return False
+    finally:
+        bus.disconnect()
+
+
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
     """Whether an OS-level BLE pairing exception can be safely ignored.
 
@@ -280,6 +337,30 @@ def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
         "in progress",
     )
     return any(marker in msg for marker in non_fatal_markers)
+
+
+def _is_stale_bond_auth_error(exc: BaseException) -> bool:
+    """Whether a bonding failure looks like a stale/rotated bond.
+
+    Some Omron AFib devices (notably the HEM-7380T1 family) do not retain
+    their pairing bond across disconnects — they rotate or discard the LTK
+    after each session.  The host's stored bond then no longer matches, so
+    BlueZ rejects re-encryption/re-pairing with ``AuthenticationFailed`` (the
+    link never gets encrypted and later GATT ops fail with ``NotConnected``).
+    This is the signature of "works once right after a fresh bond, then fails
+    on every subsequent connection"; removing the stale bond and re-pairing
+    from a clean slate recovers the device.
+    """
+    msg = str(exc).lower()
+    return any(
+        marker in msg
+        for marker in (
+            "authenticationfailed",
+            "authentication failed",
+            "authenticationrejected",
+            "authentication rejected",
+        )
+    )
 
 
 def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
@@ -1201,6 +1282,7 @@ class OmronDeviceSession:
         _LOGGER.debug("Performing OS-level BLE bonding")
         max_attempts = 2
         last_exc: BaseException | None = None
+        stale_bond_cleared = False
 
         async def _post_bond_refresh() -> None:
             try:
@@ -1225,6 +1307,31 @@ class OmronDeviceSession:
                 return
             except Exception as exc:
                 last_exc = exc
+                # Stale/rotated bond (HEM-7380T1 AFib family): the device
+                # discarded its LTK, so the stored bond no longer matches and
+                # BlueZ raises AuthenticationFailed.  Treating this as
+                # "non-fatal" and continuing leaves the link unencrypted, so the
+                # session then dies with NotConnected.  Instead remove the stale
+                # bond once; RemoveDevice also drops the link, so re-pairing
+                # in-place is impossible — raise and let the next connection
+                # re-pair from a clean slate (self-heals on the following poll).
+                if _is_stale_bond_auth_error(exc) and not stale_bond_cleared:
+                    stale_bond_cleared = True
+                    _LOGGER.warning(
+                        "OS-level bonding rejected (%s) for %s — removing stale "
+                        "bond so the next connection can re-pair cleanly",
+                        type(exc).__name__,
+                        self._config.model,
+                    )
+                    # Prefer BlueZ RemoveDevice over DBus (authoritative, works
+                    # even when the backend's unpair() is a no-op); fall back to
+                    # BleakClient.unpair() for non-BlueZ backends.
+                    if not await _bluez_remove_device(self._client):
+                        await self.unpair()
+                    raise ConnectionError(
+                        "Stale BLE bond removed after AuthenticationFailed; "
+                        "retry the poll to re-pair"
+                    ) from exc
                 if _is_non_fatal_os_pairing_error(exc):
                     _LOGGER.warning(
                         "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
