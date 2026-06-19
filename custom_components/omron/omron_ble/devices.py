@@ -72,6 +72,13 @@ class DeviceConfig:
     # Enable more aggressive GATT timing for classic custom-key profiles
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
+    # When True, OS-level bonding is established only once (at config-flow
+    # setup); subsequent pairing-mode advertisements do NOT re-pair — polls
+    # rely on the existing bond + BlueZ on-demand encryption instead.  Repeated
+    # explicit pair() calls churn the bond on devices that rotate their LTK each
+    # session (HEM-7380T1 AFib family), producing org.bluez AuthenticationFailed
+    # on every reconnect.  Only meaningful for host_pairing_mode=OS_BONDING.
+    os_bond_once: bool = False
 
     # EEPROM layout
     endianness: str = "big"

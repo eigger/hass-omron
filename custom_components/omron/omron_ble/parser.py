@@ -1252,7 +1252,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                     f"Required service {self._device_config.parent_service_uuid} "
                     f"not found on device {ble_device.address}"
                 )
-            await session.pair()
+            if self._device_config.os_bond_once:
+                # Bond-once profiles (HEM-7380T1 AFib): never re-pair on a
+                # pairing-mode advertisement — the device is already bonded from
+                # config-flow setup and an explicit re-pair churns the bond into
+                # an AuthenticationFailed state. Refresh + time-sync only; the
+                # post-trigger poll reads records over the existing bond.
+                _LOGGER.debug(
+                    "Skipping OS re-pair for %s (os_bond_once): using existing "
+                    "bond + on-demand encryption",
+                    self._device_config.model,
+                )
+            else:
+                await session.pair()
             await session.refresh_services()
             await async_sync_device_time(
                 session.client,
