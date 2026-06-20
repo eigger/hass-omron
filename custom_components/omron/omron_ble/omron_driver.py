@@ -161,7 +161,7 @@ async def establish_connection_with_bond_settle(
         # bonded proxy.
         _LOGGER.warning(
             "%s dropped ~%.2fs into the post-connect settle via source=%s "
-            "(attempt %d/%d); likely a proxy without a valid bond — retrying",
+            "(attempt %d/%d) — retrying",
             name, waited, source,
             attempt, _CONNECT_SETTLE_ATTEMPTS,
         )
@@ -173,8 +173,7 @@ async def establish_connection_with_bond_settle(
 
     raise BleakError(
         f"{name} dropped during the post-connect settle on all "
-        f"{_CONNECT_SETTLE_ATTEMPTS} attempt(s) (last source={last_source}); "
-        "the device likely bonded with a different proxy than the one used"
+        f"{_CONNECT_SETTLE_ATTEMPTS} attempt(s) (last source={last_source})"
     )
 
 
