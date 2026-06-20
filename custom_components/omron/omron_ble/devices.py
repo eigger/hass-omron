@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field, replace
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,12 +51,50 @@ class HostPairingMode(str, Enum):
     NONE = "none"
 
 
+class ConnectType(StrEnum):
+    """OMRON communication type; groups devices by BLE bonding/transfer behaviour."""
+
+    UNKNOWN = ""
+    WLB1_0 = "WLB1.0"
+    WLD1_0 = "WLD1.0"
+    WLD2_0 = "WLD2.0"
+    WLD3_0 = "WLD3.0"
+    WLS3_0 = "WLS3.0"
+
+
+class Endianness(StrEnum):
+    """Byte order for EEPROM/record decoding."""
+
+    BIG = "big"
+    LITTLE = "little"
+
+
+class RecordParser(StrEnum):
+    """Record-decoder selector (see record_parsers)."""
+
+    CLASSIC_VITAL_14 = "classic_vital_14"
+    CLASSIC_VITAL_16_6401_FAMILY = "classic_vital_16_6401_family"
+    CLASSIC_VITAL_14_BITPACKED = "classic_vital_14_bitpacked"
+    CLASSIC_VITAL_14_6232_FAMILY = "classic_vital_14_6232_family"
+
+
+class TimeSyncLayout(StrEnum):
+    """EEPROM time-sync field layout selector."""
+
+    LINEAR_10 = "eeprom_time_linear_10"
+    CLASSIC_MIXED = "eeprom_time_classic_mixed"
+    CLASSIC_OFFSET8 = "eeprom_time_classic_offset8"
+    MODERN_OFFSET8 = "eeprom_time_modern_offset8"
+    HEM6401_PREFIX = "eeprom_time_hem6401_prefix"
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
 
     # Device identity
     model: str
+    connect_type: ConnectType = ConnectType.UNKNOWN
 
     # BLE channel configuration
     parent_service_uuid: str = CLASSIC_STACK_PARENT_SERVICE_UUID
@@ -72,16 +110,12 @@ class DeviceConfig:
     # Enable more aggressive GATT timing for classic custom-key profiles
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
-    # When True, OS-level bonding is established only once (at config-flow
-    # setup); subsequent pairing-mode advertisements do NOT re-pair — polls
-    # rely on the existing bond + BlueZ on-demand encryption instead.  Repeated
-    # explicit pair() calls churn the bond on devices that rotate their LTK each
-    # session (HEM-7380T1 AFib family), producing org.bluez AuthenticationFailed
-    # on every reconnect.  Only meaningful for host_pairing_mode=OS_BONDING.
+    # Bond once at setup and never re-pair on pairing-mode adverts (avoids bond
+    # churn). Only meaningful for host_pairing_mode=OS_BONDING.
     os_bond_once: bool = False
 
     # EEPROM layout
-    endianness: str = "big"
+    endianness: Endianness = Endianness.BIG
     user_start_addresses: list[int] = field(default_factory=list)
     per_user_records_count: list[int] = field(default_factory=list)
     record_byte_size: int = 0x0E
@@ -98,11 +132,11 @@ class DeviceConfig:
     # - eeprom_time_modern_offset8: [8:14] = [year-2000, month, day, hour, minute, second]
     # - eeprom_time_classic_offset8: [8:14] = [month, year-2000, hour, day, second, minute]
     # - eeprom_time_hem6401_prefix: [0:6] = [year-2000, month, day, hour, minute, second] in 16-byte block
-    time_sync_layout: str | None = None
+    time_sync_layout: TimeSyncLayout | None = None
     index_pointer_layout: dict[str, Any] | None = None
 
     # Record layout key -> parser in parse_record()
-    record_parser: str = "classic_vital_14"
+    record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14
     # When True, pick latest record by highest EEPROM slot index, then datetime (index-pointer devices).
     prefer_latest_by_slot_index: bool = False
     equivalent_model_ids: tuple[str, ...] = ()
@@ -181,21 +215,21 @@ class DeviceConfig:
             and self.settings_write_address is not None
         )
 
-    def resolved_time_sync_layout(self) -> str:
+    def resolved_time_sync_layout(self) -> TimeSyncLayout:
         """Return effective EEPROM time-layout key for this profile."""
         if self.time_sync_layout is not None:
             return self.time_sync_layout
         if self.settings_time_sync_bytes == [0x2C, 0x3C]:
-            return "eeprom_time_modern_offset8"
-        return "eeprom_time_classic_mixed"
+            return TimeSyncLayout.MODERN_OFFSET8
+        return TimeSyncLayout.CLASSIC_MIXED
 
     def parse_record(self, data: bytes | bytearray) -> dict[str, Any]:
         """Parse a single record using the device-specific parser."""
         parser_map = {
-            "classic_vital_14": parse_classic_vital_14,
-            "classic_vital_16_6401_family": parse_classic_vital_16_6401_family,
-            "classic_vital_14_bitpacked": parse_classic_vital_14_bitpacked,
-            "classic_vital_14_6232_family": parse_classic_vital_14_6232_family,
+            RecordParser.CLASSIC_VITAL_14: parse_classic_vital_14,
+            RecordParser.CLASSIC_VITAL_16_6401_FAMILY: parse_classic_vital_16_6401_family,
+            RecordParser.CLASSIC_VITAL_14_BITPACKED: parse_classic_vital_14_bitpacked,
+            RecordParser.CLASSIC_VITAL_14_6232_FAMILY: parse_classic_vital_14_6232_family,
         }
         parser = parser_map.get(self.record_parser)
         if parser is None:
@@ -211,6 +245,11 @@ class DeviceConfig:
     def is_classic_stack(self) -> bool:
         """Whether this profile uses the classic 1812 parent-service layout."""
         return not self.is_modern_stack
+
+    @property
+    def unpair_after_session(self) -> bool:
+        """Drop the OS bond after each session (WLD3.0 devices re-key per session)."""
+        return self.connect_type == ConnectType.WLD3_0
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""

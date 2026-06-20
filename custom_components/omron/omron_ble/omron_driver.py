@@ -72,13 +72,9 @@ async def _bleak_refresh_services(client: BleakClient) -> None:
 
 
 async def _bleak_clear_cache(client: BleakClient) -> bool:
-    """Drop the backend/proxy GATT service cache so the next discovery is fresh.
+    """Force-drop the backend/proxy GATT cache (a stale cache can hide fe4a).
 
-    A plain ``get_services()`` refresh can keep returning a stale cached
-    service list — notably over an ESP32 (bleak_esphome) proxy — which hides
-    the modern-stack ``fe4a`` service even though the device exposes it. This
-    forces the cache to be discarded; unsupported backends (no ``clear_cache``)
-    are a safe no-op.
+    No-op on backends without ``clear_cache``.
     """
     cc = getattr(client, "clear_cache", None)
     if not callable(cc):
@@ -92,14 +88,7 @@ async def _bleak_clear_cache(client: BleakClient) -> bool:
 
 
 def _connection_source(ble_device: BLEDevice) -> str:
-    """Best-effort identifier of the proxy/adapter routing this connection.
-
-    habluetooth records the connectable scanner in ``BLEDevice.details``
-    (``source`` = the ESPHome proxy / local adapter address). BLE bonds are
-    stored per-proxy, so a connection made through a proxy that did NOT bond
-    the device can be rejected/dropped by the device — logging the source lets
-    us correlate failed connections with a non-bonded proxy.
-    """
+    """Best-effort proxy/adapter id (BLEDevice.details source) for connection logs."""
     details = getattr(ble_device, "details", None)
     if isinstance(details, dict):
         for key in ("source", "scanner", "path"):
@@ -112,13 +101,9 @@ def _connection_source(ble_device: BLEDevice) -> str:
 async def establish_connection_with_bond_settle(
     ble_device: BLEDevice, name: str
 ) -> BleakClient:
-    """Connect, wait for bonding/encryption to settle, then refresh GATT cache.
+    """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
-    Wraps ``bleak_retry_connector.establish_connection`` with a fixed
-    :data:`_POST_CONNECT_BOND_SETTLE_SEC` pause plus a service-cache refresh.
-    All Omron integration code paths should use this helper instead of
-    calling ``establish_connection`` directly so the bond-settle behaviour
-    is consistent.
+    Retries if the device drops during the settle (common on multi-proxy setups).
     """
     last_source = "unknown"
     for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
@@ -137,8 +122,7 @@ async def establish_connection_with_bond_settle(
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
-        # Let bonding/encryption settle, but poll the link so a drop is caught
-        # immediately rather than after waiting out the full settle.
+        # Settle for bonding/encryption, polling so a drop is caught early.
         waited = 0.0
         while waited < _POST_CONNECT_BOND_SETTLE_SEC:
             await asyncio.sleep(_SETTLE_POLL_STEP_SEC)
@@ -153,12 +137,8 @@ async def establish_connection_with_bond_settle(
             await _bleak_refresh_services(client)
             return client
 
-        # Dropped during the settle. On multi-proxy ESPHome setups this is
-        # almost always a connection routed through a proxy that did not bond
-        # the device (bonds are stored per-proxy) — the device drops the link.
-        # We cannot target a proxy, but re-running establish_connection lets
-        # habluetooth re-score the paths, so a retry may land on a working /
-        # bonded proxy.
+        # Dropped during settle; retry — re-establishing lets habluetooth
+        # re-score and possibly route through a working/bonded proxy.
         _LOGGER.warning(
             "%s dropped ~%.2fs into the post-connect settle via source=%s "
             "(attempt %d/%d) — retrying",
@@ -169,7 +149,6 @@ async def establish_connection_with_bond_settle(
             await client.disconnect()
         except Exception as exc:
             _LOGGER.debug("disconnect after settle-drop ignored: %s", exc)
-        # Retry immediately — no fixed delay; re-establish re-scores the paths.
 
     raise BleakError(
         f"{name} dropped during the post-connect settle on all "
@@ -344,16 +323,10 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
 
 
 async def _bluez_remove_device(client: BleakClient) -> bool:
-    """Remove the BlueZ device and its bond via ``Adapter1.RemoveDevice``.
+    """Remove the BlueZ device + bond via DBus Adapter1.RemoveDevice.
 
-    BlueZ persists bonds under ``/var/lib/bluetooth`` across reboots, so a
-    stale/rotated bond cannot be cleared by reconnecting or rebooting — it
-    must be explicitly removed.  ``BleakClient.unpair()`` is not implemented
-    on every backend (notably the HA/habluetooth BlueZ wrapper), so go
-    straight to BlueZ over DBus (same transport used by the pairing agent).
-
-    Returns True if RemoveDevice succeeded; False on any failure or when the
-    DBus path is unavailable (caller should fall back to ``unpair()``).
+    Used because BleakClient.unpair() is a no-op on the HA/habluetooth backend.
+    Returns True on success; False otherwise (caller falls back to unpair()).
     """
     try:
         from dbus_fast.aio.message_bus import MessageBus
@@ -430,17 +403,7 @@ def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
 
 
 def _is_stale_bond_auth_error(exc: BaseException) -> bool:
-    """Whether a bonding failure looks like a stale/rotated bond.
-
-    Some Omron AFib devices (notably the HEM-7380T1 family) do not retain
-    their pairing bond across disconnects — they rotate or discard the LTK
-    after each session.  The host's stored bond then no longer matches, so
-    BlueZ rejects re-encryption/re-pairing with ``AuthenticationFailed`` (the
-    link never gets encrypted and later GATT ops fail with ``NotConnected``).
-    This is the signature of "works once right after a fresh bond, then fails
-    on every subsequent connection"; removing the stale bond and re-pairing
-    from a clean slate recovers the device.
-    """
+    """Whether a bonding failure looks like a stale/rotated bond (AuthenticationFailed)."""
     msg = str(exc).lower()
     return any(
         marker in msg
@@ -575,19 +538,8 @@ class OmronDeviceSession:
         await _bleak_refresh_services(self.client)
 
     async def verify_parent_service(self) -> bool:
-        """Ensure the profile's parent service is present, refreshing if needed.
-
-        Repeating a plain ``get_services()`` is pointless once it has returned a
-        list without the parent service — it just re-reads the same cached list.
-        So the sequence keeps only the *meaningful* steps:
-
-        1. check the current services,
-        2. refresh once (the cache may simply be unpopulated right after connect),
-        3. if still missing, force a fresh discovery via ``clear_cache()`` (the
-           only move different from step 2 — it drops a stale backend/proxy cache
-           that can hide ``fe4a``). Bail out immediately if the backend cannot
-           clear its cache, rather than looping uselessly.
-        """
+        """Ensure the parent service is present: check, refresh once, then
+        clear_cache + re-discover (the only step that beats a stale cache)."""
         parent_uuid = self._config.parent_service_uuid
 
         def _present() -> bool:
@@ -684,6 +636,10 @@ class OmronDeviceSession:
                     await self.close_memory_session()
                 except Exception:
                     pass
+            # Drop the bond while still connected so the next connection re-pairs
+            # fresh (WLD3.0 devices re-key each session).
+            if self._config.unpair_after_session and client.is_connected:
+                await self.unpair()
             if self._owns_connection and client.is_connected:
                 await client.disconnect()
                 disconnected = True
@@ -1453,14 +1409,8 @@ class OmronDeviceSession:
                 return
             except Exception as exc:
                 last_exc = exc
-                # Stale/rotated bond (HEM-7380T1 AFib family): the device
-                # discarded its LTK, so the stored bond no longer matches and
-                # BlueZ raises AuthenticationFailed.  Treating this as
-                # "non-fatal" and continuing leaves the link unencrypted, so the
-                # session then dies with NotConnected.  Instead remove the stale
-                # bond once; RemoveDevice also drops the link, so re-pairing
-                # in-place is impossible — raise and let the next connection
-                # re-pair from a clean slate (self-heals on the following poll).
+                # Stale bond → AuthenticationFailed. Remove it and raise; the
+                # next connection re-pairs from a clean slate.
                 if _is_stale_bond_auth_error(exc) and not stale_bond_cleared:
                     stale_bond_cleared = True
                     _LOGGER.warning(
@@ -1469,9 +1419,6 @@ class OmronDeviceSession:
                         type(exc).__name__,
                         self._config.model,
                     )
-                    # Prefer BlueZ RemoveDevice over DBus (authoritative, works
-                    # even when the backend's unpair() is a no-op); fall back to
-                    # BleakClient.unpair() for non-BlueZ backends.
                     if not await _bluez_remove_device(self._client):
                         await self.unpair()
                     raise ConnectionError(
