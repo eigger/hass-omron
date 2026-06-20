@@ -64,6 +64,26 @@ async def _bleak_refresh_services(client: BleakClient) -> None:
         _LOGGER.debug("get_services refresh: %s", exc)
 
 
+async def _bleak_clear_cache(client: BleakClient) -> bool:
+    """Drop the backend/proxy GATT service cache so the next discovery is fresh.
+
+    A plain ``get_services()`` refresh can keep returning a stale cached
+    service list — notably over an ESP32 (bleak_esphome) proxy — which hides
+    the modern-stack ``fe4a`` service even though the device exposes it. This
+    forces the cache to be discarded; unsupported backends (no ``clear_cache``)
+    are a safe no-op.
+    """
+    cc = getattr(client, "clear_cache", None)
+    if not callable(cc):
+        return False
+    try:
+        await cc()
+        return True
+    except Exception as exc:
+        _LOGGER.debug("clear_cache failed (ignored): %s", exc)
+        return False
+
+
 async def establish_connection_with_bond_settle(
     ble_device: BLEDevice, name: str
 ) -> BleakClient:
@@ -484,21 +504,77 @@ class OmronDeviceSession:
         """Re-run GATT discovery so characteristics appear after connection."""
         await _bleak_refresh_services(self.client)
 
-    async def verify_parent_service(self, attempts: int = 5) -> bool:
-        """Refresh services until the profile's parent service is present."""
+    async def verify_parent_service(self) -> bool:
+        """Ensure the profile's parent service is present, refreshing if needed.
+
+        Repeating a plain ``get_services()`` is pointless once it has returned a
+        list without the parent service — it just re-reads the same cached list.
+        So the sequence keeps only the *meaningful* steps:
+
+        1. check the current services,
+        2. refresh once (the cache may simply be unpopulated right after connect),
+        3. if still missing, force a fresh discovery via ``clear_cache()`` (the
+           only move different from step 2 — it drops a stale backend/proxy cache
+           that can hide ``fe4a``). Bail out immediately if the backend cannot
+           clear its cache, rather than looping uselessly.
+        """
         parent_uuid = self._config.parent_service_uuid
-        for attempt in range(attempts):
+
+        def _present() -> bool:
             try:
-                if parent_uuid in [s.uuid for s in self.client.services]:
-                    return True
+                return parent_uuid in [s.uuid for s in self.client.services]
             except Exception as exc:
+                _LOGGER.debug("Services not ready for %s: %s", self.address, exc)
+                return False
+
+        if _present():
+            return True
+
+        # Populate/refresh discovery once (cache may be empty post-connect).
+        _LOGGER.debug(
+            "Parent service %s not in cached services for %s; "
+            "refreshing GATT discovery",
+            parent_uuid, self.address,
+        )
+        await self.refresh_services()
+        await asyncio.sleep(0.35)
+        if _present():
+            _LOGGER.debug(
+                "Parent service %s found after discovery refresh for %s",
+                parent_uuid, self.address,
+            )
+            return True
+
+        # Still missing → the cached list is stale. Force a fresh discovery by
+        # dropping the backend/proxy GATT cache. Two short attempts; stop early
+        # if the backend cannot clear its cache (further retries are pointless).
+        _LOGGER.debug(
+            "Parent service %s still missing after refresh for %s; "
+            "forcing fresh discovery via clear_cache (stale proxy/GATT cache "
+            "suspected)",
+            parent_uuid, self.address,
+        )
+        for attempt in range(2):
+            if not await _bleak_clear_cache(self.client):
                 _LOGGER.debug(
-                    "Services not ready (%d/%d) for %s: %s",
-                    attempt + 1, attempts, self.address, exc,
+                    "clear_cache unsupported by backend for %s; "
+                    "cannot force fresh discovery", self.address,
                 )
-            if attempt + 1 < attempts:
-                await self.refresh_services()
-                await asyncio.sleep(0.35)
+                break
+            _LOGGER.debug(
+                "Cleared GATT cache; re-discovering parent service %s "
+                "(attempt %d/2) for %s",
+                parent_uuid, attempt + 1, self.address,
+            )
+            await self.refresh_services()
+            await asyncio.sleep(0.35)
+            if _present():
+                _LOGGER.debug(
+                    "Parent service %s recovered after cache clear "
+                    "(attempt %d/2) for %s",
+                    parent_uuid, attempt + 1, self.address,
+                )
+                return True
         return False
 
     async def read_model_number(self) -> str | None:
