@@ -84,6 +84,24 @@ async def _bleak_clear_cache(client: BleakClient) -> bool:
         return False
 
 
+def _connection_source(ble_device: BLEDevice) -> str:
+    """Best-effort identifier of the proxy/adapter routing this connection.
+
+    habluetooth records the connectable scanner in ``BLEDevice.details``
+    (``source`` = the ESPHome proxy / local adapter address). BLE bonds are
+    stored per-proxy, so a connection made through a proxy that did NOT bond
+    the device can be rejected/dropped by the device — logging the source lets
+    us correlate failed connections with a non-bonded proxy.
+    """
+    details = getattr(ble_device, "details", None)
+    if isinstance(details, dict):
+        for key in ("source", "scanner", "path"):
+            val = details.get(key)
+            if val:
+                return str(val)
+    return "unknown"
+
+
 async def establish_connection_with_bond_settle(
     ble_device: BLEDevice, name: str
 ) -> BleakClient:
@@ -95,14 +113,24 @@ async def establish_connection_with_bond_settle(
     calling ``establish_connection`` directly so the bond-settle behaviour
     is consistent.
     """
+    source = _connection_source(ble_device)
+    _LOGGER.debug("Connecting to %s via proxy/source=%s", name, source)
     client = await establish_connection(BleakClient, ble_device, name)
     _LOGGER.debug(
-        "BLE link established to %s; settling %.1fs for bonding/encryption "
-        "before first GATT op",
+        "BLE link established to %s via source=%s (is_connected=%s); settling "
+        "%.1fs for bonding/encryption before first GATT op",
         name,
+        source,
+        getattr(client, "is_connected", "?"),
         _POST_CONNECT_BOND_SETTLE_SEC,
     )
     await asyncio.sleep(_POST_CONNECT_BOND_SETTLE_SEC)
+    _LOGGER.debug(
+        "Post-settle state for %s via source=%s: is_connected=%s",
+        name,
+        source,
+        getattr(client, "is_connected", "?"),
+    )
     await _bleak_refresh_services(client)
     return client
 
