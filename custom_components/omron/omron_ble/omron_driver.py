@@ -38,6 +38,13 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # explicit short wait gives the stack a stable starting point before the
 # follow-up service-cache refresh below.
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
+# If the device drops during the post-connect settle (multi-proxy ESPHome
+# setups: connection routed through a proxy that did not bond the device),
+# re-establish to let habluetooth re-score and possibly pick a working proxy.
+# The settle is polled in small steps so a drop is detected immediately instead
+# of waiting out the full settle before retrying.
+_CONNECT_SETTLE_ATTEMPTS: int = 3
+_SETTLE_POLL_STEP_SEC: float = 0.25
 _UNLOCK_PROBE_WAIT_TIMEOUT_SEC: float = 2.0
 _UNLOCK_AUTH_WAIT_TIMEOUT_SEC: float = 5.0
 _PAIRING_SETTLE_AGGRESSIVE_SEC: float = 0.25
@@ -113,26 +120,62 @@ async def establish_connection_with_bond_settle(
     calling ``establish_connection`` directly so the bond-settle behaviour
     is consistent.
     """
-    source = _connection_source(ble_device)
-    _LOGGER.debug("Connecting to %s via proxy/source=%s", name, source)
-    client = await establish_connection(BleakClient, ble_device, name)
-    _LOGGER.debug(
-        "BLE link established to %s via source=%s (is_connected=%s); settling "
-        "%.1fs for bonding/encryption before first GATT op",
-        name,
-        source,
-        getattr(client, "is_connected", "?"),
-        _POST_CONNECT_BOND_SETTLE_SEC,
+    last_source = "unknown"
+    for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
+        source = _connection_source(ble_device)
+        last_source = source
+        _LOGGER.debug(
+            "Connecting to %s via proxy/source=%s (attempt %d/%d)",
+            name, source, attempt, _CONNECT_SETTLE_ATTEMPTS,
+        )
+        client = await establish_connection(BleakClient, ble_device, name)
+        _LOGGER.debug(
+            "BLE link established to %s via source=%s (is_connected=%s); settling "
+            "up to %.1fs for bonding/encryption before first GATT op",
+            name,
+            source,
+            getattr(client, "is_connected", "?"),
+            _POST_CONNECT_BOND_SETTLE_SEC,
+        )
+        # Let bonding/encryption settle, but poll the link so a drop is caught
+        # immediately rather than after waiting out the full settle.
+        waited = 0.0
+        while waited < _POST_CONNECT_BOND_SETTLE_SEC:
+            await asyncio.sleep(_SETTLE_POLL_STEP_SEC)
+            waited += _SETTLE_POLL_STEP_SEC
+            if not getattr(client, "is_connected", False):
+                break
+        if getattr(client, "is_connected", False):
+            _LOGGER.debug(
+                "Post-settle state for %s via source=%s: is_connected=True",
+                name, source,
+            )
+            await _bleak_refresh_services(client)
+            return client
+
+        # Dropped during the settle. On multi-proxy ESPHome setups this is
+        # almost always a connection routed through a proxy that did not bond
+        # the device (bonds are stored per-proxy) — the device drops the link.
+        # We cannot target a proxy, but re-running establish_connection lets
+        # habluetooth re-score the paths, so a retry may land on a working /
+        # bonded proxy.
+        _LOGGER.warning(
+            "%s dropped ~%.2fs into the post-connect settle via source=%s "
+            "(attempt %d/%d); likely a proxy without a valid bond — retrying",
+            name, waited, source,
+            attempt, _CONNECT_SETTLE_ATTEMPTS,
+        )
+        try:
+            await client.disconnect()
+        except Exception as exc:
+            _LOGGER.debug("disconnect after settle-drop ignored: %s", exc)
+        # Retry immediately — no fixed delay; re-establish re-scores the paths.
+
+    raise BleakError(
+        f"{name} dropped during the post-connect settle on all "
+        f"{_CONNECT_SETTLE_ATTEMPTS} attempt(s) (last source={last_source}); "
+        "the device likely bonded with a different proxy than the one used"
     )
-    await asyncio.sleep(_POST_CONNECT_BOND_SETTLE_SEC)
-    _LOGGER.debug(
-        "Post-settle state for %s via source=%s: is_connected=%s",
-        name,
-        source,
-        getattr(client, "is_connected", "?"),
-    )
-    await _bleak_refresh_services(client)
-    return client
 
 
 def _hex(data: bytes | bytearray) -> str:
