@@ -2,7 +2,15 @@
 from __future__ import annotations
 
 from .const import MODERN_STACK_PARENT_SERVICE_UUID
-from .devices import DeviceConfig, HostPairingMode, UnlockMode
+from .devices import (
+    ConnectType,
+    DeviceConfig,
+    Endianness,
+    HostPairingMode,
+    RecordParser,
+    TimeSyncLayout,
+    UnlockMode,
+)
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
@@ -14,7 +22,7 @@ _MODERN_OS_BONDING_BASE = {
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6320T": DeviceConfig(
         model="HEM-6320T",
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x0370],
         per_user_records_count=[100],
         record_byte_size=0x0E,
@@ -23,7 +31,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0F9A,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout="eeprom_time_linear_10",
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -31,14 +39,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-6320T-Z",
         ),
     ),
     "HEM-6321T": DeviceConfig(
         model="HEM-6321T",
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x0370, 0x08E8],
         per_user_records_count=[100, 100],
         record_byte_size=0x0E,
@@ -47,7 +55,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0F9A,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout="eeprom_time_linear_10",
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -56,14 +64,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-6321T-Z",
         ),
     ),
     "HEM-6401T": DeviceConfig(
         model="HEM-6401T",
-        endianness="little",
+        endianness=Endianness.LITTLE,
         # HEM-6401T exposes multiple data types; only the BP data_5 area is mapped here.
         user_start_addresses=[0x1350],
         per_user_records_count=[100],
@@ -73,7 +81,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0160,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x10, 0x20],
-        time_sync_layout="eeprom_time_hem6401_prefix",
+        time_sync_layout=TimeSyncLayout.HEM6401_PREFIX,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -81,7 +89,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0xFFFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
             ],
         },
-        record_parser="classic_vital_16_6401_family",
+        record_parser=RecordParser.CLASSIC_VITAL_16_6401_FAMILY,
         equivalent_model_ids=(
             "HEM-6401T-Z",
             "HEM-6402T-Z",
@@ -90,7 +98,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7320T": DeviceConfig(
         model="HEM-7320T",
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02AC, 0x05F4],
         per_user_records_count=[60, 60],
         record_byte_size=0x0E,
@@ -99,7 +107,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0286,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout="eeprom_time_linear_10",
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -108,7 +116,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-7320T-CA",
             "HEM-7320T-CACS",
@@ -120,8 +128,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
+        connect_type=ConnectType.WLB1_0,
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02AC, 0x0824],
         per_user_records_count=[100, 100],
         record_byte_size=0x0E,
@@ -130,7 +139,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0286,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout="eeprom_time_classic_mixed",
+        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -139,7 +148,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-7321T-CA",
             "HEM-7321T_TI-CA",
@@ -161,7 +170,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02AC],
         per_user_records_count=[100],
         record_byte_size=0x0E,
@@ -171,7 +180,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x14, 0x1E],
         # classic-mixed field order (confirmed from HEM-7600T-E EEPROM dumps)
-        time_sync_layout="eeprom_time_classic_mixed",
+        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -181,7 +190,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         # bit-packed big-endian record layout (confirmed from HEM-7600T-E:
         # byte-aligned classic_vital_14 yielded dia>sys / bpm=26 / no date)
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-7270C",
             "HEM-7271T",
@@ -204,7 +213,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02E8, 0x0860],
         per_user_records_count=[100, 100],
         record_byte_size=0x0E,
@@ -213,7 +222,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=[0x00, 0x08],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_classic_offset8",
+        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -222,7 +231,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_6232_family",
+        record_parser=RecordParser.CLASSIC_VITAL_14_6232_FAMILY,
         equivalent_model_ids=(
             "HEM-1026T2-AJC",
             "HEM-1026T2-AJE",
@@ -242,7 +251,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
         per_user_records_count=[90],
         record_byte_size=0x0E,
@@ -253,7 +262,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # field order (same 16-byte block as HEM-6232T, not modern linear order).
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_classic_offset8",
+        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -263,7 +272,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         # bit-packed record layout (confirmed from HEM-6161T-RU; byte-aligned
         # classic_vital_14 yields bpm=26 and no valid datetime on this family).
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-6231T2-JC",
             "HEM-6231T2-JE",
@@ -283,7 +292,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6161T": DeviceConfig(
         model="HEM-6161T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
         per_user_records_count=[30],
         record_byte_size=0x0E,
@@ -292,7 +301,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_classic_offset8",
+        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -300,7 +309,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-6161T-E",
             "HEM-6161T-RU",
@@ -312,7 +321,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7136T": DeviceConfig(
         model="HEM-7136T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
         per_user_records_count=[60],
         record_byte_size=0x0E,
@@ -321,7 +330,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_classic_offset8",
+        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -329,7 +338,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-7136T-SH3",
             "HEM-7138JT-SH",
@@ -341,7 +350,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6231T": DeviceConfig(
         model="HEM-6231T",
         aggressive_gatt_timing=True,
-        endianness="big",
+        endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
         per_user_records_count=[100],
         record_byte_size=0x0E,
@@ -350,7 +359,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_classic_offset8",
+        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -358,7 +367,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14_bitpacked",
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-6231T-SH",
             "HEM-6231T_Z",
@@ -367,7 +376,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
         aggressive_gatt_timing=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
         per_user_records_count=[60],
         record_byte_size=0x10,
@@ -376,7 +385,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -384,7 +393,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-7150T-CA",
             "HEM-7150T-Z",
@@ -403,7 +412,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7151T": DeviceConfig(
         model="HEM-7151T",
         aggressive_gatt_timing=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
         per_user_records_count=[80],
         record_byte_size=0x10,
@@ -412,7 +421,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -420,15 +429,16 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 79, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-7151T-Z",
         ),
     ),
     "HEM-7155T": DeviceConfig(
         model="HEM-7155T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
         record_byte_size=0x10,
@@ -437,7 +447,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -446,7 +456,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-7155T-ALRU",
             "HEM-7155T-D",
@@ -467,8 +477,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7155T-MW": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-MW",
+        connect_type=ConnectType.WLS3_0,
         unlock_mode=UnlockMode.NONE,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x0458],
         per_user_records_count=[60, 60],
         record_byte_size=0x10,
@@ -480,7 +491,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # 0x0010, time bytes [0x2C, 0x3C], modern offset8 layout). Addresses
         # match the classic HEM-7155T V1 profile exactly.
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -489,15 +500,16 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
     ),
     # HEM-7155T K4 — modern stack, MW3 EEPROM layout, no secure session.
     "HEM-7155T-K4": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-K4",
+        connect_type=ConnectType.WLD2_0,
         unlock_mode=UnlockMode.NONE,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
         record_byte_size=0x10,
@@ -506,7 +518,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -515,7 +527,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7155T_K4-D",
@@ -536,8 +548,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7155T-MW3": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7155T-MW3",
+        # Modern-fe4a-firmware HEM-7155T_ESL ("X4 Smart"); WLD3.0 like 7380T1.
+        connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
         record_byte_size=0x10,
@@ -550,7 +564,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # 7155T family) so it applies unchanged. EEPROM sync runs before CTS and
         # falls back to it, so CTS still works if these offsets are wrong.
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -563,7 +577,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x08, "unread_counter_offset": 0x0C, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             # HEM-7155T_ESL1 ("X4 Smart", modern firmware): modern FE4A stack
@@ -578,8 +592,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7146T": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7146T",
+        connect_type=ConnectType.WLD1_0,
         unlock_mode=UnlockMode.NONE,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8],
         per_user_records_count=[30],
         record_byte_size=0x0E,
@@ -588,7 +603,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -596,7 +611,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7143T1-AIN",
@@ -620,7 +635,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
         aggressive_gatt_timing=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -629,7 +644,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -638,7 +653,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
             "HEM-7159T_AP3",
             "HEM-7342T-CA",
@@ -670,7 +685,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
         aggressive_gatt_timing=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x06D8],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -679,7 +694,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=[0x00, 0x10],
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
@@ -688,17 +703,18 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
     ),
     "HEM-7380T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
+        connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
         # AFib family rotates its LTK each session; re-pairing on every
         # pairing-mode advertisement churns the bond → AuthenticationFailed.
         # Bond once at setup, then rely on the existing bond for polls.
         os_bond_once=True,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
         record_byte_size=0x10,
@@ -707,7 +723,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0054,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x18,
             "endianness": "little",
@@ -716,7 +732,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7183T1-AP",
@@ -757,8 +773,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7142T2": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7142T2",
+        connect_type=ConnectType.WLD1_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        endianness="little",
+        endianness=Endianness.LITTLE,
         # Single on-device measurement buffer region for this profile.
         user_start_addresses=[0x02E8],
         per_user_records_count=[14],
@@ -768,7 +785,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x02A4,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout="eeprom_time_modern_offset8",
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -782,7 +799,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "record_byte_size": 0x0E,
             "record_step": 0x0E,
         },
-        record_parser="classic_vital_14",
+        record_parser=RecordParser.CLASSIC_VITAL_14,
         prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7138K-SH",
