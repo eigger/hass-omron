@@ -137,8 +137,6 @@ class DeviceConfig:
 
     # Record layout key -> parser in parse_record()
     record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14
-    # When True, pick latest record by highest EEPROM slot index, then datetime (index-pointer devices).
-    prefer_latest_by_slot_index: bool = False
     equivalent_model_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
