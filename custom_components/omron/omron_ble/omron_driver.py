@@ -1913,16 +1913,9 @@ class OmronDeviceDriver:
         self, transport: OmronDeviceSession
     ) -> dict[str, Any] | None:
         """Read latest record using index first, then fallback to full scan."""
-        layout = self._config.index_pointer_layout or {}
         indexed = await self._get_latest_via_index(transport)
         if indexed is not None:
             return indexed
-        if bool(layout.get("skip_full_scan_fallback_when_index_empty")):
-            _LOGGER.debug(
-                "Index path returned no valid candidate for model=%s; skipping full scan fallback",
-                self._config.model,
-            )
-            return None
         _LOGGER.debug(
             "%s index path did not yield a valid latest record; falling back to full scan",
             self._config.model,

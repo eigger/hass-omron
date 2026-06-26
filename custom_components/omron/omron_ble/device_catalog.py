@@ -783,9 +783,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
-            "endianness": "big",
-            "backtrack_slots": 13,
-            "skip_full_scan_fallback_when_index_empty": True,
+            "endianness": "little",
+            "backtrack_slots": 0,
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 13, "slot_index_bias": -1},
             ],
