@@ -2087,7 +2087,6 @@ class OmronDeviceDriver:
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
         record_step = int(layout.get("record_step", record_byte_size))
         backtrack_slots = int(layout.get("backtrack_slots", 0))
-        collect_all_valid = bool(layout.get("collect_all_valid_in_index_window", False))
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
@@ -2216,9 +2215,7 @@ class OmronDeviceDriver:
                         parsed = None
                         continue
                     candidates.append((idx + 1, parsed))
-                    if not collect_all_valid:
-                        break
-                    parsed = None
+                    break
                 # After the backtrack window completes: if every read came
                 # back all-0xFF, mark this user as definitively empty.
                 if user_had_any_read and user_all_probed_slots_empty:
@@ -2379,18 +2376,9 @@ class OmronDeviceDriver:
     def _select_latest_candidate(
         self, candidates: list[tuple[int, dict[str, Any]]]
     ) -> tuple[int, dict[str, Any]] | None:
-        """Choose the latest record across users using model-specific strategy."""
+        """Choose the latest record across users by datetime, slot index as tiebreaker."""
         if not candidates:
             return None
-
-        if self._config.prefer_latest_by_slot_index:
-            return max(
-                candidates,
-                key=lambda item: (
-                    item[1].get("_slot_index", -1),
-                    item[1].get("datetime", dt.datetime.min),
-                ),
-            )
 
         return max(
             candidates,

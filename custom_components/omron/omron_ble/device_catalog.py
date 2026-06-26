@@ -501,7 +501,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
     ),
     # HEM-7155T K4 — modern stack, MW3 EEPROM layout, no secure session.
     "HEM-7155T-K4": DeviceConfig(
@@ -528,7 +527,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7155T_K4-D",
             "HEM-7155T_K4-EBK",
@@ -578,7 +576,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             # HEM-7155T_ESL1 ("X4 Smart", modern firmware): modern FE4A stack
             # with V3 EEPROM at 0x0260, classic plaintext transport over a Just
@@ -612,7 +609,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7143T1-AIN",
             "HEM-7143T1-AP",
@@ -733,7 +729,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7183T1-AP",
             "HEM-7183T1-CAP",
@@ -790,7 +785,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "backtrack_slots": 13,
-            "collect_all_valid_in_index_window": True,
             "skip_full_scan_fallback_when_index_empty": True,
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 13, "slot_index_bias": -1},
@@ -800,7 +794,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "record_step": 0x0E,
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
-        prefer_latest_by_slot_index=True,
         equivalent_model_ids=(
             "HEM-7138K-SH",
             "HEM-7140T1-AP",
