@@ -752,8 +752,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7380T1-EBK",
             "HEM-7380T1-EOSL",
             "HEM-7381T1-AZ",
-            "HEM-7382T1",   # same modern stack layout, confirmed by user report
-            "HEM-7382T1-AZAZ",
+            # HEM-7382T1 / -AZAZ moved to their own profile: same modern stack,
+            # but the EEPROM time section sits 4 bytes later (see "HEM-7382T1").
             "HEM-7383T1-AP",
             "HEM-7384T1-NBBR",
             "HEM-7385T1-AJAZ3",
@@ -761,6 +761,44 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7387T1-AJAZ3",
             "HEM-7388T1-AJF3",
             "HEM-7389T1-JM3",
+        ),
+    ),
+    # HEM-7382T1 — same modern stack as the HEM-7380T1 family, but the EEPROM
+    # time-sync section lives 4 bytes later. On the 7380 layout the block read
+    # at settings+0x2C decodes the wall time at window offset 8; on the 7382 the
+    # same read returned the date bytes (year/month/day…) at window offset 12
+    # with the `c?a?` header at offset 4 — i.e. the whole section is shifted +4.
+    # Reading at settings+0x30 instead realigns the date to offset 8 so the
+    # shared MODERN_OFFSET8 decoder works. NOTE: derived from HA logs; the
+    # minute/second bytes fell just outside the old 16-byte window, so verify
+    # against a device with a known clock before trusting the written value.
+    "HEM-7382T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7382T1",
+        connect_type=ConnectType.WLD3_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        os_bond_once=True,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x01C4, 0x0804],
+        per_user_records_count=[100, 100],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0054,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x30, 0x40],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x18,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7382T1-AZAZ",
         ),
     ),
     # HEM-7142T2 — modern stack, MW3-style EEPROM, stateless 0x11/0x91 token
