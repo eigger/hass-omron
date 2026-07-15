@@ -149,7 +149,10 @@ class SecureSession:
             raise RuntimeError("process_pair_resp requires STATE_PAIR_REQ_SENT.")
         if len(resp) != 89:
             raise ValueError(f"Invalid pairing response length: {len(resp)}")
-        if resp[:2] != b"\x70\x81":
+        # Peer (device) responses set the top bit of the frame header rather
+        # than reusing the request's 0x70 — confirmed via HCI btsnoop
+        # (HEM-7188T1-LEO): the device replies with 0xf0 0x81, not 0x70 0x81.
+        if resp[:2] != b"\xf0\x81":
             raise ValueError(f"Invalid pairing response header: {resp[:2].hex()}")
 
         # Parse response fields after the 2-byte header
@@ -227,7 +230,8 @@ class SecureSession:
             raise RuntimeError("build_challenge_req requires STATE_ENC_REQ_SENT.")
         if len(start_enc_resp) != 46:
             raise ValueError(f"Peer Encryption Response must be 46 bytes, got {len(start_enc_resp)}")
-        if start_enc_resp[:2] != b"\x70\x85":
+        # Peer responses use header 0xf0, not 0x70 — see process_pair_resp.
+        if start_enc_resp[:2] != b"\xf0\x85":
             raise ValueError(f"Invalid Encryption Response headers: {start_enc_resp[:2].hex()}")
 
         # Extract peer's encryption challenge and salt
@@ -269,7 +273,8 @@ class SecureSession:
             raise RuntimeError("process_challenge_resp requires STATE_CHALLENGE_REQ_SENT.")
         if len(resp) != 46:
             raise ValueError(f"Peer Challenge Response must be 46 bytes, got {len(resp)}")
-        if resp[:2] != b"\x70\x86":
+        # Peer responses use header 0xf0, not 0x70 — see process_pair_resp.
+        if resp[:2] != b"\xf0\x86":
             raise ValueError(f"Invalid Challenge Response headers: {resp[:2].hex()}")
 
         ciphertext = resp[2:]

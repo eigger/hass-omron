@@ -1304,6 +1304,16 @@ class OmronDeviceSession:
     async def _secure_unlock(self) -> None:
         """Perform encrypted secure handshake to unlock the device."""
         _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
+
+        # The device requires a preliminary stateless token handshake
+        # (0x11/0x91) before it will accept the ECDH pairing request —
+        # confirmed via HCI btsnoop (HEM-7188T1-LEO), where the official app
+        # performs this step immediately before the Pairing Request. Reset
+        # ``_unlocked`` afterward so a later failure in the ECDH stage below
+        # doesn't leave the transport thinking it's already unlocked.
+        await self._token_unlock()
+        self._unlocked = False
+
         from .secure_session import SecureSession
 
         self._secure_session = SecureSession()
