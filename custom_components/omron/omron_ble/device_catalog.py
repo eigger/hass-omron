@@ -735,10 +735,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7183T1_FLBIN",
             "HEM-7183T1_FLIN",
             "HEM-7183T1_LAP",
-            "HEM-7188T1-LE",
-            # HEM-7188T1-LEO ("X2+ Connect") moved to its own profile: 1 user /
-            # 30 records, and requires the full ECDH secure session (not just
-            # TOKEN_KEY) — see "HEM-7188T1-LEO".
+            # HEM-7188T1 family (LE/LEO — "X2+ Connect") moved to its own
+            # profile: 1 user / 30 records, and HEM-7188T1-LEO requires the
+            # full ECDH secure session (not just TOKEN_KEY) — see "HEM-7188T1".
             # HEM-7194T1 / HEM-7196T1 family shares this modern-stack profile
             # (OS bonding, FE4A parent service, same TX/RX UUIDs and EEPROM layout).
             "HEM-7194T1-FLAP",
@@ -803,20 +802,23 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7382T1-AZAZ",
         ),
     ),
-    # HEM-7188T1-LEO ("X2+ Connect") — same modern-stack family as HEM-7380T1,
-    # but confirmed via HCI btsnoop to need the full ECDH secure session, not
-    # just the TOKEN_KEY handshake: the official app sends a token unlock
-    # (0x11/0x91) and then immediately negotiates a secure session (pairing
-    # request/response, encryption start, mutual challenge) before any record
-    # access, and record-channel traffic afterward is CCM-encrypted too. The
-    # device is also 1 user / 30 records, not the 2 user / 100 record layout
-    # HEM-7380T1 uses. EEPROM addresses below are inherited from HEM-7380T1
-    # (same family/likely same memory map) and are NOT independently verified
-    # for this model, since all GATT traffic after unlock is encrypted in the
-    # capture — confirm against a real read if data looks wrong.
-    "HEM-7188T1-LEO": DeviceConfig(
+    # HEM-7188T1 family ("X2+ Connect") — same modern-stack lineage as
+    # HEM-7380T1, but confirmed via HCI btsnoop (HEM-7188T1-LEO) to need the
+    # full ECDH secure session, not just the TOKEN_KEY handshake: the official
+    # app sends a token unlock (0x11/0x91) and then immediately negotiates a
+    # secure session (pairing request/response, encryption start, mutual
+    # challenge) before any record access, and record-channel traffic
+    # afterward is CCM-encrypted too. The device is also 1 user / 30 records,
+    # not the 2 user / 100 record layout HEM-7380T1 uses. EEPROM addresses
+    # below are inherited from HEM-7380T1 (same family/likely same memory
+    # map) and are NOT independently verified for this model, since all GATT
+    # traffic after unlock is encrypted in the capture — confirm against a
+    # real read if data looks wrong. Only the "-LEO" suffix has been
+    # confirmed via btsnoop; "-LE" is grouped in as the same base model
+    # number and assumed identical hardware.
+    "HEM-7188T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
-        model="HEM-7188T1-LEO",
+        model="HEM-7188T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.SECURE_SESSION,
         os_bond_once=True,
@@ -838,6 +840,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7188T1-LE",
+            "HEM-7188T1-LEO",
+        ),
     ),
     # HEM-7142T2 — modern stack, MW3-style EEPROM, stateless 0x11/0x91 token
     # handshake (same pattern as HEM-7155T-MW3; confirmed via HCI btsnoop).
