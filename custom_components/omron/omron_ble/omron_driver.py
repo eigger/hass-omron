@@ -237,15 +237,15 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
             pass
 
         @dbus_method()
-        def RequestConfirmation(self, device: "o", passkey: "u") -> None:  # type: ignore[override]
+        def RequestConfirmation(self, device: "o", passkey: "u") -> None:  # type: ignore[override]  # noqa: F821
             _LOGGER.debug("BlueZ agent: auto-confirming passkey %06d", passkey)
 
         @dbus_method()
-        def RequestPasskey(self, device: "o") -> "u":  # type: ignore[override]
+        def RequestPasskey(self, device: "o") -> "u":  # type: ignore[override]  # noqa: F821
             return 0
 
         @dbus_method()
-        def RequestAuthorization(self, device: "o") -> None:  # type: ignore[override]
+        def RequestAuthorization(self, device: "o") -> None:  # type: ignore[override]  # noqa: F821
             pass
 
         @dbus_method()

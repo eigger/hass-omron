@@ -6,13 +6,11 @@ transport used by OMRON BLE healthcare devices over the fe4a GATT service.
 
 from __future__ import annotations
 
-import struct
 import secrets
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives.ciphers.aead import AESCCM
+    pass
 
 # Protocol constants
 PACKET_HEADER_SIZE = 13
