@@ -1,9 +1,9 @@
 """Constants for the Omron BLE module."""
 from __future__ import annotations
 
-DEFAULT_DEVICE_MODEL = "HEM-7142T2"
-
 from sensor_state_data import BaseDeviceClass
+
+DEFAULT_DEVICE_MODEL = "HEM-7142T2"
 
 CTS_CHARACTERISTIC_UUID = "00002a2b-0000-1000-8000-00805f9b34fb"
 BATTERY_LEVEL_UUID = "00002a19-0000-1000-8000-00805f9b34fb"

@@ -7,8 +7,6 @@ from dataclasses import dataclass, field, replace
 from enum import Enum, StrEnum
 from typing import Any
 
-_LOGGER = logging.getLogger(__name__)
-
 from .const import (
     CLASSIC_STACK_PARENT_SERVICE_UUID,
     MODERN_STACK_PARENT_SERVICE_UUID,
@@ -16,16 +14,16 @@ from .const import (
     CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS,
     CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS,
     CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID,
-    DISCOVERABLE_PARENT_SERVICE_UUIDS,
     DEFAULT_DEVICE_MODEL,
 )
-
 from .record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_16_6401_family,
     parse_classic_vital_14_6232_family,
     parse_classic_vital_14_bitpacked,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class UnlockMode(str, Enum):
@@ -284,7 +282,11 @@ class DeviceConfig:
 
 
 
-from .device_catalog import CANONICAL_DEVICE_PROFILES
+# Deliberately not at module top: device_catalog.py imports types (DeviceConfig,
+# UnlockMode, etc.) from this module, so importing it back at the top would be
+# circular. Safe here since everything device_catalog.py needs from this module
+# is already defined above.
+from .device_catalog import CANONICAL_DEVICE_PROFILES  # noqa: E402
 
 def _build_model_variant_map() -> dict[str, str]:
     idx: dict[str, str] = {}

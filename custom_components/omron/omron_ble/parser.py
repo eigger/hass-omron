@@ -17,10 +17,8 @@ from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import (
     BinarySensorDeviceClass,
-    SensorLibrary,
     SensorUpdate,
     SensorDeviceClass,
-    Units,
 )
 from homeassistant.util import dt as dt_util
 
@@ -721,9 +719,12 @@ class OmronBluetoothDeviceData(BluetoothData):
         has_user_id = bool(flags & 0x08)
         has_status = bool(flags & 0x10)
 
-        sys_val = self._decode_sfloat_le(payload[idx:idx + 2]); idx += 2
-        dia_val = self._decode_sfloat_le(payload[idx:idx + 2]); idx += 2
-        _ = self._decode_sfloat_le(payload[idx:idx + 2]); idx += 2  # MAP
+        sys_val = self._decode_sfloat_le(payload[idx:idx + 2])
+        idx += 2
+        dia_val = self._decode_sfloat_le(payload[idx:idx + 2])
+        idx += 2
+        _ = self._decode_sfloat_le(payload[idx:idx + 2])  # MAP
+        idx += 2
 
         if unit_kpa:
             # Convert kPa to mmHg for HA entities.
