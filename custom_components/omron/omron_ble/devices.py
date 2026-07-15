@@ -246,7 +246,19 @@ class DeviceConfig:
 
     @property
     def unpair_after_session(self) -> bool:
-        """Drop the OS bond after each session (WLD3.0 devices re-key per session)."""
+        """Drop the OS bond after each session (WLD3.0 devices re-key per session).
+
+        Never true when ``os_bond_once`` is set: that flag means "bond once
+        and keep reusing it," which this would otherwise undo at the end of
+        every single session — including the one that just bonded — leaving
+        no bond for the next connection to reuse. Confirmed via HA logs
+        (HEM-7382T1): the post-pairing bond worked, an ignored ``unpair()``
+        ran anyway on session close, and the very next connection attempt
+        (moments later) then failed to complete the post-connect settle on
+        all retries because the bond it needed was gone.
+        """
+        if self.os_bond_once:
+            return False
         return self.connect_type == ConnectType.WLD3_0
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
