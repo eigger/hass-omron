@@ -877,6 +877,26 @@ class OmronBluetoothDeviceData(BluetoothData):
         latest_by_user: dict[int, dict[str, Any]] = {}
         if multi_user_mode:
             latest_by_user = await self._driver.get_latest_records_per_user(session)
+            if not latest_by_user:
+                # Diagnostic only: the classic EEPROM index/full-scan path found
+                # nothing usable. Probe the standard BLE Blood Pressure Service
+                # RACP path too so the log shows whether this device exposes
+                # 0x2A35/0x2A52 and, if so, what a "last stored record" request
+                # returns — without changing the (already-failing) result here.
+                try:
+                    diag_record = await self._read_latest_via_bls_racp(client)
+                    _LOGGER.debug(
+                        "Diagnostic BLS RACP probe for %s (EEPROM path returned no "
+                        "records): result=%s",
+                        ble_device.address,
+                        diag_record,
+                    )
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Diagnostic BLS RACP probe for %s failed: %s",
+                        ble_device.address,
+                        exc,
+                    )
         else:
             record = await self._driver.get_latest_record(session)
             live_record: dict[str, Any] | None = None
