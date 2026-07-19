@@ -753,26 +753,28 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7380T1-EBK",
             "HEM-7380T1-EOSL",
             "HEM-7381T1-AZ",
-            # HEM-7382T1 / -AZAZ moved to their own profile: same modern stack,
-            # but the EEPROM time section sits 4 bytes later (see "HEM-7382T1").
+            # HEM-7382T1/-AZAZ and the -AJAZ3/-AJF3 siblings (7385-7389) moved
+            # to the "HEM-7382T1" profile: confirmed via APK memory-map that
+            # this sub-family uses different EEPROM data addresses entirely
+            # (data_1=0x080C, not 0x01C4), not just a shifted time offset.
             "HEM-7383T1-AP",
             "HEM-7384T1-NBBR",
-            "HEM-7385T1-AJAZ3",
-            "HEM-7386T1-AJF3",
-            "HEM-7387T1-AJAZ3",
-            "HEM-7388T1-AJF3",
-            "HEM-7389T1-JM3",
         ),
     ),
-    # HEM-7382T1 — same modern stack as the HEM-7380T1 family, but the EEPROM
-    # time-sync section lives 4 bytes later. On the 7380 layout the block read
-    # at settings+0x2C decodes the wall time at window offset 8; on the 7382 the
-    # same read returned the date bytes (year/month/day…) at window offset 12
-    # with the `c?a?` header at offset 4 — i.e. the whole section is shifted +4.
-    # Reading at settings+0x30 instead realigns the date to offset 8 so the
-    # shared MODERN_OFFSET8 decoder works. NOTE: derived from HA logs; the
-    # minute/second bytes fell just outside the old 16-byte window, so verify
-    # against a device with a known clock before trusting the written value.
+    # HEM-7382T1 / -AZAZ and its -AJAZ3/-AJF3 siblings (7385-7389): same modern
+    # stack as HEM-7380T1, but confirmed via APK memory-map (DeviceConfig.sys)
+    # to differ in THREE ways, not just the time offset:
+    #   1. settings_time_sync_bytes shifted +4 ([0x30,0x40] not [0x2C,0x3C]).
+    #   2. settings_write_address is 0x0058, not 0x0054.
+    #   3. Measurement records live at data_1=0x080C/data_2=0x0BCC, NOT
+    #      0x01C4/0x0804 (HEM-7380T1's addresses) — reading the old addresses
+    #      pulls in an unrelated data table (PPI/pulse-interval log), which is
+    #      why the EEPROM index/full-scan path found only garbage ("datetime
+    #      is None" for every slot) on a real HEM-7382T1-AZAZ unit
+    #      (see hass-omron#91). 60 records/user matches the -AJAZ3/-JM3
+    #      variants; -AJF3 (7386/7388) uses 100 records/user at data_2=0x0E4C
+    #      instead — unconfirmed which HEM-7382T1-AZAZ actually is, needs
+    #      real-device verification once data starts syncing.
     "HEM-7382T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7382T1",
@@ -780,17 +782,53 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         unlock_mode=UnlockMode.TOKEN_KEY,
         os_bond_once=True,
         endianness=Endianness.LITTLE,
-        user_start_addresses=[0x01C4, 0x0804],
-        per_user_records_count=[100, 100],
+        user_start_addresses=[0x080C, 0x0BCC],
+        per_user_records_count=[60, 60],
         record_byte_size=0x10,
         transmission_block_size=0x38,
         settings_read_address=0x0010,
-        settings_write_address=0x0054,
+        settings_write_address=0x0058,
         settings_unread_records_bytes=None,
         settings_time_sync_bytes=[0x30, 0x40],
         time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
-            "index_region_byte_size": 0x18,
+            "index_region_byte_size": 0x1C,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7382T1-AZAZ",
+            "HEM-7385T1-AJAZ3",
+            "HEM-7387T1-AJAZ3",
+            "HEM-7389T1-JM3",
+        ),
+    ),
+    # HEM-7386T1-AJF3 / HEM-7388T1-AJF3: same -AJAZ3-style +4 time offset and
+    # data_1=0x080C as "HEM-7382T1", but 100 records/user (not 60), so
+    # data_2 sits at 0x0E4C instead of 0x0BCC. Confirmed via APK memory-map;
+    # kept separate since the record count changes both addresses and range.
+    "HEM-7386T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7386T1",
+        connect_type=ConnectType.WLD3_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        os_bond_once=True,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x080C, 0x0E4C],
+        per_user_records_count=[100, 100],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0058,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x30, 0x40],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x1C,
             "endianness": "little",
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
@@ -799,7 +837,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
-            "HEM-7382T1-AZAZ",
+            "HEM-7386T1-AJF3",
+            "HEM-7388T1-AJF3",
         ),
     ),
     # HEM-7188T1 family ("X2+ Connect") — same modern-stack lineage as
