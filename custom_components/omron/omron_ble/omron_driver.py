@@ -193,6 +193,22 @@ def _is_token_unlock_ack(resp: bytes | bytearray | None, token: bytes) -> bool:
     return resp[0] == 0x91 and resp[1] == 0x00 and bytes(resp[2:6]) == token
 
 
+def _secure_error_frame_code(resp: bytes | bytearray | None) -> int | None:
+    """Return the error code if ``resp`` is a secure-session error frame.
+
+    Valid secure-session responses use frame headers 0xF0 (pair/enc/challenge
+    responses: 0xF081/0xF085/0xF086) or 0xC0 (encrypted data). Any other short
+    reply is the device rejecting the request; the observed form is 0xFF
+    followed by a one-byte error code (e.g. ``ff26``). Returns the code byte,
+    or None if this isn't recognisably an error frame.
+    """
+    if resp is None or len(resp) < 2:
+        return None
+    if resp[0] == 0xFF:
+        return resp[1]
+    return None
+
+
 async def _bluez_agent_pair(client: BleakClient) -> bool:
     """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
 
@@ -1340,9 +1356,24 @@ class OmronDeviceSession:
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             pair_resp = response_holder[0]
             _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
-            if not pair_resp or len(pair_resp) < 2:
+            if not pair_resp:
+                raise ConnectionError("Empty pairing response")
+            err = _secure_error_frame_code(pair_resp)
+            if err is not None:
+                # Device rejected the ECDH pairing request with an error frame
+                # (e.g. 0xff26). The request itself is well-formed (structure and
+                # SECP256R1 little-endian pubkey are valid), so this is a
+                # device-state rejection: the cuff is likely already bonded to
+                # another host or is not currently accepting a fresh pairing.
+                raise ConnectionError(
+                    f"Device rejected secure pairing (error frame 0x{pair_resp[0]:02x}, "
+                    f"code 0x{err:02x}); the cuff may already be bonded to another "
+                    f"host or is not in pairing mode. Fully unpair/factory-reset "
+                    f"the cuff and try again."
+                )
+            if len(pair_resp) < 2:
                 raise ConnectionError("Invalid or empty pairing response")
-            
+
             # Process Pairing Response and derive LTK
             self._secure_session.process_pair_resp(pair_resp)
             _LOGGER.debug("Key exchange complete")
@@ -1358,7 +1389,15 @@ class OmronDeviceSession:
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             enc_resp = response_holder[0]
             _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
-            if not enc_resp or len(enc_resp) < 2:
+            if not enc_resp:
+                raise ConnectionError("Empty encryption response")
+            err = _secure_error_frame_code(enc_resp)
+            if err is not None:
+                raise ConnectionError(
+                    f"Device rejected encryption start (error frame 0x{enc_resp[0]:02x}, "
+                    f"code 0x{err:02x})"
+                )
+            if len(enc_resp) < 2:
                 raise ConnectionError("Invalid or empty encryption response")
 
             # Step 3: Challenge-Response mutual authentication
@@ -1372,7 +1411,15 @@ class OmronDeviceSession:
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             challenge_resp = response_holder[0]
             _LOGGER.debug("Received Challenge Response (len=%d): %s", len(challenge_resp) if challenge_resp else 0, challenge_resp.hex() if challenge_resp else "None")
-            if not challenge_resp or len(challenge_resp) < 2:
+            if not challenge_resp:
+                raise ConnectionError("Empty challenge response")
+            err = _secure_error_frame_code(challenge_resp)
+            if err is not None:
+                raise ConnectionError(
+                    f"Device rejected challenge (error frame 0x{challenge_resp[0]:02x}, "
+                    f"code 0x{err:02x})"
+                )
+            if len(challenge_resp) < 2:
                 raise ConnectionError("Invalid or empty challenge response")
 
             # Finalize: verify peer's challenge response
@@ -1610,6 +1657,20 @@ class OmronDeviceSession:
         """Program pairing credentials according to ``host_pairing_mode``."""
         pair_key = key or PAIRING_KEY
         if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
+            # Secure-session devices (application-layer ECDH) do NOT use a BLE SMP bond:
+            # pairing runs purely over plaintext ATT and encryption comes from
+            # the application-layer secure session (0xC0 frames), with no SMP/encryption-
+            # change on the link. Doing an OS-level SMP bond here appears to leave
+            # the cuff in a state where it rejects the subsequent ECDH pairing
+            # request (error frame 0xff..). Skip it and let the secure handshake
+            # (open_memory_session → _secure_unlock) be the sole pairing step.
+            if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
+                _LOGGER.debug(
+                    "Skipping OS-level SMP bonding for %s (secure-session device "
+                    "pairs via application-layer ECDH only)",
+                    self._config.model,
+                )
+                return
             await self._pair_os_bonding()
             return
         if self._config.host_pairing_mode == HostPairingMode.NONE:
