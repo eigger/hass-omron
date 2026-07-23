@@ -1219,7 +1219,7 @@ class OmronDeviceSession:
                     _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
             self._debug_ble_link("unlock_after_stop_notify")
 
-    async def _token_unlock(self) -> None:
+    async def _token_unlock(self, *, keep_notify: bool = False) -> None:
         """Unlock via the stateless 0x11/0x91 token handshake.
 
         The host sends ``0x11 + 4 nonce bytes + 15 zero pad`` (a 20-byte frame,
@@ -1232,6 +1232,12 @@ class OmronDeviceSession:
         HCI btsnoop (HEM-7142T2) shows the official app enables the RX-channel
         CCCD before the unlock-channel CCCD, then issues the 0x11 write — mirror
         that ordering here (same RX pre-notify priming as CLASSIC_KEY unlock).
+
+        With ``keep_notify`` the CCCD subscriptions are left in place on the way
+        out. SECURE_SESSION devices need this: both CCCDs must be enabled once
+        and the token handshake and the ECDH pairing request must run
+        back-to-back on those same subscriptions. Unsubscribing in between
+        makes the device reject the pairing request (0xff 0x26).
         """
         token = secrets.token_bytes(4)
         packet = b"\x11" + token + b"\x00" * 15
@@ -1306,28 +1312,36 @@ class OmronDeviceSession:
             self._unlocked = True
             _LOGGER.debug("Token unlock OK (nonce=%s)", token.hex())
         finally:
-            try:
-                await self._client.stop_notify(self._config.unlock_uuid)
-            except Exception as exc:
-                _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
-            if rx_notify_primed:
+            if keep_notify:
+                self._debug_ble_link("token_unlock_keep_notify")
+            else:
                 try:
-                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                    await self._client.stop_notify(self._config.unlock_uuid)
                 except Exception as exc:
-                    _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
-            self._debug_ble_link("token_unlock_after_stop_notify")
+                    _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
+                if rx_notify_primed:
+                    try:
+                        await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                    except Exception as exc:
+                        _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
+                self._debug_ble_link("token_unlock_after_stop_notify")
 
     async def _secure_unlock(self) -> None:
         """Perform encrypted secure handshake to unlock the device."""
         _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
 
         # The device requires a preliminary stateless token handshake
-        # (0x11/0x91) before it will accept the ECDH pairing request —
-        # confirmed via HCI btsnoop (HEM-7188T1-LEO), where the official app
-        # performs this step immediately before the Pairing Request. Reset
-        # ``_unlocked`` afterward so a later failure in the ECDH stage below
-        # doesn't leave the transport thinking it's already unlocked.
-        await self._token_unlock()
+        # (0x11/0x91) before it will accept the ECDH pairing request, performed
+        # immediately before the Pairing Request. Reset ``_unlocked`` afterward
+        # so a later failure in the ECDH stage below doesn't leave the
+        # transport thinking it's already unlocked.
+        #
+        # keep_notify: both CCCDs are enabled once and the token handshake and
+        # the pairing request then run on those same subscriptions. Dropping
+        # and re-adding the unlock CCCD in between makes the device reject the
+        # pairing request with 0xff 0x26, so hold the subscription and just
+        # swap in the secure-stage callback below.
+        await self._token_unlock(keep_notify=True)
         self._unlocked = False
 
         from .secure_session import SecureSession
@@ -1340,7 +1354,9 @@ class OmronDeviceSession:
             response_holder[0] = bytes(rx_bytes)
             unlock_event.set()
 
-        # Subscribe to unlock characteristic notifications
+        # Re-point the (already active) unlock CCCD at the secure-stage
+        # callback without unsubscribing first — bleak replaces the handler for
+        # an existing subscription, which keeps the device-side session alive.
         await self._client.start_notify(self._config.unlock_uuid, _secure_callback)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
 
@@ -1434,7 +1450,16 @@ class OmronDeviceSession:
             _LOGGER.error("Secure handshake failed: %s", exc)
             raise ConnectionError(f"Secure unlock failed: {exc}") from exc
         finally:
-            await self._client.stop_notify(self._config.unlock_uuid)
+            try:
+                await self._client.stop_notify(self._config.unlock_uuid)
+            except Exception as exc:
+                _LOGGER.debug("secure unlock stop_notify skipped: %s", exc)
+            # _token_unlock(keep_notify=True) left the RX-channel CCCD enabled
+            # for us; release it here so it doesn't outlive the handshake.
+            try:
+                await self._client.stop_notify(self._config.rx_channel_uuids[0])
+            except Exception as exc:
+                _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
 
     async def _pair_os_bonding(self) -> None:
         """Best-effort OS-level BLE bond establishment for modern profiles."""
