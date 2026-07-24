@@ -1358,9 +1358,6 @@ class OmronDeviceSession:
         # and re-adding the unlock CCCD in between makes the device reject the
         # pairing request with 0xff 0x26, so hold the subscription and just
         # swap in the secure-stage callback below.
-        await self._token_unlock(keep_notify=True)
-        self._unlocked = False
-
         from .secure_session import SecureSession
 
         self._secure_session = SecureSession()
@@ -1371,12 +1368,19 @@ class OmronDeviceSession:
             response_holder[0] = bytes(rx_bytes)
             unlock_event.set()
 
-        # Re-point the (already active) unlock CCCD at the secure-stage callback
-        # by swapping the dispatcher's handler — do NOT call start_notify again,
-        # the backend rejects a second subscribe on an already-enabled CCCD.
-        self._unlock_notify_handler = _secure_callback
-
         try:
+            # Token handshake first, keeping its CCCD subscriptions in place.
+            # This is inside the try so the finally below still releases those
+            # subscriptions if the token step itself fails.
+            await self._token_unlock(keep_notify=True)
+            self._unlocked = False
+
+            # Re-point the (already active) unlock CCCD at the secure-stage
+            # callback by swapping the dispatcher's handler — do NOT call
+            # start_notify again, the backend rejects a second subscribe on an
+            # already-enabled CCCD.
+            self._unlock_notify_handler = _secure_callback
+
             # Step 1: Send Pairing Request
             pair_req = self._secure_session.build_pair_req()
             _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
