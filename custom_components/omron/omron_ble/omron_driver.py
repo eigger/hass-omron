@@ -745,9 +745,15 @@ class OmronDeviceSession:
             except BleakError as exc:
                 last_exc = exc
                 msg = str(exc).lower()
-                # BlueZ can keep CCCD/notify acquired briefly after reconnect.
-                # Try to release stale state and re-subscribe.
-                if "notify acquired" in msg or "notpermitted" in msg:
+                # BlueZ can keep CCCD/notify acquired briefly after reconnect;
+                # the ESPHome proxy backend reports the same state as
+                # "notifications are already enabled". Either way, release the
+                # stale subscription and re-subscribe.
+                if (
+                    "notify acquired" in msg
+                    or "notpermitted" in msg
+                    or "already enabled" in msg
+                ):
                     _LOGGER.debug(
                         "start_notify recovery (%d/%d) for %s on %s: %s",
                         attempt + 1,
