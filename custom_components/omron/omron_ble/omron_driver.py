@@ -492,6 +492,12 @@ class OmronDeviceSession:
         self._memory_session_active = False
         self._unlocked = False
         self._secure_session = None
+        # Swappable handler for the unlock characteristic notifications. The
+        # CCCD is subscribed once (via a fixed dispatcher) so the token
+        # handshake and the ECDH secure handshake can run back-to-back on the
+        # same subscription — re-subscribing mid-flow either resets the device
+        # session or trips the backend's "already enabled" guard.
+        self._unlock_notify_handler: Any = None
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -1252,6 +1258,17 @@ class OmronDeviceSession:
             response_holder[0] = data
             unlock_event.set()
 
+        # Subscribe the unlock CCCD through a fixed dispatcher that forwards to
+        # whatever handler is currently installed. This lets _secure_unlock swap
+        # in its own handler afterward without a second start_notify (which the
+        # device / backend reject on an already-enabled CCCD).
+        self._unlock_notify_handler = _token_callback
+
+        def _unlock_dispatch(char: Any, rx_bytes: bytearray) -> None:
+            handler = self._unlock_notify_handler
+            if handler is not None:
+                handler(char, rx_bytes)
+
         await self._ensure_services_cache()
 
         # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
@@ -1265,7 +1282,7 @@ class OmronDeviceSession:
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("token_unlock_before_notify")
-        await self._client.start_notify(self._config.unlock_uuid, _token_callback)
+        await self._client.start_notify(self._config.unlock_uuid, _unlock_dispatch)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
             unlock_event.clear()
@@ -1354,11 +1371,10 @@ class OmronDeviceSession:
             response_holder[0] = bytes(rx_bytes)
             unlock_event.set()
 
-        # Re-point the (already active) unlock CCCD at the secure-stage
-        # callback without unsubscribing first — bleak replaces the handler for
-        # an existing subscription, which keeps the device-side session alive.
-        await self._client.start_notify(self._config.unlock_uuid, _secure_callback)
-        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        # Re-point the (already active) unlock CCCD at the secure-stage callback
+        # by swapping the dispatcher's handler — do NOT call start_notify again,
+        # the backend rejects a second subscribe on an already-enabled CCCD.
+        self._unlock_notify_handler = _secure_callback
 
         try:
             # Step 1: Send Pairing Request
@@ -1450,6 +1466,7 @@ class OmronDeviceSession:
             _LOGGER.error("Secure handshake failed: %s", exc)
             raise ConnectionError(f"Secure unlock failed: {exc}") from exc
         finally:
+            self._unlock_notify_handler = None
             try:
                 await self._client.stop_notify(self._config.unlock_uuid)
             except Exception as exc:
