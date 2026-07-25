@@ -10,7 +10,7 @@ from custom_components.omron.omron_ble.devices import (
 class TestUnpairAfterSession:
     """unpair_after_session 은 os_bond_once=True 인 기기에서는 항상 False여야 한다.
 
-    두 플래그가 같이 켜져 있으면 (HEM-7380T1/HEM-7382T1/HEM-7188T1) 세션이
+    두 플래그가 같이 켜져 있으면 (HEM-7380T1/HEM-7382T1) 세션이
     끝날 때마다 os_bond_once가 재사용하려는 본드를 unpair()가 지워버려
     다음 연결이 post-connect settle에서 실패하는 회귀가 있었다.
     """
@@ -39,17 +39,20 @@ class TestUnpairAfterSession:
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
-    def test_hem7188t1_leo_resolves_to_hem7188t1_profile(self):
-        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1"
+    def test_hem7188t1_leo_resolves_to_hem7142t2_profile(self):
+        # HEM-7188T1-LEO ("X2+ Connect") uses the plaintext token-key transport
+        # (grouped under HEM-7142T2), not the ECDH secure session that the
+        # device rejects with 0xff26 (see hass-omron#92).
+        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7142T2"
         # get_device_config keeps the requested variant string as .model (so
         # logs/UI show "HEM-7188T1-LEO"), while every other field is copied
-        # from the canonical "HEM-7188T1" profile.
+        # from the canonical "HEM-7142T2" profile.
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
-        assert cfg.per_user_records_count == [30]
+        assert cfg.unlock_mode.value == "token_key"
 
     def test_hem7188t1_le_resolves_to_same_profile(self):
-        assert resolve_profile_model_id("HEM-7188T1-LE") == "HEM-7188T1"
+        assert resolve_profile_model_id("HEM-7188T1-LE") == "HEM-7142T2"
 
     def test_hem7155t_esl_is_classic_not_modern(self):
         # HEM-7155T_ESL (classic stack) must NOT resolve to the modern
