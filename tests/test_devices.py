@@ -39,20 +39,19 @@ class TestUnpairAfterSession:
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
-    def test_hem7188t1_leo_resolves_to_hem7142t2_profile(self):
-        # HEM-7188T1-LEO ("X2+ Connect") uses the plaintext token-key transport
-        # (grouped under HEM-7142T2), not the ECDH secure session that the
-        # device rejects with 0xff26 (see hass-omron#92).
-        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7142T2"
-        # get_device_config keeps the requested variant string as .model (so
-        # logs/UI show "HEM-7188T1-LEO"), while every other field is copied
-        # from the canonical "HEM-7142T2" profile.
+    def test_hem7188t1_leo_resolves_to_own_profile(self):
+        # HEM-7188T1-LEO ("X2+ Connect") keeps its own profile (distinct
+        # connect_type WLD3.0 vs HEM-7142T2's WLD1.0), but currently uses the
+        # plaintext token-key transport operationally, not the ECDH secure
+        # session that the device rejects with 0xff26 (see hass-omron#92).
+        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1"
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
         assert cfg.unlock_mode.value == "token_key"
+        assert cfg.connect_type == ConnectType.WLD3_0
 
     def test_hem7188t1_le_resolves_to_same_profile(self):
-        assert resolve_profile_model_id("HEM-7188T1-LE") == "HEM-7142T2"
+        assert resolve_profile_model_id("HEM-7188T1-LE") == "HEM-7188T1"
 
     def test_hem7155t_esl_is_classic_not_modern(self):
         # HEM-7155T_ESL (classic stack) must NOT resolve to the modern

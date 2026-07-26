@@ -840,17 +840,54 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7388T1-AJF3",
         ),
     ),
+    # HEM-7188T1 family ("X2+ Connect") — kept as its own profile because its
+    # protocol family is genuinely different from HEM-7142T2 (connect_type
+    # WLD3.0 vs WLD1.0), so it needs to be independently tunable. Operationally
+    # it currently mirrors HEM-7142T2 (token-key transport, same EEPROM
+    # layout) as a working starting point: a dedicated profile using the
+    # application-layer ECDH secure session was tried, but on a real
+    # HEM-7188T1-LEO that pairing request is rejected outright (error frame
+    # 0xff26), while the plaintext token-key path reads real measurement
+    # values (see hass-omron#92). The record region/layout below is borrowed
+    # from HEM-7142T2 and not independently verified for this model — the
+    # latest reading can come back a few slots stale; refine against an
+    # EEPROM index log once available. Revisit unlock_mode=SECURE_SESSION
+    # once the ECDH rejection is understood.
+    "HEM-7188T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7188T1",
+        connect_type=ConnectType.WLD3_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        os_bond_once=True,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x02E8],
+        per_user_records_count=[14],
+        record_byte_size=0x0E,
+        transmission_block_size=0x38,
+        settings_read_address=0x0260,
+        settings_write_address=0x02A4,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
+            "backtrack_slots": 0,
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 13, "slot_index_bias": -1},
+            ],
+            "record_addresses": [0x02E8],
+            "record_byte_size": 0x0E,
+            "record_step": 0x0E,
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7188T1-LE",
+            "HEM-7188T1-LEO",
+        ),
+    ),
     # HEM-7142T2 — modern stack, MW3-style EEPROM, stateless 0x11/0x91 token
     # handshake (same pattern as HEM-7155T-MW3).
-    #
-    # HEM-7188T1-LE/-LEO ("X2+ Connect") are grouped here. They were previously
-    # given a dedicated profile using the application-layer ECDH secure session,
-    # but on a real HEM-7188T1-LEO that pairing request is rejected outright
-    # (error frame 0xff26) while the plaintext token-key path reads real
-    # measurement values (see hass-omron#92) — so the secure session is not
-    # required for record access on this device. Their record region may differ
-    # slightly from the 14-slot HEM-7142T2 layout (the latest reading can read
-    # a few slots stale); refine with an EEPROM index log if needed.
     "HEM-7142T2": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7142T2",
@@ -888,8 +925,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7142T2-Z",
             "HEM-7142T2-ZAZ",
             "HEM-7142T2_JAZ",
-            "HEM-7188T1-LE",
-            "HEM-7188T1-LEO",
             "HEM-716BT2-ZAZ",
             "HEM-716CT2-Z",
         ),
