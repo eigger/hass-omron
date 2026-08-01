@@ -2,6 +2,8 @@
 from custom_components.omron.omron_ble.devices import (
     ConnectType,
     DeviceConfig,
+    HostPairingMode,
+    UnlockMode,
     get_device_config,
     resolve_profile_model_id,
 )
@@ -34,6 +36,72 @@ class TestUnpairAfterSession:
             model="test", connect_type=ConnectType.UNKNOWN, os_bond_once=True
         )
         assert cfg.unpair_after_session is False
+
+
+class TestPairOnConnect:
+    """WLD3.0 + OS 본딩 기기만 connect 단계에서 본딩해야 한다."""
+
+    def test_wld3_os_bonding_pairs_on_connect(self):
+        cfg = DeviceConfig(
+            model="test",
+            connect_type=ConnectType.WLD3_0,
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+        )
+        assert cfg.pair_on_connect is True
+
+    def test_bond_once_still_pairs_on_connect(self):
+        # os_bond_once 는 "광고 트리거마다 재페어링하지 말라"는 뜻이지
+        # connect 시 암호화 확립까지 막으라는 뜻이 아니다. 본드가 이미 있으면
+        # 백엔드가 저장된 LTK 로 재암호화하므로 본드가 churn 되지 않는다.
+        cfg = DeviceConfig(
+            model="test",
+            connect_type=ConnectType.WLD3_0,
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+            os_bond_once=True,
+        )
+        assert cfg.pair_on_connect is True
+
+    def test_non_wld3_does_not_pair_on_connect(self):
+        cfg = DeviceConfig(
+            model="test",
+            connect_type=ConnectType.WLD1_0,
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+        )
+        assert cfg.pair_on_connect is False
+
+    def test_custom_key_profile_does_not_pair_on_connect(self):
+        # 클래식(커스텀 키) 기기는 SMP 본딩 자체를 쓰지 않는다.
+        cfg = DeviceConfig(model="test", connect_type=ConnectType.WLD3_0)
+        assert cfg.host_pairing_mode == HostPairingMode.CUSTOM_KEY
+        assert cfg.pair_on_connect is False
+
+    def test_secure_session_also_pairs_on_connect(self):
+        # 언락 방식과 무관하게 WLD3.0 + OS 본딩이면 connect 에서 본딩한다.
+        # ECDH 기기에서 SMP 본딩을 건너뛰던 예외가 있었지만, 건너뛴 빌드에서도
+        # 커프가 그대로 pairing request 를 거부해(0xff26) 근거가 없어졌다.
+        cfg = DeviceConfig(
+            model="test",
+            connect_type=ConnectType.WLD3_0,
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.SECURE_SESSION,
+        )
+        assert cfg.pair_on_connect is True
+
+    def test_all_wld3_catalog_profiles_pair_on_connect(self):
+        from custom_components.omron.omron_ble.device_catalog import (
+            CANONICAL_DEVICE_PROFILES,
+        )
+
+        wld3 = [
+            c
+            for c in CANONICAL_DEVICE_PROFILES.values()
+            if c.connect_type == ConnectType.WLD3_0
+        ]
+        assert wld3, "카탈로그에 WLD3.0 프로파일이 있어야 한다"
+        assert all(c.pair_on_connect for c in wld3)
 
 
 class TestCatalogResolution:

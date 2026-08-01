@@ -98,22 +98,84 @@ def _connection_source(ble_device: BLEDevice) -> str:
     return "unknown"
 
 
+async def _connect_once(
+    ble_device: BLEDevice, name: str, *, pair: bool
+) -> BleakClient:
+    """One connect attempt, optionally bonding before service discovery.
+
+    With ``pair`` the backend establishes link security first (BlueZ calls
+    ``Device1.Pair()``; the ESPHome proxy sends a pair request over its own
+    RPC) and only then runs GATT discovery. On an already-bonded device this
+    re-encrypts with the stored LTK instead of re-bonding, so it does not
+    churn the bond.
+
+    A Just Works agent is registered only for local BlueZ adapters, which
+    otherwise leave the pairing confirmation unanswered. Proxy connections
+    skip it: the agent is registered as the system *default*, so putting one
+    up around every proxy connect would take over pairing confirmation for
+    unrelated local devices while buying nothing.
+    """
+    if not pair:
+        return await establish_connection(BleakClient, ble_device, name)
+    if _bluez_device_path(ble_device) is None:
+        return await establish_connection(BleakClient, ble_device, name, pair=True)
+    async with _bluez_pairing_agent():
+        return await establish_connection(BleakClient, ble_device, name, pair=True)
+
+
 async def establish_connection_with_bond_settle(
-    ble_device: BLEDevice, name: str
+    ble_device: BLEDevice,
+    name: str,
+    *,
+    pair_on_connect: bool = False,
+    model: str = "",
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
     Retries if the device drops during the settle (common on multi-proxy setups).
+    ``pair_on_connect`` bonds before service discovery — see ``_connect_once``.
     """
     last_source = "unknown"
+    # Cleared if the backend reports it cannot pair at connect time, so the
+    # remaining attempts fall back instead of failing repeatedly.
+    pair_this_attempt = pair_on_connect
     for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
-            "Connecting to %s via proxy/source=%s (attempt %d/%d)",
-            name, source, attempt, _CONNECT_SETTLE_ATTEMPTS,
+            "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d, "
+            "pair_on_connect=%s)",
+            name, model or "?", source, attempt, _CONNECT_SETTLE_ATTEMPTS,
+            pair_this_attempt,
         )
-        client = await establish_connection(BleakClient, ble_device, name)
+        try:
+            client = await _connect_once(ble_device, name, pair=pair_this_attempt)
+        except NotImplementedError as exc:
+            # ESPHome proxy firmware older than the PAIRING feature flag.
+            _LOGGER.warning(
+                "Pair-on-connect unavailable for %s via source=%s (%s); "
+                "connecting without it — update ESPHome on that proxy to "
+                "let the cuff bond before GATT discovery",
+                name, source, exc,
+            )
+            pair_this_attempt = False
+            client = await _connect_once(ble_device, name, pair=False)
+        except BleakError as exc:
+            if pair_this_attempt:
+                # The device refused to bond. Surface it verbatim: the proxy
+                # reports the peer's own failure code here, which is the most
+                # direct evidence of why the cuff rejected us.
+                _LOGGER.warning(
+                    "Bonding %s [%s] during connect via source=%s failed "
+                    "(attempt %d/%d): %s",
+                    name, model or "?", source, attempt,
+                    _CONNECT_SETTLE_ATTEMPTS, exc,
+                )
+            raise
+        if pair_this_attempt:
+            _LOGGER.debug(
+                "Bonded %s via source=%s before service discovery", name, source
+            )
         _LOGGER.debug(
             "BLE link established to %s via source=%s (is_connected=%s); settling "
             "up to %.1fs for bonding/encryption before first GATT op",
@@ -209,38 +271,44 @@ def _secure_error_frame_code(resp: bytes | bytearray | None) -> int | None:
     return None
 
 
-async def _bluez_agent_pair(client: BleakClient) -> bool:
-    """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
+_BLUEZ_AGENT_PATH = "/omron/ble/pairagent"
 
-    On BlueZ 5.72+ (Linux), calling ``Device1.Pair()`` without a registered
-    agent causes the Just Works confirmation to go unanswered, producing
-    ``AuthenticationFailed`` even though the device supports the pairing
-    method.  Registering a ``KeyboardDisplay`` agent that auto-confirms
-    passkeys resolves this for OS-bonding-only devices like the HEM-716BT2.
 
-    Uses ``dbus-fast`` (already a bleak dependency) so no extra packages
-    are needed.  Silently returns False on non-Linux platforms or when the
-    BlueZ DBus path is unavailable.
+def _bluez_device_path(obj: BleakClient | BLEDevice) -> str | None:
+    """Return the BlueZ DBus object path for a client or device, if it has one.
+
+    Only local BlueZ adapters carry a DBus path; devices reached through a
+    remote proxy scanner report a ``source`` instead, so a None result also
+    answers "is this connection going over BlueZ?".
+    """
+    details = getattr(obj, "details", None)
+    if not isinstance(details, dict):
+        details = getattr(getattr(obj, "_device", None), "details", None)
+    if isinstance(details, dict) and (path := details.get("path")):
+        return str(path)
+    # Older bleak versions expose the device on the backend instead.
+    backend = getattr(obj, "_backend", None)
+    return getattr(getattr(backend, "_device", None), "path", None)
+
+
+@asynccontextmanager
+async def _bluez_pairing_agent() -> AsyncIterator[Any]:
+    """Hold an auto-confirming BlueZ agent registered for the duration.
+
+    Yields the DBus connection the ``KeyboardDisplay`` agent is registered
+    on while it is the system default agent, or None when one could not be
+    set up (non-Linux, no DBus, no BlueZ). Callers can pair inside the block
+    — either via ``Device1.Pair()`` on the yielded bus or by letting bleak
+    pair during connect — without the confirmation going unanswered.
     """
     try:
         from dbus_fast.aio.message_bus import MessageBus
-        from dbus_fast.constants import BusType, MessageType
+        from dbus_fast.constants import BusType
         from dbus_fast.message import Message
         from dbus_fast.service import ServiceInterface, method as dbus_method
     except ImportError:
-        return False
-
-    # BlueZ device path is in the BLEDevice details on Linux/BlueZ backends.
-    details = getattr(getattr(client, "_device", None), "details", None) or {}
-    device_path: str | None = details.get("path")
-    if not device_path:
-        # Try bleak's internal _backend attribute for older versions.
-        backend = getattr(client, "_backend", None)
-        device_path = getattr(getattr(backend, "_device", None), "path", None)
-    if not device_path:
-        return False
-
-    _AGENT_PATH = "/omron/ble/pairagent"
+        yield None
+        return
 
     class _AutoConfirmAgent(ServiceInterface):
         """Minimal BlueZ pairing agent that auto-accepts Just Works."""
@@ -271,13 +339,13 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
     try:
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
     except Exception as exc:
-        _LOGGER.debug("BlueZ agent pair: cannot connect to system bus: %s", exc)
-        return False
+        _LOGGER.debug("BlueZ agent: cannot connect to system bus: %s", exc)
+        yield None
+        return
 
-    agent = _AutoConfirmAgent()
+    registered = False
     try:
-        bus.export(_AGENT_PATH, agent)
-
+        bus.export(_BLUEZ_AGENT_PATH, _AutoConfirmAgent())
         await bus.call(
             Message(
                 destination="org.bluez",
@@ -285,9 +353,10 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
                 interface="org.bluez.AgentManager1",
                 member="RegisterAgent",
                 signature="os",
-                body=[_AGENT_PATH, "KeyboardDisplay"],
+                body=[_BLUEZ_AGENT_PATH, "KeyboardDisplay"],
             )
         )
+        registered = True
         await bus.call(
             Message(
                 destination="org.bluez",
@@ -295,47 +364,83 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
                 interface="org.bluez.AgentManager1",
                 member="RequestDefaultAgent",
                 signature="o",
-                body=[_AGENT_PATH],
+                body=[_BLUEZ_AGENT_PATH],
             )
         )
-        _LOGGER.debug("BlueZ KeyboardDisplay agent registered; calling Pair()")
-
-        reply = await bus.call(
-            Message(
-                destination="org.bluez",
-                path=device_path,
-                interface="org.bluez.Device1",
-                member="Pair",
-            )
-        )
-        success = reply.message_type == MessageType.METHOD_RETURN
-        if success:
-            _LOGGER.debug("BlueZ agent pair succeeded for %s", device_path)
-        else:
-            _LOGGER.debug(
-                "BlueZ agent pair returned non-success for %s: %s",
-                device_path,
-                reply,
-            )
-        return success
+        _LOGGER.debug("BlueZ KeyboardDisplay agent registered")
+        yield bus
     except Exception as exc:
-        _LOGGER.debug("BlueZ agent pair failed for %s: %s", device_path, exc)
-        return False
+        _LOGGER.debug("BlueZ agent registration failed: %s", exc)
+        yield None
     finally:
+        if registered:
+            try:
+                await bus.call(
+                    Message(
+                        destination="org.bluez",
+                        path="/org/bluez",
+                        interface="org.bluez.AgentManager1",
+                        member="UnregisterAgent",
+                        signature="o",
+                        body=[_BLUEZ_AGENT_PATH],
+                    )
+                )
+            except Exception:
+                pass
+        bus.disconnect()
+
+
+async def _bluez_agent_pair(client: BleakClient) -> bool:
+    """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
+
+    On BlueZ 5.72+ (Linux), calling ``Device1.Pair()`` without a registered
+    agent causes the Just Works confirmation to go unanswered, producing
+    ``AuthenticationFailed`` even though the device supports the pairing
+    method.  Registering a ``KeyboardDisplay`` agent that auto-confirms
+    passkeys resolves this for OS-bonding-only devices like the HEM-716BT2.
+
+    Uses ``dbus-fast`` (already a bleak dependency) so no extra packages
+    are needed.  Silently returns False on non-Linux platforms or when the
+    BlueZ DBus path is unavailable.
+    """
+    try:
+        from dbus_fast.constants import MessageType
+        from dbus_fast.message import Message
+    except ImportError:
+        return False
+
+    device_path = _bluez_device_path(client)
+    if not device_path:
+        return False
+
+    async with _bluez_pairing_agent() as bus:
+        if bus is None:
+            return False
         try:
-            await bus.call(
+            _LOGGER.debug("BlueZ agent active; calling Pair() on %s", device_path)
+            reply = await bus.call(
                 Message(
                     destination="org.bluez",
-                    path="/org/bluez",
-                    interface="org.bluez.AgentManager1",
-                    member="UnregisterAgent",
-                    signature="o",
-                    body=[_AGENT_PATH],
+                    path=device_path,
+                    interface="org.bluez.Device1",
+                    member="Pair",
                 )
             )
-        except Exception:
-            pass
-        bus.disconnect()
+            success = reply.message_type == MessageType.METHOD_RETURN
+            if success:
+                _LOGGER.debug("BlueZ agent pair succeeded for %s", device_path)
+            else:
+                _LOGGER.debug(
+                    "BlueZ agent pair returned non-success for %s: %s",
+                    device_path,
+                    reply,
+                )
+            return success
+        except Exception as exc:
+            _LOGGER.debug("BlueZ agent pair failed for %s: %s", device_path, exc)
+            return False
+        # The bus belongs to _bluez_pairing_agent, which unregisters the
+        # agent and disconnects it on the way out — do not close it here.
 
 
 async def _bluez_remove_device(client: BleakClient) -> bool:
@@ -351,11 +456,7 @@ async def _bluez_remove_device(client: BleakClient) -> bool:
     except ImportError:
         return False
 
-    details = getattr(getattr(client, "_device", None), "details", None) or {}
-    device_path: str | None = details.get("path")
-    if not device_path:
-        backend = getattr(client, "_backend", None)
-        device_path = getattr(getattr(backend, "_device", None), "path", None)
+    device_path = _bluez_device_path(client)
     if not device_path or "/dev_" not in device_path:
         return False
     # Adapter path is the device path minus the trailing dev_XX_.. segment.
@@ -551,7 +652,10 @@ class OmronDeviceSession:
                 "OmronDeviceSession.adopt() sessions cannot connect; open the client first"
             )
         self._client = await establish_connection_with_bond_settle(
-            self._ble_device, self.address
+            self._ble_device,
+            self.address,
+            pair_on_connect=self._config.pair_on_connect,
+            model=self._config.model,
         )
         return self
 
@@ -1709,17 +1813,12 @@ class OmronDeviceSession:
         """Program pairing credentials according to ``host_pairing_mode``."""
         pair_key = key or PAIRING_KEY
         if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
-            # Secure-session devices (application-layer ECDH) do NOT use a BLE SMP bond:
-            # pairing runs purely over plaintext ATT and encryption comes from
-            # the application-layer secure session (0xC0 frames), with no SMP/encryption-
-            # change on the link. Doing an OS-level SMP bond here appears to leave
-            # the cuff in a state where it rejects the subsequent ECDH pairing
-            # request (error frame 0xff..). Skip it and let the secure handshake
-            # (open_memory_session → _secure_unlock) be the sole pairing step.
-            if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
+            if self._config.pair_on_connect:
+                # connect() already bonded before GATT discovery. Bonding a
+                # second time on the same link only rotates the fresh keys.
                 _LOGGER.debug(
-                    "Skipping OS-level SMP bonding for %s (secure-session device "
-                    "pairs via application-layer ECDH only)",
+                    "Skipping explicit OS bonding for %s: already bonded during "
+                    "connect (pair_on_connect)",
                     self._config.model,
                 )
                 return
