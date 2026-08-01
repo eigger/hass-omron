@@ -259,6 +259,24 @@ class DeviceConfig:
             return False
         return self.connect_type == ConnectType.WLD3_0
 
+    @property
+    def pair_on_connect(self) -> bool:
+        """Bond during connect, before GATT discovery (WLD3.0 family).
+
+        These cuffs drop the link shortly after connect when security is not
+        already up. Bonding as part of connect establishes it before any
+        characteristic is touched, whereas pairing after discovery leaves a
+        window where the device sees an unencrypted host poking at GATT —
+        which is when the observed disconnects happen. On an already-bonded
+        device the backend re-encrypts with the stored LTK rather than
+        re-bonding, so this does not churn the bond that ``os_bond_once``
+        profiles rely on.
+        """
+        return (
+            self.connect_type == ConnectType.WLD3_0
+            and self.host_pairing_mode == HostPairingMode.OS_BONDING
+        )
+
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""
         if self.is_modern_stack:
