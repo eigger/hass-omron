@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .const import MODERN_STACK_PARENT_SERVICE_UUID
 from .devices import (
+    BondPolicy,
     ConnectType,
     DeviceConfig,
     Endianness,
@@ -11,6 +12,16 @@ from .devices import (
     TimeSyncLayout,
     UnlockMode,
 )
+
+# Bond strategy for the whole WLD3.0 family (HEM-7380T1 / 7382T1 / 7386T1 /
+# 7188T1 / 7155T-MW3). These cuffs serve data during the pairing session and
+# then reject later connections, which fits a device that does not keep its
+# side of the bond; PER_SESSION drops ours to match, so every connection
+# bonds from scratch instead of offering a key the device has forgotten.
+#
+# Set this to BondPolicy.REUSE to put the family back on a kept bond — that
+# is the only change needed, every dependent behaviour is derived from it.
+_WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
@@ -549,6 +560,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # Modern-fe4a-firmware HEM-7155T_ESL ("X4 Smart"); WLD3.0 like 7380T1.
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
+        bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -706,10 +718,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7380T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        # AFib family rotates its LTK each session; re-pairing on every
-        # pairing-mode advertisement churns the bond → AuthenticationFailed.
-        # Bond once at setup, then rely on the existing bond for polls.
-        os_bond_once=True,
+        bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
@@ -779,7 +788,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7382T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        os_bond_once=True,
+        bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0BCC],
         per_user_records_count=[60, 60],
@@ -815,7 +824,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        os_bond_once=True,
+        bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
@@ -858,7 +867,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7188T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        os_bond_once=True,
+        bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8],
         per_user_records_count=[14],
