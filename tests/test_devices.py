@@ -1,5 +1,6 @@
 """devices.py / device_catalog.py 단위 테스트."""
 from custom_components.omron.omron_ble.devices import (
+    BondPolicy,
     ConnectType,
     DeviceConfig,
     HostPairingMode,
@@ -9,33 +10,51 @@ from custom_components.omron.omron_ble.devices import (
 )
 
 
-class TestUnpairAfterSession:
-    """unpair_after_session 은 os_bond_once=True 인 기기에서는 항상 False여야 한다.
+class TestBondPolicy:
+    """세션 종료 시 본드 삭제 여부는 bond_policy 하나로 결정된다."""
 
-    두 플래그가 같이 켜져 있으면 (HEM-7380T1/HEM-7382T1) 세션이
-    끝날 때마다 os_bond_once가 재사용하려는 본드를 unpair()가 지워버려
-    다음 연결이 post-connect settle에서 실패하는 회귀가 있었다.
-    """
-
-    def test_wld3_without_bond_once_unpairs(self):
-        cfg = DeviceConfig(model="test", connect_type=ConnectType.WLD3_0)
+    def test_per_session_drops_the_bond(self):
+        cfg = DeviceConfig(
+            model="test",
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+            bond_policy=BondPolicy.PER_SESSION,
+        )
         assert cfg.unpair_after_session is True
 
-    def test_wld3_with_bond_once_never_unpairs(self):
+    def test_reuse_keeps_the_bond(self):
         cfg = DeviceConfig(
-            model="test", connect_type=ConnectType.WLD3_0, os_bond_once=True
+            model="test",
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+            bond_policy=BondPolicy.REUSE,
         )
         assert cfg.unpair_after_session is False
 
-    def test_non_wld3_never_unpairs(self):
-        cfg = DeviceConfig(model="test", connect_type=ConnectType.UNKNOWN)
+    def test_reuse_is_the_default(self):
+        cfg = DeviceConfig(model="test")
+        assert cfg.bond_policy == BondPolicy.REUSE
         assert cfg.unpair_after_session is False
 
-    def test_non_wld3_with_bond_once_never_unpairs(self):
-        cfg = DeviceConfig(
-            model="test", connect_type=ConnectType.UNKNOWN, os_bond_once=True
-        )
+    def test_non_os_bonding_never_unpairs(self):
+        # 클래식(커스텀 키) 기기에는 지울 OS 본드가 없다.
+        cfg = DeviceConfig(model="test", bond_policy=BondPolicy.PER_SESSION)
+        assert cfg.host_pairing_mode == HostPairingMode.CUSTOM_KEY
         assert cfg.unpair_after_session is False
+
+    def test_per_session_always_pairs_on_connect(self):
+        # 본드를 버리는 프로파일은 connect 에서 다시 본딩하는 게 파생으로 보장된다
+        # (connect_type 이 WLD3.0 이 아니어도). 본드도 없고 재페어링도 없는 조합은
+        # 설정 자체가 불가능해야 한다.
+        cfg = DeviceConfig(
+            model="test",
+            connect_type=ConnectType.WLD1_0,
+            host_pairing_mode=HostPairingMode.OS_BONDING,
+            unlock_mode=UnlockMode.TOKEN_KEY,
+            bond_policy=BondPolicy.PER_SESSION,
+        )
+        assert cfg.unpair_after_session is True
+        assert cfg.pair_on_connect is True
 
 
 class TestPairOnConnect:

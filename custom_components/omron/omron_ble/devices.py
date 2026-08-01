@@ -49,6 +49,24 @@ class HostPairingMode(str, Enum):
     NONE = "none"
 
 
+class BondPolicy(StrEnum):
+    """Lifetime of the OS-level BLE bond, for ``host_pairing_mode=OS_BONDING``.
+
+    One switch for the whole bonding strategy, so a profile can be moved
+    between the two without leaving other flags to keep in sync. See
+    ``_WLD3_BOND_POLICY`` in the catalog for the family-wide setting.
+    """
+
+    # Bond once and keep reusing it across connections.
+    REUSE = "reuse"
+    # Treat a bond as good for a single session: drop it when the session
+    # closes so the next connection bonds from scratch. For devices that
+    # invalidate their side of the bond after each session, a kept bond is
+    # worse than none — the host offers an LTK the device no longer holds,
+    # security fails, and the device hangs up.
+    PER_SESSION = "per_session"
+
+
 class ConnectType(StrEnum):
     """OMRON communication type; groups devices by BLE bonding/transfer behaviour."""
 
@@ -109,8 +127,12 @@ class DeviceConfig:
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
     # Bond once at setup and never re-pair on pairing-mode adverts (avoids bond
-    # churn). Only meaningful for host_pairing_mode=OS_BONDING.
+    # churn). Only meaningful for host_pairing_mode=OS_BONDING, and only when
+    # the profile does not already bond during connect (``pair_on_connect``),
+    # which makes the advert-triggered re-pair a no-op either way.
     os_bond_once: bool = False
+    # Bond lifetime; see BondPolicy. Only meaningful for OS_BONDING profiles.
+    bond_policy: BondPolicy = BondPolicy.REUSE
 
     # EEPROM layout
     endianness: Endianness = Endianness.BIG
@@ -244,38 +266,44 @@ class DeviceConfig:
 
     @property
     def unpair_after_session(self) -> bool:
-        """Drop the OS bond after each session (WLD3.0 devices re-key per session).
+        """Drop the OS bond when the session closes (``BondPolicy.PER_SESSION``).
 
-        Never true when ``os_bond_once`` is set: that flag means "bond once
-        and keep reusing it," which this would otherwise undo at the end of
-        every single session — including the one that just bonded — leaving
-        no bond for the next connection to reuse. Confirmed via HA logs
-        (HEM-7382T1): the post-pairing bond worked, an ignored ``unpair()``
-        ran anyway on session close, and the very next connection attempt
-        (moments later) then failed to complete the post-connect settle on
-        all retries because the bond it needed was gone.
+        Dropping a bond is only safe because ``pair_on_connect`` bonds again
+        on the next connect. Without that, an earlier build dropped the bond
+        and then had nothing to reconnect with: HA logs (HEM-7382T1) showed
+        the post-pairing bond working, ``unpair()`` running on session close,
+        and the very next connection failing the post-connect settle on all
+        retries because the bond it needed was gone.
         """
-        if self.os_bond_once:
-            return False
-        return self.connect_type == ConnectType.WLD3_0
+        return (
+            self.bond_policy == BondPolicy.PER_SESSION
+            and self.host_pairing_mode == HostPairingMode.OS_BONDING
+        )
 
     @property
     def pair_on_connect(self) -> bool:
-        """Bond during connect, before GATT discovery (WLD3.0 family).
+        """Bond during connect, before GATT discovery.
 
-        These cuffs drop the link shortly after connect when security is not
+        WLD3.0 cuffs drop the link shortly after connect when security is not
         already up. Bonding as part of connect establishes it before any
         characteristic is touched, whereas pairing after discovery leaves a
         window where the device sees an unencrypted host poking at GATT —
         which is when the observed disconnects happen. On an already-bonded
         device the backend re-encrypts with the stored LTK rather than
-        re-bonding, so this does not churn the bond that ``os_bond_once``
-        profiles rely on.
+        re-bonding, so this does not churn a kept bond.
+
+        Always true under ``BondPolicy.PER_SESSION``, which is what makes
+        dropping the bond safe: the pairing that replaces it is part of the
+        next connect. Deriving it here rather than asking profiles to set
+        both means "drop the bond but never make a new one" — an earlier
+        regression that left the next connection with nothing to reconnect
+        with — cannot be configured at all.
         """
-        return (
-            self.connect_type == ConnectType.WLD3_0
-            and self.host_pairing_mode == HostPairingMode.OS_BONDING
-        )
+        if self.host_pairing_mode != HostPairingMode.OS_BONDING:
+            return False
+        if self.bond_policy == BondPolicy.PER_SESSION:
+            return True
+        return self.connect_type == ConnectType.WLD3_0
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""

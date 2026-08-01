@@ -443,10 +443,12 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
         # agent and disconnects it on the way out — do not close it here.
 
 
-async def _bluez_remove_device(client: BleakClient) -> bool:
+async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
     """Remove the BlueZ device + bond via DBus Adapter1.RemoveDevice.
 
     Used because BleakClient.unpair() is a no-op on the HA/habluetooth backend.
+    Accepts a bare BLEDevice too, so a bond can still be cleared after a
+    connect attempt failed and there is no client to unpair through.
     Returns True on success; False otherwise (caller falls back to unpair()).
     """
     try:
@@ -651,12 +653,41 @@ class OmronDeviceSession:
             raise ConnectionError(
                 "OmronDeviceSession.adopt() sessions cannot connect; open the client first"
             )
-        self._client = await establish_connection_with_bond_settle(
-            self._ble_device,
-            self.address,
-            pair_on_connect=self._config.pair_on_connect,
-            model=self._config.model,
-        )
+        try:
+            self._client = await establish_connection_with_bond_settle(
+                self._ble_device,
+                self.address,
+                pair_on_connect=self._config.pair_on_connect,
+                model=self._config.model,
+            )
+        except BaseException:
+            # A half-established bond is worse than none for PER_SESSION
+            # profiles: the next connect would offer a key the device does
+            # not hold. Clear it here, where aclose() cannot (no client).
+            # Never let the cleanup mask the connect failure — including when
+            # we got here through cancellation and the await is cancelled too.
+            if self._config.unpair_after_session:
+                try:
+                    if await _bluez_remove_device(self._ble_device):
+                        _LOGGER.debug(
+                            "Removed bond for %s after a failed connect",
+                            self.address,
+                        )
+                    else:
+                        # Proxy backends need a client for the unpair RPC and
+                        # there is none after a failed connect, so any bond the
+                        # proxy stored stays until the next successful session.
+                        _LOGGER.debug(
+                            "Could not clear the bond for %s after a failed "
+                            "connect (no DBus path for this backend)",
+                            self.address,
+                        )
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "Bond cleanup after failed connect to %s skipped: %s",
+                        self.address, exc,
+                    )
+            raise
         return self
 
     async def refresh_services(self) -> None:
@@ -762,10 +793,20 @@ class OmronDeviceSession:
                     await self.close_memory_session()
                 except Exception:
                     pass
-            # Drop the bond while still connected so the next connection re-pairs
-            # fresh (WLD3.0 devices re-key each session).
-            if self._config.unpair_after_session and client.is_connected:
-                await self.unpair()
+            # Drop the bond so the next connection bonds from scratch
+            # (BondPolicy.PER_SESSION). Prefer the DBus RemoveDevice, which
+            # also works once the link is down; unpair() is the fallback and
+            # is what actually reaches the ESP32 on proxy backends.
+            if self._config.unpair_after_session:
+                if not await _bluez_remove_device(client):
+                    if client.is_connected:
+                        await self.unpair()
+                    else:
+                        _LOGGER.debug(
+                            "Bond for %s left in place: link already down and "
+                            "no DBus path to remove it through",
+                            addr,
+                        )
             if self._owns_connection and client.is_connected:
                 await client.disconnect()
                 disconnected = True
