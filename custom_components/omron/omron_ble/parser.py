@@ -1164,7 +1164,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                             )
                         else:
                             memory_session_active = False
-                            last_session_exc: BaseException | None = None
+                            last_session_exc: Exception | None = None
                             for session_attempt in range(3):
                                 try:
                                     pair_first = (
@@ -1184,7 +1184,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                                             memory_session_active=True,
                                         )
                                     break
-                                except BaseException as exc:
+                                # Exception, never BaseException: the poll
+                                # deadline (POLL_TIMEOUT_SECONDS) cancels this
+                                # task exactly once, so swallowing that
+                                # CancelledError here would drop the loop into
+                                # another unbounded GATT wait with no deadline
+                                # left to fire — the wedge the deadline exists
+                                # to break.
+                                except Exception as exc:
                                     last_session_exc = exc
                                     _LOGGER.debug(
                                         "Memory session open attempt %d/3 failed: %s",
@@ -1229,7 +1236,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                                             ble_device,
                                             memory_session_active=True,
                                         )
-                                except BaseException as fallback_exc:
+                                # Exception, never BaseException — see above:
+                                # cancellation has to reach the poll deadline.
+                                except Exception as fallback_exc:
                                     _LOGGER.debug(
                                         "Fallback memory session readout failed: %s",
                                         fallback_exc,
