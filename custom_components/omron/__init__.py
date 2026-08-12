@@ -45,6 +45,16 @@ _LOGGER = logging.getLogger(__name__)
 POLL_COOLDOWN_SECONDS = 60
 SETTLE_DELAY_SECONDS = 0.5
 
+# Hard ceiling on one poll. Bleak's BlueZ backend puts no timeout on its
+# read/write/notify D-Bus calls (only ``disconnect`` is bounded), so a wedged
+# bluetoothd leaves the poll awaiting forever. That poll holds ``session_lock``,
+# and from then on every scheduled poll, Refresh Data press and advertisement
+# trigger bails out on the held lock — the integration goes silent with no error
+# logged until Home Assistant restarts. The deadline gives the lock back.
+# Budget: a worst-case connect (~90 s over 4 attempts) plus the memory-session
+# retries. Past that the link is stuck, not slow.
+POLL_TIMEOUT_SECONDS = 180
+
 # When a poll fails mid-flight, keep measurement history but drop stale RSSI/battery
 # unless this poll refreshed those keys (avoids showing outdated diagnostics).
 _STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
@@ -339,13 +349,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
                     handed_off = True
-                    result = await coordinator.device_data.async_poll(
-                        device, preconnected_session=preconnected_session
-                    )
+                    async with asyncio.timeout(POLL_TIMEOUT_SECONDS):
+                        result = await coordinator.device_data.async_poll(
+                            device, preconnected_session=preconnected_session
+                        )
                 prev_data = poll_coordinator.data
                 if prev_data is not None:
                     result = _merge_poll_sensor_update(prev_data, result)
                 return result
+        except TimeoutError:
+            # Only our own deadline surfaces here: async_poll handles every
+            # Exception internally, so nothing else escapes it as a timeout.
+            # Warn rather than debug — this is the one symptom a user sees when
+            # the BLE stack stops responding, and it used to be invisible.
+            _LOGGER.warning(
+                "Poll for %s exceeded %d s and was cancelled; the BLE stack "
+                "stopped responding mid-poll. Serving cached data — the session "
+                "lock is released, so the next poll can retry",
+                address,
+                POLL_TIMEOUT_SECONDS,
+            )
+            if poll_coordinator.data is not None:
+                return poll_coordinator.data
+            return entry.runtime_data.device_data._finish_update()
         except Exception as err:
             _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
             if poll_coordinator.data is not None:
