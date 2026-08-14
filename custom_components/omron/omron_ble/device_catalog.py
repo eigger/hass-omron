@@ -713,6 +713,73 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
     ),
+    # HEM-7191T1 family ("M3 Comfort AFib" / "X3 Comfort AFib") —
+    # 1-user, 60 records (data_1=0x01C4) on WLD4.0 transport with token-key unlock.
+    "HEM-7191T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7191T1",
+        connect_type=ConnectType.WLD4_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        bond_policy=_WLD3_BOND_POLICY,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x01C4],
+        per_user_records_count=[60],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0054,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x18,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7191T1-LZ",
+        ),
+    ),
+    # HEM-7196T1 / HEM-7194T1 family ("M4 Connect AFib" / "X4 Connect AFib" etc.) —
+    # 2-user, 60 records per user (data_1=0x01C4, data_2=0x0584) on WLD4.0
+    # transport with token-key unlock.
+    "HEM-7196T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7196T1",
+        connect_type=ConnectType.WLD4_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        bond_policy=_WLD3_BOND_POLICY,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x01C4, 0x0584],
+        per_user_records_count=[60, 60],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0054,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x2C, 0x3C],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x18,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7194T1-FLAP",
+            "HEM-7194T1-FLCAP",
+            "HEM-7194T1_FLBIN",
+            "HEM-7194T1_FLIN",
+            "HEM-7196T1-FLE",
+            "HEM-7196T1-FLEO",
+        ),
+    ),
     "HEM-7380T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
@@ -739,51 +806,18 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
-            "HEM-7183T1-AP",
-            "HEM-7183T1-CAP",
-            "HEM-7183T1_FLBIN",
-            "HEM-7183T1_FLIN",
-            "HEM-7183T1_LAP",
-            # HEM-7194T1 / HEM-7196T1 family shares this modern-stack profile
-            # (OS bonding, FE4A parent service, same TX/RX UUIDs and EEPROM layout).
-            "HEM-7194T1-FLAP",
-            "HEM-7194T1-FLCAP",
-            "HEM-7194T1_FLBIN",
-            "HEM-7194T1_FLIN",
-            "HEM-7196T1-FLE",
-            "HEM-7196T1-FLEO",
-            "HEM-7376T1-ACACD6",
-            "HEM-7376T1-Z",
-            "HEM-7377T1-ZAZ",
             "HEM-7380T",
             "HEM-7380T1-EBK",
             "HEM-7380T1-EOSL",
-            "HEM-7381T1-AZ",
-            # HEM-7382T1/-AZAZ and the -AJAZ3/-AJF3 siblings (7385-7389) moved
-            # to the "HEM-7382T1" profile: confirmed via APK memory-map that
-            # this sub-family uses different EEPROM data addresses entirely
-            # (data_1=0x080C, not 0x01C4), not just a shifted time offset.
             "HEM-7383T1-AP",
             "HEM-7384T1-NBBR",
         ),
     ),
-    # HEM-7382T1 / -AZAZ and its -AJAZ3/-AJF3 siblings (7385-7389): same modern
-    # stack as HEM-7380T1, but confirmed via APK memory-map (DeviceConfig.sys)
-    # to differ in THREE ways, not just the time offset:
-    #   1. settings_time_sync_bytes shifted +4 ([0x30,0x40] not [0x2C,0x3C]).
-    #   2. settings_write_address is 0x0058, not 0x0054.
-    #   3. Measurement records live at data_1=0x080C/data_2=0x0BCC, NOT
-    #      0x01C4/0x0804 (HEM-7380T1's addresses) — reading the old addresses
-    #      pulls in an unrelated data table (PPI/pulse-interval log), which is
-    #      why the EEPROM index/full-scan path found only garbage ("datetime
-    #      is None" for every slot) on a real HEM-7382T1-AZAZ unit
-    #      (see hass-omron#91). 60 records/user matches the -AJAZ3/-JM3
-    #      variants; -AJF3 (7386/7388) uses 100 records/user at data_2=0x0E4C
-    #      instead — unconfirmed which HEM-7382T1-AZAZ actually is, needs
-    #      real-device verification once data starts syncing.
-    "HEM-7382T1": DeviceConfig(
+    # HEM-7376T1 / -AJAZ3/-JM3 siblings: 2-user, 60 records per user
+    # (data_1=0x080C, data_2=0x0BCC), write address 0x0058, +4 time offset ([0x30, 0x40]).
+    "HEM-7376T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
-        model="HEM-7382T1",
+        model="HEM-7376T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
@@ -807,16 +841,47 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
-            "HEM-7382T1-AZAZ",
+            "HEM-7376T1-ACACD6",
+            "HEM-7376T1-Z",
             "HEM-7385T1-AJAZ3",
             "HEM-7387T1-AJAZ3",
             "HEM-7389T1-JM3",
         ),
     ),
-    # HEM-7386T1-AJF3 / HEM-7388T1-AJF3: same -AJAZ3-style +4 time offset and
-    # data_1=0x080C as "HEM-7382T1", but 100 records/user (not 60), so
-    # data_2 sits at 0x0E4C instead of 0x0BCC. Confirmed via APK memory-map;
-    # kept separate since the record count changes both addresses and range.
+    # HEM-7377T1 family (7 Series Upper Arm / BP5360) — 2-user, 80 records per user (data_1=0x080C,
+    # data_2=0x0D0C), write address 0x0058, +4 time offset ([0x30, 0x40]).
+    "HEM-7377T1": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HEM-7377T1",
+        connect_type=ConnectType.WLD3_0,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        bond_policy=_WLD3_BOND_POLICY,
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x080C, 0x0D0C],
+        per_user_records_count=[80, 80],
+        record_byte_size=0x10,
+        transmission_block_size=0x38,
+        settings_read_address=0x0010,
+        settings_write_address=0x0058,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x30, 0x40],
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
+        index_pointer_layout={
+            "index_region_byte_size": 0x1C,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 79, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 79, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            "HEM-7377T1-ZAZ",
+        ),
+    ),
+    # HEM-7386T1 family (HEM-7386T1, HEM-7388T1, HEM-7381T1-AZ, HEM-7382T1-AZAZ):
+    # 2-user, 100 records per user (data_1=0x080C, data_2=0x0E4C), write address 0x0058,
+    # +4 time offset ([0x30, 0x40]). HEM-7382T1-AZAZ maps to 100 records per user (see hass-omron#91).
     "HEM-7386T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7386T1",
@@ -843,11 +908,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HEM-7381T1-AZ",
+            "HEM-7382T1",
+            "HEM-7382T1-AZAZ",
             "HEM-7386T1-AJF3",
             "HEM-7388T1-AJF3",
         ),
     ),
-    # HEM-7188T1 family ("X2+ Connect" / "M2+") — dedicated single-user profile
+    # HEM-7188T1 / HEM-7183T1 family ("X2+ Connect" / "M2+" etc.) — dedicated single-user profile
     # with WLD4.0 transport (ConnectType.WLD4_0) and 30-slot 16-byte record
     # layout at 0x01C4 with index pointer layout at 0x0010.
     # Operationally uses token-key transport (UnlockMode.TOKEN_KEY): an
@@ -880,6 +948,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HEM-7183T1-AP",
+            "HEM-7183T1-CAP",
+            "HEM-7183T1_FLBIN",
+            "HEM-7183T1_FLIN",
+            "HEM-7183T1_LAP",
             "HEM-7188T1-LE",
             "HEM-7188T1-LEO",
         ),
