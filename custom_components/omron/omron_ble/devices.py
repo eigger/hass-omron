@@ -75,6 +75,7 @@ class ConnectType(StrEnum):
     WLD1_0 = "WLD1.0"
     WLD2_0 = "WLD2.0"
     WLD3_0 = "WLD3.0"
+    WLD4_0 = "WLD4.0"
     WLS3_0 = "WLS3.0"
 
 
@@ -303,7 +304,7 @@ class DeviceConfig:
             return False
         if self.bond_policy == BondPolicy.PER_SESSION:
             return True
-        return self.connect_type == ConnectType.WLD3_0
+        return self.connect_type in (ConnectType.WLD3_0, ConnectType.WLD4_0)
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""

@@ -114,28 +114,34 @@ class TestPairOnConnect:
             CANONICAL_DEVICE_PROFILES,
         )
 
-        wld3 = [
+        wld3_4 = [
             c
             for c in CANONICAL_DEVICE_PROFILES.values()
-            if c.connect_type == ConnectType.WLD3_0
+            if c.connect_type in (ConnectType.WLD3_0, ConnectType.WLD4_0)
         ]
-        assert wld3, "카탈로그에 WLD3.0 프로파일이 있어야 한다"
-        assert all(c.pair_on_connect for c in wld3)
+        assert wld3_4, "카탈로그에 WLD3.0/WLD4.0 프로파일이 있어야 한다"
+        assert all(c.pair_on_connect for c in wld3_4)
 
 
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
     def test_hem7188t1_leo_resolves_to_own_profile(self):
-        # HEM-7188T1-LEO ("X2+ Connect") keeps its own profile (distinct
-        # connect_type WLD3.0 vs HEM-7142T2's WLD1.0), but currently uses the
-        # plaintext token-key transport operationally, not the ECDH secure
-        # session that the device rejects with 0xff26 (see hass-omron#92).
+        # HEM-7188T1-LEO ("X2+ Connect") keeps its own dedicated profile
+        # (distinct connect_type WLD4.0 vs HEM-7142T2's WLD1.0) with corrected
+        # memory map layout.
         assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1"
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
         assert cfg.unlock_mode.value == "token_key"
-        assert cfg.connect_type == ConnectType.WLD3_0
+        assert cfg.connect_type == ConnectType.WLD4_0
+        assert cfg.user_start_addresses == [0x01C4]
+        assert cfg.per_user_records_count == [30]
+        assert cfg.record_byte_size == 0x10
+        assert cfg.settings_read_address == 0x0010
+        assert cfg.settings_write_address == 0x0054
+        assert cfg.index_pointer_layout["index_region_byte_size"] == 0x18
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 29
 
     def test_hem7188t1_le_resolves_to_same_profile(self):
         assert resolve_profile_model_id("HEM-7188T1-LE") == "HEM-7188T1"
