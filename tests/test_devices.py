@@ -1,4 +1,5 @@
 """devices.py / device_catalog.py 단위 테스트."""
+from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
 from custom_components.omron.omron_ble.devices import (
     BondPolicy,
     ConnectType,
@@ -8,6 +9,7 @@ from custom_components.omron.omron_ble.devices import (
     TimeSyncLayout,
     UnlockMode,
     get_device_config,
+    get_supported_models,
     resolve_profile_model_id,
 )
 
@@ -278,7 +280,29 @@ class TestCatalogResolution:
         assert cfg.per_user_records_count == [30]
         assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 29
 
-    def test_unknown_model_falls_back_to_default(self):
-        from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
+    def test_all_readme_supported_models_are_resolvable_and_in_dropdown(self):
+        readme_models = [
+            "HEM-6161T",
+            "HEM-6232T",
+            "HEM-7142T2",
+            "HEM-7146T2",
+            "HEM-7151T",
+            "HEM-7155T",
+            "HEM-716BT2",
+            "HEM-7320T",
+            "HEM-7322T",
+            "HEM-7343T",
+            "HEM-7530T",
+            "HEM-7600T",
+        ]
+        supported = get_supported_models()
+        for m in readme_models:
+            assert m in supported, f"{m} from README should be in UI dropdown"
+            profile = resolve_profile_model_id(m)
+            assert profile != DEFAULT_DEVICE_MODEL or m == DEFAULT_DEVICE_MODEL
+            cfg = get_device_config(m)
+            assert cfg is not None
+            assert cfg.model == m
 
+    def test_unknown_model_falls_back_to_default(self):
         assert resolve_profile_model_id("NOT-A-REAL-MODEL") == DEFAULT_DEVICE_MODEL
