@@ -3,7 +3,9 @@ from custom_components.omron.omron_ble.devices import (
     BondPolicy,
     ConnectType,
     DeviceConfig,
+    Endianness,
     HostPairingMode,
+    TimeSyncLayout,
     UnlockMode,
     get_device_config,
     resolve_profile_model_id,
@@ -201,6 +203,80 @@ class TestCatalogResolution:
         assert cfg.user_start_addresses == [0x080C, 0x0E4C]
         assert cfg.per_user_records_count == [100, 100]
         assert cfg.settings_write_address == 0x0058
+
+    def test_hem6320t_and_6321t_resolution(self):
+        assert resolve_profile_model_id("HEM-6320T-SH") == "HEM-6320T"
+        assert resolve_profile_model_id("HEM-6322T-SH") == "HEM-6320T"
+        assert resolve_profile_model_id("HEM-6323T") == "HEM-6320T"
+        assert resolve_profile_model_id("HEM-6325T") == "HEM-6320T"
+        assert resolve_profile_model_id("HEM-6324T") == "HEM-6321T"
+        cfg = get_device_config("HEM-6324T")
+        assert cfg.user_start_addresses == [0x0370, 0x08E8]
+        assert cfg.per_user_records_count == [100, 100]
+
+    def test_hem1026t2_resolves_to_own_profile(self):
+        assert resolve_profile_model_id("HEM-1026T2-AJC") == "HEM-1026T2"
+        assert resolve_profile_model_id("HEM-1026T2-AJE") == "HEM-1026T2"
+        assert resolve_profile_model_id("HEM-1026T2-AKA") == "HEM-1026T2"
+        cfg = get_device_config("HEM-1026T2-AJC")
+        assert cfg.user_start_addresses == [0x02E8, 0x0928]
+        assert cfg.per_user_records_count == [100, 100]
+        assert cfg.record_byte_size == 0x10
+        assert cfg.connect_type == ConnectType.WLD2_0
+        assert cfg.endianness == Endianness.LITTLE
+        assert cfg.time_sync_layout == TimeSyncLayout.MODERN_OFFSET8
+        assert cfg.index_pointer_layout["endianness"] == "little"
+
+    def test_hem7511t_and_8732_resolution(self):
+        assert resolve_profile_model_id("HEM-7511T") == "HEM-7511T"
+        cfg = get_device_config("HEM-7511T")
+        assert cfg.user_start_addresses == [0x02AC, 0x0798]
+        assert cfg.per_user_records_count == [90, 90]
+
+        assert resolve_profile_model_id("HEM-8732T-SH") == "HEM-8732T"
+        cfg = get_device_config("HEM-8732T-SH")
+        assert cfg.user_start_addresses == [0x02AC, 0x05F4]
+        assert cfg.per_user_records_count == [60, 60]
+
+        assert resolve_profile_model_id("HEM-8732K-SH") == "HEM-8732K"
+        cfg = get_device_config("HEM-8732K-SH")
+        assert cfg.user_start_addresses == [0x02AC, 0x0522]
+        assert cfg.per_user_records_count == [45, 45]
+
+    def test_hem7325t_and_6231t_slot_counts(self):
+        assert resolve_profile_model_id("HEM-7325T") == "HEM-7325T"
+        cfg = get_device_config("HEM-7325T")
+        assert cfg.per_user_records_count == [90]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 89
+
+        assert resolve_profile_model_id("HEM-6231T-SH") == "HEM-6231T"
+        cfg = get_device_config("HEM-6231T-SH")
+        assert cfg.per_user_records_count == [100]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 99
+
+        assert resolve_profile_model_id("HEM-6231T_Z") == "HEM-6231T_Z"
+        cfg_z = get_device_config("HEM-6231T_Z")
+        assert cfg_z.per_user_records_count == [90]
+        assert cfg_z.index_pointer_layout["users"][0]["slot_index_max"] == 89
+
+    def test_hem715x_and_716x_slot_counts(self):
+        assert resolve_profile_model_id("HEM-7153JT_ASH") == "HEM-7153JT"
+        cfg = get_device_config("HEM-7153JT_ASH")
+        assert cfg.per_user_records_count == [30]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 29
+
+        assert resolve_profile_model_id("HEM-7157T-AP") == "HEM-7157T"
+        assert resolve_profile_model_id("HEM-7158T-JC") == "HEM-7157T"
+        assert resolve_profile_model_id("HEM-7158T_AP3") == "HEM-7157T"
+        cfg = get_device_config("HEM-7157T-AP")
+        assert cfg.per_user_records_count == [100]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 99
+
+        assert resolve_profile_model_id("HEM-716BT2-ZAZ") == "HEM-716BT2"
+        assert resolve_profile_model_id("HEM-716CT2-Z") == "HEM-716BT2"
+        cfg = get_device_config("HEM-716BT2-ZAZ")
+        assert cfg.per_user_records_count == [30]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 29
 
     def test_unknown_model_falls_back_to_default(self):
         from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
