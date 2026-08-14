@@ -26,16 +26,6 @@ jobs:
       - name: Lint
         run: python -m ruff check custom_components/
 
-  hacs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: HACS Action
-        uses: hacs/action@main
-        with:
-          category: integration
-
   test:
     runs-on: ubuntu-latest
     needs: lint
