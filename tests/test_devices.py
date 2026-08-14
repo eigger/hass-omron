@@ -131,6 +131,8 @@ class TestCatalogResolution:
         # (distinct connect_type WLD4.0 vs HEM-7142T2's WLD1.0) with corrected
         # memory map layout.
         assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1"
+        assert resolve_profile_model_id("HEM-7183T1-AP") == "HEM-7188T1"
+        assert resolve_profile_model_id("HEM-7183T1_FLIN") == "HEM-7188T1"
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
         assert cfg.unlock_mode.value == "token_key"
@@ -152,10 +154,53 @@ class TestCatalogResolution:
         assert resolve_profile_model_id("HEM-7155T_ESL") == "HEM-7155T"
         assert resolve_profile_model_id("HEM-7155T_ESL1") == "HEM-7155T-MW3"
 
-    def test_hem7382t1_has_own_profile_with_shifted_time_section(self):
-        cfg = get_device_config("HEM-7382T1")
-        assert cfg.model == "HEM-7382T1"
+    def test_hem7191t1_resolves_to_own_profile(self):
+        assert resolve_profile_model_id("HEM-7191T1-LZ") == "HEM-7191T1"
+        cfg = get_device_config("HEM-7191T1-LZ")
+        assert cfg.connect_type == ConnectType.WLD4_0
+        assert cfg.user_start_addresses == [0x01C4]
+        assert cfg.per_user_records_count == [60]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 59
+
+    def test_hem7196t1_resolves_to_own_profile(self):
+        assert resolve_profile_model_id("HEM-7196T1-FLE") == "HEM-7196T1"
+        assert resolve_profile_model_id("HEM-7196T1-FLEO") == "HEM-7196T1"
+        assert resolve_profile_model_id("HEM-7194T1-FLAP") == "HEM-7196T1"
+        assert resolve_profile_model_id("HEM-7194T1_FLIN") == "HEM-7196T1"
+        cfg = get_device_config("HEM-7196T1-FLE")
+        assert cfg.connect_type == ConnectType.WLD4_0
+        assert cfg.user_start_addresses == [0x01C4, 0x0584]
+        assert cfg.per_user_records_count == [60, 60]
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 59
+
+    def test_hem7376t1_has_own_profile_with_shifted_time_section(self):
+        assert resolve_profile_model_id("HEM-7376T1-Z") == "HEM-7376T1"
+        assert resolve_profile_model_id("HEM-7376T1-ACACD6") == "HEM-7376T1"
+        assert resolve_profile_model_id("HEM-7385T1-AJAZ3") == "HEM-7376T1"
+        cfg = get_device_config("HEM-7376T1-Z")
+        assert cfg.model == "HEM-7376T1-Z"
+        assert cfg.user_start_addresses == [0x080C, 0x0BCC]
+        assert cfg.per_user_records_count == [60, 60]
+        assert cfg.settings_write_address == 0x0058
         assert cfg.settings_time_sync_bytes == [0x30, 0x40]
+
+    def test_hem7377t1_resolves_to_own_profile(self):
+        assert resolve_profile_model_id("HEM-7377T1-ZAZ") == "HEM-7377T1"
+        cfg = get_device_config("HEM-7377T1-ZAZ")
+        assert cfg.user_start_addresses == [0x080C, 0x0D0C]
+        assert cfg.per_user_records_count == [80, 80]
+        assert cfg.settings_write_address == 0x0058
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 79
+
+    def test_hem7386t1_resolves_to_own_profile(self):
+        assert resolve_profile_model_id("HEM-7382T1") == "HEM-7386T1"
+        assert resolve_profile_model_id("HEM-7382T1-AZAZ") == "HEM-7386T1"
+        assert resolve_profile_model_id("HEM-7381T1-AZ") == "HEM-7386T1"
+        assert resolve_profile_model_id("HEM-7386T1-AJF3") == "HEM-7386T1"
+        cfg = get_device_config("HEM-7382T1-AZAZ")
+        assert cfg.user_start_addresses == [0x080C, 0x0E4C]
+        assert cfg.per_user_records_count == [100, 100]
+        assert cfg.settings_write_address == 0x0058
 
     def test_unknown_model_falls_back_to_default(self):
         from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
