@@ -315,36 +315,12 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
         from dbus_fast.aio.message_bus import MessageBus
         from dbus_fast.constants import BusType
         from dbus_fast.message import Message
-        from dbus_fast.service import ServiceInterface, method as dbus_method
-    except ImportError:
+
+        from .bluez_agent import AutoConfirmAgent
+    except Exception as exc:
+        _LOGGER.debug("BlueZ agent unavailable (%s); pairing without an agent", exc)
         yield None
         return
-
-    class _AutoConfirmAgent(ServiceInterface):
-        """Minimal BlueZ pairing agent that auto-accepts Just Works."""
-
-        def __init__(self) -> None:
-            super().__init__("org.bluez.Agent1")
-
-        @dbus_method()
-        def Release(self) -> None:  # type: ignore[override]
-            pass
-
-        @dbus_method()
-        def RequestConfirmation(self, device: "o", passkey: "u") -> None:  # type: ignore[override]  # noqa: F821
-            _LOGGER.debug("BlueZ agent: auto-confirming passkey %06d", passkey)
-
-        @dbus_method()
-        def RequestPasskey(self, device: "o") -> "u":  # type: ignore[override]  # noqa: F821
-            return 0
-
-        @dbus_method()
-        def RequestAuthorization(self, device: "o") -> None:  # type: ignore[override]  # noqa: F821
-            pass
-
-        @dbus_method()
-        def Cancel(self) -> None:  # type: ignore[override]
-            pass
 
     try:
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
@@ -355,7 +331,7 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
 
     registered = False
     try:
-        bus.export(_BLUEZ_AGENT_PATH, _AutoConfirmAgent())
+        bus.export(_BLUEZ_AGENT_PATH, AutoConfirmAgent())
         await bus.call(
             Message(
                 destination="org.bluez",
