@@ -989,6 +989,17 @@ class OmronDeviceSession:
         if self._config.is_single_channel:
             frame_bytes = bytearray(self._channel_fragments[0])
             self._channel_fragments = [None] * 4
+            declared = frame_bytes[0] if frame_bytes else 0
+            if declared and len(frame_bytes) < declared:
+                _LOGGER.warning(
+                    "Truncated BLE frame: declared %d bytes, received %d: %s",
+                    declared,
+                    len(frame_bytes),
+                    _hex(frame_bytes),
+                )
+                return
+            if declared:
+                frame_bytes = frame_bytes[:declared]
         else:
             packet_size = self._channel_fragments[0][0]
             if packet_size == 0:
@@ -1060,23 +1071,25 @@ class OmronDeviceSession:
             )
             return
 
-        # Guard against truncated payload: must have room for header (6) + payload (expected_data_len) + response_code (1) + CRC (1) = 8
-        if len(frame_bytes) < expected_data_len + 8:
-            _LOGGER.warning(
-                "Truncated BLE frame received (expected %d bytes payload, available %d): %s",
-                expected_data_len,
-                max(0, len(frame_bytes) - 8),
-                _hex(frame_bytes),
-            )
-            return
-
         self._last_reply_packet_type = packet_type
         self._last_reply_memory_address = memory_address
-        if packet_type == b"\x8f\x00":
+        if packet_type == b"\x81\x00":
+            # Memory block read: payload length in byte 5, payload at bytes 6..6+data_len
+            if len(frame_bytes) < expected_data_len + 8:
+                _LOGGER.warning(
+                    "Truncated BLE read frame received (expected %d bytes payload, available %d): %s",
+                    expected_data_len,
+                    max(0, len(frame_bytes) - 8),
+                    _hex(frame_bytes),
+                )
+                return
+            self._last_reply_payload = bytes(frame_bytes[6:6 + expected_data_len])
+        elif packet_type == b"\x8f\x00":
             # End-of-transmission packet: error code is in byte 6
             self._last_reply_payload = bytes(frame_bytes[6:7])
         else:
-            self._last_reply_payload = bytes(frame_bytes[6:6 + expected_data_len])
+            # Control frame (e.g. 0x8000 session open, 0x81c0 write response): response code in byte 6
+            self._last_reply_payload = bytes(frame_bytes[6:7])
 
         self._reply_ready.set()
 
@@ -1250,6 +1263,10 @@ class OmronDeviceSession:
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
+            if self._last_reply_payload and self._last_reply_payload[0]:
+                raise ConnectionError(
+                    f"Device rejected memory session open (error code 0x{self._last_reply_payload[0]:02x})"
+                )
             self._memory_session_active = True
             self._debug_ble_link("open_memory_session_ok")
             _LOGGER.debug("Memory session opened for %s", self.address)
