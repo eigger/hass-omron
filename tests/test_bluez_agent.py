@@ -8,7 +8,10 @@ PEP 563 으로 인해 어노테이션이 문자열화되어
 """
 
 import ast
+import asyncio
 from pathlib import Path
+import sys
+import types
 import pytest
 
 
@@ -44,17 +47,32 @@ def test_bluez_agent_no_future_annotations():
 
 def test_bluez_pairing_agent_graceful_fallback_on_error(monkeypatch):
     """에이전트 임포트/설정 중 예외 발생 시 크래시 없이 None 으로 안전하게 fallback 해야 한다."""
-    import asyncio
     from custom_components.omron.omron_ble import omron_driver
 
-    # MessageBus 연결 시 예외 발생 시뮬레이션
-    monkeypatch.setattr(
-        "custom_components.omron.omron_ble.bluez_agent.AutoConfirmAgent",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("Simulated error")),
-    )
-
-    async def _test():
+    # 1. 기본 환경(D-Bus 미연결 또는 미설치)에서 None fallback 검증
+    async def _test_base():
         async with omron_driver._bluez_pairing_agent() as bus:
             assert bus is None
 
-    asyncio.run(_test())
+    asyncio.run(_test_base())
+
+    # 2. 에이전트 생성/등록 시 임의의 예외(TypeError 등) 발생 시뮬레이션
+    fake_module = types.ModuleType("custom_components.omron.omron_ble.bluez_agent")
+
+    class _BrokenAgent:
+        def __init__(self, *args, **kwargs):
+            raise TypeError("Argument 'signature' has incorrect type")
+
+    fake_module.AutoConfirmAgent = _BrokenAgent
+
+    monkeypatch.setitem(
+        sys.modules,
+        "custom_components.omron.omron_ble.bluez_agent",
+        fake_module,
+    )
+
+    async def _test_exception():
+        async with omron_driver._bluez_pairing_agent() as bus:
+            assert bus is None
+
+    asyncio.run(_test_exception())

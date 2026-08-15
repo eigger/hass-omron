@@ -45,7 +45,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pytest
+          pip install pytest dbus-fast
 
       - name: Run tests
         run: python -m pytest tests/ -v
