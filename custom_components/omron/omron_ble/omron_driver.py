@@ -19,7 +19,7 @@ from .devices import DeviceConfig, HostPairingMode, UnlockMode
 _LOGGER = logging.getLogger(__name__)
 
 # BLE memory-protocol pacing (extra margin for weak RF / busy stacks).
-_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 3.5
+_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
@@ -589,6 +589,7 @@ class OmronDeviceSession:
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
+        self._expected_reply_packet_type: bytes | None = None
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
@@ -953,6 +954,7 @@ class OmronDeviceSession:
         self._secure_session = None
         self._memory_session_active = False
         self._channel_fragments = [None] * 4
+        self._expected_reply_packet_type = None
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
 
@@ -974,6 +976,10 @@ class OmronDeviceSession:
             _LOGGER.warning("Received data on unknown handle/uuid: %s", char)
             return
 
+        if channel_index == 0:
+            # Devices send notification channels sequentially (ch0, ch1, ...);
+            # receiving ch0 signals the start of a new frame, so discard stale fragments.
+            self._channel_fragments = [None] * 4
         self._channel_fragments[channel_index] = rx_bytes
 
         # Check if we can assemble a complete packet
@@ -985,10 +991,21 @@ class OmronDeviceSession:
             self._channel_fragments = [None] * 4
         else:
             packet_size = self._channel_fragments[0][0]
+            if packet_size == 0:
+                _LOGGER.warning("Received zero-length BLE frame packet_size")
+                self._channel_fragments = [None] * 4
+                return
+            if packet_size > 64:
+                _LOGGER.warning(
+                    "BLE frame packet_size %d exceeds 4-channel capacity (max 64 bytes)",
+                    packet_size,
+                )
+                self._channel_fragments = [None] * 4
+                return
             required_channels = range((packet_size + 15) // 16)
             # Check all required channels are received
             for ch in required_channels:
-                if self._channel_fragments[ch] is None:
+                if ch >= len(self._channel_fragments) or self._channel_fragments[ch] is None:
                     return
             # Combine channels
             frame_bytes = bytearray()
@@ -1015,18 +1032,51 @@ class OmronDeviceSession:
                 )
                 return
 
+        # Check minimum valid frame length (len(1) + type(2) + addr(2) + datalen(1) + rescode(1) + crc(1) = 8)
+        if len(frame_bytes) < 8:
+            _LOGGER.warning(
+                "Received malformed or undersized BLE frame (%d bytes): %s",
+                len(frame_bytes),
+                _hex(frame_bytes),
+            )
+            return
+
         # Extract packet fields
-        self._last_reply_packet_type = frame_bytes[1:3]
-        self._last_reply_memory_address = frame_bytes[3:5]
+        packet_type = bytes(frame_bytes[1:3])
+        memory_address = bytes(frame_bytes[3:5])
         expected_data_len = frame_bytes[5]
-        if expected_data_len > (len(frame_bytes) - 8):
-            self._last_reply_payload = bytes(b'\xff') * expected_data_len
+
+        # If a specific reply packet type is expected, discard late or unrelated frames,
+        # but always accept 0x8f00 (end-of-transmission / device error frame).
+        if (
+            self._expected_reply_packet_type is not None
+            and packet_type != self._expected_reply_packet_type
+            and packet_type != b"\x8f\x00"
+        ):
+            _LOGGER.debug(
+                "Ignoring unexpected or late reply packet type %s (expected %s)",
+                _hex(packet_type),
+                _hex(self._expected_reply_packet_type),
+            )
+            return
+
+        # Guard against truncated payload: must have room for header (6) + payload (expected_data_len) + response_code (1) + CRC (1) = 8
+        if len(frame_bytes) < expected_data_len + 8:
+            _LOGGER.warning(
+                "Truncated BLE frame received (expected %d bytes payload, available %d): %s",
+                expected_data_len,
+                max(0, len(frame_bytes) - 8),
+                _hex(frame_bytes),
+            )
+            return
+
+        self._last_reply_packet_type = packet_type
+        self._last_reply_memory_address = memory_address
+        if packet_type == b"\x8f\x00":
+            # End-of-transmission packet: error code is in byte 6
+            self._last_reply_payload = bytes(frame_bytes[6:7])
         else:
-            if self._last_reply_packet_type == bytearray.fromhex("8f00"):
-                # End-of-transmission packet: error code is in byte 6
-                self._last_reply_payload = frame_bytes[6:7]
-            else:
-                self._last_reply_payload = frame_bytes[6:6 + expected_data_len]
+            self._last_reply_payload = bytes(frame_bytes[6:6 + expected_data_len])
 
         self._reply_ready.set()
 
@@ -1036,6 +1086,12 @@ class OmronDeviceSession:
         timeout: float = _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC,
     ) -> None:
         """Send a command and wait for response with retry logic."""
+        # Derive expected reply packet type from plaintext command before optional encryption
+        if len(command) >= 3:
+            self._expected_reply_packet_type = bytes([command[1] | 0x80, command[2]])
+        else:
+            self._expected_reply_packet_type = None
+
         if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
             try:
                 command = bytearray(self._secure_session.encrypt(bytes(command)))
@@ -1044,94 +1100,111 @@ class OmronDeviceSession:
                 raise
 
         max_retries = _MEMORY_PROTOCOL_TX_MAX_RETRIES
-        for retry in range(max_retries):
-            self._reply_ready.clear()
+        try:
+            for retry in range(max_retries):
+                self._reply_ready.clear()
 
-            # Split command across TX channels
-            remaining_cmd = command
-            channel_width = 16
-            if self._config.is_single_channel:
-                channel_width = max(channel_width, len(command))
+                # Split command across TX channels
+                remaining_cmd = command
+                channel_width = 16
+                if self._config.is_single_channel:
+                    channel_width = max(channel_width, len(command))
 
-            num_tx_channels = (len(command) + channel_width - 1) // channel_width
-            try:
-                for ch_idx in range(num_tx_channels):
-                    tx_segment = remaining_cmd[:channel_width]
-                    if self._config.is_single_channel:
-                        await self._client.write_gatt_char(
-                            self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+                num_tx_channels = (len(command) + channel_width - 1) // channel_width
+                try:
+                    for ch_idx in range(num_tx_channels):
+                        tx_segment = remaining_cmd[:channel_width]
+                        if self._config.is_single_channel:
+                            await self._client.write_gatt_char(
+                                self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+                            )
+                        else:
+                            await self._client.write_gatt_char(
+                                self._config.tx_channel_uuids[ch_idx], tx_segment
+                            )
+                        remaining_cmd = remaining_cmd[channel_width:]
+                except BleakError as exc:
+                    msg = str(exc).lower()
+                    # Refresh the GATT cache when either:
+                    #   1. Bleak reports services were never discovered, or
+                    #   2. The TX characteristic UUID is not in the local cache
+                    #      (typical right after OS bonding completes — the peer
+                    #      newly exposes encryption-required characteristics that
+                    #      weren't visible in the pre-bond enumeration).
+                    stale_cache = (
+                        "service discovery has not been performed" in msg
+                        or "was not found" in msg
+                    )
+                    if stale_cache:
+                        _LOGGER.debug(
+                            "GATT cache stale during write (retry %d/%d), refreshing: %s",
+                            retry + 1,
+                            max_retries,
+                            exc,
                         )
+                        try:
+                            await asyncio.sleep(_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC)
+                            await _bleak_refresh_services(self._client)
+                        except Exception as refresh_exc:
+                            _LOGGER.debug(
+                                "Service refresh during write retry failed (continuing): %s",
+                                refresh_exc,
+                            )
                     else:
-                        await self._client.write_gatt_char(
-                            self._config.tx_channel_uuids[ch_idx], tx_segment
+                        _LOGGER.warning(
+                            "BLE error during write (retry %d/%d): %s",
+                            retry + 1,
+                            max_retries,
+                            exc,
                         )
-                    remaining_cmd = remaining_cmd[channel_width:]
-            except BleakError as exc:
-                msg = str(exc).lower()
-                # Refresh the GATT cache when either:
-                #   1. Bleak reports services were never discovered, or
-                #   2. The TX characteristic UUID is not in the local cache
-                #      (typical right after OS bonding completes — the peer
-                #      newly exposes encryption-required characteristics that
-                #      weren't visible in the pre-bond enumeration).
-                stale_cache = (
-                    "service discovery has not been performed" in msg
-                    or "was not found" in msg
-                )
-                if stale_cache:
-                    _LOGGER.debug(
-                        "GATT cache stale during write (retry %d/%d), refreshing: %s",
-                        retry + 1,
-                        max_retries,
-                        exc,
+                    if retry + 1 >= max_retries:
+                        raise
+                    continue
+
+                # Wait for response
+                try:
+                    self._debug_ble_link(
+                        f"await_reply attempt={retry + 1} cmd_head={_hex(command[:8])}"
+                    )
+                    await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
+                    if (
+                        self._expected_reply_packet_type is not None
+                        and self._last_reply_packet_type == b"\x8f\x00"
+                        and self._expected_reply_packet_type != b"\x8f\x00"
+                    ):
+                        code = (
+                            self._last_reply_payload[0]
+                            if self._last_reply_payload
+                            else -1
+                        )
+                        raise ConnectionError(
+                            f"Device rejected command {_hex(command[:3])} "
+                            f"(error frame 0x8f00, code 0x{code:02x})"
+                        )
+                    return  # Success
+                except asyncio.TimeoutError:
+                    _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, max_retries)
+                    self._debug_ble_link(
+                        f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
                     )
                     try:
-                        await asyncio.sleep(_MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC)
-                        await _bleak_refresh_services(self._client)
-                    except Exception as refresh_exc:
-                        _LOGGER.debug(
-                            "Service refresh during write retry failed (continuing): %s",
-                            refresh_exc,
-                        )
-                else:
-                    _LOGGER.warning(
-                        "BLE error during write (retry %d/%d): %s",
-                        retry + 1,
-                        max_retries,
-                        exc,
-                    )
-                if retry + 1 >= max_retries:
-                    raise
-                continue
+                        if not self._client.is_connected:
+                            raise ConnectionError(
+                                "BLE disconnected while waiting for a memory-protocol reply "
+                                "(no assembled RX within timeout); retry when the link is stable"
+                            )
+                    except ConnectionError:
+                        raise
+                    except Exception:
+                        pass
+                    if retry + 1 < max_retries:
+                        await asyncio.sleep(_MEMORY_PROTOCOL_RETRY_BACKOFF_SEC)
 
-            # Wait for response
-            try:
-                self._debug_ble_link(
-                    f"await_reply attempt={retry + 1} cmd_head={_hex(command[:8])}"
-                )
-                await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
-                return  # Success
-            except asyncio.TimeoutError:
-                _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, max_retries)
-                self._debug_ble_link(
-                    f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
-                )
-                try:
-                    if not self._client.is_connected:
-                        raise ConnectionError(
-                            "BLE disconnected while waiting for a memory-protocol reply "
-                            "(no assembled RX within timeout); retry when the link is stable"
-                        )
-                except ConnectionError:
-                    raise
-                except Exception:
-                    pass
-                if retry + 1 < max_retries:
-                    await asyncio.sleep(_MEMORY_PROTOCOL_RETRY_BACKOFF_SEC)
-
-        raise ConnectionError(
-            f"Failed to receive response after {max_retries} retries"
-        )
+            raise ConnectionError(
+                f"Failed to receive response after {max_retries} retries"
+            )
+        finally:
+            self._expected_reply_packet_type = None
 
     @property
     def memory_session_active(self) -> bool:

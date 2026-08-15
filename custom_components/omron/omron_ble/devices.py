@@ -140,7 +140,7 @@ class DeviceConfig:
     user_start_addresses: list[int] = field(default_factory=list)
     per_user_records_count: list[int] = field(default_factory=list)
     record_byte_size: int = 0x0E
-    transmission_block_size: int = 0x38
+    transmission_block_size: int = 0x2C
 
     # Settings addresses
     settings_read_address: int | None = None

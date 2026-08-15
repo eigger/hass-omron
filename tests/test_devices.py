@@ -329,5 +329,16 @@ class TestCatalogResolution:
             assert cfg is not None
             assert cfg.model == m
 
+    def test_transmission_block_size_limits(self):
+        assert get_device_config("HEM-7600T").transmission_block_size == 0x2C
+        assert get_device_config("HEM-6232T").transmission_block_size == 0x2C
+        assert get_device_config("HEM-7142T2").transmission_block_size == 0x2C
+        assert get_device_config("HEM-6320T").transmission_block_size == 0x2C
+        assert get_device_config("HEM-7322T").transmission_block_size == 0x2C
+        assert get_device_config("HEM-7155T-MW").transmission_block_size == 0x2C
+        assert get_device_config("HEM-7188T1").transmission_block_size == 0x38
+        assert get_device_config("HEM-7196T1").transmission_block_size == 0x38
+        assert get_device_config("HEM-7386T1").transmission_block_size == 0x38
+
     def test_unknown_model_falls_back_to_default(self):
         assert resolve_profile_model_id("NOT-A-REAL-MODEL") == DEFAULT_DEVICE_MODEL
