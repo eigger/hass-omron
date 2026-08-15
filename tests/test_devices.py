@@ -340,5 +340,30 @@ class TestCatalogResolution:
         assert get_device_config("HEM-7196T1").transmission_block_size == 0x38
         assert get_device_config("HEM-7386T1").transmission_block_size == 0x38
 
+    def test_heartguide_profile_configuration(self):
+        from custom_components.omron.omron_ble.devices import Endianness, RecordParser
+
+        cfg_9601 = get_device_config("HEM-9601T")
+        assert cfg_9601.record_byte_size == 0x18
+        assert cfg_9601.user_start_addresses == [0x041A]
+        assert cfg_9601.per_user_records_count == [350]
+        assert cfg_9601.settings_read_address == 0x0356
+        assert cfg_9601.settings_time_sync_bytes == [0x50, 0x5A]
+        assert cfg_9601.endianness == Endianness.BIG
+        assert cfg_9601.index_pointer_layout.get("backtrack_slots") == 5
+        assert cfg_9601.record_parser == RecordParser.CLASSIC_VITAL_24_HEARTGUIDE
+
+        cfg_9601_variant = get_device_config("HEM-9601T-J3")
+        assert cfg_9601_variant.record_byte_size == 0x18
+        assert cfg_9601_variant.user_start_addresses == [0x041A]
+
+        cfg_9700 = get_device_config("HEM-9700T")
+        assert cfg_9700.record_byte_size == 0x18
+        assert cfg_9700.per_user_records_count == [1000]
+        assert cfg_9700.settings_time_sync_bytes == [0x50, 0x5A]
+        assert cfg_9700.endianness == Endianness.BIG
+        assert cfg_9700.index_pointer_layout.get("backtrack_slots") == 5
+        assert cfg_9700.record_parser == RecordParser.CLASSIC_VITAL_24_HEARTGUIDE
+
     def test_unknown_model_falls_back_to_default(self):
         assert resolve_profile_model_id("NOT-A-REAL-MODEL") == DEFAULT_DEVICE_MODEL

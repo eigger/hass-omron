@@ -57,17 +57,22 @@ def _load_from_zip(zf: zipfile.ZipFile) -> dict:
             sys_txt = zf.read(name).decode("utf-8", errors="replace")
             other = {}
             vital = {}
+            sw = {}
             other_name = os.path.join(d, "OtherInfo.json")
             if other_name in names:
                 other = _parse_json(zf.read(other_name)) or {}
             vital_name = os.path.join(d, "VitalDataIndexes.json")
             if vital_name in names:
                 vital = _parse_json(zf.read(vital_name)) or {}
+            sw_name = os.path.join(d, "SettingWriteIndex.json")
+            if sw_name in names:
+                sw = _parse_json(zf.read(sw_name)) or {}
             models[mname] = {
                 "dir": d,
                 "sys": _parse_sys(sys_txt),
                 "other": other,
                 "vital": vital,
+                "setting_write": sw,
             }
         elif name.endswith(".zip"):
             try:
@@ -103,13 +108,16 @@ def load_vendor():
                 sys_txt = open(cfg, encoding="utf-8", errors="replace").read()
                 other_path = os.path.join(d, "OtherInfo.json")
                 vital_path = os.path.join(d, "VitalDataIndexes.json")
+                sw_path = os.path.join(d, "SettingWriteIndex.json")
                 other = _parse_json(open(other_path, "rb").read()) if os.path.exists(other_path) else {}
                 vital = _parse_json(open(vital_path, "rb").read()) if os.path.exists(vital_path) else {}
+                sw = _parse_json(open(sw_path, "rb").read()) if os.path.exists(sw_path) else {}
                 models[name] = {
                     "dir": d,
                     "sys": _parse_sys(sys_txt),
                     "other": other or {},
                     "vital": vital or {},
+                    "setting_write": sw or {},
                 }
     return models
 
@@ -218,7 +226,38 @@ def bp_block_indices(ven):
     return out
 
 
+CLOCK_OFFSET_IN_WINDOW = {
+    "eeprom_time_modern_offset8": 8,
+    "eeprom_time_classic_offset8": 8,
+    "eeprom_time_linear_10": 2,
+    "eeprom_time_classic_mixed": 2,
+    "eeprom_time_hem6401_prefix": 0,
+}
+
+
+def find_year_offset(obj):
+    if isinstance(obj, dict):
+        if "year" in obj and isinstance(obj["year"], dict) and "addressOffset" in obj["year"]:
+            return obj["year"]["addressOffset"]
+        for val in obj.values():
+            res = find_year_offset(val)
+            if res is not None:
+                return res
+    elif isinstance(obj, list):
+        for item in obj:
+            res = find_year_offset(item)
+            if res is not None:
+                return res
+    return None
+
+
 # ---------------------------------------------------------------- comparison
+# Whitelist of models with known vendor notation deviations:
+# HEM-7138K-SH: Vendor specifies WLS3.0 (single-user notation) but memory map is identical to WLD1.0 family.
+# connect_type is only used for bond policy routing and does not affect framing.
+KNOWN_CONNECT_TYPE_DEVIATIONS = {"HEM-7138K-SH"}
+
+
 def check(model_id, cfg, ven):
     s = ven["sys"]
     issues = []
@@ -277,20 +316,34 @@ def check(model_id, cfg, ven):
     if us and rr is not None and int(us) != rr:
         issues.append(f"index_region_byte_size {rr} (0x{rr:02X}) != vendor {us}")
 
-    # 5. time-sync window must line up with one of the setting-info blocks
+    # 5. time-sync window: exact clock alignment with SettingWriteIndex.json
     if cfg.settings_time_sync_bytes:
-        blocks = vendor_setting_blocks(s)
-        want = tuple(cfg.settings_time_sync_bytes)
-        if blocks and want[0] not in [b[0] for b in blocks]:
-            issues.append(
-                f"settings_time_sync_bytes starts at 0x{want[0]:02X}, which is not a vendor "
-                f"setting-block boundary {['0x%02X' % a for a, _ in blocks]}"
-            )
+        sw = ven.get("setting_write")
+        clock_off = find_year_offset(sw) if sw else None
+        if clock_off is not None:
+            layout = str(cfg.time_sync_layout or ("eeprom_time_modern_offset8" if cfg.settings_time_sync_bytes == [0x2C, 0x3C] else "eeprom_time_classic_mixed"))
+            expected_start = clock_off - CLOCK_OFFSET_IN_WINDOW.get(layout, 0)
+            if cfg.settings_time_sync_bytes[0] != expected_start:
+                issues.append(
+                    f"settings_time_sync_bytes window start 0x{cfg.settings_time_sync_bytes[0]:02X} != "
+                    f"expected 0x{expected_start:02X} (clock offset {clock_off} in SettingWriteIndex for layout {layout})"
+                )
+        else:
+            blocks = vendor_setting_blocks(s)
+            want = tuple(cfg.settings_time_sync_bytes)
+            if blocks and not any(start <= want[0] < end for start, end in blocks):
+                issues.append(
+                    f"settings_time_sync_bytes starts at 0x{want[0]:02X}, which is not inside a vendor "
+                    f"setting-block boundary {['0x%02X..0x%02X' % (a, b) for a, b in blocks]}"
+                )
 
     # 6. connect type (the [model] section can list several: usb_block + a WL* one)
     vct = [c for c in ven["sys"]["_multi"].get("connect_type", []) if c != "usb_block"]
     if vct and str(cfg.connect_type) and str(cfg.connect_type) not in vct:
-        issues.append(f"connect_type {cfg.connect_type!s} != vendor {'/'.join(vct)}")
+        if model_id in KNOWN_CONNECT_TYPE_DEVIATIONS:
+            pass
+        else:
+            issues.append(f"connect_type {cfg.connect_type!s} != vendor {'/'.join(vct)}")
 
     return issues
 
