@@ -102,14 +102,40 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0xFFFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
+                {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0x3FFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_16_6401_FAMILY,
         equivalent_model_ids=(
             "HEM-6401T-Z",
             "HEM-6402T-Z",
+        ),
+    ),
+    "HEM-6410T": DeviceConfig(
+        model="HEM-6410T",
+        endianness=Endianness.LITTLE,
+        user_start_addresses=[0x5590],
+        per_user_records_count=[100],
+        record_byte_size=0x20,
+        transmission_block_size=0x10,
+        settings_read_address=0x0100,
+        settings_write_address=0x0170,
+        settings_unread_records_bytes=None,
+        settings_time_sync_bytes=[0x10, 0x20],
+        time_sync_layout=TimeSyncLayout.HEM6401_PREFIX,
+        index_pointer_layout={
+            "index_region_byte_size": 0x10,
+            "endianness": "big",
+            "users": [
+                {"write_cursor_offset": 0x06, "unread_counter_offset": 0x0E, "write_cursor_mask": 0x3FFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": 0},
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_16_6401_FAMILY,
+        equivalent_model_ids=(
             "HEM-6410T-Z",
+            "HEM-6410T-Z_BP",
+            "HEM-6410T-Z_BP+EV",
+            "HEM-6411T-MAE",
         ),
     ),
     "HEM-7320T": DeviceConfig(
@@ -170,6 +196,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7321T_TI-CA",
             "HEM-7321T_TI-Z",
             "HEM-7280T-AP",
+            "HEM-7280T-D",
             "HEM-7280T-E",
             "HEM-7280T_TI-D",
             "HEM-7280T_TI-E",
@@ -444,6 +471,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
+            "HEM-6161T-D",
             "HEM-6161T-E",
             "HEM-6161T-RU",
             "HEM-6161T2-BR",
@@ -1178,6 +1206,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HEM-7149T2-E",
             "HEM-716BT2-ZAZ",
             "HEM-716CT2-Z",
         ),

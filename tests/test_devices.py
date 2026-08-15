@@ -280,6 +280,31 @@ class TestCatalogResolution:
         assert cfg.per_user_records_count == [30]
         assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 29
 
+    def test_hem6401t_and_hem6410t_profiles(self):
+        cfg_6401 = get_device_config("HEM-6401T-Z")
+        assert cfg_6401.index_pointer_layout["users"][0]["write_cursor_mask"] == 0x3FFF
+        assert cfg_6401.user_start_addresses == [0x1350]
+        assert cfg_6401.settings_write_address == 0x0160
+
+        assert resolve_profile_model_id("HEM-6410T-Z") == "HEM-6410T"
+        assert resolve_profile_model_id("HEM-6410T-Z_BP") == "HEM-6410T"
+        assert resolve_profile_model_id("HEM-6410T-Z_BP+EV") == "HEM-6410T"
+        assert resolve_profile_model_id("HEM-6411T-MAE") == "HEM-6410T"
+
+        cfg_6410 = get_device_config("HEM-6410T-Z")
+        assert cfg_6410.user_start_addresses == [0x5590]
+        assert cfg_6410.record_byte_size == 0x20
+        assert cfg_6410.settings_read_address == 0x0100
+        assert cfg_6410.settings_write_address == 0x0170
+        assert cfg_6410.index_pointer_layout["users"][0]["write_cursor_mask"] == 0x3FFF
+        assert cfg_6410.index_pointer_layout["users"][0]["write_cursor_offset"] == 0x06
+        assert cfg_6410.index_pointer_layout["users"][0]["unread_counter_offset"] == 0x0E
+
+    def test_additional_equivalent_models_resolved(self):
+        assert resolve_profile_model_id("HEM-7280T-D") == "HEM-7322T"
+        assert resolve_profile_model_id("HEM-6161T-D") == "HEM-6161T"
+        assert resolve_profile_model_id("HEM-7149T2-E") == "HEM-716BT2"
+
     def test_all_readme_supported_models_are_resolvable_and_in_dropdown(self):
         readme_models = [
             "HEM-6161T",
