@@ -45,6 +45,47 @@ class TestRxNotificationHandling:
         assert self.session._last_reply_packet_type == b"\x81\x00"
         assert self.session._last_reply_payload == b"\x01\x02\x03\x04"
 
+    def test_session_open_8000_frame_accepted(self):
+        # Real-device open_memory_session response: 0880000000100098 (8 bytes, byte[5]=0x10)
+        # Must not be rejected as a truncated frame.
+        raw = bytearray.fromhex("0880000000100098")
+        self.session._expected_reply_packet_type = b"\x80\x00"
+        self.session._on_notify_channel_data(0, raw)
+
+        assert self.session._reply_ready.is_set()
+        assert self.session._last_reply_packet_type == b"\x80\x00"
+        assert self.session._last_reply_payload == b"\x00"
+
+    def test_session_close_8f00_frame_accepted_with_nonzero_byte5(self):
+        # Control frame 8f00 with non-zero byte[5] and response code 0
+        raw = bytearray([0x08, 0x8F, 0x00, 0x00, 0x00, 0x10, 0x00])
+        raw.append(_calc_crc(raw))
+        self.session._expected_reply_packet_type = b"\x8f\x00"
+        self.session._on_notify_channel_data(0, raw)
+
+        assert self.session._reply_ready.is_set()
+        assert self.session._last_reply_packet_type == b"\x8f\x00"
+        assert self.session._last_reply_payload == b"\x00"
+
+    def test_memory_write_81c0_frame_accepted_with_nonzero_byte5(self):
+        # Control frame 81c0 (write response) with non-zero byte[5] and response code 0
+        raw = bytearray([0x08, 0x81, 0xC0, 0x00, 0x00, 0x0A, 0x00])
+        raw.append(_calc_crc(raw))
+        self.session._expected_reply_packet_type = b"\x81\xC0"
+        self.session._on_notify_channel_data(0, raw)
+
+        assert self.session._reply_ready.is_set()
+        assert self.session._last_reply_packet_type == b"\x81\xC0"
+        assert self.session._last_reply_payload == b"\x00"
+
+    def test_single_channel_declared_length_truncation_is_ignored(self):
+        # Single channel frame declares 16 bytes, but only 8 bytes received
+        short_frame = bytearray([16, 0x81, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00])
+        self.session._on_notify_channel_data(0, short_frame)
+
+        assert not self.session._reply_ready.is_set()
+        assert self.session._last_reply_payload is None
+
     def test_undersized_frame_is_ignored(self):
         short_frame = bytearray([0x04, 0x81, 0x00, 0x05])
         self.session._on_notify_channel_data(0, short_frame)
