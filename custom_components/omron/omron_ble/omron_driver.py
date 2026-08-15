@@ -162,16 +162,26 @@ async def establish_connection_with_bond_settle(
             client = await _connect_once(ble_device, name, pair=False)
         except BleakError as exc:
             if pair_this_attempt:
-                # The device refused to bond. Surface it verbatim: the proxy
-                # reports the peer's own failure code here, which is the most
-                # direct evidence of why the cuff rejected us.
+                # The device refused to bond (e.g. error 102 when the cuff is
+                # in normal transfer mode instead of pairing mode). Fall back to
+                # connecting without pair so stateless/token-key transfers succeed.
                 _LOGGER.warning(
                     "Bonding %s [%s] during connect via source=%s failed "
-                    "(attempt %d/%d): %s",
-                    name, model or "?", source, attempt,
-                    _CONNECT_SETTLE_ATTEMPTS, exc,
+                    "(attempt %d/%d): %s; falling back to connect without pair",
+                    name,
+                    model or "?",
+                    source,
+                    attempt,
+                    _CONNECT_SETTLE_ATTEMPTS,
+                    exc,
                 )
-            raise
+                pair_this_attempt = False
+                try:
+                    client = await _connect_once(ble_device, name, pair=False)
+                except Exception:
+                    raise exc
+            else:
+                raise
         if pair_this_attempt:
             _LOGGER.debug(
                 "Bonded %s via source=%s before service discovery", name, source
