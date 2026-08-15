@@ -62,3 +62,56 @@ class TestParseClassicVital14Bitpacked:
         assert record["sys"] == 145
         assert record["dia"] == 91
         assert record["bpm"] == 72
+
+
+class TestParseClassicVital24Heartguide:
+    def test_valid_heartguide_record(self):
+        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+
+        raw = bytearray(24)
+        raw[0] = 100  # sys: 100 + 25 = 125
+        raw[1] = 80   # dia: 80
+        raw[2] = 70   # bpm: 70
+        raw[3] = 26   # year: 2026
+        # flags1: hour=19, day=17, month=6, ihb=1, mov=1
+        # -> 19 | (17<<5) | (6<<10) | (1<<14) | (1<<15) = 6707 | 16384 | 32768 = 55859 (0xDA33)
+        raw[4:6] = (55859).to_bytes(2, "little")
+        # flags2: second=30, minute=35, cuff=1 -> 30 | (35<<6) | (1<<12) = 6366 (0x18DE)
+        raw[6:8] = (6366).to_bytes(2, "little")
+        raw[10:12] = (42).to_bytes(2, "little")  # _record_id = 42
+        raw[17] = 0x00  # success status
+
+        record = parse_classic_vital_24_heartguide(raw, endianness="little")
+        assert record["sys"] == 125
+        assert record["dia"] == 80
+        assert record["bpm"] == 70
+        assert record["datetime"] == datetime.datetime(2026, 6, 17, 19, 35, 30)
+        assert record["ihb"] == 1
+        assert record["mov"] == 1
+        assert record["cuff"] == 1
+        assert record["_record_id"] == 42
+
+    def test_heartguide_error_code_rejected(self):
+        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+
+        raw = bytearray(24)
+        raw[0] = 100
+        raw[1] = 80
+        raw[17] = 0x05  # error status code
+        with pytest.raises(ValueError, match="measurement error code 0x05"):
+            parse_classic_vital_24_heartguide(raw, endianness="little")
+
+    def test_heartguide_empty_slot_rejected(self):
+        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+
+        raw = bytes([0xFF] * 24)
+        with pytest.raises(ValueError, match="record slot is empty"):
+            parse_classic_vital_24_heartguide(raw, endianness="little")
+
+    def test_heartguide_too_short_rejected(self):
+        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+
+        raw = bytes(20)
+        with pytest.raises(ValueError, match="record too short"):
+            parse_classic_vital_24_heartguide(raw, endianness="little")
+

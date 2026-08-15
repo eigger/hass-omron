@@ -185,3 +185,68 @@ def parse_classic_vital_16_6401_family(
         "datetime": datetime.datetime(year_off + 2000, month, day, hour, minute, second),
     }
     return record
+
+
+def parse_classic_vital_24_heartguide(
+    data: bytes | bytearray, endianness: str
+) -> dict[str, Any]:
+    """Classic 24-byte vital record for HeartGuide (HEM-9601T / HEM-9700T).
+
+    Byte layout:
+      [0]     sys - 25 (>0xE1 means empty slot)
+      [1]     dia
+      [2]     bpm
+      [3]     year - 2000 (lower 6 bits)
+      [4:5]   flags1 (hour, day, month, mov, ihb)
+      [6:7]   flags2 (second, minute, cuff, pos)
+      [10:11] sequenceNo (_record_id)
+      [17]    error status code (0 = success)
+    """
+    if len(data) < 24:
+        raise ValueError("record too short")
+
+    raw_sys = data[0]
+    # Empty slot marker: 0xFF / > 0xE1 indicates unwritten or cleared record
+    if raw_sys > 0xE1:
+        raise ValueError("record slot is empty")
+
+    err = data[17]
+    if err != 0:
+        raise ValueError(f"measurement error code 0x{err:02X}")
+
+    record: dict[str, Any] = {}
+    record["sys"] = raw_sys + 25
+    record["dia"] = data[1]
+    record["bpm"] = data[2]
+
+    year = 2000 + (data[3] & 0x3F)
+    flags1 = data[4] | (data[5] << 8)
+    flags2 = data[6] | (data[7] << 8)
+
+    hour = flags1 & 0x1F
+    day = (flags1 >> 5) & 0x1F
+    month = (flags1 >> 10) & 0x0F
+    record["ihb"] = (flags1 >> 14) & 0x01
+    record["mov"] = (flags1 >> 15) & 0x01
+    second = min(flags2 & 0x3F, 59)
+    minute = min((flags2 >> 6) & 0x3F, 59)
+    record["cuff"] = (flags2 >> 12) & 0x01
+    record["pos"] = (flags2 >> 14) & 0x03
+
+    if (
+        data[1] == 0
+        and data[2] == 0
+        and (data[3] & 0x3F) == 0
+        and flags1 == 0
+        and flags2 == 0
+    ):
+        raise ValueError("record slot is empty")
+
+    record["_record_id"] = int.from_bytes(data[10:12], "little")
+
+    try:
+        record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
+    except ValueError:
+        record["datetime"] = None
+    return record
+

@@ -321,11 +321,82 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7600T_W",
             "HEM-7600T_W-SH3W",
             "HEM-7600T_W-Z",
+        ),
+    ),
+    # HEM-9601T ("HeartGuide" watch-style blood pressure monitor) — 24-byte records
+    # at 0x041A (350 slots), single-user, index size 20 at 0x0356, WLS3.0.
+    # Note: Profile is derived from vendor specs (reverseSendData=1, word-swap group)
+    # and marked unverified until validated with real-device EEPROM dump / logs.
+    "HEM-9601T": DeviceConfig(
+        model="HEM-9601T",
+        connect_type=ConnectType.WLS3_0,
+        aggressive_gatt_timing=True,
+        endianness=Endianness.BIG,
+        user_start_addresses=[0x041A],
+        per_user_records_count=[350],
+        record_byte_size=0x18,
+        transmission_block_size=0x2C,
+        settings_read_address=0x0356,
+        settings_write_address=0x03B8,
+        settings_unread_records_bytes=[0x00, 0x14],
+        settings_time_sync_bytes=[0x50, 0x5A],  # Window 80..90 in Block 3 (72..90); clock at 82..87 (cached[2:8])
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
+        index_pointer_layout={
+            "index_region_byte_size": 0x14,
+            "endianness": "big",
+            "backtrack_slots": 5,
+            "users": [
+                {
+                    "write_cursor_offset": 0x00,
+                    "unread_counter_offset": 0x04,
+                    "write_cursor_mask": 0x3FFF,
+                    "slot_index_min": 0,
+                    "slot_index_max": 349,
+                    "slot_index_bias": -1,
+                    "clear_value": 0x8000,
+                },
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_24_HEARTGUIDE,
+        equivalent_model_ids=(
             "HEM-9601T-J3",
             "HEM-9601T2-BR3",
             "HEM-9601T_E3",
-            "HEM-9700T",
         ),
+    ),
+    # HEM-9700T ("HeartGuide" 1000-slot variant)
+    # Note: Profile is derived from vendor specs and marked unverified until validated.
+    "HEM-9700T": DeviceConfig(
+        model="HEM-9700T",
+        connect_type=ConnectType.WLS3_0,
+        aggressive_gatt_timing=True,
+        endianness=Endianness.BIG,
+        user_start_addresses=[0x041A],
+        per_user_records_count=[1000],
+        record_byte_size=0x18,
+        transmission_block_size=0x2C,
+        settings_read_address=0x0356,
+        settings_write_address=0x03B8,
+        settings_unread_records_bytes=[0x00, 0x14],
+        settings_time_sync_bytes=[0x50, 0x5A],  # Window 80..90 in Block 3 (72..90); clock at 82..87 (cached[2:8])
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
+        index_pointer_layout={
+            "index_region_byte_size": 0x14,
+            "endianness": "big",
+            "backtrack_slots": 5,
+            "users": [
+                {
+                    "write_cursor_offset": 0x00,
+                    "unread_counter_offset": 0x04,
+                    "write_cursor_mask": 0x3FFF,
+                    "slot_index_min": 0,
+                    "slot_index_max": 999,
+                    "slot_index_bias": -1,
+                    "clear_value": 0x8000,
+                },
+            ],
+        },
+        record_parser=RecordParser.CLASSIC_VITAL_24_HEARTGUIDE,
     ),
     "HEM-7325T": DeviceConfig(
         model="HEM-7325T",
