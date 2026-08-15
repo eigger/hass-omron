@@ -10,8 +10,6 @@ PEP 563 으로 인해 어노테이션이 문자열화되어
 import ast
 import asyncio
 from pathlib import Path
-import sys
-import types
 import pytest
 
 
@@ -45,34 +43,37 @@ def test_bluez_agent_no_future_annotations():
                 )
 
 
-def test_bluez_pairing_agent_graceful_fallback_on_error(monkeypatch):
-    """에이전트 임포트/설정 중 예외 발생 시 크래시 없이 None 으로 안전하게 fallback 해야 한다."""
+def test_bluez_pairing_agent_graceful_fallback_on_agent_init_error(monkeypatch):
+    """에이전트 생성 실패 시 None 으로 fallback 해야 한다."""
+    pytest.importorskip("dbus_fast")
     from custom_components.omron.omron_ble import omron_driver
+    from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
 
-    # 1. 기본 환경(D-Bus 미연결 또는 미설치)에서 None fallback 검증
-    async def _test_base():
+    def _raising_init(self):
+        raise TypeError("Argument 'signature' has incorrect type")
+
+    monkeypatch.setattr(AutoConfirmAgent, "__init__", _raising_init)
+
+    async def _test():
         async with omron_driver._bluez_pairing_agent() as bus:
             assert bus is None
 
-    asyncio.run(_test_base())
+    asyncio.run(_test())
 
-    # 2. 에이전트 생성/등록 시 임의의 예외(TypeError 등) 발생 시뮬레이션
-    fake_module = types.ModuleType("custom_components.omron.omron_ble.bluez_agent")
 
-    class _BrokenAgent:
-        def __init__(self, *args, **kwargs):
-            raise TypeError("Argument 'signature' has incorrect type")
+def test_bluez_pairing_agent_graceful_fallback_on_bus_error(monkeypatch):
+    """시스템 버스 연결 실패 시 None 으로 fallback 해야 한다."""
+    pytest.importorskip("dbus_fast")
+    from custom_components.omron.omron_ble import omron_driver
+    from dbus_fast.aio.message_bus import MessageBus
 
-    fake_module.AutoConfirmAgent = _BrokenAgent
+    async def _failing_connect(*args, **kwargs):
+        raise ConnectionRefusedError("Cannot connect to system bus")
 
-    monkeypatch.setitem(
-        sys.modules,
-        "custom_components.omron.omron_ble.bluez_agent",
-        fake_module,
-    )
+    monkeypatch.setattr(MessageBus, "connect", _failing_connect)
 
-    async def _test_exception():
+    async def _test():
         async with omron_driver._bluez_pairing_agent() as bus:
             assert bus is None
 
-    asyncio.run(_test_exception())
+    asyncio.run(_test())
