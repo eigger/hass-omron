@@ -140,6 +140,8 @@ def vendor_user(s, i):
     cur = g(f"index_{i}_data_pointer_byte_offset", f"index_{i}_data_pointer_byte_offset_in_read")
     unr = g(f"index_{i}_num_of_unsend_byte_offset", f"index_{i}_num_of_unsend_byte_offset_in_read")
     layout = g(f"index_{i}_data_pointer_bit_layout")
+    clear_val_hex = g(f"index_{i}_data_pointer_clear_value")
+    clear_val = int(clear_val_hex, 16) if clear_val_hex is not None else None
     mask = None
     if layout:
         mask = sum(1 << (len(layout) - 1 - p) for p, c in enumerate(layout) if c == "1")
@@ -150,6 +152,7 @@ def vendor_user(s, i):
         "bias": int(g(f"index_{i}_data_pointer_latest_pos_correction") or 0),
         "min": int(g(f"index_{i}_data_pointer_min") or 0),
         "max": (lambda v: int(v) if v is not None else None)(g(f"index_{i}_data_pointer_max")),
+        "clear": clear_val,
     }
 
 
@@ -253,6 +256,10 @@ def check(model_id, cfg, ven):
                 issues.append(f"user{u+1} write_cursor_mask 0x{ru.get('write_cursor_mask'):02X} != vendor 0x{vu['mask']:02X}")
             if vu["bias"] != ru.get("slot_index_bias"):
                 issues.append(f"user{u+1} slot_index_bias {ru.get('slot_index_bias')} != vendor {vu['bias']}")
+            if vu["clear"] is not None:
+                rclear = ru.get("clear_value", 0x8000)
+                if rclear != vu["clear"]:
+                    issues.append(f"user{u+1} clear_value 0x{rclear:04X} != vendor 0x{vu['clear']:04X}")
             vmax = vu["max"] if vu["max"] is not None else (count - 1 if count else None)
             if vmax is not None and vmax != ru.get("slot_index_max"):
                 issues.append(f"user{u+1} slot_index_max {ru.get('slot_index_max')} != vendor {vmax}")

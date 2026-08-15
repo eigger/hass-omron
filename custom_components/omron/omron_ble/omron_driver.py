@@ -2456,6 +2456,22 @@ class OmronDeviceDriver:
                     ptr_endian,
                     signed=False,
                 )
+                # Unrecorded users have their pointer set to clear_value (0x8000 on legacy/classic profiles).
+                # Modern formatVersion 4 (WLD3/WLD4) profiles always set bit15 (e.g. 0x8006) and rely on the
+                # empty-slot (all-0xFF) backtrack heuristic instead.
+                clear_value = user_cfg.get("clear_value", 0x8000)
+                if clear_value is not None and raw_pointer == clear_value:
+                    _LOGGER.debug(
+                        "User%d [%s]: cursor raw=0x%04X matches clear_value 0x%04X "
+                        "(no recorded measurements) — skipping and marking user confirmed empty",
+                        idx + 1,
+                        self._config.model,
+                        raw_pointer,
+                        clear_value,
+                    )
+                    confirmed_empty_users.add(idx + 1)
+                    continue
+
                 pointer_mask = int(user_cfg.get("write_cursor_mask", 0xFF))
                 pointer_min = int(user_cfg.get("slot_index_min", 0))
                 pointer_max = int(
