@@ -9,7 +9,9 @@ PEP 563 으로 인해 어노테이션이 문자열화되어
 
 import ast
 import asyncio
+import logging
 from pathlib import Path
+import sys
 import pytest
 
 
@@ -22,6 +24,21 @@ def test_bluez_agent_interface_builds():
     agent = AutoConfirmAgent()
     assert agent is not None
     assert agent.name == "org.bluez.Agent1"
+
+    node = agent.introspect()
+    method_names = {method.name for method in node.methods}
+    expected_methods = {
+        "Release",
+        "RequestPinCode",
+        "DisplayPinCode",
+        "RequestPasskey",
+        "DisplayPasskey",
+        "RequestConfirmation",
+        "RequestAuthorization",
+        "AuthorizeService",
+        "Cancel",
+    }
+    assert expected_methods.issubset(method_names)
 
 
 def test_bluez_agent_no_future_annotations():
@@ -43,37 +60,39 @@ def test_bluez_agent_no_future_annotations():
                 )
 
 
-def test_bluez_pairing_agent_graceful_fallback_on_agent_init_error(monkeypatch):
-    """에이전트 생성 실패 시 None 으로 fallback 해야 한다."""
-    pytest.importorskip("dbus_fast")
+def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, caplog):
+    """새 except Exception(임포트 실패) 경로를 검증한다 — 기존 '시스템 버스 없음' 경로와 구분."""
     from custom_components.omron.omron_ble import omron_driver
-    from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
 
-    def _raising_init(self):
-        raise TypeError("Argument 'signature' has incorrect type")
+    # sys.modules 에 None 을 넣으면 from .bluez_agent import ... 가 ImportError 를 낸다
+    monkeypatch.setitem(
+        sys.modules, "custom_components.omron.omron_ble.bluez_agent", None
+    )
 
-    monkeypatch.setattr(AutoConfirmAgent, "__init__", _raising_init)
+    async def _run():
+        with caplog.at_level(logging.DEBUG, logger=omron_driver.__name__):
+            async with omron_driver._bluez_pairing_agent() as bus:
+                assert bus is None
+        assert "BlueZ agent unavailable" in caplog.text
 
-    async def _test():
-        async with omron_driver._bluez_pairing_agent() as bus:
-            assert bus is None
-
-    asyncio.run(_test())
+    asyncio.run(_run())
 
 
-def test_bluez_pairing_agent_graceful_fallback_on_bus_error(monkeypatch):
-    """시스템 버스 연결 실패 시 None 으로 fallback 해야 한다."""
+def test_bluez_pairing_agent_falls_back_on_system_bus_failure(monkeypatch, caplog):
+    """시스템 버스 연결 실패 시 기존의 'cannot connect to system bus' 경로를 검증한다."""
     pytest.importorskip("dbus_fast")
     from custom_components.omron.omron_ble import omron_driver
     from dbus_fast.aio.message_bus import MessageBus
 
     async def _failing_connect(*args, **kwargs):
-        raise ConnectionRefusedError("Cannot connect to system bus")
+        raise ConnectionRefusedError("Simulated system bus failure")
 
     monkeypatch.setattr(MessageBus, "connect", _failing_connect)
 
-    async def _test():
-        async with omron_driver._bluez_pairing_agent() as bus:
-            assert bus is None
+    async def _run():
+        with caplog.at_level(logging.DEBUG, logger=omron_driver.__name__):
+            async with omron_driver._bluez_pairing_agent() as bus:
+                assert bus is None
+        assert "cannot connect to system bus" in caplog.text
 
-    asyncio.run(_test())
+    asyncio.run(_run())
