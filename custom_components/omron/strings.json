@@ -74,8 +74,7 @@
   "entity": {
     "text": {
       "device_alias": {
-        "name": "Device nickname",
-        "description": "Optional note only; does not rename the device or change any IDs."
+        "name": "Device nickname"
       }
     }
   }
