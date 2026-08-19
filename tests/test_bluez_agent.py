@@ -96,3 +96,52 @@ def test_bluez_pairing_agent_falls_back_on_system_bus_failure(monkeypatch, caplo
         assert "cannot connect to system bus" in caplog.text
 
     asyncio.run(_run())
+
+
+def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
+    """``async with`` 블록 본문(예: connect 타임아웃)에서 발생한 예외가 그대로
+    전파돼야 한다. 예전에는 등록 try/except 가 이 예외까지 삼켜서
+    except 블록 안에서 ``yield None`` 을 다시 실행했고, 제너레이터는 athrow() 를
+    두 번 받을 수 없어 ``RuntimeError: generator didn't stop after athrow()`` 로
+    원인이 뒤바뀌었다. establish_connection_with_bond_settle 의 BleakError 폴백은
+    이 RuntimeError 를 잡지 못해 pair=False 재시도가 동작하지 않았다."""
+    pytest.importorskip("dbus_fast")
+    from custom_components.omron.omron_ble import omron_driver
+    from dbus_fast.aio.message_bus import MessageBus
+
+    class FakeBus:
+        def __init__(self):
+            self.calls: list[str] = []
+            self.disconnected = False
+
+        def export(self, path, agent):
+            pass
+
+        async def call(self, message):
+            self.calls.append(message.member)
+            return None
+
+        def disconnect(self):
+            self.disconnected = True
+
+    fake_bus = FakeBus()
+
+    async def _fake_connect(*args, **kwargs):
+        return fake_bus
+
+    monkeypatch.setattr(MessageBus, "connect", _fake_connect)
+
+    class SimulatedConnectTimeout(Exception):
+        pass
+
+    async def _run():
+        with pytest.raises(SimulatedConnectTimeout):
+            async with omron_driver._bluez_pairing_agent() as bus:
+                assert bus is fake_bus
+                raise SimulatedConnectTimeout("simulated establish_connection failure")
+
+    asyncio.run(_run())
+
+    # Registration still happened and cleanup still ran despite the exception.
+    assert fake_bus.calls == ["RegisterAgent", "RequestDefaultAgent", "UnregisterAgent"]
+    assert fake_bus.disconnected

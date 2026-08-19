@@ -330,6 +330,7 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
         return
 
     registered = False
+    agent_ready = False
     try:
         bus.export(_BLUEZ_AGENT_PATH, AutoConfirmAgent())
         await bus.call(
@@ -353,11 +354,20 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
                 body=[_BLUEZ_AGENT_PATH],
             )
         )
+        agent_ready = True
         _LOGGER.debug("BlueZ KeyboardDisplay agent registered")
-        yield bus
     except Exception as exc:
         _LOGGER.debug("BlueZ agent registration failed: %s", exc)
-        yield None
+
+    # ``yield`` sits outside the registration try/except above so an
+    # exception raised by the caller's code inside the ``async with`` block
+    # (e.g. a connect timeout) propagates unchanged. athrow() can only be
+    # answered once; yielding a second time from inside that except block
+    # raised "generator didn't stop after athrow()" and masked the real
+    # error, which also skipped the pair=False fallback in
+    # establish_connection_with_bond_settle (it only catches BleakError).
+    try:
+        yield bus if agent_ready else None
     finally:
         if registered:
             try:
