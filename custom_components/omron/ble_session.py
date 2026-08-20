@@ -3,9 +3,52 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from time import perf_counter
+from typing import TYPE_CHECKING
+
+from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+    from .omron_ble.omron_driver import OmronDeviceSession
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def stash_handoff_session(
+    hass: HomeAssistant, address: str, session: OmronDeviceSession
+) -> None:
+    """Park a still-open pairing session for the next poll to adopt.
+
+    WLD3.0 cuffs serve data during the pairing session and reject later
+    connections, so closing the link here and reconnecting for the poll is
+    what makes the follow-up read fail. Parking the session lets
+    ``async_poll`` reuse the very link that just bonded.
+    """
+    handoff = hass.data.setdefault(DOMAIN, {}).setdefault("_setup_sessions", {})
+    handoff[address] = session.release_for_handoff()
+
+
+async def discard_handoff_session(hass: HomeAssistant, address: str) -> None:
+    """Close a parked pairing session that no poll ended up adopting.
+
+    ``release_for_handoff()`` cleared the disconnect responsibility, so
+    ownership has to be reclaimed before ``aclose()`` will drop the link.
+    """
+    session = hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).pop(address, None)
+    if session is None:
+        return
+    try:
+        session.reclaim_ownership()
+        await session.aclose()
+    except Exception as exc:
+        _LOGGER.debug("Discarding unused pairing session for %s failed: %s", address, exc)
+
+
 @asynccontextmanager
 async def omron_poll_ble_telemetry(entry_data: dict) -> AsyncIterator[None]:
     """Mark BLE session active, tick duration each second, finalize elapsed time on exit."""

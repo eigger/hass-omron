@@ -10,7 +10,11 @@ import time
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
-from .ble_session import omron_poll_ble_telemetry
+from .ble_session import (
+    discard_handoff_session,
+    omron_poll_ble_telemetry,
+    stash_handoff_session,
+)
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
@@ -215,7 +219,13 @@ def process_service_info(
                 ble_device = service_info.device
                 if is_pairing:
                     async with omron_poll_ble_telemetry(entry_data):
-                        await data.async_retry_pairing(ble_device)
+                        paired_session = await data.async_retry_pairing(ble_device)
+                    # Hand the just-bonded link to the post-pairing refresh
+                    # below instead of letting it reconnect: PER_SESSION cuffs
+                    # reject the second connection.
+                    stash_handoff_session(
+                        coordinator.hass, service_info.address, paired_session
+                    )
                     pair_succeeded = True
                 else:  # is_invalid_time and not is_forced_transfer
                     async with omron_poll_ble_telemetry(entry_data):
@@ -228,11 +238,18 @@ def process_service_info(
 
         # Lock auto-released by the context manager. Post-pairing refresh runs
         # AFTER the release so _async_poll_data can acquire it independently.
-        if pair_succeeded and coordinator.poll_coordinator:
+        if pair_succeeded:
             try:
-                await coordinator.poll_coordinator.async_request_refresh()
+                if coordinator.poll_coordinator:
+                    await coordinator.poll_coordinator.async_request_refresh()
             except Exception as err:
                 _LOGGER.error("Post-pairing refresh failed: %s", err)
+            finally:
+                # No-op once the poll adopted it; closes the link if the
+                # refresh was debounced away or never reached the poll.
+                await discard_handoff_session(
+                    coordinator.hass, service_info.address
+                )
 
     coordinator.hass.async_create_task(_run_auto_session())
 
@@ -380,6 +397,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         finally:
             if not handed_off and preconnected_session is not None:
                 try:
+                    # release_for_handoff() cleared the disconnect
+                    # responsibility, so take it back or aclose() leaves the
+                    # link up.
+                    preconnected_session.reclaim_ownership()
                     await preconnected_session.aclose()
                 except Exception:
                     pass

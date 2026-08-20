@@ -1274,9 +1274,20 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             return self._finish_update()
 
-    async def async_retry_pairing(self, ble_device: BLEDevice) -> None:
-        """Connect to the device and retry pairing/bonding (setup-like flow)."""
-        async with OmronDeviceSession(ble_device, self._device_config) as session:
+    async def async_retry_pairing(self, ble_device: BLEDevice) -> OmronDeviceSession:
+        """Pair/bond and hand the still-open session to the follow-up poll.
+
+        Returns the live session with its memory readout session left open,
+        released for handoff. PER_SESSION profiles serve data during the
+        pairing session and reject later connections, so closing the link
+        here and reconnecting for the poll is exactly what fails. The caller
+        parks the session (see ``stash_handoff_session``) so ``async_poll``
+        adopts this link instead of opening a new one; if it never does, the
+        caller must discard it.
+        """
+        session = OmronDeviceSession(ble_device, self._device_config)
+        try:
+            await session.connect()
             if not await session.verify_parent_service():
                 raise ConnectionError(
                     f"Required service {self._device_config.parent_service_uuid} "
@@ -1298,7 +1309,22 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self._device_model,
                 self._device_config,
                 session,
+                # Keep the readout session open so the poll does not
+                # close-then-immediately-reopen on the same link.
+                leave_memory_session_open=True,
             )
+        except BaseException:
+            # Pairing failed: drop the link so a later retry starts clean.
+            # Cleanup must never mask the original failure.
+            try:
+                await session.aclose()
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Closing %s after a failed pairing retry: %s",
+                    ble_device.address, exc,
+                )
+            raise
+        return session.release_for_handoff()
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""
