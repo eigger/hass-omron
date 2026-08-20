@@ -1315,14 +1315,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
         except BaseException:
             # Pairing failed: drop the link so a later retry starts clean.
-            # Cleanup must never mask the original failure.
-            try:
-                await session.aclose()
-            except Exception as exc:
-                _LOGGER.debug(
-                    "Closing %s after a failed pairing retry: %s",
-                    ble_device.address, exc,
-                )
+            # aclose() swallows its own errors, so it cannot mask this one.
+            await session.aclose()
             raise
         return session.release_for_handoff()
 

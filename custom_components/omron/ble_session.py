@@ -46,7 +46,26 @@ async def discard_handoff_session(hass: HomeAssistant, address: str) -> None:
         session.reclaim_ownership()
         await session.aclose()
     except Exception as exc:
-        _LOGGER.debug("Discarding unused pairing session for %s failed: %s", address, exc)
+        _LOGGER.debug(
+            "Discarding unused pairing session for %s failed: %s", address, exc
+        )
+
+
+@asynccontextmanager
+async def handed_off_session(
+    hass: HomeAssistant, address: str, session: OmronDeviceSession
+) -> AsyncIterator[None]:
+    """Park ``session`` for the poll run inside the block, then clean up.
+
+    Discarding on exit is a no-op once the poll adopted the session; it only
+    closes the link when the refresh was debounced away or never reached the
+    poll, which would otherwise leak the connection.
+    """
+    stash_handoff_session(hass, address, session)
+    try:
+        yield
+    finally:
+        await discard_handoff_session(hass, address)
 
 
 @asynccontextmanager

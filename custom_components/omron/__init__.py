@@ -10,11 +10,7 @@ import time
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
-from .ble_session import (
-    discard_handoff_session,
-    omron_poll_ble_telemetry,
-    stash_handoff_session,
-)
+from .ble_session import handed_off_session, omron_poll_ble_telemetry
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
@@ -206,7 +202,9 @@ def process_service_info(
             )
             return
         action = "auto-pairing" if is_pairing else "time-sync"
-        pair_succeeded = False
+        # Doubles as the "pairing succeeded" flag: set only once the cuff is
+        # bonded, and holds the live link for the refresh below to adopt.
+        paired_session = None
         try:
             async with session_lock:
                 entry_data["last_attempt_time"] = time.time()
@@ -220,13 +218,6 @@ def process_service_info(
                 if is_pairing:
                     async with omron_poll_ble_telemetry(entry_data):
                         paired_session = await data.async_retry_pairing(ble_device)
-                    # Hand the just-bonded link to the post-pairing refresh
-                    # below instead of letting it reconnect: PER_SESSION cuffs
-                    # reject the second connection.
-                    stash_handoff_session(
-                        coordinator.hass, service_info.address, paired_session
-                    )
-                    pair_succeeded = True
                 else:  # is_invalid_time and not is_forced_transfer
                     async with omron_poll_ble_telemetry(entry_data):
                         await data.async_sync_time(ble_device)
@@ -237,19 +228,18 @@ def process_service_info(
                 _LOGGER.error("Auto time sync failed: %s", err)
 
         # Lock auto-released by the context manager. Post-pairing refresh runs
-        # AFTER the release so _async_poll_data can acquire it independently.
-        if pair_succeeded:
-            try:
-                if coordinator.poll_coordinator:
-                    await coordinator.poll_coordinator.async_request_refresh()
-            except Exception as err:
-                _LOGGER.error("Post-pairing refresh failed: %s", err)
-            finally:
-                # No-op once the poll adopted it; closes the link if the
-                # refresh was debounced away or never reached the poll.
-                await discard_handoff_session(
-                    coordinator.hass, service_info.address
-                )
+        # AFTER the release so _async_poll_data can acquire it independently,
+        # and adopts the link parked here rather than reconnecting — a
+        # PER_SESSION cuff refuses that second connect.
+        if paired_session is not None:
+            async with handed_off_session(
+                coordinator.hass, service_info.address, paired_session
+            ):
+                try:
+                    if coordinator.poll_coordinator:
+                        await coordinator.poll_coordinator.async_request_refresh()
+                except Exception as err:
+                    _LOGGER.error("Post-pairing refresh failed: %s", err)
 
     coordinator.hass.async_create_task(_run_auto_session())
 

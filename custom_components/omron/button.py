@@ -10,11 +10,7 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble_session import (
-    discard_handoff_session,
-    omron_poll_ble_telemetry,
-    stash_handoff_session,
-)
+from .ble_session import handed_off_session, omron_poll_ble_telemetry
 from .const import DOMAIN
 from .types import OmronConfigEntry
 
@@ -131,19 +127,13 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
             async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
                     paired_session = await data.async_retry_pairing(ble_device)
-            # Hand the just-bonded link to the poll below instead of letting
-            # it reconnect: PER_SESSION cuffs reject the second connection.
-            stash_handoff_session(self.hass, self._address, paired_session)
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
         # Lock auto-released by the context manager. Mirror setup behavior:
         # run an immediate poll after pairing so protected GATT paths are
         # exercised and bond/session state settles. _async_poll_data will
-        # acquire the lock on its own.
+        # acquire the lock on its own, and adopts the link parked here rather
+        # than reconnecting — a PER_SESSION cuff refuses that second connect.
         poll_coordinator = self._entry.runtime_data.poll_coordinator
-        try:
+        async with handed_off_session(self.hass, self._address, paired_session):
             await poll_coordinator.async_request_refresh()
-        finally:
-            # No-op once the poll adopted it; closes the link if the refresh
-            # was debounced away or never reached the poll.
-            await discard_handoff_session(self.hass, self._address)
