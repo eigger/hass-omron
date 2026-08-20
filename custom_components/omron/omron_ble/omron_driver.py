@@ -1833,6 +1833,19 @@ class OmronDeviceSession:
                     unlock_attempts,
                     exc,
                 )
+                if not getattr(self._client, "is_connected", True):
+                    # The link is gone: retrying cannot bring the
+                    # characteristic back, and the "not found" message below
+                    # would send the user off clearing caches for a GATT
+                    # database that was never the problem. Typically the cuff
+                    # dropped us because its SMP request went unanswered.
+                    raise ConnectionError(
+                        "Device disconnected while subscribing to "
+                        f"{self._config.unlock_uuid} during pairing "
+                        f"({type(exc).__name__}: {exc}). The cuff dropped the "
+                        "link — make sure it shows the blinking -P- symbol and "
+                        "that no phone is connected to it."
+                    ) from exc
                 if aggressive_timing:
                     await _bleak_refresh_services(self._client)
                 await asyncio.sleep(unlock_retry_delay)
@@ -1955,7 +1968,27 @@ class OmronDeviceSession:
             raise ConnectionError("Pairing is disabled for this device profile")
         if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
             raise ConnectionError("Pairing is not supported for this device")
-        await self._pair_custom_key(pair_key)
+        # Ask the BLEDevice first: only its details reliably carry the DBus
+        # path (bleak's own BlueZ backend reads ble_device.details["path"]),
+        # which is why _connect_once tests the BLEDevice and not the client.
+        # A BleakClient exposes no .details at all and its BlueZ backend keeps
+        # a _device_path string rather than a _device object, so asking the
+        # client alone answers "not BlueZ" for every local adapter too.
+        if (
+            _bluez_device_path(self._ble_device) is None
+            and _bluez_device_path(self._client) is None
+        ):
+            # Proxy link: there is no local SMP confirmation to answer, and the
+            # agent registers as the system *default* — see _connect_once.
+            await self._pair_custom_key(pair_key)
+            return
+        # Custom-key profiles never bond during connect (pair_on_connect is
+        # False outside OS_BONDING), so nothing has put an agent up for this
+        # link. Cuffs that raise an SMP security request when RX notifications
+        # are enabled (HEM-7155T) then drop the link because BlueZ leaves the
+        # Just Works confirmation unanswered.
+        async with _bluez_pairing_agent():
+            await self._pair_custom_key(pair_key)
 
     async def unpair(self) -> None:
         """Remove the OS-level bond for this device (best-effort).
