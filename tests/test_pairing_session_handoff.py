@@ -55,6 +55,21 @@ def _called_names(node: ast.AST) -> set[str]:
     }
 
 
+def _handoff_block(fn: ast.AST) -> ast.AsyncWith:
+    """Return the `async with handed_off_session(...)` statement inside fn."""
+    for node in ast.walk(fn):
+        if isinstance(node, ast.AsyncWith) and any(
+            isinstance(item.context_expr, ast.Call)
+            and ast.unparse(item.context_expr.func) == "handed_off_session"
+            for item in node.items
+        ):
+            return node
+    raise AssertionError(
+        "no `async with handed_off_session(...)` block — the pairing session "
+        "is not being handed to the poll that follows"
+    )
+
+
 class _FakeSession:
     """Minimal session stub that records the ownership calls it receives."""
 
@@ -207,9 +222,13 @@ class TestRetryPairingReturnsSession:
             "without a returned session the callers have no link to hand off, "
             "which puts the reconnect-after-pairing behaviour back"
         )
-        assert any(
+        assert not any(
             "release_for_handoff" in ast.unparse(node.value) for node in returned
-        ), "the disconnect responsibility must be released before returning"
+        ), (
+            "ownership is released in stash_handoff_session(); releasing here "
+            "too means a caller that never parks the session is handed a link "
+            "its aclose() will not close"
+        )
 
     def test_leaves_the_memory_session_open_for_the_poll(self):
         """The readout session stays open so the poll can read on the same link."""
@@ -273,3 +292,99 @@ class TestCallSitesHandOffTheSession:
         assert any(
             name.endswith("reclaim_ownership") for name in _called_names(fn)
         ), "aclose() does not disconnect while _owns_connection is False"
+
+
+class TestPostPairingPollIsNotDebounced:
+    """The poll that adopts the parked session must actually run inside the block.
+
+    async_request_refresh() goes through a 10 s debouncer. When a refresh
+    fired recently it schedules the poll and returns *without* running it, so
+    the handed_off_session block would exit and close the parked link before
+    the deferred poll could adopt it — reproducing the very failure this
+    handoff exists to prevent. Pressing Refresh Data and then Retry Pairing
+    lands squarely in that window.
+    """
+
+    def _assert_direct_refresh(self, fn: ast.AST, where: str) -> None:
+        block = _handoff_block(fn)
+        calls = _called_names(block)
+        debounced = {name for name in calls if name.endswith("async_request_refresh")}
+
+        assert not debounced, (
+            f"{where}: async_request_refresh() is debounced and can return "
+            "before the poll runs, so the block would close the parked "
+            "session first. Use async_refresh(), as setup does."
+        )
+        assert any(name.endswith("async_refresh") for name in calls), (
+            f"{where}: the parked session is only useful if a poll actually "
+            "runs inside the block"
+        )
+
+    def test_auto_pairing_polls_without_the_debouncer(self):
+        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        self._assert_direct_refresh(fn, "auto-pairing")
+
+    def test_retry_pairing_button_polls_without_the_debouncer(self):
+        fn = _find_method(
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+        )
+        self._assert_direct_refresh(fn, "Retry Pairing button")
+
+
+class TestSkippedPollKeepsTheSessionParked:
+    """Bailing out before connecting must not consume the parked session."""
+
+    def test_session_is_adopted_only_inside_the_lock(self):
+        """Adopting at the top of the poll would hand the bail-out paths (no
+        device, session lock held) a link they close without ever using."""
+        fn = _find_async_function(_parse("__init__.py"), "_async_poll_data")
+
+        adopting = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call)
+            and ast.unparse(node.func) == "adopt_handoff_session"
+        ]
+        assert adopting, "the poll must take the parked session explicitly"
+
+        locked_blocks = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.AsyncWith)
+            and any("session_lock" in ast.unparse(item.context_expr) for item in node.items)
+        ]
+        assert locked_blocks, "expected the poll to run under session_lock"
+
+        inside = {
+            id(call)
+            for block in locked_blocks
+            for call in ast.walk(block)
+            if isinstance(call, ast.Call)
+        }
+        assert all(id(call) in inside for call in adopting), (
+            "adopt_handoff_session() runs before the bail-out guards, so a "
+            "skipped poll closes the pairing link instead of leaving it for "
+            "the retry"
+        )
+
+    def test_stale_handed_off_session_is_closed_not_leaked(self):
+        """A parked link that dropped must be closed before connecting fresh."""
+        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_poll")
+
+        adoption = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.If)
+            and "preconnected_session" in ast.unparse(node.test)
+            and "is_connected" in ast.unparse(node.test)
+        ]
+        assert adoption, "expected the is_connected guard around adoption"
+
+        fallback = "\n".join(ast.unparse(stmt) for stmt in adoption[0].orelse)
+        assert "aclose" in fallback, (
+            "declining a stale handed-off session without closing it leaves "
+            "the link half-open while the poll opens a second connection"
+        )
+        assert "reclaim_ownership" in fallback, (
+            "aclose() does not disconnect while _owns_connection is False"
+        )

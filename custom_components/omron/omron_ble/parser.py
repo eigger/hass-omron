@@ -1097,6 +1097,17 @@ class OmronBluetoothDeviceData(BluetoothData):
                     session = preconnected_session
                     session.reclaim_ownership()
                 else:
+                    if preconnected_session is not None:
+                        # Handed a link that dropped before we got here. Take
+                        # ownership back and close it, or it stays half-open
+                        # while this poll opens a second connection.
+                        _LOGGER.debug(
+                            "Handed-off session for %s is no longer connected; "
+                            "closing it and connecting fresh",
+                            ble_device.address,
+                        )
+                        preconnected_session.reclaim_ownership()
+                        await preconnected_session.aclose()
                     session = OmronDeviceSession(ble_device, self._device_config)
                 async with session:
                     client = session.client
@@ -1277,13 +1288,13 @@ class OmronBluetoothDeviceData(BluetoothData):
     async def async_retry_pairing(self, ble_device: BLEDevice) -> OmronDeviceSession:
         """Pair/bond and hand the still-open session to the follow-up poll.
 
-        Returns the live session with its memory readout session left open,
-        released for handoff. PER_SESSION profiles serve data during the
-        pairing session and reject later connections, so closing the link
-        here and reconnecting for the poll is exactly what fails. The caller
-        parks the session (see ``stash_handoff_session``) so ``async_poll``
-        adopts this link instead of opening a new one; if it never does, the
-        caller must discard it.
+        Returns the live session with its memory readout session left open.
+        PER_SESSION profiles serve data during the pairing session and reject
+        later connections, so closing the link here and reconnecting for the
+        poll is exactly what fails. The caller parks the session (see
+        ``stash_handoff_session``, which is where ownership is released) so
+        ``async_poll`` adopts this link instead of opening a new one; a caller
+        that does not park it still owns the link and must close it.
         """
         session = OmronDeviceSession(ble_device, self._device_config)
         try:
@@ -1318,7 +1329,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             # aclose() swallows its own errors, so it cannot mask this one.
             await session.aclose()
             raise
-        return session.release_for_handoff()
+        return session
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""

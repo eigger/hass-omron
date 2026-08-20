@@ -134,6 +134,12 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
         # exercised and bond/session state settles. _async_poll_data will
         # acquire the lock on its own, and adopts the link parked here rather
         # than reconnecting — a PER_SESSION cuff refuses that second connect.
+        #
+        # async_refresh, not async_request_refresh: the latter goes through a
+        # 10 s debouncer that returns without running the poll when a refresh
+        # fired recently — pressing Refresh Data and then Retry Pairing is
+        # exactly that case — which would close the link before the deferred
+        # poll could adopt it.
         poll_coordinator = self._entry.runtime_data.poll_coordinator
         async with handed_off_session(self.hass, self._address, paired_session):
-            await poll_coordinator.async_request_refresh()
+            await poll_coordinator.async_refresh()

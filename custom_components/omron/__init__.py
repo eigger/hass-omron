@@ -10,7 +10,11 @@ import time
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
-from .ble_session import handed_off_session, omron_poll_ble_telemetry
+from .ble_session import (
+    adopt_handoff_session,
+    handed_off_session,
+    omron_poll_ble_telemetry,
+)
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
@@ -231,13 +235,18 @@ def process_service_info(
         # AFTER the release so _async_poll_data can acquire it independently,
         # and adopts the link parked here rather than reconnecting — a
         # PER_SESSION cuff refuses that second connect.
+        #
+        # async_refresh, not async_request_refresh: the latter goes through a
+        # 10 s debouncer that returns without running the poll when a refresh
+        # fired recently, which would let this block exit and close the link
+        # before the deferred poll ever sees it. Setup polls the same way.
         if paired_session is not None:
             async with handed_off_session(
                 coordinator.hass, service_info.address, paired_session
             ):
                 try:
                     if coordinator.poll_coordinator:
-                        await coordinator.poll_coordinator.async_request_refresh()
+                        await coordinator.poll_coordinator.async_refresh()
                 except Exception as err:
                     _LOGGER.error("Post-pairing refresh failed: %s", err)
 
@@ -320,12 +329,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         address = entry_data["address"]
-        # First poll after setup adopts the session the config flow left open
-        # (memory readout session still active) so pairing, time sync, and the
-        # initial EEPROM read share one connection without a close/reopen race.
-        preconnected_session = hass.data[DOMAIN].get("_setup_sessions", {}).pop(
-            address, None
-        )
+        preconnected_session = None
         handed_off = False
         try:
             device = async_ble_device_from_address(hass, address)
@@ -354,6 +358,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 return entry.runtime_data.device_data._finish_update()
 
             async with session_lock:
+                # Adopt a parked pairing/setup session (memory readout still
+                # open) so pairing, time sync, and the first EEPROM read share
+                # one connection. Taken here rather than at the top of the
+                # function so the skip paths above leave it parked for the
+                # retry instead of closing a link they never used.
+                preconnected_session = adopt_handoff_session(hass, address)
                 async with omron_poll_ble_telemetry(entry_data):
                     handed_off = True
                     async with asyncio.timeout(POLL_TIMEOUT_SECONDS):

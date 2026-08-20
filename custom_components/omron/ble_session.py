@@ -33,6 +33,19 @@ def stash_handoff_session(
     handoff[address] = session.release_for_handoff()
 
 
+def adopt_handoff_session(
+    hass: HomeAssistant, address: str
+) -> OmronDeviceSession | None:
+    """Take the parked pairing session for a poll that is about to run.
+
+    Call this only once the poll is committed to connecting. Taking it on a
+    path that then bails out (no device, session lock held) hands the caller
+    a link it will close, and a PER_SESSION cuff refuses the reconnect that
+    the retried poll would have to make.
+    """
+    return hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).pop(address, None)
+
+
 async def discard_handoff_session(hass: HomeAssistant, address: str) -> None:
     """Close a parked pairing session that no poll ended up adopting.
 
