@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
@@ -10,7 +12,7 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble_session import handed_off_session, omron_poll_ble_telemetry
+from .ble_session import omron_poll_ble_telemetry, run_post_pairing_poll
 from .const import DOMAIN
 from .types import OmronConfigEntry
 
@@ -127,19 +129,19 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
             async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
                     paired_session = await data.async_retry_pairing(ble_device)
+                # Seed the advertisement-trigger cooldown the way setup does:
+                # a pairing-mode advert arriving now would otherwise start an
+                # auto-session that takes the lock before the poll below, and
+                # that poll would skip and leave the fresh link unused.
+                entry_data["last_attempt_time"] = time.time()
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
         # Lock auto-released by the context manager. Mirror setup behavior:
         # run an immediate poll after pairing so protected GATT paths are
-        # exercised and bond/session state settles. _async_poll_data will
-        # acquire the lock on its own, and adopts the link parked here rather
-        # than reconnecting — a PER_SESSION cuff refuses that second connect.
-        #
-        # async_refresh, not async_request_refresh: the latter goes through a
-        # 10 s debouncer that returns without running the poll when a refresh
-        # fired recently — pressing Refresh Data and then Retry Pairing is
-        # exactly that case — which would close the link before the deferred
-        # poll could adopt it.
+        # exercised and bond/session state settles. _async_poll_data acquires
+        # the lock on its own, and adopts the link parked for it rather than
+        # reconnecting — a PER_SESSION cuff refuses that second connect.
         poll_coordinator = self._entry.runtime_data.poll_coordinator
-        async with handed_off_session(self.hass, self._address, paired_session):
-            await poll_coordinator.async_refresh()
+        await run_post_pairing_poll(
+            self.hass, self._address, paired_session, poll_coordinator
+        )

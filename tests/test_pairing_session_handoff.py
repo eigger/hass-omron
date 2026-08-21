@@ -55,20 +55,6 @@ def _called_names(node: ast.AST) -> set[str]:
     }
 
 
-def _handoff_block(fn: ast.AST) -> ast.AsyncWith:
-    """Return the `async with handed_off_session(...)` statement inside fn."""
-    for node in ast.walk(fn):
-        if isinstance(node, ast.AsyncWith) and any(
-            isinstance(item.context_expr, ast.Call)
-            and ast.unparse(item.context_expr.func) == "handed_off_session"
-            for item in node.items
-        ):
-            return node
-    raise AssertionError(
-        "no `async with handed_off_session(...)` block — the pairing session "
-        "is not being handed to the poll that follows"
-    )
-
 
 class _FakeSession:
     """Minimal session stub that records the ownership calls it receives."""
@@ -147,60 +133,72 @@ class TestHandoffHelpers:
         asyncio.run(discard_handoff_session(hass, "AA:BB:CC:DD:EE:FF"))
 
 
-class TestHandedOffSessionScope:
-    """The context manager both call sites use."""
+class TestPostPairingPoll:
+    """run_post_pairing_poll: park the link, then actually run a poll on it."""
 
-    def test_session_is_available_inside_and_closed_after(self):
-        from custom_components.omron.ble_session import handed_off_session
+    ADDRESS = "AA:BB:CC:DD:EE:FF"
+
+    def test_session_is_parked_before_the_poll_runs(self):
+        from custom_components.omron.ble_session import run_post_pairing_poll
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
         session = _FakeSession()
+        seen = {}
 
-        async def _run():
-            async with handed_off_session(hass, "AA:BB:CC:DD:EE:FF", session):
-                parked = hass.data[DOMAIN]["_setup_sessions"]
-                assert parked["AA:BB:CC:DD:EE:FF"] is session
+        class _Coordinator:
+            async def async_refresh(self) -> None:
+                seen["parked"] = hass.data[DOMAIN]["_setup_sessions"].get(
+                    TestPostPairingPoll.ADDRESS
+                )
 
-        asyncio.run(_run())
+        asyncio.run(
+            run_post_pairing_poll(hass, self.ADDRESS, session, _Coordinator())
+        )
 
-        assert session.events == ["release", "reclaim", "aclose"]
-        assert hass.data[DOMAIN]["_setup_sessions"] == {}
-
-    def test_adopted_session_is_left_alone(self):
-        """Once the poll pops the session it owns it; exiting must not close it."""
-        from custom_components.omron.ble_session import handed_off_session
-        from custom_components.omron.const import DOMAIN
-
-        hass = _fake_hass()
-        session = _FakeSession()
-
-        async def _run():
-            async with handed_off_session(hass, "AA:BB:CC:DD:EE:FF", session):
-                hass.data[DOMAIN]["_setup_sessions"].pop("AA:BB:CC:DD:EE:FF")
-
-        asyncio.run(_run())
-
+        assert seen["parked"] is session, "the poll must see the parked link"
         assert session.events == ["release"]
 
-    def test_session_is_closed_when_the_poll_raises(self):
-        from custom_components.omron.ble_session import handed_off_session
+    def test_skipped_poll_leaves_the_session_parked(self):
+        """The poll can bail out before adopting — no device, or the BLE
+        session lock taken by an advertisement-triggered auto-session. Closing
+        the link here would send the retry back to the reconnect a PER_SESSION
+        cuff refuses, so it has to stay parked for the next poll."""
+        from custom_components.omron.ble_session import run_post_pairing_poll
+        from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
         session = _FakeSession()
 
-        async def _run():
-            async with handed_off_session(hass, "AA:BB:CC:DD:EE:FF", session):
-                raise RuntimeError("refresh blew up")
+        class _SkippingCoordinator:
+            async def async_refresh(self) -> None:
+                return  # bailed out before adopting anything
 
-        with_error = False
-        try:
-            asyncio.run(_run())
-        except RuntimeError:
-            with_error = True
+        asyncio.run(
+            run_post_pairing_poll(hass, self.ADDRESS, session, _SkippingCoordinator())
+        )
 
-        assert with_error, "the error must propagate, not be swallowed"
-        assert session.events == ["release", "reclaim", "aclose"]
+        parked = hass.data[DOMAIN]["_setup_sessions"].get(self.ADDRESS)
+        assert parked is session, "a skipped poll must not consume the session"
+        assert "aclose" not in session.events, "the link must stay open for the retry"
+
+    def test_adopted_session_is_left_to_the_poll(self):
+        """Once the poll pops the session it owns it; nothing here may close it."""
+        from custom_components.omron.ble_session import run_post_pairing_poll
+        from custom_components.omron.const import DOMAIN
+
+        hass = _fake_hass()
+        session = _FakeSession()
+
+        class _AdoptingCoordinator:
+            async def async_refresh(self) -> None:
+                hass.data[DOMAIN]["_setup_sessions"].pop(TestPostPairingPoll.ADDRESS)
+
+        asyncio.run(
+            run_post_pairing_poll(hass, self.ADDRESS, session, _AdoptingCoordinator())
+        )
+
+        assert session.events == ["release"]
 
 
 class TestRetryPairingReturnsSession:
@@ -267,7 +265,7 @@ class TestCallSitesHandOffTheSession:
     def test_auto_pairing_hands_off_the_session(self):
         fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
 
-        assert "handed_off_session" in _called_names(fn), (
+        assert "run_post_pairing_poll" in _called_names(fn), (
             "dropping the session here makes the follow-up poll reconnect, and "
             "a PER_SESSION cuff refuses that second connect"
         )
@@ -277,7 +275,17 @@ class TestCallSitesHandOffTheSession:
             _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
         )
 
-        assert "handed_off_session" in _called_names(fn)
+        assert "run_post_pairing_poll" in _called_names(fn)
+
+    def test_retry_pairing_button_seeds_the_advert_cooldown(self):
+        """Without this an advert can start an auto-session that takes the BLE
+        lock between pairing and the poll, so the poll skips and the fresh
+        link goes unused. Setup seeds the same cooldown for the same reason."""
+        fn = _find_method(
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+        )
+
+        assert "last_attempt_time" in ast.unparse(fn)
 
     def test_config_flow_uses_the_shared_helper(self):
         """All three paths share one helper so the wiring cannot drift apart."""
@@ -293,42 +301,47 @@ class TestCallSitesHandOffTheSession:
             name.endswith("reclaim_ownership") for name in _called_names(fn)
         ), "aclose() does not disconnect while _owns_connection is False"
 
+    def test_unload_clears_a_parked_session(self):
+        """Nothing adopts or closes a parked link once the entry is gone."""
+        fn = _find_async_function(_parse("__init__.py"), "async_unload_entry")
+
+        assert "discard_handoff_session" in _called_names(fn), (
+            "a session parked for a poll that never came would keep its BLE "
+            "link past the unload"
+        )
+
 
 class TestPostPairingPollIsNotDebounced:
-    """The poll that adopts the parked session must actually run inside the block.
+    """The post-pairing poll must actually run before the helper returns.
 
-    async_request_refresh() goes through a 10 s debouncer. When a refresh
-    fired recently it schedules the poll and returns *without* running it, so
-    the handed_off_session block would exit and close the parked link before
-    the deferred poll could adopt it — reproducing the very failure this
-    handoff exists to prevent. Pressing Refresh Data and then Retry Pairing
-    lands squarely in that window.
+    async_request_refresh() goes through a 10 s debouncer: when a refresh
+    fired recently it schedules the poll and returns *without* running it.
+    Pressing Refresh Data and then Retry Pairing lands squarely in that
+    window. The forced-transfer path in _run_auto_session deliberately uses
+    the debounced call, so this invariant is pinned on the shared helper
+    rather than on the call sites.
     """
 
-    def _assert_direct_refresh(self, fn: ast.AST, where: str) -> None:
-        block = _handoff_block(fn)
-        calls = _called_names(block)
-        debounced = {name for name in calls if name.endswith("async_request_refresh")}
+    def test_helper_polls_without_the_debouncer(self):
+        fn = _find_async_function(_parse("ble_session.py"), "run_post_pairing_poll")
+        calls = _called_names(fn)
 
-        assert not debounced, (
-            f"{where}: async_request_refresh() is debounced and can return "
-            "before the poll runs, so the block would close the parked "
-            "session first. Use async_refresh(), as setup does."
+        assert not any(
+            name.endswith("async_request_refresh") for name in calls
+        ), (
+            "async_request_refresh() can return before the poll runs, leaving "
+            "the parked session unused. Use async_refresh(), as setup does."
         )
         assert any(name.endswith("async_refresh") for name in calls), (
-            f"{where}: the parked session is only useful if a poll actually "
-            "runs inside the block"
+            "parking the session is only useful if a poll actually runs"
         )
 
-    def test_auto_pairing_polls_without_the_debouncer(self):
-        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
-        self._assert_direct_refresh(fn, "auto-pairing")
+    def test_helper_does_not_discard_the_session(self):
+        """A poll that bailed out leaves the session parked for the next one;
+        discarding here would close a link the retry still needs."""
+        fn = _find_async_function(_parse("ble_session.py"), "run_post_pairing_poll")
 
-    def test_retry_pairing_button_polls_without_the_debouncer(self):
-        fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
-        )
-        self._assert_direct_refresh(fn, "Retry Pairing button")
+        assert "discard_handoff_session" not in _called_names(fn)
 
 
 class TestSkippedPollKeepsTheSessionParked:

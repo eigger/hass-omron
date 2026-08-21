@@ -7,12 +7,13 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from time import perf_counter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .const import DOMAIN
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
     from .omron_ble.omron_driver import OmronDeviceSession
 
@@ -64,21 +65,28 @@ async def discard_handoff_session(hass: HomeAssistant, address: str) -> None:
         )
 
 
-@asynccontextmanager
-async def handed_off_session(
-    hass: HomeAssistant, address: str, session: OmronDeviceSession
-) -> AsyncIterator[None]:
-    """Park ``session`` for the poll run inside the block, then clean up.
+async def run_post_pairing_poll(
+    hass: HomeAssistant,
+    address: str,
+    session: OmronDeviceSession,
+    poll_coordinator: DataUpdateCoordinator[Any],
+) -> None:
+    """Park the freshly paired session and poll at once so it gets adopted.
 
-    Discarding on exit is a no-op once the poll adopted the session; it only
-    closes the link when the refresh was debounced away or never reached the
-    poll, which would otherwise leak the connection.
+    Uses ``async_refresh`` rather than ``async_request_refresh``: the latter
+    goes through a 10 s debouncer that schedules the poll and returns without
+    running it when a refresh fired recently — pressing Refresh Data and then
+    Retry Pairing is exactly that — so the poll meant to adopt the parked link
+    would not have run by the time this returns.
+
+    Nothing is discarded afterwards. When the poll bails out (no device, BLE
+    session lock held) the session stays parked for the next one, the way the
+    config flow leaves it: closing it here would send that retry back to the
+    reconnect a PER_SESSION cuff refuses. ``async_poll`` closes the link if it
+    has dropped by then, and unloading the entry clears whatever is left.
     """
     stash_handoff_session(hass, address, session)
-    try:
-        yield
-    finally:
-        await discard_handoff_session(hass, address)
+    await poll_coordinator.async_refresh()
 
 
 @asynccontextmanager

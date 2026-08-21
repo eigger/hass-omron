@@ -12,8 +12,9 @@ from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
 from .ble_session import (
     adopt_handoff_session,
-    handed_off_session,
+    discard_handoff_session,
     omron_poll_ble_telemetry,
+    run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
@@ -231,22 +232,22 @@ def process_service_info(
             else:
                 _LOGGER.error("Auto time sync failed: %s", err)
 
-        # Lock auto-released by the context manager. Post-pairing refresh runs
+        # Lock auto-released by the context manager. The post-pairing poll runs
         # AFTER the release so _async_poll_data can acquire it independently,
-        # and adopts the link parked here rather than reconnecting — a
+        # and adopts the link parked for it rather than reconnecting — a
         # PER_SESSION cuff refuses that second connect.
-        #
-        # async_refresh, not async_request_refresh: the latter goes through a
-        # 10 s debouncer that returns without running the poll when a refresh
-        # fired recently, which would let this block exit and close the link
-        # before the deferred poll ever sees it. Setup polls the same way.
         if paired_session is not None:
-            async with handed_off_session(
-                coordinator.hass, service_info.address, paired_session
-            ):
+            if not coordinator.poll_coordinator:
+                # Nothing will ever adopt the link, so do not park it.
+                await paired_session.aclose()
+            else:
                 try:
-                    if coordinator.poll_coordinator:
-                        await coordinator.poll_coordinator.async_refresh()
+                    await run_post_pairing_poll(
+                        coordinator.hass,
+                        service_info.address,
+                        paired_session,
+                        coordinator.poll_coordinator,
+                    )
                 except Exception as err:
                     _LOGGER.error("Post-pairing refresh failed: %s", err)
 
@@ -445,4 +446,9 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:
     """Unload a config entry."""
+    # A pairing session parked for a poll that never came would otherwise keep
+    # its BLE link past the unload, with nothing left to adopt or close it.
+    address = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("address")
+    if address:
+        await discard_handoff_session(hass, address)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
