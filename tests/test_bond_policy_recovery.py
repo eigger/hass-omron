@@ -219,3 +219,76 @@ def test_no_bond_recovery_when_not_pairing_on_connect(
 
     assert remove_device_recorder == []
     assert connect.pair_args == [False]
+
+
+def test_proxy_backend_says_the_bond_could_not_be_removed(
+    monkeypatch, settle_free, caplog
+):
+    """프록시 링크: 본드를 못 지웠다는 사실이 WARNING 으로 드러나야 한다.
+
+    ``_bluez_remove_device`` 는 로컬 BlueZ DBus path 가 필요하다. 프록시에서는
+    제거가 실패하고 재시도가 **같은 키를 다시 내미는** 것이 되는데, 이게 조용히
+    지나가면 로그만 보고 "본드를 지우고 재본딩했는데도 거부당했다" 로 잘못
+    읽힌다.
+    """
+    async def _fail_remove(obj):
+        return False
+
+    monkeypatch.setattr(omron_driver, "_bluez_remove_device", _fail_remove)
+    connect = ConnectRecorder([_stale_bond_error(), None])
+    monkeypatch.setattr(omron_driver, "_connect_once", connect)
+
+    with caplog.at_level("WARNING", logger="custom_components.omron.omron_ble.omron_driver"):
+        asyncio.run(
+            omron_driver.establish_connection_with_bond_settle(
+                FakeBLEDevice(), "cuff", pair_on_connect=True, model="HEM-7188T1"
+            )
+        )
+
+    assert any("Could not remove the bond" in r.getMessage() for r in caplog.records)
+    assert connect.pair_args == [True, True]
+
+
+def test_failed_rebond_reports_both_errors_at_warning(
+    monkeypatch, settle_free, remove_device_recorder, caplog
+):
+    """복구 후 재본딩까지 실패하면 두 에러가 모두 WARNING 에 남아야 한다.
+
+    재본딩 오류가 DEBUG 에만 있으면, WARNING 만 수집하는 필드 리포트에서
+    "커프가 키를 버렸다" 와 "본드를 지운 뒤 새 본드를 거부당했다" 가 구분되지
+    않는다 — 이 실험의 판정이 정확히 그 구분에 달려 있다.
+    """
+    connect = ConnectRecorder(
+        [_stale_bond_error(), _refused_bond_error(), None]
+    )
+    monkeypatch.setattr(omron_driver, "_connect_once", connect)
+
+    with caplog.at_level("WARNING", logger="custom_components.omron.omron_ble.omron_driver"):
+        asyncio.run(
+            omron_driver.establish_connection_with_bond_settle(
+                FakeBLEDevice(), "cuff", pair_on_connect=True, model="HEM-7188T1"
+            )
+        )
+
+    warnings = " | ".join(r.getMessage() for r in caplog.records)
+    assert "AuthenticationFailed" in warnings, "원래 stale-bond 에러"
+    assert "AuthenticationCanceled" in warnings, "재본딩 거부 에러(retry_exc)"
+    assert "removing it" in warnings, "본드를 실제로 지웠는지 여부"
+    assert connect.pair_args == [True, True, False]
+
+
+@pytest.mark.parametrize(
+    "variant", ("HEM-7188T1-LE", "HEM-7188T1-LEO")
+)
+def test_variants_inherit_the_wld4_bond_policy(variant):
+    """카탈로그 variant 도 canonical 과 같은 본드 정책을 써야 한다.
+
+    필드에서 실제로 선택되는 이름은 canonical 이 아니라 variant 다. variant 가
+    정책을 물려받지 못하면 실험 빌드가 제보자 기기에서 아무것도 바꾸지 않는다.
+    """
+    from custom_components.omron.omron_ble.devices import get_device_config
+
+    config = get_device_config(variant)
+    assert config.bond_policy == BondPolicy.REUSE
+    assert config.unpair_after_session is False
+    assert config.pair_on_connect is True

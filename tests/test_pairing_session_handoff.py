@@ -1,9 +1,13 @@
 """Pairing-session handoff regression tests (discussions#119).
 
-WLD3.0 cuffs (HEM-7380T1 / 7188T1 and friends) serve data during the pairing
+WLD3.0 cuffs (HEM-7380T1 and friends) serve data during the pairing
 session and reject later connections — see the _WLD3_BOND_POLICY comment in
-device_catalog.py. Closing the link after pairing and letting the follow-up
-poll reconnect is therefore what makes that poll time out.
+device_catalog.py. HEM-7188T1 shows the same handoff symptom but is WLD4.0
+and no longer shares that bond policy (see _WLD4_BOND_POLICY); the handoff
+below is what it has in common with them, not the bond lifetime.
+
+Closing the link after pairing and letting the follow-up poll reconnect is
+therefore what makes that poll time out.
 
 The config flow already parked its session in _setup_sessions so the first
 poll reuses the same link, but the advertisement-triggered auto-pairing
