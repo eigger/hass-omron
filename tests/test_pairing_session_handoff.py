@@ -59,8 +59,9 @@ def _called_names(node: ast.AST) -> set[str]:
 class _FakeSession:
     """Minimal session stub that records the ownership calls it receives."""
 
-    def __init__(self) -> None:
+    def __init__(self, connected: bool = True) -> None:
         self.events: list[str] = []
+        self.is_connected = connected
 
     def release_for_handoff(self) -> "_FakeSession":
         self.events.append("release")
@@ -296,6 +297,42 @@ class TestParkedSessionBlocksRepairing:
         assert hass.data[DOMAIN]["_setup_sessions"][self.ADDRESS] is session
 
 
+class TestParkedSessionMustStillBeConnected:
+    """A dropped parked link must not stand in for pairing."""
+
+    ADDRESS = "AA:BB:CC:DD:EE:FF"
+
+    def test_dropped_parked_session_is_discarded_so_pairing_proceeds(self):
+        """Polling a dead parked link only reconnects without pairing, which
+        is the connect a PER_SESSION cuff refuses — and the caller pressed
+        Retry Pairing precisely because it wanted to pair."""
+        from custom_components.omron.ble_session import (
+            poll_parked_session,
+            stash_handoff_session,
+        )
+        from custom_components.omron.const import DOMAIN
+
+        hass = _fake_hass()
+        session = _FakeSession(connected=False)
+        polled = False
+
+        class _Coordinator:
+            async def async_refresh(self) -> None:
+                nonlocal polled
+                polled = True
+
+        async def _run():
+            await stash_handoff_session(hass, self.ADDRESS, session)
+            return await poll_parked_session(hass, self.ADDRESS, _Coordinator())
+
+        handled = asyncio.run(_run())
+
+        assert handled is False, "a dead parked link must not block pairing"
+        assert not polled, "there is nothing to poll on a dropped link"
+        assert session.events == ["release", "reclaim", "aclose"]
+        assert hass.data[DOMAIN]["_setup_sessions"] == {}
+
+
 class TestRepairEntryPointsCheckForAParkedSession:
     """Both paths that pair must consult the parked session first."""
 
@@ -319,6 +356,39 @@ class TestRepairEntryPointsCheckForAParkedSession:
 
         assert "poll_parked_session" in body
         assert body.index("poll_parked_session") < body.index("async_retry_pairing")
+
+    def test_check_also_covers_the_time_sync_path(self):
+        """async_sync_time opens its own link, so an invalid_time advert would
+        put a second one on the cuff just as pairing would."""
+        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        body = ast.unparse(fn)
+
+        assert body.index("poll_parked_session") < body.index("async_sync_time"), (
+            "the guard must run before the time-sync branch too"
+        )
+        guards = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.If)
+            and "poll_parked_session" in ast.unparse(node.test)
+        ]
+        assert guards, "expected the parked-session guard to be a plain if"
+        assert "is_pairing" not in ast.unparse(guards[0].test), (
+            "gating on is_pairing leaves the time-sync path unguarded"
+        )
+
+    def test_auto_pairing_seeds_the_cooldown_when_it_bails_out(self):
+        """Returning early without seeding it respawns this task on every
+        advertisement in a burst."""
+        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+
+        guards = [
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.If)
+            and "poll_parked_session" in ast.unparse(node.test)
+        ]
+        assert "last_attempt_time" in ast.unparse(guards[0])
 
     def test_check_runs_outside_the_session_lock(self):
         """The poll it triggers needs session_lock to adopt the parked

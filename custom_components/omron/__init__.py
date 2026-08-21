@@ -209,16 +209,20 @@ def process_service_info(
             return
 
         # An earlier attempt may have left a session parked and still
-        # connected because its poll skipped. Pairing again would put a
-        # second BLE link on the same cuff. Checked before taking the lock:
-        # the poll needs it to adopt the parked session.
-        if (
-            is_pairing
-            and coordinator.poll_coordinator
-            and await poll_parked_session(
-                coordinator.hass, service_info.address, coordinator.poll_coordinator
-            )
+        # connected because its poll skipped. Both branches below open a BLE
+        # link, so either would make it a second one on the same cuff — not
+        # just the pairing branch. Checked before taking the lock: the poll
+        # needs it to adopt the parked session.
+        #
+        # The poll does not time-sync, so an invalid_time advert loses that
+        # this round; the device keeps the flag set and the next advert syncs
+        # it once the parked session has been consumed.
+        if coordinator.poll_coordinator and await poll_parked_session(
+            coordinator.hass, service_info.address, coordinator.poll_coordinator
         ):
+            # Seed the cooldown as the session paths do, or a run of adverts
+            # spawns this task again on every one of them.
+            entry_data["last_attempt_time"] = time.time()
             return
 
         action = "auto-pairing" if is_pairing else "time-sync"

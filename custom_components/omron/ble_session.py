@@ -55,14 +55,24 @@ async def poll_parked_session(
     — the SMP auth failure this integration serializes against — and would
     replace the parked session without closing it.
 
-    The poll adopts the parked session, and closes it and connects fresh if
-    the link has dropped, so a stale entry cannot wedge the retry path.
+    A parked link that has since dropped is discarded and False returned:
+    polling it would only reconnect without pairing, which is the connect a
+    PER_SESSION cuff refuses, and the caller asked to pair for a reason.
     """
-    if hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).get(address) is None:
+    session = hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).get(address)
+    if session is None:
+        return False
+    if not session.is_connected:
+        _LOGGER.debug(
+            "The session parked for %s is no longer connected; dropping it so "
+            "the caller can pair again",
+            address,
+        )
+        await discard_handoff_session(hass, address)
         return False
     _LOGGER.debug(
-        "A pairing session is already parked for %s; polling it instead of "
-        "pairing again",
+        "A session is already parked and connected for %s; polling it instead "
+        "of opening a second link",
         address,
     )
     await poll_coordinator.async_refresh()
