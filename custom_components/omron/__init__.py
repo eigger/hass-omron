@@ -14,6 +14,7 @@ from .ble_session import (
     adopt_handoff_session,
     discard_handoff_session,
     omron_poll_ble_telemetry,
+    poll_parked_session,
     run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
@@ -206,6 +207,20 @@ def process_service_info(
                 service_info.address,
             )
             return
+
+        # An earlier attempt may have left a session parked and still
+        # connected because its poll skipped. Pairing again would put a
+        # second BLE link on the same cuff. Checked before taking the lock:
+        # the poll needs it to adopt the parked session.
+        if (
+            is_pairing
+            and coordinator.poll_coordinator
+            and await poll_parked_session(
+                coordinator.hass, service_info.address, coordinator.poll_coordinator
+            )
+        ):
+            return
+
         action = "auto-pairing" if is_pairing else "time-sync"
         # Doubles as the "pairing succeeded" flag: set only once the cuff is
         # bonded, and holds the live link for the refresh below to adopt.

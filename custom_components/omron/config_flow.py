@@ -424,7 +424,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             # with the memory readout session left open so setup does not
             # close-then-immediately-reopen on the same link (which breaks
             # GATT on some stacks). The poll path closes it when finished.
-            stash_handoff_session(self.hass, address, session)
+            await stash_handoff_session(self.hass, address, session)
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

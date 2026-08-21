@@ -12,7 +12,11 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble_session import omron_poll_ble_telemetry, run_post_pairing_poll
+from .ble_session import (
+    omron_poll_ble_telemetry,
+    poll_parked_session,
+    run_post_pairing_poll,
+)
 from .const import DOMAIN
 from .types import OmronConfigEntry
 
@@ -124,6 +128,14 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
             raise HomeAssistantError(
                 f"BLE session already in progress for {self._address}; retry in a moment"
             )
+        poll_coordinator = self._entry.runtime_data.poll_coordinator
+        # An earlier attempt may have left a session parked and still
+        # connected because its poll skipped — which is exactly when a user
+        # presses this button again. Pairing now would put a second BLE link
+        # on the same cuff. Checked before taking the lock: the poll needs it
+        # to adopt the parked session.
+        if await poll_parked_session(self.hass, self._address, poll_coordinator):
+            return
         data = entry_data["data"]
         try:
             async with session_lock:
@@ -141,7 +153,6 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
         # exercised and bond/session state settles. _async_poll_data acquires
         # the lock on its own, and adopts the link parked for it rather than
         # reconnecting — a PER_SESSION cuff refuses that second connect.
-        poll_coordinator = self._entry.runtime_data.poll_coordinator
         await run_post_pairing_poll(
             self.hass, self._address, paired_session, poll_coordinator
         )

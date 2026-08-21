@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def stash_handoff_session(
+async def stash_handoff_session(
     hass: HomeAssistant, address: str, session: OmronDeviceSession
 ) -> None:
     """Park a still-open pairing session for the next poll to adopt.
@@ -31,7 +31,42 @@ def stash_handoff_session(
     ``async_poll`` reuse the very link that just bonded.
     """
     handoff = hass.data.setdefault(DOMAIN, {}).setdefault("_setup_sessions", {})
+    previous = handoff.get(address)
+    if previous is not None and previous is not session:
+        # Backstop only: callers check poll_parked_session() first so they do
+        # not pair while a link is parked. Overwriting the key without this
+        # would drop that link with nothing left to close it.
+        _LOGGER.debug(
+            "Replacing the session parked for %s; closing the previous link",
+            address,
+        )
+        await discard_handoff_session(hass, address)
     handoff[address] = session.release_for_handoff()
+
+
+async def poll_parked_session(
+    hass: HomeAssistant, address: str, poll_coordinator: DataUpdateCoordinator[Any]
+) -> bool:
+    """Poll an already-parked session instead of pairing again.
+
+    Returns True when a parked link was found and polled, meaning the caller
+    must not pair. A skipped poll leaves its session parked and connected, so
+    a retry that paired anyway would open a second BLE link to the same cuff
+    — the SMP auth failure this integration serializes against — and would
+    replace the parked session without closing it.
+
+    The poll adopts the parked session, and closes it and connects fresh if
+    the link has dropped, so a stale entry cannot wedge the retry path.
+    """
+    if hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).get(address) is None:
+        return False
+    _LOGGER.debug(
+        "A pairing session is already parked for %s; polling it instead of "
+        "pairing again",
+        address,
+    )
+    await poll_coordinator.async_refresh()
+    return True
 
 
 def adopt_handoff_session(
@@ -85,7 +120,7 @@ async def run_post_pairing_poll(
     reconnect a PER_SESSION cuff refuses. ``async_poll`` closes the link if it
     has dropped by then, and unloading the entry clears whatever is left.
     """
-    stash_handoff_session(hass, address, session)
+    await stash_handoff_session(hass, address, session)
     await poll_coordinator.async_refresh()
 
 
