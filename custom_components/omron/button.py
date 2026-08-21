@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.components.button import ButtonEntity, ButtonEntityDescription
 from homeassistant.const import EntityCategory
@@ -10,7 +12,11 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble_session import omron_poll_ble_telemetry
+from .ble_session import (
+    omron_poll_ble_telemetry,
+    poll_parked_session,
+    run_post_pairing_poll,
+)
 from .const import DOMAIN
 from .types import OmronConfigEntry
 
@@ -122,16 +128,31 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
             raise HomeAssistantError(
                 f"BLE session already in progress for {self._address}; retry in a moment"
             )
+        poll_coordinator = self._entry.runtime_data.poll_coordinator
+        # An earlier attempt may have left a session parked and still
+        # connected because its poll skipped — which is exactly when a user
+        # presses this button again. Pairing now would put a second BLE link
+        # on the same cuff. Checked before taking the lock: the poll needs it
+        # to adopt the parked session.
+        if await poll_parked_session(self.hass, self._address, poll_coordinator):
+            return
         data = entry_data["data"]
         try:
             async with session_lock:
                 async with omron_poll_ble_telemetry(entry_data):
-                    await data.async_retry_pairing(ble_device)
+                    paired_session = await data.async_retry_pairing(ble_device)
+                # Seed the advertisement-trigger cooldown the way setup does:
+                # a pairing-mode advert arriving now would otherwise start an
+                # auto-session that takes the lock before the poll below, and
+                # that poll would skip and leave the fresh link unused.
+                entry_data["last_attempt_time"] = time.time()
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
         # Lock auto-released by the context manager. Mirror setup behavior:
         # run an immediate poll after pairing so protected GATT paths are
-        # exercised and bond/session state settles. _async_poll_data will
-        # acquire the lock on its own.
-        poll_coordinator = self._entry.runtime_data.poll_coordinator
-        await poll_coordinator.async_request_refresh()
+        # exercised and bond/session state settles. _async_poll_data acquires
+        # the lock on its own, and adopts the link parked for it rather than
+        # reconnecting — a PER_SESSION cuff refuses that second connect.
+        await run_post_pairing_poll(
+            self.hass, self._address, paired_session, poll_coordinator
+        )

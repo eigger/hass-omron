@@ -36,6 +36,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
+from .ble_session import stash_handoff_session
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
@@ -423,10 +424,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             # with the memory readout session left open so setup does not
             # close-then-immediately-reopen on the same link (which breaks
             # GATT on some stacks). The poll path closes it when finished.
-            handoff = self.hass.data.setdefault(DOMAIN, {}).setdefault(
-                "_setup_sessions", {}
-            )
-            handoff[address] = session.release_for_handoff()
+            await stash_handoff_session(self.hass, address, session)
 
     async def async_step_bluetooth_confirm(
         self, user_input: dict[str, Any] | None = None

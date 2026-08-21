@@ -10,7 +10,13 @@ import time
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
-from .ble_session import omron_poll_ble_telemetry
+from .ble_session import (
+    adopt_handoff_session,
+    discard_handoff_session,
+    omron_poll_ble_telemetry,
+    poll_parked_session,
+    run_post_pairing_poll,
+)
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from homeassistant.components.bluetooth import (
@@ -201,8 +207,28 @@ def process_service_info(
                 service_info.address,
             )
             return
+
+        # An earlier attempt may have left a session parked and still
+        # connected because its poll skipped. Both branches below open a BLE
+        # link, so either would make it a second one on the same cuff — not
+        # just the pairing branch. Checked before taking the lock: the poll
+        # needs it to adopt the parked session.
+        #
+        # The poll does not time-sync, so an invalid_time advert loses that
+        # this round; the device keeps the flag set and the next advert syncs
+        # it once the parked session has been consumed.
+        if coordinator.poll_coordinator and await poll_parked_session(
+            coordinator.hass, service_info.address, coordinator.poll_coordinator
+        ):
+            # Seed the cooldown as the session paths do, or a run of adverts
+            # spawns this task again on every one of them.
+            entry_data["last_attempt_time"] = time.time()
+            return
+
         action = "auto-pairing" if is_pairing else "time-sync"
-        pair_succeeded = False
+        # Doubles as the "pairing succeeded" flag: set only once the cuff is
+        # bonded, and holds the live link for the refresh below to adopt.
+        paired_session = None
         try:
             async with session_lock:
                 entry_data["last_attempt_time"] = time.time()
@@ -215,8 +241,7 @@ def process_service_info(
                 ble_device = service_info.device
                 if is_pairing:
                     async with omron_poll_ble_telemetry(entry_data):
-                        await data.async_retry_pairing(ble_device)
-                    pair_succeeded = True
+                        paired_session = await data.async_retry_pairing(ble_device)
                 else:  # is_invalid_time and not is_forced_transfer
                     async with omron_poll_ble_telemetry(entry_data):
                         await data.async_sync_time(ble_device)
@@ -226,13 +251,24 @@ def process_service_info(
             else:
                 _LOGGER.error("Auto time sync failed: %s", err)
 
-        # Lock auto-released by the context manager. Post-pairing refresh runs
-        # AFTER the release so _async_poll_data can acquire it independently.
-        if pair_succeeded and coordinator.poll_coordinator:
-            try:
-                await coordinator.poll_coordinator.async_request_refresh()
-            except Exception as err:
-                _LOGGER.error("Post-pairing refresh failed: %s", err)
+        # Lock auto-released by the context manager. The post-pairing poll runs
+        # AFTER the release so _async_poll_data can acquire it independently,
+        # and adopts the link parked for it rather than reconnecting — a
+        # PER_SESSION cuff refuses that second connect.
+        if paired_session is not None:
+            if not coordinator.poll_coordinator:
+                # Nothing will ever adopt the link, so do not park it.
+                await paired_session.aclose()
+            else:
+                try:
+                    await run_post_pairing_poll(
+                        coordinator.hass,
+                        service_info.address,
+                        paired_session,
+                        coordinator.poll_coordinator,
+                    )
+                except Exception as err:
+                    _LOGGER.error("Post-pairing refresh failed: %s", err)
 
     coordinator.hass.async_create_task(_run_auto_session())
 
@@ -313,12 +349,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         address = entry_data["address"]
-        # First poll after setup adopts the session the config flow left open
-        # (memory readout session still active) so pairing, time sync, and the
-        # initial EEPROM read share one connection without a close/reopen race.
-        preconnected_session = hass.data[DOMAIN].get("_setup_sessions", {}).pop(
-            address, None
-        )
+        preconnected_session = None
         handed_off = False
         try:
             device = async_ble_device_from_address(hass, address)
@@ -347,6 +378,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 return entry.runtime_data.device_data._finish_update()
 
             async with session_lock:
+                # Adopt a parked pairing/setup session (memory readout still
+                # open) so pairing, time sync, and the first EEPROM read share
+                # one connection. Taken here rather than at the top of the
+                # function so the skip paths above leave it parked for the
+                # retry instead of closing a link they never used.
+                preconnected_session = adopt_handoff_session(hass, address)
                 async with omron_poll_ble_telemetry(entry_data):
                     handed_off = True
                     async with asyncio.timeout(POLL_TIMEOUT_SECONDS):
@@ -380,6 +417,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         finally:
             if not handed_off and preconnected_session is not None:
                 try:
+                    # release_for_handoff() cleared the disconnect
+                    # responsibility, so take it back or aclose() leaves the
+                    # link up.
+                    preconnected_session.reclaim_ownership()
                     await preconnected_session.aclose()
                 except Exception:
                     pass
@@ -424,4 +465,9 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:
     """Unload a config entry."""
+    # A pairing session parked for a poll that never came would otherwise keep
+    # its BLE link past the unload, with nothing left to adopt or close it.
+    address = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("address")
+    if address:
+        await discard_handoff_session(hass, address)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
