@@ -1226,9 +1226,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 ):
                                     _LOGGER.warning(
                                         "Memory session failed for OS-bonding device %s "
-                                        "(model=%s): %s. Ensure OS-level BLE bonding is "
-                                        "complete — remove and re-add the device if this "
-                                        "error persists.",
+                                        "(model=%s): %s. This usually means the link came "
+                                        "up without encryption — these cuffs only serve "
+                                        "the memory characteristics over a bonded link. "
+                                        "Put the cuff back in pairing mode (blinking -P-) "
+                                        "and press Retry Pairing. Removing and re-adding "
+                                        "the integration pairs it once and then hits this "
+                                        "same error on the next poll, so it is not a fix.",
                                         ble_device.address,
                                         self._device_config.model,
                                         last_session_exc,

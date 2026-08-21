@@ -16,6 +16,7 @@ REUSE 로 되돌리는 것만으로는 실험이 성립하지 않는다: 커프�
 반환하므로 그 경로에 도달하지 못한다. 그래서 복구를 connect 경로에도 연결한다.
 """
 import asyncio
+import pathlib
 
 import pytest
 
@@ -292,3 +293,22 @@ def test_variants_inherit_the_wld4_bond_policy(variant):
     assert config.bond_policy == BondPolicy.REUSE
     assert config.unpair_after_session is False
     assert config.pair_on_connect is True
+
+
+def test_memory_session_warning_does_not_advise_re_adding_the_device():
+    """실패 안내가 "제거 후 재추가"로 유도하면 안 된다.
+
+    재추가는 커프가 페어링 모드일 때 한 번 성공하고 다음 폴에서 같은 에러로
+    돌아온다(discussions#119, 2.7.7 로그). 이슈 #125 의 "clear Bluetooth cache"
+    와 같은 오도 패턴이라, 실제로 통하는 동작(페어링 모드 + Retry Pairing)을
+    가리켜야 한다.
+    """
+    source = pathlib.Path(
+        "custom_components/omron/omron_ble/parser.py"
+    ).read_text()
+    start = source.index("Memory session failed for OS-bonding device")
+    message = source[start : start + 800]
+
+    assert "remove and re-add the device" not in message
+    assert "pairing mode" in message
+    assert "Retry Pairing" in message
