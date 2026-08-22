@@ -21,7 +21,7 @@ from custom_components.omron.ble_session import (
     POLL_REQUEST_TTL_SECONDS,
     request_poll,
     should_skip_scheduled_poll,
-    take_poll_request,
+    peek_poll_request,
 )
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
@@ -124,16 +124,16 @@ def test_request_is_returned_until_taken():
 
     # peek 은 소비하지 않는다 — connect 를 실제로 시도하기 전에 사라지면
     # 세션 락에 막힌 버튼 누름이 통째로 없어진다.
-    assert take_poll_request(entry_data, now=1000.0) == "button press"
-    assert take_poll_request(entry_data, now=1001.0) == "button press"
+    assert peek_poll_request(entry_data, now=1000.0) == "button press"
+    assert peek_poll_request(entry_data, now=1001.0) == "button press"
 
 
 def test_request_expires_so_it_cannot_open_an_unrelated_poll_later():
     entry_data: dict = {}
     request_poll(entry_data, "forced-transfer advertisement", now=1000.0)
 
-    assert take_poll_request(entry_data, now=1000.0 + POLL_REQUEST_TTL_SECONDS - 1)
-    assert take_poll_request(entry_data, now=1000.0 + POLL_REQUEST_TTL_SECONDS + 1) is None
+    assert peek_poll_request(entry_data, now=1000.0 + POLL_REQUEST_TTL_SECONDS - 1)
+    assert peek_poll_request(entry_data, now=1000.0 + POLL_REQUEST_TTL_SECONDS + 1) is None
     assert "poll_request" not in entry_data
 
 
@@ -228,3 +228,83 @@ def test_parser_retains_the_raw_msd_its_freshness_and_whether_it_decoded():
     assert source.index("self.last_msd = bytes(payload)") < source.index(
         "fields = self._decode_omron_msd_fields(payload)"
     )
+
+
+def test_observer_listens_to_non_connectable_advertisements_too():
+    """진단 관찰자는 connectable=False 로 등록돼야 한다.
+
+    처리 코디네이터는 ``connectable=True`` 로 등록돼 있어서 HA 가 연결 가능한
+    광고만 넘겨준다. 커프가 "측정 대기" 를 non-connectable 광고로 알린다면
+    ``process_service_info`` 에는 **아예 도달하지 않는다** — 그 안의 connectable
+    체크 때문이 아니라, 우리 코드가 돌기 전에 한 단계 위에서 걸러지기 때문이다.
+
+    이슈 #92 는 지금 "이 하드웨어가 못 한다" 와 "우리가 그 채널을 안 듣고 있다"
+    를 구분하지 못한다. 관찰자가 이걸 가른다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    # 처리 코디네이터는 연결 가능한 광고만 받는다(연결 라우팅 때문에 유지).
+    assert "connectable=True," in source
+    # 관찰자는 전부 받는다.
+    assert "BluetoothCallbackMatcher(address=address, connectable=False)" in source
+    # 그리고 원문 MSD 와 connectable 을 같이 찍는다.
+    assert "Observed advertisement from %s: connectable=%s" in source
+
+
+def test_observer_never_touches_device_state():
+    """진단이 동작을 바꾸면 그건 더 이상 진단이 아니다."""
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("def _register_advertisement_observer") :]
+    body = body[: body.index("\ndef _merge_poll_sensor_update")]
+
+    for forbidden in (
+        "data.update(",
+        "request_poll(",
+        "async_request_refresh",
+        "async_retry_pairing",
+        "session_lock",
+    ):
+        assert forbidden not in body, f"관찰자가 {forbidden} 를 건드린다"
+
+
+def test_forced_transfer_is_latched_before_the_lock_and_cooldown_returns():
+    """락/쿨다운에 걸린 광고도 요청으로 남아야 한다.
+
+    트리거는 세션 락과 60초 쿨다운에서 그냥 return 한다. 래치가 그 뒤에 있으면
+    이런 순서로 측정값이 통째로 유실된다:
+
+      1. 다른 BLE 세션이 락을 잡고 있다 (최대 180초)
+      2. 측정 후 forced_transfer 광고가 온다
+      3. 트리거가 return 하고 래치도 안 한다
+      4. 세션이 끝난다
+      5. 다음 예약 폴은 기본 300초 뒤 — 플래그는 이미 60초 신선도를 넘겼다
+      6. 게이트가 skip 한다. 측정값이 커프에 남는다
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    latch = source.index('request_poll(entry_data, "forced-transfer advertisement")')
+    lock_return = source.index("if session_lock.locked():")
+    cooldown_return = source.index("if now - last_attempt < POLL_COOLDOWN_SECONDS:")
+
+    assert latch < lock_return, "락에 막힌 광고가 래치되지 않는다"
+    assert latch < cooldown_return, "쿨다운에 걸린 광고가 래치되지 않는다"
+    # 래치 지점은 하나여야 한다 — 여러 곳이면 어느 것이 유효한지 흐려진다.
+    assert source.count("request_poll(entry_data") == 1
+
+
+def test_entering_the_waiting_state_is_visible_at_info():
+    """DEBUG 만으로는 기본 로그에서 센서가 그냥 멈춘 것처럼 보인다."""
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    assert 'entry_data.get("poll_gate_waiting")' in source
+    assert "_LOGGER.info" in source
+    # 유휴 상태가 이어지는 동안 스캔 간격마다 INFO 를 반복하지는 않는다.
+    assert "_LOGGER.debug\n                    if entry_data.get" in source

@@ -6,6 +6,7 @@ from functools import partial
 import asyncio
 import logging
 import time
+from typing import Any
 
 from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
@@ -16,20 +17,23 @@ from .ble_session import (
     has_handoff_session,
     request_poll,
     should_skip_scheduled_poll,
-    take_poll_request,
+    peek_poll_request,
     omron_poll_ble_telemetry,
     poll_parked_session,
     run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
-from .omron_ble.const import DEFAULT_DEVICE_MODEL
+from .omron_ble.const import DEFAULT_DEVICE_MODEL, OMRON_MANUFACTURER_ID
 from homeassistant.components.bluetooth import (
+    BluetoothCallbackMatcher,
+    BluetoothChange,
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
+    async_register_callback,
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from datetime import timedelta
@@ -79,6 +83,78 @@ _STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
 _STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset({
     SSDBinarySensorDeviceClass.BATTERY,
 })
+
+
+def _register_advertisement_observer(
+    hass: HomeAssistant, entry: OmronConfigEntry, address: str
+) -> None:
+    """Log every advertisement from this cuff, connectable or not.
+
+    The processor coordinator registers with ``connectable=True``, so Home
+    Assistant only ever hands it advertisements it could connect on. A cuff
+    that announces "measurement waiting" in a non-connectable advertisement is
+    therefore invisible to ``process_service_info`` — not because of the
+    connectable check inside it, but because the advertisement was filtered
+    one level up, before any of our code ran.
+
+    That is the difference between "this hardware cannot do buttonless
+    collection" and "we are not listening on the channel it uses", and issue
+    #92 currently cannot tell them apart: two real measurements produced no
+    trace at all. This observer registers with ``connectable=False``, which in
+    Home Assistant means "give me everything", purely to find out.
+
+    Diagnostic only — it never touches device state or starts a session.
+    """
+
+    @callback
+    def _observe(
+        service_info: BluetoothServiceInfoBleak, change: BluetoothChange
+    ) -> None:
+        md = getattr(service_info, "manufacturer_data", None) or {}
+        payload = md.get(OMRON_MANUFACTURER_ID)
+        msd_hex = payload.hex() if payload else "none"
+
+        entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        if entry_data is None:
+            return
+        seen = (msd_hex, service_info.connectable)
+        if entry_data.get("last_observed_advert") == seen:
+            return
+        entry_data["last_observed_advert"] = seen
+
+        decoded: Any = None
+        if payload:
+            try:
+                decoded = OmronBluetoothDeviceData._decode_omron_msd_fields(
+                    bytes(payload)
+                )
+            except Exception:  # noqa: BLE001 - diagnostic must never raise
+                decoded = None
+        if decoded is None:
+            summary = "undecodable" if payload else "no Omron MSD"
+        else:
+            summary = (
+                f"pairing_mode={decoded['pairing_mode']} "
+                f"invalid_time={decoded['invalid_time']} "
+                f"forced_transfer={decoded['forced_transfer']}"
+            )
+        _LOGGER.debug(
+            "Observed advertisement from %s: connectable=%s rssi=%s msd=%s (%s)",
+            service_info.address,
+            service_info.connectable,
+            getattr(service_info, "rssi", "?"),
+            msd_hex,
+            summary,
+        )
+
+    entry.async_on_unload(
+        async_register_callback(
+            hass,
+            _observe,
+            BluetoothCallbackMatcher(address=address, connectable=False),
+            BluetoothScanningMode.PASSIVE,
+        )
+    )
 
 
 def _merge_poll_sensor_update(prev: SensorUpdate, new: SensorUpdate) -> SensorUpdate:
@@ -202,6 +278,17 @@ def process_service_info(
     if not service_info.connectable:
         return update
 
+    # Latched here, before the session-lock and cooldown returns below, because
+    # those drop the advertisement entirely. A cuff that announced a waiting
+    # measurement while another session held the lock would otherwise be
+    # forgotten: the next scheduled poll is up to a scan interval away, by
+    # which time the flag has aged past ADVERT_FLAG_FRESHNESS_SECONDS and the
+    # gate skips it. The measurement then sits unread with nothing left that
+    # knows to go and get it. Re-latching while the flag stays up just
+    # refreshes the request's TTL, which is what we want.
+    if is_forced_transfer:
+        request_poll(entry_data, "forced-transfer advertisement")
+
     # Trigger sync only for explicit device flags. A poll coordinator being present
     # is not itself a reason to connect on every advertisement.
     is_sync_needed = (
@@ -243,11 +330,6 @@ def process_service_info(
         # otherwise the child poll would see lock locked and return cached data.
         if is_forced_transfer and not is_pairing and not is_invalid_time:
             entry_data["last_attempt_time"] = time.time()
-            # Latched before the refresh, because that call is debounced: the
-            # poll it schedules runs seconds later and re-reads the flags,
-            # and a cuff that has since lowered the bit would have this
-            # request dropped by the gate.
-            request_poll(entry_data, "forced-transfer advertisement")
             _LOGGER.debug(
                 "Triggering scheduled poll via forced-transfer flag for %s",
                 service_info.address,
@@ -436,7 +518,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             # Peeked, not consumed: a request must survive every path that
             # bails out before a connect is actually attempted, or pressing
             # the button while a session is in flight throws the press away.
-            poll_request = take_poll_request(entry_data)
+            poll_request = peek_poll_request(entry_data)
             flags_at = getattr(device_data, "last_msd_monotonic", None)
             if should_skip_scheduled_poll(
                 device_data.device_config,
@@ -446,7 +528,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 poll_request=poll_request,
                 handoff_parked=has_handoff_session(hass, address),
             ):
-                _LOGGER.debug(
+                # First skip of a run says so at INFO: from the outside this
+                # looks like a sensor that quietly stopped updating, and at
+                # DEBUG the reason is invisible in a default log. Subsequent
+                # skips stay at DEBUG so a cuff left idle does not repeat it
+                # every scan interval.
+                log = (
+                    _LOGGER.debug
+                    if entry_data.get("poll_gate_waiting")
+                    else _LOGGER.info
+                )
+                entry_data["poll_gate_waiting"] = True
+                log(
                     "Skipping scheduled poll for %s (%s): the cuff is not "
                     "advertising pairing mode or pending data, and this "
                     "profile needs a fresh bond for every session. Put it in "
@@ -457,6 +550,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 if poll_coordinator.data is not None:
                     return poll_coordinator.data
                 return entry.runtime_data.device_data._finish_update()
+
+            if entry_data.pop("poll_gate_waiting", False):
+                _LOGGER.info(
+                    "Polling %s again: the cuff is offering a window", address
+                )
 
             session_lock: asyncio.Lock = entry_data["session_lock"]
 
@@ -558,6 +656,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # only start after all platforms have had a chance to subscribe
+    _register_advertisement_observer(hass, entry, address)
     entry.async_on_unload(bt_coordinator.async_start())
     entry.async_on_unload(entry.add_update_listener(update_listener))
     return True

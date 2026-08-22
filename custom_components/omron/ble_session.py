@@ -48,10 +48,17 @@ def request_poll(entry_data: dict, source: str, *, now: float | None = None) -> 
     entry_data["poll_request"] = (source, time.monotonic() if now is None else now)
 
 
-def take_poll_request(
+def peek_poll_request(
     entry_data: dict, *, now: float | None = None
 ) -> str | None:
-    """Return the pending poll request's source, dropping it if it went stale."""
+    """Return the pending poll request's source without consuming it.
+
+    Named for the peek because that is the part callers get wrong: the request
+    is only cleared once a connect is actually committed, so that a press or
+    an advertisement blocked by the session lock is served by the retry
+    instead of vanishing. The one thing this does remove is a request that
+    aged out — an expired one is not a request any more.
+    """
     request = entry_data.get("poll_request")
     if request is None:
         return None
