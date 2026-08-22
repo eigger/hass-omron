@@ -30,6 +30,9 @@ sys.modules["homeassistant.const"] = MagicMock()
 sys.modules["homeassistant.core"] = MagicMock()
 sys.modules["homeassistant.helpers"] = MagicMock()
 sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
+# Store backs the secure bond key; the driver never touches it, but
+# custom_components.omron imports it at module level.
+sys.modules["homeassistant.helpers.storage"] = MagicMock()
 sys.modules["homeassistant.util"] = MagicMock()
 sys.modules["homeassistant.util.dt"] = MagicMock()
 

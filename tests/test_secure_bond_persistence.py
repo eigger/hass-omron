@@ -169,10 +169,30 @@ def test_driver_discards_a_key_the_cuff_refused():
     body = source[source.index("async def _secure_unlock") :]
     body = body[: body.index("\n    async def _discard_secure_bond")]
 
-    assert body.count("await self._discard_secure_bond(") == 2, (
-        "타임아웃과 그 밖의 실패 모두에서 상한 키를 버려야 한다"
+    # 정확히 한 곳에서만, 그리고 실제로 거부당했을 때만 버린다.
+    assert body.count("await self._discard_secure_bond(") == 1
+    assert "if reconnecting and key_was_rejected:" in body
+
+
+def test_a_blip_does_not_cost_the_key():
+    """-P- 를 눌러 얻은 키를 BLE 한 번 흔들림으로 지우면 안 된다.
+
+    ``_secure_unlock`` 은 토큰 핸드셰이크로 시작한다. 재연결 중 거기서
+    타임아웃이 나거나 링크가 끊겼다는 이유로 키를 버리면, 사용자는 기기까지
+    다시 가야 한다. 같은 키로 다음 폴에서 재시도하면 되는 실패다.
+    """
+    source = _driver_source()
+    body = source[source.index("async def _secure_unlock") :]
+    body = body[: body.index("\n    async def _discard_secure_bond")]
+
+    # 커프가 secure 단계를 에러 프레임으로 거부했을 때만 세워진다.
+    assert body.count("key_was_rejected = True") == 2, (
+        "encryption start 와 challenge 거부 두 곳에서만 세워야 한다"
     )
-    assert "if reconnecting:" in body
+    timeout = body.index("except asyncio.TimeoutError")
+    generic = body.index("except Exception as exc:")
+    discard = body.index("await self._discard_secure_bond(")
+    assert timeout < generic < discard, "타임아웃 경로는 키를 건드리지 않아야 한다"
 
 
 def test_secure_failure_falls_back_to_the_token_path():
@@ -204,3 +224,67 @@ def _parser_source():
     import pathlib
 
     return pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text()
+
+
+# ── 리뷰 반영: 저장이 통합을 리로드하면 안 된다 ────────────────────────────
+
+def test_saving_the_key_does_not_touch_the_config_entry():
+    """엔트리를 고치면 update_listener 가 통합을 리로드한다.
+
+    ``save()`` 는 핸드셰이크 도중에 불린다. 거기서 리로드가 걸리면 방금
+    페어링한 그 세션이 뜯긴다. 그래서 키는 HA 자체 저장소로 간다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("class PersistentSecureBondStore") :]
+    body = body[: body.index("\ndef _merge_poll_sensor_update")]
+
+    assert "async_update_entry" not in body, (
+        "키 저장이 엔트리를 고치면 세션 도중 리로드가 걸린다"
+    )
+    assert "self._store.async_save" in body
+    # update_listener 는 여전히 무조건 리로드한다 — 그래서 피해야 하는 것이다.
+    listener = source[source.index("async def update_listener") :][:300]
+    assert "async_reload" in listener
+
+
+def test_the_config_flow_key_is_adopted_once_then_lives_in_storage():
+    """엔트리는 첫 키가 놓이는 자리일 뿐이다 — 저장할 entry_id 가 없어서."""
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("class PersistentSecureBondStore") :]
+    body = body[: body.index("\ndef _merge_poll_sensor_update")]
+
+    load = body.index("async def async_load")
+    assert body.index("self._entry.data.get(CONF_SECURE_BOND_KEY)") > load
+    # 읽고 나서 엔트리에서 지우지 않는다: 지우는 것도 엔트리 수정이다.
+    assert "data.pop(CONF_SECURE_BOND_KEY" not in body
+
+
+def test_setup_loads_the_key_before_the_first_session():
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    assert "await secure_bond_store.async_load()" in source
+    assert source.index("await secure_bond_store.async_load()") < source.index(
+        "secure_bond_store=secure_bond_store,"
+    )
+
+
+def test_adopted_sessions_keep_the_store():
+    """``adopt()`` 가 빈 저장소를 만들면 그 세션은 페어링 요청으로 시작한다."""
+    import pathlib
+
+    driver = pathlib.Path(
+        "custom_components/omron/omron_ble/omron_driver.py"
+    ).read_text()
+    time_sync = pathlib.Path(
+        "custom_components/omron/omron_ble/setup_time_sync.py"
+    ).read_text()
+
+    assert "secure_bond_store: SecureBondStore | None = None," in driver
+    assert "session._secure_bond_store = secure_bond_store or SecureBondStore()" in driver
+    # setup_time_sync 는 transport 가 없을 때 직접 adopt 한다.
+    assert "OmronDeviceSession.adopt(client, config, secure_bond_store)" in time_sync

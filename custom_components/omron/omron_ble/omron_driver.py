@@ -613,7 +613,10 @@ class OmronDeviceSession:
 
     @classmethod
     def adopt(
-        cls, client: BleakClient, device_config: DeviceConfig
+        cls,
+        client: BleakClient,
+        device_config: DeviceConfig,
+        secure_bond_store: SecureBondStore | None = None,
     ) -> "OmronDeviceSession":
         """Wrap an already-open client to run ops over a connection owned elsewhere.
 
@@ -622,7 +625,11 @@ class OmronDeviceSession:
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
         session._config = device_config
-        session._secure_bond_store = SecureBondStore()
+        # Without the caller's store an adopted session has no key, so it
+        # would open with a pairing request — the one thing a cuff outside
+        # pairing mode refuses. See setup_time_sync, which adopts a client
+        # and then unlocks.
+        session._secure_bond_store = secure_bond_store or SecureBondStore()
         session._init_session_state(client=client, owns_connection=False)
         return session
 
@@ -1632,6 +1639,11 @@ class OmronDeviceSession:
         # btsnoop: the first runs 0x70 0x01 in pairing mode, every later one
         # opens at 0x70 0x05 — which is the only thing a cuff outside pairing
         # mode will answer.
+        # Set only when the cuff answers a secure stage with an error frame.
+        # A key that cost a -P- press must not be thrown away because the
+        # token prelude timed out or the link blinked — those retry fine with
+        # the same key, and discarding forces the user back to the device.
+        key_was_rejected = False
         stored_key = self._secure_bond_store.load()
         self._secure_session = SecureSession(stored_ltk=stored_key)
         reconnecting = stored_key is not None
@@ -1726,6 +1738,7 @@ class OmronDeviceSession:
                 raise ConnectionError("Empty encryption response")
             err = _secure_error_frame_code(enc_resp)
             if err is not None:
+                key_was_rejected = True
                 raise ConnectionError(
                     f"Device rejected encryption start (error frame 0x{enc_resp[0]:02x}, "
                     f"code 0x{err:02x})"
@@ -1748,6 +1761,7 @@ class OmronDeviceSession:
                 raise ConnectionError("Empty challenge response")
             err = _secure_error_frame_code(challenge_resp)
             if err is not None:
+                key_was_rejected = True
                 raise ConnectionError(
                     f"Device rejected challenge (error frame 0x{challenge_resp[0]:02x}, "
                     f"code 0x{err:02x})"
@@ -1762,12 +1776,10 @@ class OmronDeviceSession:
 
         except asyncio.TimeoutError as exc:
             _LOGGER.error("Secure handshake timed out during negotiation")
-            if reconnecting:
-                await self._discard_secure_bond("the handshake timed out")
             raise ConnectionError("Secure unlock timeout") from exc
         except Exception as exc:
             _LOGGER.error("Secure handshake failed: %s", exc)
-            if reconnecting:
+            if reconnecting and key_was_rejected:
                 await self._discard_secure_bond(str(exc))
             raise ConnectionError(f"Secure unlock failed: {exc}") from exc
         finally:

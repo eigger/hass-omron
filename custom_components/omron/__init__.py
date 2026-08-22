@@ -30,6 +30,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from datetime import timedelta
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_MODEL,
@@ -74,45 +75,68 @@ _STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset({
 })
 
 
-class ConfigEntrySecureBondStore(SecureBondStore):
-    """Keeps the application-layer bond key in the config entry.
+SECURE_BOND_STORE_VERSION = 1
 
-    It has to outlive Home Assistant restarts for the same reason it has to
-    outlive the link: pairing is the only moment the cuff hands one out, and
-    it only does that with the -P- button held. A key lost to a restart costs
-    the user a physical trip to the device.
+
+class PersistentSecureBondStore(SecureBondStore):
+    """Keeps the application-layer bond key in Home Assistant's own storage.
+
+    It has to outlive restarts for the same reason it has to outlive the
+    link: pairing is the only moment the cuff hands one out, and it wants the
+    -P- button held. A key lost to a restart costs a physical trip.
+
+    Deliberately not the config entry. Writing there fires the update
+    listener, which reloads the integration — and ``save()`` runs in the
+    middle of a handshake, so the reload would tear down the very session
+    that just paired. The entry is still where the config flow drops the
+    first key, because there is no entry id to store under until it exists;
+    that value is read once and then lives here.
     """
 
     def __init__(self, hass: HomeAssistant, entry: OmronConfigEntry) -> None:
-        stored = entry.data.get(CONF_SECURE_BOND_KEY)
-        try:
-            key = bytes.fromhex(stored) if stored else None
-        except ValueError:
-            _LOGGER.warning(
-                "Ignoring an unreadable stored secure bond key for %s",
-                entry.title,
-            )
-            key = None
-        super().__init__(key)
-        self._hass = hass
+        super().__init__()
+        self._store = Store(
+            hass, SECURE_BOND_STORE_VERSION, f"{DOMAIN}.secure_bond.{entry.entry_id}"
+        )
         self._entry = entry
+
+    async def async_load(self) -> None:
+        """Populate the in-memory key. Call once, during setup."""
+        stored = None
+        try:
+            data = await self._store.async_load()
+        except Exception as exc:  # noqa: BLE001 - a bad store must not block setup
+            _LOGGER.warning("Could not read the stored secure bond key: %s", exc)
+            data = None
+        if isinstance(data, dict):
+            stored = data.get("key")
+        if not stored:
+            # First run after the config flow paired: adopt the key it left on
+            # the entry. Left in place afterwards rather than removed, because
+            # removing it means updating the entry, which means a reload.
+            stored = self._entry.data.get(CONF_SECURE_BOND_KEY)
+            if stored:
+                _LOGGER.debug("Adopting the secure bond key left by the config flow")
+        if not stored:
+            return
+        try:
+            await super().save(bytes.fromhex(stored))
+        except ValueError as exc:
+            _LOGGER.warning("Ignoring an unusable stored secure bond key: %s", exc)
 
     async def save(self, key: bytes) -> None:
         await super().save(key)
-        self._write(key.hex())
+        await self._write(key.hex())
 
     async def clear(self) -> None:
         await super().clear()
-        self._write(None)
+        await self._write(None)
 
-    def _write(self, value: str | None) -> None:
-        data = dict(self._entry.data)
-        if value is None:
-            data.pop(CONF_SECURE_BOND_KEY, None)
-        else:
-            data[CONF_SECURE_BOND_KEY] = value
-        if data != dict(self._entry.data):
-            self._hass.config_entries.async_update_entry(self._entry, data=data)
+    async def _write(self, value: str | None) -> None:
+        try:
+            await self._store.async_save({"key": value})
+        except Exception as exc:  # noqa: BLE001 - never break a session over this
+            _LOGGER.warning("Could not persist the secure bond key: %s", exc)
 
 
 def _merge_poll_sensor_update(prev: SensorUpdate, new: SensorUpdate) -> SensorUpdate:
@@ -334,10 +358,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     device_model = entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
 
     slot_aliases = aliases_dict_from_entry(entry)
+    secure_bond_store = PersistentSecureBondStore(hass, entry)
+    await secure_bond_store.async_load()
     data = OmronBluetoothDeviceData(
         device_model=device_model,
         user_aliases=slot_aliases,
-        secure_bond_store=ConfigEntrySecureBondStore(hass, entry),
+        secure_bond_store=secure_bond_store,
     )
     hass.data[DOMAIN][entry.entry_id] = {}
     hass.data[DOMAIN][entry.entry_id]['address'] = address

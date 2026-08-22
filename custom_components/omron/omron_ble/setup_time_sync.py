@@ -198,12 +198,16 @@ async def _sync_eeprom_with_session(
     transport: OmronDeviceSession | None,
     *,
     leave_memory_session_open: bool = False,
+    secure_bond_store: SecureBondStore | None = None,
 ) -> bool:
     """EEPROM time sync, opening a memory session when one is not already held."""
     if not config.supports_eeprom_time_sync:
         return False
     if transport is None:
-        transport = OmronDeviceSession.adopt(client, config)
+        # No store here means no key, and an unlock that opens with a
+        # pairing request the cuff will refuse. Callers that already
+        # hold a session should pass it instead of letting this adopt.
+        transport = OmronDeviceSession.adopt(client, config, secure_bond_store)
     if transport.memory_session_active:
         return await _sync_time_via_eeprom(client, model, config, transport)
     if leave_memory_session_open:
@@ -219,6 +223,7 @@ async def async_sync_eeprom_time(
     model: str,
     config: DeviceConfig | None = None,
     transport: OmronDeviceSession | None = None,
+    secure_bond_store: SecureBondStore | None = None,
 ) -> bool:
     """EEPROM-only time sync (uses or opens a memory readout session)."""
     if not client.is_connected:
@@ -229,7 +234,9 @@ async def async_sync_eeprom_time(
         return False
     if config is None:
         config = get_device_config(model)
-    return await _sync_eeprom_with_session(client, model, config, transport)
+    return await _sync_eeprom_with_session(
+        client, model, config, transport, secure_bond_store=secure_bond_store
+    )
 
 
 async def async_sync_device_time(
@@ -239,6 +246,7 @@ async def async_sync_device_time(
     transport: OmronDeviceSession | None = None,
     *,
     leave_memory_session_open: bool = False,
+    secure_bond_store: SecureBondStore | None = None,
 ) -> bool:
     """Sync current local time via EEPROM (memory session) then CTS.
 
@@ -263,6 +271,7 @@ async def async_sync_device_time(
         eeprom_success = await _sync_eeprom_with_session(
             client, model, config, transport,
             leave_memory_session_open=leave_memory_session_open,
+            secure_bond_store=secure_bond_store,
         )
         if eeprom_success:
             return True
