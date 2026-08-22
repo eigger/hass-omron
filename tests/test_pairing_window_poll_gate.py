@@ -139,3 +139,43 @@ def test_refresh_button_arms_the_flag_and_the_poll_consumes_it():
     # pop 이어야 한다: get 이면 플래그가 남아 다음 폴까지 열어 준다.
     assert 'entry_data.pop("user_requested_poll", False)' in init
     assert 'entry_data.get("user_requested_poll"' not in init
+
+
+def test_advert_flags_are_logged_before_both_early_returns():
+    """플래그 로그가 두 early return 보다 앞에 있어야 한다.
+
+    이슈 #92 에서 진단이 막힌 지점이다. 로그가 뒤에 있으면 "Advertisement
+    flags" 줄이 없다는 사실이 세 가지를 동시에 뜻하게 된다:
+
+      * 커프가 아무 플래그도 안 올렸다
+      * 올렸는데 non-connectable 광고라 connectable 체크에서 버려졌다
+      * 우리가 트리거하지 않는 플래그만 올렸다
+
+    자동 수집이 가능한지에 대해 정반대 답이 나오는 세 경우인데, 로그로는
+    구분할 수 없었다. connectable 값도 같은 줄에 있어야 두 번째가 갈린다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("def process_service_info") :]
+    body = body[: body.index("\nasync def ")]
+
+    log_at = body.index('"Advertisement flags for %s')
+    connectable_return_at = body.index("if not service_info.connectable:")
+    sync_needed_return_at = body.index("if not is_sync_needed:")
+
+    assert log_at < connectable_return_at, (
+        "non-connectable 광고의 플래그가 로그 없이 버려진다"
+    )
+    assert log_at < sync_needed_return_at
+    assert "connectable=%s" in body
+
+
+def test_advert_flags_log_is_transition_only():
+    """광고마다 찍으면(초당 1회 수준) 정작 볼 것이 묻힌다."""
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    assert 'entry_data.get("last_advert_flags") != flags' in source
+    assert 'entry_data["last_advert_flags"] = flags' in source

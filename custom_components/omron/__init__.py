@@ -132,15 +132,36 @@ def process_service_info(
     data = coordinator.device_data
     update = data.update(service_info)
 
-    # 1. Only attempt active sessions when the device is connectable
-    if not service_info.connectable:
-        return update
-
     entry_data = coordinator.hass.data[DOMAIN][entry.entry_id]
 
     is_pairing = getattr(data, "pairing_mode", False)
     is_invalid_time = getattr(data, "invalid_time", False)
     is_forced_transfer = getattr(data, "forced_transfer", False)
+
+    # Logged before the returns below, and on every transition rather than only
+    # when we act. Both early returns used to swallow the flags silently, so a
+    # missing log line could equally mean "the cuff raised nothing", "it raised
+    # something on a non-connectable advertisement", or "it raised a flag we
+    # don't trigger on" — three very different answers to whether automatic
+    # collection is possible, and no way to tell them apart from a debug log
+    # (issue #92). Only transitions are logged: these cuffs advertise about
+    # once a second, and a line per advertisement would bury what it is for.
+    flags = (is_pairing, is_invalid_time, is_forced_transfer, service_info.connectable)
+    if entry_data.get("last_advert_flags") != flags:
+        entry_data["last_advert_flags"] = flags
+        _LOGGER.debug(
+            "Advertisement flags for %s: pairing_mode=%s invalid_time=%s "
+            "forced_transfer=%s connectable=%s",
+            service_info.address,
+            is_pairing,
+            is_invalid_time,
+            is_forced_transfer,
+            service_info.connectable,
+        )
+
+    # 1. Only attempt active sessions when the device is connectable
+    if not service_info.connectable:
+        return update
 
     # Trigger sync only for explicit device flags. A poll coordinator being present
     # is not itself a reason to connect on every advertisement.
@@ -151,14 +172,6 @@ def process_service_info(
     )
     if not is_sync_needed:
         return update
-
-    _LOGGER.debug(
-        "Advertisement flags for %s: pairing_mode=%s invalid_time=%s forced_transfer=%s",
-        service_info.address,
-        is_pairing,
-        is_invalid_time,
-        is_forced_transfer,
-    )
 
     # 2. Fail fast if a GATT session is already running — try-acquire only, no queueing.
     # The device rejects a second concurrent BLE connection with SMP auth fail
