@@ -1,22 +1,23 @@
-"""WLD4.0 본드 정책(REUSE) 및 stale-bond 복구 회귀 테스트.
+"""WLD4.0 본드 정책 및 stale-bond 복구 회귀 테스트.
 
-배경(이슈 #92, HEM-7188T1-LEO):
+배경(이슈 #92, HEM-7188T1-LEO/-LE):
 
-PER_SESSION 은 "본드를 버려도 다음 연결이 다시 본딩하니까 안전하다"는 전제
-위에 서 있는데, 이 커프는 페어링 모드를 벗어나면 새 본드를 AuthenticationCanceled
-/ error 102 로 거부한다. 전제가 깨지므로 본드를 버리는 순간 다음 연결은 확정
-실패다.
+PER_SESSION 은 "본드를 버려도 다음 연결이 다시 본딩하니까 안전하다"는 전제 위에
+서 있는데, 이 커프는 페어링 모드를 벗어나면 새 본드를 AuthenticationCanceled /
+error 102 로 거부한다. 전제가 깨진다.
 
-WLD4.0 프로필들이 PER_SESSION 이었던 건 #109 당시 WLD3.0 으로 분류돼 있었기
-때문이고, #112 가 WLD4.0 으로 정정하면서 본드 정책은 따라오지 않았다.
+REUSE 로 바꿔 실기기에서 확인한 결과는 **음성**이었다(2.7.8-beta.1): 통합은
+본드를 유지했는데도 다음 예약 폴이 다시 본딩을 시도했고 또 거부당했다. 즉 호스트
+쪽 본드를 들고 있어도 다음 연결로 이어지지 않는다. 그래서 정책은 PER_SESSION
+으로 되돌리고, 진짜 수정은 폴 트리거 쪽으로 옮겼다 —
+``poll_requires_pairing_window`` 참고.
 
-REUSE 로 되돌리는 것만으로는 실험이 성립하지 않는다: 커프가 자기 LTK 를 정말
-버린다면 저장된 키로 암호화가 거부되는데, stale-bond 복구는
-``_pair_os_bonding()`` 안에만 있고 ``pair()`` 는 ``pair_on_connect`` 면 조기
-반환하므로 그 경로에 도달하지 못한다. 그래서 복구를 connect 경로에도 연결한다.
+stale-bond 복구는 남긴다. 이 기기의 실패 모드(102)에서는 발동하지 않지만,
+발동해야 하는 경우(AuthenticationFailed)에 여전히 도달 불가였던 경로를 메운다.
 """
 import asyncio
 import pathlib
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -24,7 +25,11 @@ from custom_components.omron.omron_ble import omron_driver
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )
-from custom_components.omron.omron_ble.devices import BondPolicy, ConnectType
+from custom_components.omron.omron_ble.devices import (
+    BondPolicy,
+    ConnectType,
+    get_device_config,
+)
 
 
 # ── 카탈로그 정책 ──────────────────────────────────────────────────────────
@@ -33,19 +38,21 @@ WLD4_PROFILES = ("HEM-7188T1", "HEM-7191T1", "HEM-7196T1")
 
 
 @pytest.mark.parametrize("profile", WLD4_PROFILES)
-def test_wld4_keeps_the_bond_but_still_brings_security_up_first(profile):
-    """WLD4.0 은 본드를 유지하되 pair_on_connect 는 그대로 True 여야 한다.
+def test_wld4_drops_the_bond_and_needs_a_pairing_window(profile):
+    """REUSE 실험이 음성으로 끝났으므로 WLD4.0 은 PER_SESSION 이다.
 
-    본드만 유지하고 pair_on_connect 를 잃으면 2.5.23 시절 구성으로 돌아간다 —
-    연결 후 GATT 를 건드리는 동안 보안이 올라와 있지 않아 커프가 링크를 끊던
-    바로 그 조합(#108). 두 조건이 동시에 성립해야 한다.
+    그리고 본드를 버린다는 것은 곧 "다음 읽기에 커프가 새 본드를 내줘야 한다"는
+    뜻이므로, 타이머만으로 도는 폴은 성립하지 않는다. 두 사실이 갈라지면
+    설명 불가능한 프로필이 되므로 같은 조건에서 유도한다.
     """
     config = CANONICAL_DEVICE_PROFILES[profile]
 
     assert config.connect_type == ConnectType.WLD4_0
-    assert config.bond_policy == BondPolicy.REUSE
-    assert config.unpair_after_session is False, "본드가 세션 종료 시 삭제되면 안 된다"
-    assert config.pair_on_connect is True, "보안은 GATT 디스커버리 전에 올라와야 한다"
+    assert config.bond_policy == BondPolicy.PER_SESSION
+    assert config.unpair_after_session is True
+    assert config.poll_requires_pairing_window is True
+    # 세션 시작 시 보안은 여전히 GATT 디스커버리보다 먼저 올라와야 한다(#108).
+    assert config.pair_on_connect is True
 
 
 def test_wld3_bond_policy_is_untouched():
@@ -59,6 +66,33 @@ def test_wld3_bond_policy_is_untouched():
     for name, cfg in wld3:
         assert cfg.bond_policy == BondPolicy.PER_SESSION, name
         assert cfg.unpair_after_session is True, name
+
+
+def test_reuse_profiles_never_require_a_pairing_window():
+    """본드를 유지하는 프로필은 타이머 폴이 계속 돌아야 한다.
+
+    게이트가 REUSE 프로필까지 번지면 정상 동작하는 기기들이 버튼을 눌러야만
+    읽히는 상태가 된다 — 이 변경에서 가장 비싼 회귀다.
+    """
+    reuse = [
+        (name, cfg)
+        for name, cfg in CANONICAL_DEVICE_PROFILES.items()
+        if cfg.bond_policy == BondPolicy.REUSE
+    ]
+    assert reuse
+    for name, cfg in reuse:
+        assert cfg.poll_requires_pairing_window is False, name
+
+
+@pytest.mark.parametrize("variant", ("HEM-7188T1-LE", "HEM-7188T1-LEO"))
+def test_variants_inherit_the_wld4_policy(variant):
+    """카탈로그 variant 도 canonical 과 같은 정책을 써야 한다.
+
+    필드에서 실제로 선택되는 이름은 canonical 이 아니라 variant 다.
+    """
+    config = get_device_config(variant)
+    assert config.bond_policy == BondPolicy.PER_SESSION
+    assert config.poll_requires_pairing_window is True
 
 
 # ── stale-bond 복구 ────────────────────────────────────────────────────────
@@ -278,21 +312,6 @@ def test_failed_rebond_reports_both_errors_at_warning(
     assert connect.pair_args == [True, True, False]
 
 
-@pytest.mark.parametrize(
-    "variant", ("HEM-7188T1-LE", "HEM-7188T1-LEO")
-)
-def test_variants_inherit_the_wld4_bond_policy(variant):
-    """카탈로그 variant 도 canonical 과 같은 본드 정책을 써야 한다.
-
-    필드에서 실제로 선택되는 이름은 canonical 이 아니라 variant 다. variant 가
-    정책을 물려받지 못하면 실험 빌드가 제보자 기기에서 아무것도 바꾸지 않는다.
-    """
-    from custom_components.omron.omron_ble.devices import get_device_config
-
-    config = get_device_config(variant)
-    assert config.bond_policy == BondPolicy.REUSE
-    assert config.unpair_after_session is False
-    assert config.pair_on_connect is True
 
 
 def test_memory_session_warning_does_not_advise_re_adding_the_device():

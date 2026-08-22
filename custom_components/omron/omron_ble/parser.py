@@ -99,6 +99,16 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._seed_measurement_entities()
 
     @property
+    def device_config(self) -> DeviceConfig:
+        """Profile in force for this device.
+
+        Public because the poll gate in ``__init__.py`` has to ask whether
+        this profile can read on a timer at all. Reassigned when the model
+        changes, so read it through here rather than caching it.
+        """
+        return self._device_config
+
+    @property
     def device_model(self) -> str:
         """Return the configured device model."""
         return self._device_model

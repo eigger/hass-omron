@@ -285,6 +285,30 @@ class DeviceConfig:
         )
 
     @property
+    def poll_requires_pairing_window(self) -> bool:
+        """Whether a read needs the device to be signalling, not just a timer.
+
+        A profile that drops its bond every session (``BondPolicy.PER_SESSION``)
+        has nothing to reconnect with, and these cuffs refuse to make a new
+        bond once they leave pairing mode — HEM-7188T1 answers the attempt with
+        AuthenticationCanceled / error 102. A poll fired purely because the
+        scan interval elapsed therefore cannot succeed: it spends a connect, a
+        bond attempt and the session lock to arrive at a failure that was
+        certain before it started.
+
+        The device itself says when a read can work, via the advertisement
+        flags: ``pairing_mode`` (a bond can be made now) and
+        ``forced_transfer`` (a measurement is waiting). Polls are gated on
+        those in ``_async_poll_data`` rather than on the clock.
+
+        Deliberately derived from the same condition as
+        ``unpair_after_session`` — "we drop the bond" and "we need the device
+        to offer us a new one" are the same fact, and a profile that could set
+        them apart would be describing something incoherent.
+        """
+        return self.unpair_after_session
+
+    @property
     def pair_on_connect(self) -> bool:
         """Bond during connect, before GATT discovery.
 

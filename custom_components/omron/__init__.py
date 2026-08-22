@@ -13,6 +13,7 @@ from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 from .ble_session import (
     adopt_handoff_session,
     discard_handoff_session,
+    has_handoff_session,
     omron_poll_ble_telemetry,
     poll_parked_session,
     run_post_pairing_poll,
@@ -363,6 +364,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
+
+            # Profiles that drop their bond every session cannot read on a timer:
+            # the cuff refuses a new bond once it leaves pairing mode, so a
+            # poll fired only because the interval elapsed spends a connect,
+            # a bond attempt and the session lock to reach a failure that was
+            # certain before it started. Let the device say when a read can
+            # work — pairing_mode (a bond can be made now) or forced_transfer
+            # (a measurement is waiting) — instead of guessing on the clock.
+            #
+            # A parked pairing session is exempt: that link is already open
+            # and bonded, and skipping would strand it.
+            device_data = coordinator.device_data
+            if (
+                device_data.device_config.poll_requires_pairing_window
+                and not device_data.pairing_mode
+                and not device_data.forced_transfer
+                and not has_handoff_session(hass, address)
+            ):
+                _LOGGER.debug(
+                    "Skipping scheduled poll for %s (%s): the cuff is not "
+                    "advertising pairing mode or pending data, and this "
+                    "profile needs a fresh bond for every session. Put it in "
+                    "pairing mode (blinking -P-) to read now",
+                    address,
+                    device_data.device_config.model,
+                )
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                return entry.runtime_data.device_data._finish_update()
+
             session_lock: asyncio.Lock = entry_data["session_lock"]
 
             # Try-acquire only — if another BLE session is in flight (e.g. an

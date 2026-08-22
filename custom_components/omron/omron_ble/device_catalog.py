@@ -25,23 +25,22 @@ _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 
 # Bond strategy for the WLD4.0 family (HEM-7188T1 / 7191T1 / 7196T1).
 #
-# These profiles used to share _WLD3_BOND_POLICY, but only because they were
-# classified WLD3.0 at the time (#109); #112 reclassified HEM-7188T1 as
-# WLD4.0 without revisiting the bond policy it had inherited. No WLD4.0 cuff
-# ever supplied the evidence PER_SESSION was derived from.
+# Kept separate from _WLD3_BOND_POLICY because these profiles only ever
+# shared it by accident: they were classified WLD3.0 when #109 landed, and
+# #112 reclassified HEM-7188T1 as WLD4.0 without revisiting the policy.
 #
-# Field reports (issue #92, HEM-7188T1-LEO) show the premise PER_SESSION
-# rests on does not hold here: dropping the bond assumes the next connect can
-# bond again, but this cuff answers a fresh bond request with
-# AuthenticationCanceled / error 102 once it has left pairing mode. Dropping
-# the bond therefore guarantees the next connect fails rather than recovering.
+# REUSE was tested here and the answer was no. 2.7.8-beta.1 kept the bond on
+# a real HEM-7188T1-LEO (issue #92): the pairing-mode session read fine and
+# the integration never removed the bond, yet the next scheduled poll still
+# had to bond again and was refused. Whatever the cuff does with its side of
+# the bond, a kept host bond does not carry a later connect, so PER_SESSION
+# describes this hardware at least as well as REUSE does — with the same
+# consequence either way: a read needs a bond, and a bond needs pairing mode.
 #
-# Note what has actually shipped for these profiles: a kept bond went out
-# only in builds that still used unlock_mode=SECURE_SESSION, which the device
-# rejects outright (error frame 0xff26), and pair_on_connect did not exist
-# yet. "Kept bond + TOKEN_KEY + security up before GATT" has never been in a
-# release, so REUSE here is an untested combination, not a revisited one.
-_WLD4_BOND_POLICY = BondPolicy.REUSE
+# That is why the fix is not a bond-policy tweak. See
+# ``poll_requires_pairing_window``: a background poll cannot manufacture the
+# window a read needs, so it no longer tries.
+_WLD4_BOND_POLICY = BondPolicy.PER_SESSION
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,

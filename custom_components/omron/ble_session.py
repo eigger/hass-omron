@@ -79,6 +79,17 @@ async def poll_parked_session(
     return True
 
 
+def has_handoff_session(hass: HomeAssistant, address: str) -> bool:
+    """Whether a pairing session is parked for ``address``, without taking it.
+
+    The poll gate needs to know this before deciding to skip: a parked link is
+    the one connect that is guaranteed to work, so a skip there would strand
+    it and throw away the read it was opened for. ``adopt_handoff_session``
+    pops, which is exactly what a gate must not do.
+    """
+    return address in hass.data.get(DOMAIN, {}).get("_setup_sessions", {})
+
+
 def adopt_handoff_session(
     hass: HomeAssistant, address: str
 ) -> OmronDeviceSession | None:
