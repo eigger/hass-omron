@@ -74,11 +74,21 @@ def test_no_stored_key_means_pairing_mode():
 
 
 def test_stored_key_means_reconnect_mode():
-    """재연결 모드는 ``0x70 01`` 을 거부해야 한다 — 그게 이 변경의 핵심이다."""
     session = SecureSession(stored_ltk=LTK)
 
     assert session.is_bonding is False
     assert session.ltk == LTK
+
+
+def test_reconnect_mode_refuses_to_pair():
+    """재연결 모드는 ``0x70 01`` 을 거부해야 한다 — 그게 이 변경의 핵심이다.
+
+    ``build_pair_req`` 는 모드를 보기 전에 cryptography 를 먼저 요구하므로,
+    그 패키지가 없는 환경에서는 이 단언을 할 수 없다(HA 에는 기본 포함).
+    """
+    pytest.importorskip("cryptography")
+    session = SecureSession(stored_ltk=LTK)
+
     with pytest.raises(RuntimeError, match="reconnect mode"):
         session.build_pair_req()
 
