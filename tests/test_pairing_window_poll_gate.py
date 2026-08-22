@@ -179,3 +179,36 @@ def test_advert_flags_log_is_transition_only():
 
     assert 'entry_data.get("last_advert_flags") != flags' in source
     assert 'entry_data["last_advert_flags"] = flags' in source
+
+
+def test_advert_log_carries_the_raw_msd_and_format():
+    """디코드된 플래그만으로는 네 경우가 구분되지 않는다.
+
+    ``forced_transfer=False`` 는 다음을 전부 뜻할 수 있다:
+      * 커프가 안 올렸다                     ← 유일한 하드웨어 한계
+      * MSD 포맷 0x03 이라 비트가 없다        ← 우리가 다른 신호를 찾아야 함
+      * length contract 불일치로 통째 무시    ← 포맷 지원을 넓히면 됨
+
+    앞의 둘만 놓고 "하드웨어가 못 한다"고 결론내면 고칠 수 있는 문제를 접는
+    것이므로, 포맷 바이트와 원문이 같은 줄에 있어야 한다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    assert "msd=%s (format=%s decoded=%s)" in source
+    # 플래그가 안 변해도 MSD 가 변하면 보여야 한다 — 인식 못 한 측정이 그 모습이다.
+    assert "msd_hex,\n    )" in source or "        msd_hex,\n    )" in source
+
+
+def test_parser_retains_the_raw_msd_and_whether_it_decoded():
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text()
+
+    assert "self.last_msd = bytes(payload)" in source
+    assert "self.last_msd_decoded = fields is not None" in source
+    # 원문은 디코드 시도 전에 잡아야 한다: 실패한 페이로드가 정확히 필요한 것이다.
+    assert source.index("self.last_msd = bytes(payload)") < source.index(
+        "fields = self._decode_omron_msd_fields(payload)"
+    )

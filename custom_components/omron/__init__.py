@@ -146,17 +146,39 @@ def process_service_info(
     # collection is possible, and no way to tell them apart from a debug log
     # (issue #92). Only transitions are logged: these cuffs advertise about
     # once a second, and a line per advertisement would bury what it is for.
-    flags = (is_pairing, is_invalid_time, is_forced_transfer, service_info.connectable)
+    # The raw MSD rides along because the decoded flags cannot answer the
+    # question on their own: forced_transfer=False means "the cuff did not
+    # raise it", "this MSD format has no bit for it" (0x03 carries none), or
+    # "the payload failed its length contract and was dropped" — and only the
+    # first is a hardware limit. The format byte separates them.
+    msd = getattr(data, "last_msd", None)
+    msd_hex = msd.hex() if msd else "none"
+    msd_format = f"0x{msd[0]:02X}" if msd else "-"
+    msd_decoded = getattr(data, "last_msd_decoded", False)
+
+    # Keyed on the MSD too, so a payload that changes while the decoded flags
+    # stay False is still visible — which is exactly what a measurement that
+    # we are failing to recognise would look like.
+    flags = (
+        is_pairing,
+        is_invalid_time,
+        is_forced_transfer,
+        service_info.connectable,
+        msd_hex,
+    )
     if entry_data.get("last_advert_flags") != flags:
         entry_data["last_advert_flags"] = flags
         _LOGGER.debug(
             "Advertisement flags for %s: pairing_mode=%s invalid_time=%s "
-            "forced_transfer=%s connectable=%s",
+            "forced_transfer=%s connectable=%s msd=%s (format=%s decoded=%s)",
             service_info.address,
             is_pairing,
             is_invalid_time,
             is_forced_transfer,
             service_info.connectable,
+            msd_hex,
+            msd_format,
+            msd_decoded,
         )
 
     # 1. Only attempt active sessions when the device is connectable

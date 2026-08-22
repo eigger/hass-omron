@@ -88,6 +88,13 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.forced_transfer: bool = False
         self.invalid_time: bool = False
         self.pairing_mode: bool = False
+        # Raw MSD of the last advertisement carrying one, and whether it
+        # decoded. Diagnostic only: a False flag can mean the cuff did not
+        # raise it, that this MSD format has no bit for it (0x03 has none),
+        # or that the payload failed its length contract and was dropped —
+        # three different answers that look identical in the decoded flags.
+        self.last_msd: bytes | None = None
+        self.last_msd_decoded: bool = False
         # Additional fields parsed from MSD. Kept as
         # informational attributes; not exposed as sensors today.
         self.streaming_mode: bool = False
@@ -253,7 +260,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not payload or len(payload) < 2:
             return
 
+        self.last_msd = bytes(payload)
         fields = self._decode_omron_msd_fields(payload)
+        self.last_msd_decoded = fields is not None
         if fields is None:
             _LOGGER.debug(
                 "Ignoring Omron MSD: format=0x%02X len=%d (length contract mismatch)",
