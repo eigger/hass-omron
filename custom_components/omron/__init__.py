@@ -376,8 +376,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             # A parked pairing session is exempt: that link is already open
             # and bonded, and skipping would strand it.
             device_data = coordinator.device_data
+            # Consumed unconditionally: a request that ends up skipped for some
+            # other reason must not leave the flag armed for a later scheduled
+            # poll that nobody asked for.
+            user_requested = entry_data.pop("user_requested_poll", False)
             if (
-                device_data.device_config.poll_requires_pairing_window
+                not user_requested
+                and device_data.device_config.poll_requires_pairing_window
                 and not device_data.pairing_mode
                 and not device_data.forced_transfer
                 and not has_handoff_session(hass, address)

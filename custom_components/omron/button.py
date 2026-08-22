@@ -81,6 +81,13 @@ class OmronRefreshDataButtonEntity(ButtonEntity):
     async def async_press(self) -> None:
         """Handle button press to poll device and refresh sensor data."""
         poll_coordinator = self._entry.runtime_data.poll_coordinator
+        # Scheduled polls for bond-per-session profiles are gated on the cuff
+        # advertising that a read can work. A person pressing this button is
+        # not the clock: they asked for this connect, so it happens even when
+        # the gate would have skipped it, and they see the real error instead
+        # of a button that silently does nothing. One-shot — the next
+        # scheduled poll is gated again.
+        self.hass.data[DOMAIN][self._entry_id]["user_requested_poll"] = True
         try:
             await poll_coordinator.async_request_refresh()
         except Exception as err:

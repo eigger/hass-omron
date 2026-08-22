@@ -19,13 +19,17 @@ from custom_components.omron.omron_ble.device_catalog import (
 )
 
 
-def _should_poll(config, *, pairing_mode, forced_transfer, handoff_parked):
+def _should_poll(
+    config, *, pairing_mode, forced_transfer, handoff_parked, user_requested=False
+):
     """__init__.py `_async_poll_data` 게이트 조건의 거울.
 
     조건식을 테스트에 복제하는 것은 보통 피하지만, 여기서는 HA 런타임 전체를
     띄우지 않고 경계를 고정하기 위한 의도적 선택이다. 실제 게이트가 바뀌면
     아래 test_gate_condition_matches_the_source 가 어긋난 것을 잡는다.
     """
+    if user_requested:
+        return True
     if not config.poll_requires_pairing_window:
         return True
     if handoff_parked:
@@ -99,6 +103,39 @@ def test_gate_condition_matches_the_source():
     start = source.index("poll_requires_pairing_window")
     gate = source[start - 200 : start + 400]
 
+    assert "not user_requested" in gate
     assert "not device_data.pairing_mode" in gate
     assert "not device_data.forced_transfer" in gate
     assert "not has_handoff_session(hass, address)" in gate
+
+
+def test_user_pressing_refresh_is_never_skipped():
+    """사람이 누른 요청은 시계가 아니다 — 게이트를 통과해야 한다.
+
+    조용히 건너뛰면 버튼이 아무 일도 안 하는 것처럼 보인다. 실패하더라도
+    사용자는 실제 에러를 봐야 한다.
+    """
+    assert _should_poll(
+        PER_SESSION_PROFILE,
+        pairing_mode=False,
+        forced_transfer=False,
+        handoff_parked=False,
+        user_requested=True,
+    )
+
+
+def test_refresh_button_arms_the_flag_and_the_poll_consumes_it():
+    """플래그는 일회성이어야 한다.
+
+    소비되지 않고 남으면, 다음 예약 폴이 아무도 요청하지 않았는데 게이트를
+    통과한다 — 이 변경이 없애려던 바로 그 폴이다.
+    """
+    import pathlib
+
+    button = pathlib.Path("custom_components/omron/button.py").read_text()
+    init = pathlib.Path("custom_components/omron/__init__.py").read_text()
+
+    assert '["user_requested_poll"] = True' in button
+    # pop 이어야 한다: get 이면 플래그가 남아 다음 폴까지 열어 준다.
+    assert 'entry_data.pop("user_requested_poll", False)' in init
+    assert 'entry_data.get("user_requested_poll"' not in init
