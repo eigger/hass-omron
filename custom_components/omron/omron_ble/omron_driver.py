@@ -1544,19 +1544,40 @@ class OmronDeviceSession:
 
         await self._ensure_services_cache()
 
-        # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
-        try:
-            await self._client.start_notify(
-                self._config.rx_channel_uuids[0], lambda _h, _d: None
-            )
-            rx_notify_primed = True
-            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
-        except Exception as exc:
-            _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
+        # CCCD order, and the two families disagree about it. Phone btsnoops:
+        #
+        #   HEM-7188T1-LEO (#92):   0x001c (unlock, h=28) then 0x0021 (RX, h=33)
+        #   HEM-7155T-ESLI (#67):   0x0021 (RX, h=33)     then 0x001c (unlock, h=28)
+        #
+        # The comment this replaces described the second order and applied it
+        # to both. That is what the 2.5.23 build did on a HEM-7188T1-LEO, and
+        # its log shows "CCD descriptor 33" then "28" followed immediately by
+        # 0xff26 on the pairing request — in the config flow, with the cuff in
+        # pairing mode, which is the one place that rejection was not supposed
+        # to happen. This module already knew CCCD handling can produce that
+        # exact frame; see the note in _secure_unlock about not re-subscribing.
+        async def _prime_rx() -> None:
+            nonlocal rx_notify_primed
+            try:
+                await self._client.start_notify(
+                    self._config.rx_channel_uuids[0], lambda _h, _d: None
+                )
+                rx_notify_primed = True
+                await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+            except Exception as exc:
+                _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
-        self._debug_ble_link("token_unlock_before_notify")
-        await self._client.start_notify(self._config.unlock_uuid, _unlock_dispatch)
-        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+        async def _subscribe_unlock() -> None:
+            self._debug_ble_link("token_unlock_before_notify")
+            await self._client.start_notify(self._config.unlock_uuid, _unlock_dispatch)
+            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+
+        if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
+            await _subscribe_unlock()
+            await _prime_rx()
+        else:
+            await _prime_rx()
+            await _subscribe_unlock()
         try:
             unlock_event.clear()
             response_holder[0] = None

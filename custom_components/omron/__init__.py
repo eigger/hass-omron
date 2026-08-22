@@ -102,25 +102,45 @@ class PersistentSecureBondStore(SecureBondStore):
 
     async def async_load(self) -> None:
         """Populate the in-memory key. Call once, during setup."""
-        stored = None
         try:
             data = await self._store.async_load()
         except Exception as exc:  # noqa: BLE001 - a bad store must not block setup
             _LOGGER.warning("Could not read the stored secure bond key: %s", exc)
-            data = None
+            return
+
         if isinstance(data, dict):
-            stored = data.get("key")
-        if not stored:
-            # First run after the config flow paired: adopt the key it left on
-            # the entry. Left in place afterwards rather than removed, because
-            # removing it means updating the entry, which means a reload.
-            stored = self._entry.data.get(CONF_SECURE_BOND_KEY)
-            if stored:
-                _LOGGER.debug("Adopting the secure bond key left by the config flow")
-        if not stored:
+            # The store has spoken, including when it says there is no key.
+            # Falling back to the entry here would resurrect a key the cuff
+            # had rejected: clear() writes {"key": None}, and treating that as
+            # "nothing stored" would hand back the config flow's original on
+            # the next restart, so the same rejection would repeat forever and
+            # a -P- re-pair would look like it had not helped.
+            await self._adopt(data.get("key"))
+            return
+
+        # No store file at all: first run after the config flow paired. Adopt
+        # the key it left on the entry and write it through, so the store is
+        # the only source from here on. The entry copy is left in place rather
+        # than removed, because removing it means updating the entry, which
+        # means a reload.
+        seed = self._entry.data.get(CONF_SECURE_BOND_KEY)
+        if seed:
+            _LOGGER.debug("Adopting the secure bond key left by the config flow")
+            await self._adopt(seed, write_through=True)
+
+    async def _adopt(self, hex_key: str | None, *, write_through: bool = False) -> None:
+        if not hex_key:
             return
         try:
-            await super().save(bytes.fromhex(stored))
+            key = bytes.fromhex(hex_key)
+        except ValueError:
+            _LOGGER.warning("Ignoring an unreadable stored secure bond key")
+            return
+        try:
+            if write_through:
+                await self.save(key)
+            else:
+                await super().save(key)
         except ValueError as exc:
             _LOGGER.warning("Ignoring an unusable stored secure bond key: %s", exc)
 

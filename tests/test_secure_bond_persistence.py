@@ -288,3 +288,59 @@ def test_adopted_sessions_keep_the_store():
     assert "session._secure_bond_store = secure_bond_store or SecureBondStore()" in driver
     # setup_time_sync 는 transport 가 없을 때 직접 adopt 한다.
     assert "OmronDeviceSession.adopt(client, config, secure_bond_store)" in time_sync
+
+
+def test_a_cleared_key_stays_cleared_across_a_restart():
+    """엔트리에 남은 첫 키가 재시작 때 되살아나면 안 된다.
+
+    ``clear()`` 는 스토어에 ``{"key": None}`` 을 쓴다. 그걸 "저장된 게 없음"
+    으로 읽고 엔트리로 폴백하면, 커프가 거부해서 버린 키를 다시 집어온다 —
+    같은 거부가 영원히 반복되고, -P- 로 다시 페어링해도 고쳐지지 않은 것처럼
+    보인다. 스토어 파일이 아예 없을 때만 엔트리를 본다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("class PersistentSecureBondStore") :]
+    body = body[: body.index("\ndef _merge_poll_sensor_update")]
+
+    load = body[body.index("async def async_load") :]
+    load = load[: load.index("async def _adopt")]
+
+    # dict 를 받았으면(=명시적으로 지웠어도) 거기서 끝난다.
+    dict_branch = load.index("if isinstance(data, dict):")
+    entry_fallback = load.index("self._entry.data.get(CONF_SECURE_BOND_KEY)")
+    assert dict_branch < entry_fallback
+    assert "return" in load[dict_branch:entry_fallback], (
+        "스토어가 답했는데도 엔트리로 넘어가면 지운 키가 되살아난다"
+    )
+    # 엔트리 키는 한 번 흡수하면서 스토어에 써 둔다.
+    assert "write_through=True" in load
+
+
+def test_secure_family_subscribes_the_unlock_cccd_first():
+    """CCCD 순서가 계열마다 다르다 — 폰 btsnoop 두 개가 정반대다.
+
+        HEM-7188T1-LEO (#92):  0x001c(언락, 28) → 0x0021(RX, 33)
+        HEM-7155T-ESLI (#67):  0x0021(RX, 33)   → 0x001c(언락, 28)
+
+    2.5.23 은 두 계열 모두에 두 번째 순서를 썼고, 그 로그는 "CCD descriptor
+    33" → "28" 직후 페어링 요청이 0xff26 으로 거부되는 것을 보여준다 —
+    config flow 안에서, 커프가 페어링 모드일 때. 이 모듈은 CCCD 조작이 바로
+    그 프레임을 유발할 수 있다는 것을 이미 알고 있었다(_secure_unlock 주석).
+    """
+    import pathlib
+
+    source = pathlib.Path(
+        "custom_components/omron/omron_ble/omron_driver.py"
+    ).read_text()
+    body = source[source.index("async def _token_unlock") :]
+    body = body[: body.index("\n    async def ")]
+
+    assert "if self._config.unlock_mode == UnlockMode.SECURE_SESSION:" in body
+    branch = body.index("if self._config.unlock_mode == UnlockMode.SECURE_SESSION:")
+    secure, other = body[branch:].split("else:", 1)
+    # secure 계열: 언락 먼저
+    assert secure.index("_subscribe_unlock()") < secure.index("_prime_rx()")
+    # 나머지: RX 먼저 (7155T-ESLI/7142T2 캡처 그대로)
+    assert other.index("_prime_rx()") < other.index("_subscribe_unlock()")

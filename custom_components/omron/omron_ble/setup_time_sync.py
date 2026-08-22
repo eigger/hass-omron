@@ -12,6 +12,7 @@ from bleak import BleakClient
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
 from .omron_driver import OmronDeviceDriver, OmronDeviceSession, _bleak_refresh_services
+from .secure_store import SecureBondStore
 
 if TYPE_CHECKING:
     from .devices import DeviceConfig
@@ -282,6 +283,7 @@ async def async_sync_device_time(
         eeprom_success = await _sync_eeprom_with_session(
             client, model, config, transport,
             leave_memory_session_open=leave_memory_session_open,
+            secure_bond_store=secure_bond_store,
         )
 
     if not config.supports_eeprom_time_sync and not cts_success:
