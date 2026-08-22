@@ -133,17 +133,38 @@ def _register_advertisement_observer(
         if decoded is None:
             summary = "undecodable" if payload else "no Omron MSD"
         else:
-            summary = (
-                f"pairing_mode={decoded['pairing_mode']} "
-                f"invalid_time={decoded['invalid_time']} "
-                f"forced_transfer={decoded['forced_transfer']}"
+            # Every decoded field, not just the three we act on. The field that
+            # broke this open — a cuff advertising user_register_count=0 while
+            # a paired one shows 1 — was already being parsed and simply never
+            # printed, so it had to be found by decoding a pasted payload by
+            # hand. A diagnostic that shows only what we already suspected is
+            # not much of a diagnostic.
+            summary = " ".join(
+                f"{name}={decoded[name]}"
+                for name in (
+                    "user_register_count",
+                    "pairing_mode",
+                    "invalid_time",
+                    "forced_transfer",
+                    "streaming_mode",
+                    "service_uuid_mode",
+                    "guidance_mode",
+                    "result_identifier_num",
+                )
             )
+        # The flags byte is printed raw as well: the decoder only reads two
+        # bytes of the payload, so a signal living in the rest would otherwise
+        # be invisible even with the full MSD on the line.
+        flags_byte = f"0x{payload[1]:02X}" if payload and len(payload) > 1 else "-"
         _LOGGER.debug(
-            "Observed advertisement from %s: connectable=%s rssi=%s msd=%s (%s)",
+            "Observed advertisement from %s: connectable=%s rssi=%s msd=%s "
+            "(format=%s flags=%s %s)",
             service_info.address,
             service_info.connectable,
             getattr(service_info, "rssi", "?"),
             msd_hex,
+            f"0x{payload[0]:02X}" if payload else "-",
+            flags_byte,
             summary,
         )
 

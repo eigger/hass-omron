@@ -308,3 +308,33 @@ def test_entering_the_waiting_state_is_visible_at_info():
     assert "_LOGGER.info" in source
     # 유휴 상태가 이어지는 동안 스캔 간격마다 INFO 를 반복하지는 않는다.
     assert "_LOGGER.debug\n                    if entry_data.get" in source
+
+
+def test_observer_prints_every_decoded_field():
+    """행동에 쓰는 세 개만 찍으면 진단이 아니다.
+
+    이 조사를 푼 단서(``user_register_count`` 가 페어링된 기기는 1, 침묵하는
+    기기는 0)는 이미 파싱되고 있었는데 로그에 없어서, 붙여넣은 페이로드를 손으로
+    디코드해서야 발견됐다. 이미 알고 있던 것만 보여주는 로그는 쓸모가 없다.
+    """
+    import pathlib
+
+    source = pathlib.Path("custom_components/omron/__init__.py").read_text()
+    body = source[source.index("def _register_advertisement_observer") :]
+    body = body[: body.index("\ndef _merge_poll_sensor_update")]
+
+    for field in (
+        "user_register_count",
+        "pairing_mode",
+        "invalid_time",
+        "forced_transfer",
+        "streaming_mode",
+        "service_uuid_mode",
+        "guidance_mode",
+        "result_identifier_num",
+    ):
+        assert f'"{field}"' in body, f"{field} 가 관찰자 로그에 없다"
+
+    # 디코더는 페이로드의 2바이트만 읽는다 — 나머지에 신호가 있을 수 있으므로
+    # 포맷/플래그 바이트도 원문으로 남긴다.
+    assert "format=%s flags=%s" in body
