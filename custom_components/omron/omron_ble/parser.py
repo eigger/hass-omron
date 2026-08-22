@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import time
 from typing import Any
 
 from bleak import BleakClient
@@ -88,6 +89,18 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.forced_transfer: bool = False
         self.invalid_time: bool = False
         self.pairing_mode: bool = False
+        # Raw MSD of the last advertisement carrying one, and whether it
+        # decoded. Diagnostic only: a False flag can mean the cuff did not
+        # raise it, that this MSD format has no bit for it (0x03 has none),
+        # or that the payload failed its length contract and was dropped —
+        # three different answers that look identical in the decoded flags.
+        self.last_msd: bytes | None = None
+        self.last_msd_decoded: bool = False
+        # When the flags above were last refreshed from a decoded MSD. The
+        # gate needs this: a dropped packet or a cuff that stopped advertising
+        # freezes the last values, and a frozen True reopens the connects the
+        # gate exists to stop.
+        self.last_msd_monotonic: float | None = None
         # Additional fields parsed from MSD. Kept as
         # informational attributes; not exposed as sensors today.
         self.streaming_mode: bool = False
@@ -97,6 +110,16 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.result_identifier_num: int = 0
 
         self._seed_measurement_entities()
+
+    @property
+    def device_config(self) -> DeviceConfig:
+        """Profile in force for this device.
+
+        Public because the poll gate in ``__init__.py`` has to ask whether
+        this profile can read on a timer at all. Reassigned when the model
+        changes, so read it through here rather than caching it.
+        """
+        return self._device_config
 
     @property
     def device_model(self) -> str:
@@ -243,7 +266,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not payload or len(payload) < 2:
             return
 
+        self.last_msd = bytes(payload)
         fields = self._decode_omron_msd_fields(payload)
+        self.last_msd_decoded = fields is not None
         if fields is None:
             _LOGGER.debug(
                 "Ignoring Omron MSD: format=0x%02X len=%d (length contract mismatch)",
@@ -254,6 +279,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         # Update instance attributes referenced externally (poll triggers in
         # custom_components/omron/__init__.py).
+        self.last_msd_monotonic = time.monotonic()
         self.invalid_time = fields["invalid_time"]
         self.pairing_mode = fields["pairing_mode"]
         self.forced_transfer = fields["forced_transfer"]
@@ -1226,9 +1252,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 ):
                                     _LOGGER.warning(
                                         "Memory session failed for OS-bonding device %s "
-                                        "(model=%s): %s. Ensure OS-level BLE bonding is "
-                                        "complete — remove and re-add the device if this "
-                                        "error persists.",
+                                        "(model=%s): %s. This usually means the link came "
+                                        "up without encryption — these cuffs only serve "
+                                        "the memory characteristics over a bonded link. "
+                                        "Put the cuff back in pairing mode (blinking -P-) "
+                                        "and press Retry Pairing. Removing and re-adding "
+                                        "the integration pairs it once and then hits this "
+                                        "same error on the next poll, so it is not a fix.",
                                         ble_device.address,
                                         self._device_config.model,
                                         last_session_exc,

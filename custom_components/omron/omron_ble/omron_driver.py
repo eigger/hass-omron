@@ -45,6 +45,9 @@ _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 # of waiting out the full settle before retrying.
 _CONNECT_SETTLE_ATTEMPTS: int = 3
 _SETTLE_POLL_STEP_SEC: float = 0.25
+# Give BlueZ a moment to tear the device object down after RemoveDevice;
+# pairing again while it is still going away draws the same rejection.
+_BOND_REMOVE_SETTLE_SEC: float = 0.5
 _UNLOCK_PROBE_WAIT_TIMEOUT_SEC: float = 2.0
 _UNLOCK_AUTH_WAIT_TIMEOUT_SEC: float = 5.0
 _PAIRING_SETTLE_AGGRESSIVE_SEC: float = 0.25
@@ -139,6 +142,10 @@ async def establish_connection_with_bond_settle(
     # Cleared if the backend reports it cannot pair at connect time, so the
     # remaining attempts fall back instead of failing repeatedly.
     pair_this_attempt = pair_on_connect
+    # A stale bond is worth clearing exactly once per call: after that a
+    # repeated auth failure is the device refusing to bond, not a key
+    # mismatch, and removing the bond again would just churn it.
+    stale_bond_cleared = False
     for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
         source = _connection_source(ble_device)
         last_source = source
@@ -162,24 +169,91 @@ async def establish_connection_with_bond_settle(
             client = await _connect_once(ble_device, name, pair=False)
         except BleakError as exc:
             if pair_this_attempt:
-                # The device refused to bond (e.g. error 102 when the cuff is
-                # in normal transfer mode instead of pairing mode). Fall back to
-                # connecting without pair so stateless/token-key transfers succeed.
-                _LOGGER.warning(
-                    "Bonding %s [%s] during connect via source=%s failed "
-                    "(attempt %d/%d): %s; falling back to connect without pair",
-                    name,
-                    model or "?",
-                    source,
-                    attempt,
-                    _CONNECT_SETTLE_ATTEMPTS,
-                    exc,
-                )
-                pair_this_attempt = False
-                try:
-                    client = await _connect_once(ble_device, name, pair=False)
-                except Exception:
-                    raise exc
+                client = None
+                rebond_exc: BaseException | None = None
+                bond_removed = False
+                if _is_stale_bond_auth_error(exc) and not stale_bond_cleared:
+                    # Not "this cuff won't bond" but "the bond we hold is not
+                    # one it still honours": BlueZ offered the stored LTK and
+                    # the device rejected it. bleak skips Pair() while BlueZ
+                    # still lists the device as paired, so the bond has to go
+                    # before a retry can be a real bond rather than the same
+                    # rejected key again. Without this a kept-bond (REUSE)
+                    # profile has no way back from a rotated key short of the
+                    # user deleting and re-adding the device.
+                    stale_bond_cleared = True
+                    _LOGGER.warning(
+                        "Bonding %s [%s] via source=%s was rejected as a stale "
+                        "bond (%s) — removing it so this attempt can bond from "
+                        "scratch instead of re-offering a key the cuff has "
+                        "forgotten",
+                        name,
+                        model or "?",
+                        source,
+                        exc,
+                    )
+                    bond_removed = await _bluez_remove_device(ble_device)
+                    if not bond_removed:
+                        # Proxy backends have no DBus path to remove through, so
+                        # the bond the proxy holds stays and the retry below
+                        # re-offers the same key. Say so rather than letting the
+                        # retry look like a cleared-bond attempt.
+                        _LOGGER.warning(
+                            "Could not remove the bond for %s on this backend "
+                            "(no BlueZ DBus path — ESPHome proxy links keep "
+                            "their bond); the retry re-offers the same key",
+                            name,
+                        )
+                    else:
+                        await asyncio.sleep(_BOND_REMOVE_SETTLE_SEC)
+                    try:
+                        client = await _connect_once(ble_device, name, pair=True)
+                    except BleakError as retry_exc:
+                        rebond_exc = retry_exc
+                if client is None:
+                    if rebond_exc is not None:
+                        # Both halves belong in the WARNING: a field report that
+                        # only shows warnings must be able to tell "the cuff
+                        # discarded its key" from "we removed the bond and were
+                        # then refused a new one", which read identically if the
+                        # second error is left at debug level.
+                        _LOGGER.warning(
+                            "Bonding %s [%s] during connect via source=%s failed "
+                            "(attempt %d/%d): the stored bond was rejected (%s), "
+                            "and bonding again after %s was refused too (%s) — "
+                            "falling back to connect without pair. The cuff has "
+                            "to be in pairing mode to accept a new bond.",
+                            name,
+                            model or "?",
+                            source,
+                            attempt,
+                            _CONNECT_SETTLE_ATTEMPTS,
+                            exc,
+                            "removing it" if bond_removed else "failing to remove it",
+                            rebond_exc,
+                        )
+                    else:
+                        # The device refused to bond (e.g. error 102 when the cuff is
+                        # in normal transfer mode instead of pairing mode). Fall back to
+                        # connecting without pair so stateless/token-key transfers succeed.
+                        _LOGGER.warning(
+                            "Bonding %s [%s] during connect via source=%s failed "
+                            "(attempt %d/%d): %s; falling back to connect without pair",
+                            name,
+                            model or "?",
+                            source,
+                            attempt,
+                            _CONNECT_SETTLE_ATTEMPTS,
+                            exc,
+                        )
+                    pair_this_attempt = False
+                    try:
+                        client = await _connect_once(ble_device, name, pair=False)
+                    except Exception as fallback_exc:
+                        # Surface the bonding failure as the cause, but keep the
+                        # unpaired attempt's error in the chain instead of
+                        # dropping it on the floor.
+                        raise exc from fallback_exc
             else:
                 raise
         if pair_this_attempt:

@@ -285,6 +285,34 @@ class DeviceConfig:
         )
 
     @property
+    def poll_requires_pairing_window(self) -> bool:
+        """Whether a read needs the device to be signalling, not just a timer.
+
+        A profile that drops its bond every session has nothing to reconnect
+        with, and these cuffs refuse to make a new bond once they leave
+        pairing mode — HEM-7188T1 answers the attempt with
+        AuthenticationCanceled / error 102. A poll fired purely because the
+        scan interval elapsed therefore cannot succeed: it spends a connect, a
+        bond attempt and the session lock to arrive at a failure that was
+        certain before it started.
+
+        The device itself says when a read can work, via the advertisement
+        flags: ``pairing_mode`` (a bond can be made now) and
+        ``forced_transfer`` (a measurement is waiting).
+
+        Restricted to WLD4.0 on purpose. PER_SESSION alone would sweep in the
+        WLD3.0 family (HEM-7380T1 / 7376T1 / 7377T1 / 7386T1 / 7155T-MW3),
+        and the evidence for this gate is one WLD4.0 cuff. The costs are not
+        symmetric: gating a family whose timer polls do work stops their
+        readings silently, while leaving one ungated only wastes connects that
+        were already being wasted. Widen this once a WLD3.0 device has been
+        checked, not before.
+        """
+        return (
+            self.unpair_after_session and self.connect_type == ConnectType.WLD4_0
+        )
+
+    @property
     def pair_on_connect(self) -> bool:
         """Bond during connect, before GATT discovery.
 

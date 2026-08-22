@@ -13,8 +13,8 @@ from .devices import (
     UnlockMode,
 )
 
-# Bond strategy for the whole WLD3.0 family (HEM-7380T1 / 7382T1 / 7386T1 /
-# 7188T1 / 7155T-MW3). These cuffs serve data during the pairing session and
+# Bond strategy for the WLD3.0 family (HEM-7380T1 / 7382T1 / 7386T1 /
+# 7155T-MW3). These cuffs serve data during the pairing session and
 # then reject later connections, which fits a device that does not keep its
 # side of the bond; PER_SESSION drops ours to match, so every connection
 # bonds from scratch instead of offering a key the device has forgotten.
@@ -22,6 +22,25 @@ from .devices import (
 # Set this to BondPolicy.REUSE to put the family back on a kept bond — that
 # is the only change needed, every dependent behaviour is derived from it.
 _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
+
+# Bond strategy for the WLD4.0 family (HEM-7188T1 / 7191T1 / 7196T1).
+#
+# Kept separate from _WLD3_BOND_POLICY because these profiles only ever
+# shared it by accident: they were classified WLD3.0 when #109 landed, and
+# #112 reclassified HEM-7188T1 as WLD4.0 without revisiting the policy.
+#
+# REUSE was tested here and the answer was no. 2.7.8-beta.1 kept the bond on
+# a real HEM-7188T1-LEO (issue #92): the pairing-mode session read fine and
+# the integration never removed the bond, yet the next scheduled poll still
+# had to bond again and was refused. Whatever the cuff does with its side of
+# the bond, a kept host bond does not carry a later connect, so PER_SESSION
+# describes this hardware at least as well as REUSE does — with the same
+# consequence either way: a read needs a bond, and a bond needs pairing mode.
+#
+# That is why the fix is not a bond-policy tweak. See
+# ``poll_requires_pairing_window``: a background poll cannot manufacture the
+# window a read needs, so it no longer tries.
+_WLD4_BOND_POLICY = BondPolicy.PER_SESSION
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
@@ -1015,7 +1034,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7191T1",
         connect_type=ConnectType.WLD4_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        bond_policy=_WLD4_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],
         per_user_records_count=[60],
@@ -1046,7 +1065,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7196T1",
         connect_type=ConnectType.WLD4_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        bond_policy=_WLD4_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0584],
         per_user_records_count=[60, 60],
@@ -1223,7 +1242,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        bond_policy=_WLD4_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],
         per_user_records_count=[30],
