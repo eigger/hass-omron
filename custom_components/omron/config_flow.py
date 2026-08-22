@@ -37,13 +37,20 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
 from .ble_session import stash_handoff_session
-from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .const import (
+    CONF_BINDKEY,
+    CONF_DEVICE_MODEL,
+    CONF_SECURE_BOND_KEY,
+    CONF_USER_ALIASES,
+    DOMAIN,
+)
 from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
 )
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
+from .omron_ble.secure_store import SecureBondStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -409,7 +416,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        session = OmronDeviceSession(ble_device, config)
+        # Pairing is the only moment the cuff hands out a bond key, and there
+        # is no config entry yet to put it in — hold it here and let
+        # _async_get_or_create_entry write it into the entry it creates.
+        self._secure_bond_store = SecureBondStore()
+        session = OmronDeviceSession(ble_device, config, self._secure_bond_store)
         try:
             await session.connect()
             await async_pair_and_sync_device(
@@ -513,6 +524,15 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             getattr(self, "_scan_interval", 300)
         )
         data[CONF_USER_ALIASES] = dict(getattr(self, "_user_aliases", {}))
+
+        # Carry the key derived during pairing into the entry. Without it the
+        # first scheduled poll would have nothing to reconnect with and would
+        # have to ask the cuff to pair again, which it refuses once the -P-
+        # window has closed.
+        store = getattr(self, "_secure_bond_store", None)
+        secure_key = store.load() if store is not None else None
+        if secure_key:
+            data[CONF_SECURE_BOND_KEY] = secure_key.hex()
 
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(

@@ -1213,16 +1213,36 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7188T1 / HEM-7183T1 family ("X2+ Connect" / "M2+" etc.) — dedicated single-user profile
     # with WLD4.0 transport (ConnectType.WLD4_0) and 30-slot 16-byte record
     # layout at 0x01C4 with index pointer layout at 0x0010.
-    # Operationally uses token-key transport (UnlockMode.TOKEN_KEY): an
-    # application-layer ECDH secure session (0x70 0x01) was tried, but real
-    # devices reject the pairing request with error frame 0xff26, while the
-    # plaintext token-key path reads real measurement values. Revisit
-    # unlock_mode=SECURE_SESSION once the ECDH rejection is understood.
+    # Uses the application-layer secure session (UnlockMode.SECURE_SESSION).
+    #
+    # This profile ran on the plaintext token-key path for a while, on the
+    # reading that the device "rejects the pairing request with error frame
+    # 0xff26". A phone btsnoop of a real HEM-7188T1-LEO (issue #92) says
+    # otherwise — the official app's primary path is the secure session, and
+    # the device answers it:
+    #
+    #   session 1:  0x11/0x91  ->  0x70 0x01 (89B)  ->  0xf0 0x81
+    #                          ->  0x70 0x05 -> 0xf0 0x85 -> 0x70 0x06 -> 0xf0 0x86
+    #                          ->  encrypted 0xc0 data
+    #   session 2:  0x11/0x91  ->  0x70 0x05 -> ...        (no 0x70 0x01)
+    #
+    # Our request was well-formed all along: the captured frame matches the
+    # 0x70 0x01 || salt(7) || challenge(16) || pubkey(64) layout byte for
+    # byte, and both peers' public keys only land on the P-256 curve read as
+    # little-endian X||Y, which is what we send. What we never did was keep
+    # the key the pairing produces, so every session opened by asking to pair
+    # again — and only a cuff in pairing mode answers that. Outside the -P-
+    # window it replies 0xff26, which is what got read as "the device rejects
+    # ECDH".
+    #
+    # token_key_fallback keeps the plaintext path as a safety net until real
+    # hardware confirms the secure path end to end.
     "HEM-7188T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
-        unlock_mode=UnlockMode.TOKEN_KEY,
+        unlock_mode=UnlockMode.SECURE_SESSION,
+        token_key_fallback=True,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],

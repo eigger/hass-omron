@@ -126,6 +126,14 @@ class DeviceConfig:
     unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
     unlock_mode: UnlockMode = UnlockMode.CLASSIC_KEY
     host_pairing_mode: HostPairingMode = HostPairingMode.CUSTOM_KEY
+    # Fall back to the plaintext token handshake when the secure session
+    # fails. The secure path is what the official app uses on these cuffs, but
+    # it is newly wired and only fully exercised once real hardware confirms
+    # it; without this a regression there would also take away the one read
+    # that works today, right after pairing. Only meaningful with
+    # unlock_mode=SECURE_SESSION.
+    token_key_fallback: bool = False
+
     # Enable more aggressive GATT timing for classic custom-key profiles
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False

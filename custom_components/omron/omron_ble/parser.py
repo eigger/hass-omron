@@ -37,6 +37,7 @@ from .const import (
 )
 from .setup import async_sync_device_time, async_sync_eeprom_time
 from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
+from .secure_store import SecureBondStore
 from .omron_driver import (
     OmronDeviceSession,
     OmronDeviceDriver,
@@ -67,8 +68,14 @@ class OmronBluetoothDeviceData(BluetoothData):
         self,
         device_model: str = DEFAULT_DEVICE_MODEL,
         user_aliases: dict[int, str] | None = None,
+        secure_bond_store: SecureBondStore | None = None,
     ) -> None:
         super().__init__()
+        # Handed to every session so the application-layer bond outlives the
+        # link. The default keeps the key for the lifetime of this object,
+        # which is enough for the config flow and for tests; the integration
+        # supplies one backed by the config entry.
+        self._secure_bond_store = secure_bond_store or SecureBondStore()
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
         self._device_model = device_model
@@ -1108,7 +1115,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                         preconnected_session.reclaim_ownership()
                         await preconnected_session.aclose()
-                    session = OmronDeviceSession(ble_device, self._device_config)
+                    session = OmronDeviceSession(
+                        ble_device,
+                        self._device_config,
+                        self._secure_bond_store,
+                    )
                 async with session:
                     client = session.client
 
@@ -1296,7 +1307,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         ``async_poll`` adopts this link instead of opening a new one; a caller
         that does not park it still owns the link and must close it.
         """
-        session = OmronDeviceSession(ble_device, self._device_config)
+        session = OmronDeviceSession(
+            ble_device, self._device_config, self._secure_bond_store
+        )
         try:
             await session.connect()
             if not await session.verify_parent_service():
@@ -1333,7 +1346,9 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""
-        async with OmronDeviceSession(ble_device, self._device_config) as session:
+        async with OmronDeviceSession(
+            ble_device, self._device_config, self._secure_bond_store
+        ) as session:
             await self._async_sync_current_time_with_client(
                 session.client, ble_device.address, session
             )

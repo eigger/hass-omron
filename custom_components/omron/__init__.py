@@ -19,6 +19,7 @@ from .ble_session import (
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
+from .omron_ble.secure_store import SecureBondStore
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
@@ -32,6 +33,7 @@ from datetime import timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_MODEL,
+    CONF_SECURE_BOND_KEY,
     DOMAIN,
 )
 from .util import aliases_dict_from_entry
@@ -70,6 +72,47 @@ _STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
 _STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset({
     SSDBinarySensorDeviceClass.BATTERY,
 })
+
+
+class ConfigEntrySecureBondStore(SecureBondStore):
+    """Keeps the application-layer bond key in the config entry.
+
+    It has to outlive Home Assistant restarts for the same reason it has to
+    outlive the link: pairing is the only moment the cuff hands one out, and
+    it only does that with the -P- button held. A key lost to a restart costs
+    the user a physical trip to the device.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: OmronConfigEntry) -> None:
+        stored = entry.data.get(CONF_SECURE_BOND_KEY)
+        try:
+            key = bytes.fromhex(stored) if stored else None
+        except ValueError:
+            _LOGGER.warning(
+                "Ignoring an unreadable stored secure bond key for %s",
+                entry.title,
+            )
+            key = None
+        super().__init__(key)
+        self._hass = hass
+        self._entry = entry
+
+    async def save(self, key: bytes) -> None:
+        await super().save(key)
+        self._write(key.hex())
+
+    async def clear(self) -> None:
+        await super().clear()
+        self._write(None)
+
+    def _write(self, value: str | None) -> None:
+        data = dict(self._entry.data)
+        if value is None:
+            data.pop(CONF_SECURE_BOND_KEY, None)
+        else:
+            data[CONF_SECURE_BOND_KEY] = value
+        if data != dict(self._entry.data):
+            self._hass.config_entries.async_update_entry(self._entry, data=data)
 
 
 def _merge_poll_sensor_update(prev: SensorUpdate, new: SensorUpdate) -> SensorUpdate:
@@ -294,6 +337,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     data = OmronBluetoothDeviceData(
         device_model=device_model,
         user_aliases=slot_aliases,
+        secure_bond_store=ConfigEntrySecureBondStore(hass, entry),
     )
     hass.data[DOMAIN][entry.entry_id] = {}
     hass.data[DOMAIN][entry.entry_id]['address'] = address

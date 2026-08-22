@@ -139,7 +139,17 @@ class TestCatalogResolution:
         assert resolve_profile_model_id("HEM-7183T1_FLIN") == "HEM-7188T1"
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
-        assert cfg.unlock_mode.value == "token_key"
+        # Secure session, not the plaintext token path. A phone btsnoop of a
+        # real HEM-7188T1-LEO (issue #92) shows the official app pairing with
+        # 0x70 0x01 and then carrying every reading over encrypted 0xc0
+        # frames; the token handshake only opens that exchange. The earlier
+        # reading — that the device rejects ECDH with 0xff26 — was our own
+        # unstored key sending each session back to a pairing request the
+        # cuff only answers in -P- mode.
+        assert cfg.unlock_mode.value == "secure_session"
+        # The plaintext path stays reachable as a fallback until real
+        # hardware confirms the secure one end to end.
+        assert cfg.token_key_fallback is True
         assert cfg.connect_type == ConnectType.WLD4_0
         assert cfg.user_start_addresses == [0x01C4]
         assert cfg.per_user_records_count == [30]

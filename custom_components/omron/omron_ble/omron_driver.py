@@ -15,6 +15,7 @@ from bleak_retry_connector import establish_connection
 
 from .const import MODEL_NUMBER_UUID
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
+from .secure_store import SecureBondStore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -571,9 +572,18 @@ class OmronDeviceSession:
     (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
-    def __init__(self, ble_device: BLEDevice, device_config: DeviceConfig) -> None:
+    def __init__(
+        self,
+        ble_device: BLEDevice,
+        device_config: DeviceConfig,
+        secure_bond_store: SecureBondStore | None = None,
+    ) -> None:
         self._ble_device = ble_device
         self._config = device_config
+        # Where the application-layer bond key lives across sessions. Without
+        # one every secure session has to pair again, which only a cuff in
+        # pairing mode will accept.
+        self._secure_bond_store = secure_bond_store or SecureBondStore()
         self._init_session_state(client=None, owns_connection=True)
 
     def _init_session_state(
@@ -612,6 +622,7 @@ class OmronDeviceSession:
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
         session._config = device_config
+        session._secure_bond_store = SecureBondStore()
         session._init_session_state(client=client, owns_connection=False)
         return session
 
@@ -1398,8 +1409,26 @@ class OmronDeviceSession:
 
         # Encrypted secure handshake path
         if self._config.unlock_mode == UnlockMode.SECURE_SESSION:
-            await self._secure_unlock()
-            return
+            try:
+                await self._secure_unlock()
+                return
+            except Exception as exc:
+                if not self._config.token_key_fallback:
+                    raise
+                # The secure path already discarded a rejected key, so the
+                # next pairing-mode session can recover. Meanwhile the
+                # plaintext handshake still reads records right after
+                # pairing, which is what this profile did before the secure
+                # path was wired — degrade to that rather than to nothing.
+                _LOGGER.warning(
+                    "Secure session failed for %s (%s); falling back to the "
+                    "plaintext token handshake",
+                    self._config.model,
+                    exc,
+                )
+                self._unlocked = False
+                await self._token_unlock()
+                return
 
         # Stateless token handshake (0x11 / 0x91)
         if self._config.unlock_mode == UnlockMode.TOKEN_KEY:
@@ -1597,7 +1626,22 @@ class OmronDeviceSession:
         # swap in the secure-stage callback below.
         from .secure_session import SecureSession
 
-        self._secure_session = SecureSession()
+        # A stored key puts the session straight into reconnect mode, where
+        # build_start_enc_req() reuses it instead of deriving a new one. That
+        # is the difference between the two sessions in the reference
+        # btsnoop: the first runs 0x70 0x01 in pairing mode, every later one
+        # opens at 0x70 0x05 — which is the only thing a cuff outside pairing
+        # mode will answer.
+        stored_key = self._secure_bond_store.load()
+        self._secure_session = SecureSession(stored_ltk=stored_key)
+        reconnecting = stored_key is not None
+        _LOGGER.debug(
+            "Secure session for %s: %s",
+            self._config.model,
+            "reconnecting with the stored bond key"
+            if reconnecting
+            else "no stored bond key — pairing (needs the cuff in -P- mode)",
+        )
         unlock_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
 
@@ -1618,38 +1662,54 @@ class OmronDeviceSession:
             # already-enabled CCCD.
             self._unlock_notify_handler = _secure_callback
 
-            # Step 1: Send Pairing Request
-            pair_req = self._secure_session.build_pair_req()
-            _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
-            unlock_event.clear()
-            response_holder[0] = None
-            await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
-            
-            # Wait for Pairing Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
-            pair_resp = response_holder[0]
-            _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
-            if not pair_resp:
-                raise ConnectionError("Empty pairing response")
-            err = _secure_error_frame_code(pair_resp)
-            if err is not None:
-                # Device rejected the ECDH pairing request with an error frame
-                # (e.g. 0xff26). The request itself is well-formed (structure and
-                # SECP256R1 little-endian pubkey are valid), so this is a
-                # device-state rejection: the cuff is likely already bonded to
-                # another host or is not currently accepting a fresh pairing.
-                raise ConnectionError(
-                    f"Device rejected secure pairing (error frame 0x{pair_resp[0]:02x}, "
-                    f"code 0x{err:02x}); the cuff may already be bonded to another "
-                    f"host or is not in pairing mode. Fully unpair/factory-reset "
-                    f"the cuff and try again."
-                )
-            if len(pair_resp) < 2:
-                raise ConnectionError("Invalid or empty pairing response")
+            # Step 1: Pairing. Skipped entirely when a stored key already
+            # makes us a registered host — the cuff only accepts this in
+            # pairing mode, so a reconnect that tried it would be refused.
+            if not reconnecting:
+                pair_req = self._secure_session.build_pair_req()
+                _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
+                unlock_event.clear()
+                response_holder[0] = None
+                await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
 
-            # Process Pairing Response and derive LTK
-            self._secure_session.process_pair_resp(pair_resp)
-            _LOGGER.debug("Key exchange complete")
+                # Wait for Pairing Response
+                await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
+                pair_resp = response_holder[0]
+                _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
+                if not pair_resp:
+                    raise ConnectionError("Empty pairing response")
+                err = _secure_error_frame_code(pair_resp)
+                if err is not None:
+                    # Device rejected the ECDH pairing request with an error frame
+                    # (e.g. 0xff26). The request itself is well-formed (structure and
+                    # SECP256R1 little-endian pubkey are valid), so this is a
+                    # device-state rejection: the cuff is likely already bonded to
+                    # another host or is not currently accepting a fresh pairing.
+                    raise ConnectionError(
+                        f"Device rejected secure pairing (error frame 0x{pair_resp[0]:02x}, "
+                        f"code 0x{err:02x}); the cuff may already be bonded to another "
+                        f"host or is not in pairing mode. Fully unpair/factory-reset "
+                        f"the cuff and try again."
+                    )
+                if len(pair_resp) < 2:
+                    raise ConnectionError("Invalid or empty pairing response")
+
+                # Process Pairing Response and derive LTK
+                self._secure_session.process_pair_resp(pair_resp)
+                _LOGGER.debug("Key exchange complete")
+
+                # The key that makes every later session a reconnect.
+                # Stored before the remaining stages so a failure further
+                # on does not throw away a pairing the cuff has accepted
+                # and will not offer again without another -P- press.
+                derived = self._secure_session.ltk
+                if derived:
+                    await self._secure_bond_store.save(derived)
+                    _LOGGER.debug(
+                        "Stored the secure bond key for %s (%d bytes)",
+                        self._config.model,
+                        len(derived),
+                    )
 
             # Step 2: Send Encryption Start Request
             start_enc_req = self._secure_session.build_start_enc_req()
@@ -1702,9 +1762,13 @@ class OmronDeviceSession:
 
         except asyncio.TimeoutError as exc:
             _LOGGER.error("Secure handshake timed out during negotiation")
+            if reconnecting:
+                await self._discard_secure_bond("the handshake timed out")
             raise ConnectionError("Secure unlock timeout") from exc
         except Exception as exc:
             _LOGGER.error("Secure handshake failed: %s", exc)
+            if reconnecting:
+                await self._discard_secure_bond(str(exc))
             raise ConnectionError(f"Secure unlock failed: {exc}") from exc
         finally:
             self._unlock_notify_handler = None
@@ -1718,6 +1782,25 @@ class OmronDeviceSession:
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception as exc:
                 _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
+
+    async def _discard_secure_bond(self, reason: str) -> None:
+        """Forget a stored key the cuff would not accept.
+
+        Keeping it would send every future reconnect down the encryption
+        path and fail there, with no way back: pairing only happens when
+        there is no key, so a bad one locks the device out of the one
+        session that could fix it. Dropping it costs a single -P- press.
+        """
+        _LOGGER.warning(
+            "Discarding the stored secure bond key for %s (%s). Put the cuff "
+            "in pairing mode (blinking -P-) so it can be paired again",
+            self._config.model,
+            reason,
+        )
+        try:
+            await self._secure_bond_store.clear()
+        except Exception as exc:
+            _LOGGER.debug("Clearing the secure bond key failed (ignored): %s", exc)
 
     async def _pair_os_bonding(self) -> None:
         """Best-effort OS-level BLE bond establishment for modern profiles."""
