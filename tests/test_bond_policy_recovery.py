@@ -331,3 +331,64 @@ def test_memory_session_warning_does_not_advise_re_adding_the_device():
     assert "remove and re-add the device" not in message
     assert "pairing mode" in message
     assert "Retry Pairing" in message
+
+
+# ── 실제 연결 경로 기록 ────────────────────────────────────────────────────
+
+class _ESPHomeBackend:
+    def __init__(self, source):
+        self._source = source
+
+
+class _BlueZBackend:
+    def __init__(self, device_path):
+        self._device_path = device_path
+
+
+class _PathClient:
+    def __init__(self, backend=None):
+        self.is_connected = True
+        self._backend = backend
+
+
+def test_connected_path_reads_the_proxy_the_link_actually_used():
+    """광고를 본 스캐너와 실제 연결 경로는 다를 수 있다.
+
+    habluetooth 는 connect 시점에 점수로 프록시를 고르므로, 본딩 시도와
+    비암호화 폴백이 서로 다른 ESP32 에 안착할 수 있다. ESP32 는 각자 본드
+    테이블을 들고 있어서 "어디로 붙었나" 가 진단에 필요하다(이슈 #91).
+    """
+    ble_device = FakeBLEDevice()  # details["source"] = "hci0"
+
+    assert (
+        omron_driver._connected_path(_PathClient(_ESPHomeBackend("esp-mini")), ble_device)
+        == "esp-mini"
+    )
+    assert omron_driver._connected_path(
+        _PathClient(_BlueZBackend("/org/bluez/hci0/dev_D5_4F_40_C4_5A_E2")), ble_device
+    ) == "/org/bluez/hci0/dev_D5_4F_40_C4_5A_E2"
+
+
+def test_connected_path_falls_back_to_the_advertised_source():
+    """백엔드 내부 형태는 bleak/bleak-esphome 사유라 바뀔 수 있다.
+
+    못 읽으면 조용히 광고 소스로 떨어져야 한다 — 진단이 예외를 던지면 그건
+    더 이상 진단이 아니다.
+    """
+    ble_device = FakeBLEDevice()
+
+    assert omron_driver._connected_path(_PathClient(None), ble_device) == "hci0"
+    assert omron_driver._connected_path(_PathClient(object()), ble_device) == "hci0"
+
+
+def test_fallback_on_a_different_proxy_is_reported():
+    """폴백이 다른 프록시에 안착하면 그 사실이 로그에 남아야 한다."""
+    import pathlib
+
+    source = pathlib.Path(
+        "custom_components/omron/omron_ble/omron_driver.py"
+    ).read_text()
+
+    assert "Unpaired fallback for %s connected via %s, not the " in source
+    # 연결 성립 로그도 두 값을 구분해서 남긴다.
+    assert "advertised by source=%s, connected via " in source

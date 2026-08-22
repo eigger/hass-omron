@@ -101,6 +101,34 @@ def _connection_source(ble_device: BLEDevice) -> str:
     return "unknown"
 
 
+def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
+    """Best-effort identity of the link we actually connected over.
+
+    ``_connection_source`` reads the BLEDevice, which names the scanner that
+    saw the *advertisement* — not necessarily the path the connection took.
+    habluetooth picks that at connect time from whichever proxy scores best,
+    so on a multi-proxy setup the bond attempt and the fallback can land on
+    different ESP32s. Each proxy keeps its own bond table, which makes "where
+    did this actually connect" a question the log has to be able to answer
+    (issue #91: an attempt through one proxy, a fallback reported on another,
+    and a pairing the cuff then terminated).
+
+    Probes the backend because that is the only place the answer exists, and
+    falls back to the advertised source when it does not — the shapes here are
+    private to bleak/bleak-esphome and may change.
+    """
+    backend = getattr(client, "_backend", None)
+    if backend is not None:
+        # ESPHome proxy backends carry the proxy's own name.
+        for attr in ("_source", "source"):
+            if value := getattr(backend, attr, None):
+                return str(value)
+        # BlueZ backends carry the adapter in the object path.
+        if path := getattr(backend, "_device_path", None):
+            return str(path)
+    return _connection_source(ble_device)
+
+
 async def _connect_once(
     ble_device: BLEDevice, name: str, *, pair: bool
 ) -> BleakClient:
@@ -254,17 +282,35 @@ async def establish_connection_with_bond_settle(
                         # unpaired attempt's error in the chain instead of
                         # dropping it on the floor.
                         raise exc from fallback_exc
+                    fallback_via = _connected_path(client, ble_device)
+                    if fallback_via != source:
+                        # Worth its own line: the bond that just failed and the
+                        # link we now hold are not necessarily the same proxy,
+                        # and each ESP32 keeps its own bond table. A cuff that
+                        # terminates the next pairing may be answering state
+                        # left on a proxy nobody is looking at.
+                        _LOGGER.warning(
+                            "Unpaired fallback for %s connected via %s, not the "
+                            "%s that advertised it — on multi-proxy setups the "
+                            "bond state these two hold can differ",
+                            name,
+                            fallback_via,
+                            source,
+                        )
             else:
                 raise
         if pair_this_attempt:
             _LOGGER.debug(
                 "Bonded %s via source=%s before service discovery", name, source
             )
+        connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
-            "BLE link established to %s via source=%s (is_connected=%s); settling "
-            "up to %.1fs for bonding/encryption before first GATT op",
+            "BLE link established to %s (advertised by source=%s, connected via "
+            "%s, is_connected=%s); settling up to %.1fs for bonding/encryption "
+            "before first GATT op",
             name,
             source,
+            connected_via,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
