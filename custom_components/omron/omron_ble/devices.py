@@ -288,9 +288,9 @@ class DeviceConfig:
     def poll_requires_pairing_window(self) -> bool:
         """Whether a read needs the device to be signalling, not just a timer.
 
-        A profile that drops its bond every session (``BondPolicy.PER_SESSION``)
-        has nothing to reconnect with, and these cuffs refuse to make a new
-        bond once they leave pairing mode — HEM-7188T1 answers the attempt with
+        A profile that drops its bond every session has nothing to reconnect
+        with, and these cuffs refuse to make a new bond once they leave
+        pairing mode — HEM-7188T1 answers the attempt with
         AuthenticationCanceled / error 102. A poll fired purely because the
         scan interval elapsed therefore cannot succeed: it spends a connect, a
         bond attempt and the session lock to arrive at a failure that was
@@ -298,15 +298,19 @@ class DeviceConfig:
 
         The device itself says when a read can work, via the advertisement
         flags: ``pairing_mode`` (a bond can be made now) and
-        ``forced_transfer`` (a measurement is waiting). Polls are gated on
-        those in ``_async_poll_data`` rather than on the clock.
+        ``forced_transfer`` (a measurement is waiting).
 
-        Deliberately derived from the same condition as
-        ``unpair_after_session`` — "we drop the bond" and "we need the device
-        to offer us a new one" are the same fact, and a profile that could set
-        them apart would be describing something incoherent.
+        Restricted to WLD4.0 on purpose. PER_SESSION alone would sweep in the
+        WLD3.0 family (HEM-7380T1 / 7376T1 / 7377T1 / 7386T1 / 7155T-MW3),
+        and the evidence for this gate is one WLD4.0 cuff. The costs are not
+        symmetric: gating a family whose timer polls do work stops their
+        readings silently, while leaving one ungated only wastes connects that
+        were already being wasted. Widen this once a WLD3.0 device has been
+        checked, not before.
         """
-        return self.unpair_after_session
+        return (
+            self.unpair_after_session and self.connect_type == ConnectType.WLD4_0
+        )
 
     @property
     def pair_on_connect(self) -> bool:

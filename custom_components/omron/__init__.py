@@ -14,6 +14,9 @@ from .ble_session import (
     adopt_handoff_session,
     discard_handoff_session,
     has_handoff_session,
+    request_poll,
+    should_skip_scheduled_poll,
+    take_poll_request,
     omron_poll_ble_telemetry,
     poll_parked_session,
     run_post_pairing_poll,
@@ -47,6 +50,11 @@ PLATFORMS: list[Platform] = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+
+# Minimum gap between advertisement log lines when only the raw MSD changed.
+# Flag and connectability changes ignore this — they are the events the log
+# exists for; a rolling byte in the payload is not.
+_ADVERT_MSD_LOG_INTERVAL_SEC = 5.0
 
 # BLE advertisement trigger control constants
 POLL_COOLDOWN_SECONDS = 60
@@ -158,16 +166,25 @@ def process_service_info(
 
     # Keyed on the MSD too, so a payload that changes while the decoded flags
     # stay False is still visible — which is exactly what a measurement that
-    # we are failing to recognise would look like.
-    flags = (
-        is_pairing,
-        is_invalid_time,
-        is_forced_transfer,
-        service_info.connectable,
-        msd_hex,
+    # we are failing to recognise would look like. A per-advertisement field
+    # in the payload (a sequence byte, say) would otherwise put this back to a
+    # line a second, so MSD-only changes are throttled; a change in the
+    # decoded flags or in connectability always prints.
+    decoded_key = (
+        is_pairing, is_invalid_time, is_forced_transfer, service_info.connectable
     )
-    if entry_data.get("last_advert_flags") != flags:
+    flags = decoded_key + (msd_hex,)
+    previous = entry_data.get("last_advert_flags")
+    changed = previous != flags
+    decoded_changed = previous is None or previous[:4] != decoded_key
+    now = time.monotonic()
+    throttled = (
+        not decoded_changed
+        and now - entry_data.get("last_advert_log", 0.0) < _ADVERT_MSD_LOG_INTERVAL_SEC
+    )
+    if changed and not throttled:
         entry_data["last_advert_flags"] = flags
+        entry_data["last_advert_log"] = now
         _LOGGER.debug(
             "Advertisement flags for %s: pairing_mode=%s invalid_time=%s "
             "forced_transfer=%s connectable=%s msd=%s (format=%s decoded=%s)",
@@ -226,6 +243,11 @@ def process_service_info(
         # otherwise the child poll would see lock locked and return cached data.
         if is_forced_transfer and not is_pairing and not is_invalid_time:
             entry_data["last_attempt_time"] = time.time()
+            # Latched before the refresh, because that call is debounced: the
+            # poll it schedules runs seconds later and re-reads the flags,
+            # and a cuff that has since lowered the bit would have this
+            # request dropped by the gate.
+            request_poll(entry_data, "forced-transfer advertisement")
             _LOGGER.debug(
                 "Triggering scheduled poll via forced-transfer flag for %s",
                 service_info.address,
@@ -411,16 +433,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             # A parked pairing session is exempt: that link is already open
             # and bonded, and skipping would strand it.
             device_data = coordinator.device_data
-            # Consumed unconditionally: a request that ends up skipped for some
-            # other reason must not leave the flag armed for a later scheduled
-            # poll that nobody asked for.
-            user_requested = entry_data.pop("user_requested_poll", False)
-            if (
-                not user_requested
-                and device_data.device_config.poll_requires_pairing_window
-                and not device_data.pairing_mode
-                and not device_data.forced_transfer
-                and not has_handoff_session(hass, address)
+            # Peeked, not consumed: a request must survive every path that
+            # bails out before a connect is actually attempted, or pressing
+            # the button while a session is in flight throws the press away.
+            poll_request = take_poll_request(entry_data)
+            flags_at = getattr(device_data, "last_msd_monotonic", None)
+            if should_skip_scheduled_poll(
+                device_data.device_config,
+                pairing_mode=device_data.pairing_mode,
+                forced_transfer=device_data.forced_transfer,
+                flags_age=None if flags_at is None else time.monotonic() - flags_at,
+                poll_request=poll_request,
+                handoff_parked=has_handoff_session(hass, address),
             ):
                 _LOGGER.debug(
                     "Skipping scheduled poll for %s (%s): the cuff is not "
@@ -449,6 +473,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 return entry.runtime_data.device_data._finish_update()
 
             async with session_lock:
+                # Committed to connecting, so the request has now been served.
+                # Consuming any earlier would discard it on a path that never
+                # touched the radio — the session-lock skip above being the
+                # one a user hits by pressing the button twice.
+                if poll_request is not None:
+                    entry_data.pop("poll_request", None)
+                    _LOGGER.debug(
+                        "Polling %s on a %s request", address, poll_request
+                    )
                 # Adopt a parked pairing/setup session (memory readout still
                 # open) so pairing, time sync, and the first EEPROM read share
                 # one connection. Taken here rather than at the top of the

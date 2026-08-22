@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from time import perf_counter
@@ -18,6 +19,81 @@ if TYPE_CHECKING:
     from .omron_ble.omron_driver import OmronDeviceSession
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# A poll someone actually asked for stays valid this long. Requests are not
+# consumed until a connect is committed, so without a bound a request that
+# never got its chance would sit armed and later open an unrelated scheduled
+# poll long after the moment that justified it had passed.
+POLL_REQUEST_TTL_SECONDS = 300
+
+# Advertisement flags are only refreshed when an MSD decodes. A packet that
+# fails its length contract, or a cuff that stops advertising, leaves the last
+# values frozen — and a frozen True would reopen exactly the doomed connects
+# the gate exists to stop. Past this age the flags are treated as unknown.
+ADVERT_FLAG_FRESHNESS_SECONDS = 60
+
+
+def request_poll(entry_data: dict, source: str, *, now: float | None = None) -> None:
+    """Record that something asked for a poll, for the gate to honour.
+
+    ``async_request_refresh`` is debounced by roughly ten seconds, so the poll
+    it schedules reads the advertisement flags well after the advertisement
+    that prompted it. A cuff that lowered the bit in between would have its
+    request silently dropped by the gate — the buttonless-collection path
+    being the one most likely to lose that race. Latching the request means
+    the gate honours the moment the flag was seen, not the moment the poll
+    happened to run.
+    """
+    entry_data["poll_request"] = (source, time.monotonic() if now is None else now)
+
+
+def take_poll_request(
+    entry_data: dict, *, now: float | None = None
+) -> str | None:
+    """Return the pending poll request's source, dropping it if it went stale."""
+    request = entry_data.get("poll_request")
+    if request is None:
+        return None
+    source, requested_at = request
+    if (time.monotonic() if now is None else now) - requested_at > POLL_REQUEST_TTL_SECONDS:
+        entry_data.pop("poll_request", None)
+        return None
+    return source
+
+
+def should_skip_scheduled_poll(
+    config: Any,
+    *,
+    pairing_mode: bool,
+    forced_transfer: bool,
+    flags_age: float | None,
+    poll_request: str | None,
+    handoff_parked: bool,
+) -> bool:
+    """Whether a poll would be spending a connect on a certain failure.
+
+    Split out of ``_async_poll_data`` so it can be called directly: the
+    conditions here are the whole behaviour of the gate, and a test that
+    restates them in its own words checks only that someone typed the same
+    thing twice.
+
+    ``flags_age`` is seconds since the advertisement flags were last refreshed
+    from a decoded MSD, or None if they never were.
+    """
+    if not config.poll_requires_pairing_window:
+        return False
+    # Someone asked for this connect — a person, or an advertisement that said
+    # a read could work. Either way it is not the clock talking.
+    if poll_request is not None:
+        return False
+    # A parked link is already open and bonded; skipping strands it and loses
+    # the reading it was opened for.
+    if handoff_parked:
+        return False
+    if flags_age is None or flags_age > ADVERT_FLAG_FRESHNESS_SECONDS:
+        return True
+    return not (pairing_mode or forced_transfer)
 
 
 async def stash_handoff_session(

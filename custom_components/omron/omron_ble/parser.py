@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+import time
 from typing import Any
 
 from bleak import BleakClient
@@ -95,6 +96,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         # three different answers that look identical in the decoded flags.
         self.last_msd: bytes | None = None
         self.last_msd_decoded: bool = False
+        # When the flags above were last refreshed from a decoded MSD. The
+        # gate needs this: a dropped packet or a cuff that stopped advertising
+        # freezes the last values, and a frozen True reopens the connects the
+        # gate exists to stop.
+        self.last_msd_monotonic: float | None = None
         # Additional fields parsed from MSD. Kept as
         # informational attributes; not exposed as sensors today.
         self.streaming_mode: bool = False
@@ -273,6 +279,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         # Update instance attributes referenced externally (poll triggers in
         # custom_components/omron/__init__.py).
+        self.last_msd_monotonic = time.monotonic()
         self.invalid_time = fields["invalid_time"]
         self.pairing_mode = fields["pairing_mode"]
         self.forced_transfer = fields["forced_transfer"]
