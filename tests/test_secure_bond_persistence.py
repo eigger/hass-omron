@@ -549,6 +549,18 @@ def test_every_method_that_primes_rx_also_releases_it():
     assert "stop_notify(uuid)" in helper
     assert "_primed_notify_uuids.discard(uuid)" in helper
 
+    # 그리고 기록을 지우는 방법은 그 헬퍼 하나뿐이어야 한다. 두 번째 방법이
+    # 생기면 위 primes ⊆ releases 검사가 그걸 못 보고, 직접 discard 하는
+    # 메서드가 언젠가 프라임까지 하게 되면 조용히 어긋난다.
+    discarders = {
+        method_of(i)
+        for i, l in enumerate(lines)
+        if "_primed_notify_uuids.discard(" in l
+    }
+    assert discarders == {"_release_primed_rx"}, (
+        f"헬퍼 밖에서 기록을 지우는 곳: {sorted(discarders - {'_release_primed_rx'})}"
+    )
+
     assert "_primed_notify_uuids.clear()" in _method_body(
         driver, "_unsubscribe_notify_channels"
     )

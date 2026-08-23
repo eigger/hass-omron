@@ -2156,12 +2156,11 @@ class OmronDeviceSession:
             await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
         if not entered_programming:
-            self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
             try:
                 await self._client.stop_notify(self._config.unlock_uuid)
-                await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception:
                 pass
+            await self._release_primed_rx("pair")
             _LOGGER.error(
                 "Key programming mode not reached: model=%s aggressive_gatt_timing=%s "
                 "unlock_uuid=%s attempts=%s write_failures=%s "
@@ -2194,12 +2193,11 @@ class OmronDeviceSession:
             pass
 
         resp = response_holder[0]
-        self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
         try:
             await self._client.stop_notify(self._config.unlock_uuid)
-            await self._client.stop_notify(self._config.rx_channel_uuids[0])
         except Exception:
             pass
+        await self._release_primed_rx("pair")
 
         if not _is_unlock_pairing_key_ack(resp):
             raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
