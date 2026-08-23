@@ -441,3 +441,23 @@ def test_challenge_request_logs_what_the_capture_cannot():
     between = body[body.index("build_challenge_req(enc_resp)") : body.index("write_gatt_char(self._config.unlock_uuid, challenge_req")]
     assert "start_notify" not in between
     assert "asyncio.sleep" not in between
+
+
+def test_the_driver_module_has_no_undefined_names():
+    """소스 문자열만 보는 테스트는 NameError 를 못 잡는다.
+
+    챌린지 로그를 넣으면서 다른 브랜치에만 있던 헬퍼를 참조했는데, 이 파일의
+    단언들은 "그 이름이 소스에 있다" 만 확인하므로 전부 통과했다. 잡아낸 것은
+    CI 의 lint 였다.
+    """
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "custom_components/"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 127 or "No module named" in result.stderr:
+        pytest.skip("ruff not installed")
+    assert result.returncode == 0, result.stdout + result.stderr

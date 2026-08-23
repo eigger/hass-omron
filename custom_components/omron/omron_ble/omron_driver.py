@@ -100,6 +100,31 @@ def _connection_source(ble_device: BLEDevice) -> str:
     return "unknown"
 
 
+def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
+    """Best-effort identity of the link a connection actually went over.
+
+    ``_connection_source`` reads the BLEDevice, which names the scanner that
+    saw the *advertisement* — not necessarily the path the connection took.
+    habluetooth picks that at connect time from whichever proxy scores best,
+    so on a multi-proxy setup two writes in one session can be reported
+    against different radios. Issue #92 has three proxies, two of them
+    devices with another job, which is one candidate for the GATT error that
+    breaks the challenge write.
+
+    Probes the backend because that is the only place the answer exists, and
+    falls back to the advertised source when it does not — the shapes here
+    are private to bleak and bleak-esphome and may change.
+    """
+    backend = getattr(client, "_backend", None)
+    if backend is not None:
+        for attr in ("_source", "source"):
+            if value := getattr(backend, attr, None):
+                return str(value)
+        if path := getattr(backend, "_device_path", None):
+            return str(path)
+    return _connection_source(ble_device)
+
+
 async def _connect_once(
     ble_device: BLEDevice, name: str, *, pair: bool
 ) -> BleakClient:
