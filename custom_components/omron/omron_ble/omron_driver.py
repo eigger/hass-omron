@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import logging
 import secrets
+import time
 import traceback
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -1737,18 +1738,6 @@ class OmronDeviceSession:
                 self._secure_session.process_pair_resp(pair_resp)
                 _LOGGER.debug("Key exchange complete")
 
-                # The key that makes every later session a reconnect.
-                # Stored before the remaining stages so a failure further
-                # on does not throw away a pairing the cuff has accepted
-                # and will not offer again without another -P- press.
-                derived = self._secure_session.ltk
-                if derived:
-                    await self._secure_bond_store.save(derived)
-                    _LOGGER.debug(
-                        "Stored the secure bond key for %s (%d bytes)",
-                        self._config.model,
-                        len(derived),
-                    )
 
             # Step 2: Send Encryption Start Request
             start_enc_req = self._secure_session.build_start_enc_req()
@@ -1774,8 +1763,26 @@ class OmronDeviceSession:
                 raise ConnectionError("Invalid or empty encryption response")
 
             # Step 3: Challenge-Response mutual authentication
+            #
+            # The first frame carrying our own CCM ciphertext, and where a
+            # real device broke with GATT error 133 on the write itself
+            # (issue #92) — no application error frame, no response at all.
+            # That is what a cuff dropping the link looks like from here, and
+            # the reference capture cannot say why: it shows nothing between
+            # 0xf0 85 and 0x70 06 but 12 ms, and the same ATT opcode we use.
+            # So log what the capture cannot supply — how long we took, and
+            # whether the link was still up when we wrote.
+            enc_resp_at = time.monotonic()
             challenge_req = self._secure_session.build_challenge_req(enc_resp)
-            _LOGGER.debug("Sending Challenge Request (len=%d): %s", len(challenge_req), challenge_req.hex())
+            _LOGGER.debug(
+                "Sending Challenge Request (len=%d, %.0f ms after the "
+                "encryption response, is_connected=%s, via %s): %s",
+                len(challenge_req),
+                (time.monotonic() - enc_resp_at) * 1000,
+                getattr(self._client, "is_connected", "?"),
+                _connected_path(self._client, self._ble_device),
+                challenge_req.hex(),
+            )
             unlock_event.clear()
             response_holder[0] = None
             await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
@@ -1801,6 +1808,24 @@ class OmronDeviceSession:
             _LOGGER.info("Secure handshake succeeded. Session unlocked.")
             self._unlocked = True
 
+            # Stored only now, with the handshake complete. An earlier draft
+            # saved it right after the key exchange, reasoning that a failure
+            # downstream should not waste a -P- press. The field log says
+            # otherwise: a run that got its key and then broke on 0x70 06 left
+            # us holding an LTK the cuff had not committed to, so the next
+            # session opened as a reconnect, was refused, and threw the key
+            # away — with the -P- press wasted anyway. The cuff appears to
+            # commit at 0xf0 86, so that is where we commit too.
+            if not reconnecting:
+                derived = self._secure_session.ltk
+                if derived:
+                    await self._secure_bond_store.save(derived)
+                    _LOGGER.debug(
+                        "Stored the secure bond key for %s (%d bytes)",
+                        self._config.model,
+                        len(derived),
+                    )
+
         except asyncio.TimeoutError as exc:
             _LOGGER.error("Secure handshake timed out during negotiation")
             raise ConnectionError("Secure unlock timeout") from exc
@@ -1810,17 +1835,30 @@ class OmronDeviceSession:
                 await self._discard_secure_bond(str(exc))
             raise ConnectionError(f"Secure unlock failed: {exc}") from exc
         finally:
-            self._unlock_notify_handler = None
-            try:
-                await self._client.stop_notify(self._config.unlock_uuid)
-            except Exception as exc:
-                _LOGGER.debug("secure unlock stop_notify skipped: %s", exc)
-            # _token_unlock(keep_notify=True) left the RX-channel CCCD enabled
-            # for us; release it here so it doesn't outlive the handshake.
-            try:
-                await self._client.stop_notify(self._config.rx_channel_uuids[0])
-            except Exception as exc:
-                _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
+            if self._unlocked:
+                # Encrypted traffic runs on these same subscriptions — the
+                # capture shows the app never drops them, and writes its 0xc0
+                # frames to the very characteristic we would be unsubscribing
+                # from. Tearing them down on the way out of a *successful*
+                # handshake would leave the session that just unlocked with no
+                # way to hear the replies.
+                _LOGGER.debug(
+                    "Secure handshake done; keeping the notify subscriptions "
+                    "for the encrypted session"
+                )
+            else:
+                self._unlock_notify_handler = None
+                try:
+                    await self._client.stop_notify(self._config.unlock_uuid)
+                except Exception as exc:
+                    _LOGGER.debug("secure unlock stop_notify skipped: %s", exc)
+                # _token_unlock(keep_notify=True) left the RX-channel CCCD
+                # enabled for us; release it here so it doesn't outlive a
+                # handshake that failed.
+                try:
+                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
+                except Exception as exc:
+                    _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
 
     def _secure_frames_active(self) -> bool:
         """Whether this session's frames are encrypted right now."""

@@ -153,15 +153,21 @@ def test_driver_only_pairs_when_there_is_no_stored_key():
     assert "SecureSession(stored_ltk=stored_key)" in body
 
 
-def test_driver_stores_the_key_pairing_produced():
-    source = _driver_source()
-    body = source[source.index("async def _secure_unlock") :]
-    body = body[: body.index("\n    async def _discard_secure_bond")]
+def test_driver_stores_the_key_only_once_the_handshake_completes():
+    """핸드셰이크가 끝난 뒤에 저장해야 한다.
+
+    초안은 키 교환 직후에 저장했다. "뒤에서 실패해도 -P- 를 낭비하지 말자"는
+    의도였는데, 실기기 로그(이슈 #92)가 반대를 보여준다: 키를 받고 0x70 06 에서
+    깨진 실행은 커프가 커밋하지 않은 LTK 를 우리만 들고 있게 만들었고, 다음
+    세션이 재연결로 열려 거부당하고 키를 버렸다 — -P- 는 결국 낭비됐다.
+    커프는 0xf0 86 에서 커밋하는 것으로 보인다.
+    """
+    body = _method_body(_driver_source(), "_secure_unlock")
 
     save = body.index("self._secure_bond_store.save(derived)")
-    # 나머지 단계가 실패해도 키는 남아야 한다: 커프는 -P- 를 다시 누르기
-    # 전까지 같은 페어링을 두 번 내주지 않는다.
-    assert save < body.index("# Step 2: Send Encryption Start Request")
+    assert save > body.index("process_challenge_resp(challenge_resp)")
+    # 재연결에는 저장할 새 키가 없다.
+    assert "if not reconnecting:" in body[body.index("self._unlocked = True") : save]
 
 
 def test_driver_discards_a_key_the_cuff_refused():
@@ -205,6 +211,21 @@ def test_secure_failure_falls_back_to_the_token_path():
     assert "raise" in body
     assert "await self._token_unlock()" in body
 
+
+
+def _method_body(source: str, name: str) -> str:
+    """``source`` 에서 메서드 하나의 본문만 잘라낸다.
+
+    문자열 인덱스로 대충 자르면 다음 메서드까지 딸려 들어와 단언이 엉뚱한
+    코드를 보게 된다.
+    """
+    import re
+
+    start = re.search(rf"\n    (?:async )?def {name}\(", source)
+    assert start, name
+    rest = source[start.end() :]
+    end = re.search(r"\n    (?:async )?def ", rest)
+    return rest[: end.start()] if end else rest
 
 def _config():
     from custom_components.omron.omron_ble.devices import get_device_config
@@ -383,3 +404,40 @@ def test_fallback_drops_the_failed_session():
 
     drop = body.index("self._secure_session = None")
     assert drop < body.index("await self._token_unlock()")
+
+
+def test_successful_handshake_keeps_its_subscriptions():
+    """성공한 핸드셰이크의 구독을 끄면 암호화 세션이 귀머거리가 된다.
+
+    캡처에서 앱은 구독을 한 번도 놓지 않고, 암호화 0xc0 프레임을 바로 그
+    언락 특성(handle 0x001b)에 쓴다. 성공 경로에서 stop_notify 하면 방금
+    언락한 세션이 응답을 못 듣는다. 실패 경로는 종전대로 정리한다.
+    """
+    body = _method_body(_driver_source(), "_secure_unlock")
+
+    finally_at = body.rindex("finally:")
+    tail = body[finally_at:]
+    assert "if self._unlocked:" in tail, "성공/실패를 갈라야 한다"
+    success, failure = tail.split("else:", 1)
+    # 실제 호출만 센다 — 로그 문자열에도 이름이 들어 있다.
+    assert "await self._client.stop_notify(" not in success
+    assert failure.count("await self._client.stop_notify(") == 2
+
+
+def test_challenge_request_logs_what_the_capture_cannot():
+    """133 은 캡처가 설명하지 못한다 — 우리 쪽 값만이라도 남긴다.
+
+    캡처는 0xf0 85 와 0x70 06 사이에 12ms 말고 아무것도 없고, ATT opcode 도
+    우리와 같은 Write Request 다. 그래서 추측을 코드에 넣는 대신 경과 시간과
+    링크 상태, 실제 연결 경로를 로그로 남긴다.
+    """
+    body = _method_body(_driver_source(), "_secure_unlock")
+
+    log = body.index("Sending Challenge Request")
+    assert "ms after the" in body[log : log + 400]
+    assert "is_connected=%s" in body[log : log + 400]
+    assert "_connected_path(" in body[log : log + 600]
+    # 캡처에 없는 동작은 넣지 않는다.
+    between = body[body.index("build_challenge_req(enc_resp)") : body.index("write_gatt_char(self._config.unlock_uuid, challenge_req")]
+    assert "start_notify" not in between
+    assert "asyncio.sleep" not in between
