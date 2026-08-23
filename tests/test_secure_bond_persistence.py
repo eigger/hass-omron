@@ -195,10 +195,14 @@ def test_a_blip_does_not_cost_the_key():
     assert body.count("key_was_rejected = True") == 2, (
         "encryption start 와 challenge 거부 두 곳에서만 세워야 한다"
     )
-    timeout = body.index("except asyncio.TimeoutError")
-    generic = body.index("except Exception as exc:")
-    discard = body.index("await self._discard_secure_bond(")
-    assert timeout < generic < discard, "타임아웃 경로는 키를 건드리지 않아야 한다"
+    # 타임아웃 핸들러 블록만 떼어내 그 안에 폐기가 없는지 본다. 인덱스 대소
+    # 비교는 try 안에 다른 except 가 생기면 엉뚱한 것을 집는다.
+    timeout_at = body.index("        except asyncio.TimeoutError")
+    tail = body[timeout_at:]
+    timeout_block = tail[: tail.index("\n        except Exception as exc:")]
+    assert "_discard_secure_bond" not in timeout_block, (
+        "타임아웃 경로가 키를 버린다"
+    )
 
 
 def test_secure_failure_falls_back_to_the_token_path():
@@ -434,11 +438,20 @@ def test_challenge_request_logs_what_the_capture_cannot():
     body = _method_body(_driver_source(), "_secure_unlock")
 
     log = body.index("Sending Challenge Request")
-    assert "ms after the" in body[log : log + 400]
-    assert "is_connected=%s" in body[log : log + 400]
-    assert "_connected_path(" in body[log : log + 600]
+    after = body[log:]
+    # 경과는 write 가 실제로 끝나거나 실패한 뒤에 찍혀야 한다 — 요청을 만드는
+    # 데 걸린 시간만 재면 캡처의 12ms 와 비교할 값이 아니다.
+    assert "ms after the" in after
+    assert after.index("write_gatt_char") < after.index("ms after the")
+    assert "is_connected=%s" in after
+    assert "_connected_path(" in after
+    # 시작점은 0xf0 85 를 받은 지점이어야 한다.
+    assert body.index("enc_resp_at = time.monotonic()") < body.index(
+        "build_challenge_req(enc_resp)"
+    )
     # 캡처에 없는 동작은 넣지 않는다.
-    between = body[body.index("build_challenge_req(enc_resp)") : body.index("write_gatt_char(self._config.unlock_uuid, challenge_req")]
+    start = body.index("build_challenge_req(enc_resp)")
+    between = body[start : body.index("challenge_req, response=True", start)]
     assert "start_notify" not in between
     assert "asyncio.sleep" not in between
 
@@ -461,3 +474,59 @@ def test_the_driver_module_has_no_undefined_names():
     if result.returncode == 127 or "No module named" in result.stderr:
         pytest.skip("ruff not installed")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ── RX 디스패처 ───────────────────────────────────────────────────────────
+
+def test_rx_prime_installs_a_dispatcher_not_a_throwaway_lambda():
+    """더미 람다로 구독해두면 실제 콜백을 붙일 방법이 재구독뿐이다.
+
+    그리고 재구독은 ``_start_notify_with_recovery`` 를 타는데, 그건
+    "already enabled" 를 보면 CCCD 를 내렸다 다시 올린다 — 성공한 핸드셰이크가
+    일부러 유지한 그 구독을, 첫 암호화 프레임 직전에.
+    """
+    driver = _driver_source()
+
+    # 프라임은 두 곳에 있다 — _token_unlock 과 unlock() 의 클래식 경로.
+    assert "lambda _h, _d: None" not in driver, "프라임이 아직 더미 람다다"
+    assert driver.count(
+        "self._config.rx_channel_uuids[0], self._rx_dispatch"
+    ) == 2, "두 프라임 지점 모두 디스패처를 써야 한다"
+    assert "def _rx_dispatch" in driver
+    assert "handler = self._rx_notify_handler" in driver
+
+
+def test_memory_session_swaps_the_handler_instead_of_resubscribing():
+    body = _method_body(_driver_source(), "_subscribe_notify_channels")
+
+    assert "self._rx_notify_handler = self._on_notify_channel_data" in body
+    guard = body.index("if uuid in self._primed_notify_uuids:")
+    assert guard < body.index("_start_notify_with_recovery(uuid)")
+    assert "continue" in body[guard : body.index("_start_notify_with_recovery(uuid)")]
+
+
+def test_dropping_the_rx_subscription_forgets_it():
+    """프라임 기록이 남으면 다음 세션이 없는 구독을 있다고 믿는다."""
+    driver = _driver_source()
+
+    assert driver.count("_primed_notify_uuids.discard(") == 2, (
+        "프라임을 되돌리는 두 곳 모두에서 기록을 지워야 한다"
+    )
+    assert "_primed_notify_uuids.clear()" in _method_body(
+        driver, "_unsubscribe_notify_channels"
+    )
+
+
+def test_rx_dispatcher_routes_only_when_a_handler_is_set():
+    """실제로 호출해 본다 — 소스 문자열만 보면 배선 실수를 놓친다."""
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    session = OmronDeviceSession(object(), _config())
+    seen: list[bytes] = []
+
+    session._rx_dispatch(None, bytearray(b"\x01\x02"))   # 핸들러 없음: 버린다
+    assert seen == []
+
+    session._rx_notify_handler = lambda _c, data: seen.append(bytes(data))
+    session._rx_dispatch(None, bytearray(b"\x03\x04"))
+    assert seen == [b"\x03\x04"]

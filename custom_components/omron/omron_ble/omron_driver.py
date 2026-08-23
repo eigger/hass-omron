@@ -634,6 +634,16 @@ class OmronDeviceSession:
         # same subscription — re-subscribing mid-flow either resets the device
         # session or trips the backend's "already enabled" guard.
         self._unlock_notify_handler: Any = None
+        # The RX channel gets the same treatment as the unlock characteristic:
+        # subscribed once through a fixed dispatcher, with the handler swapped
+        # underneath. The handshake primes it with no handler (data dropped),
+        # and the memory session points it at the reassembler. Without this the
+        # prime installs a throwaway lambda, and the only way to attach the
+        # real callback is to drop the CCCD and re-add it — undoing the
+        # subscription a successful handshake deliberately keeps, right before
+        # the first encrypted frame.
+        self._rx_notify_handler: Any = None
+        self._primed_notify_uuids: set[str] = set()
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -915,7 +925,20 @@ class OmronDeviceSession:
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
 
+        # A channel the handshake already holds is left alone: re-subscribing
+        # goes through _start_notify_with_recovery, which answers "already
+        # enabled" by dropping the CCCD and re-adding it. That is exactly the
+        # subscription a successful secure handshake keeps on purpose, and the
+        # capture shows the app never drops it.
+        self._rx_notify_handler = self._on_notify_channel_data
         for uuid in self._config.rx_channel_uuids:
+            if uuid in self._primed_notify_uuids:
+                _LOGGER.debug(
+                    "RX %s already subscribed by the handshake; swapping the "
+                    "handler instead of re-subscribing",
+                    uuid,
+                )
+                continue
             await self._start_notify_with_recovery(uuid)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         self._notify_subscribed = True
@@ -979,6 +1002,8 @@ class OmronDeviceSession:
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
+        self._rx_notify_handler = None
+        self._primed_notify_uuids.clear()
         self._debug_ble_link("after_rx_unsubscribe")
 
     async def reset_session_state(self) -> None:
@@ -997,6 +1022,12 @@ class OmronDeviceSession:
         self._expected_reply_packet_type = None
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
+
+    def _rx_dispatch(self, char: Any, rx_bytes: bytearray) -> None:
+        """Fixed RX callback; the real handler is swapped in behind it."""
+        handler = self._rx_notify_handler
+        if handler is not None:
+            handler(char, rx_bytes)
 
     def _on_notify_channel_data(self, char: Any, rx_bytes: bytearray) -> None:
         """Callback for received BLE notifications. Reassembles multi-channel packets."""
@@ -1487,8 +1518,9 @@ class OmronDeviceSession:
         # a security request trigger can establish encrypted notify reliably.
         try:
             await self._client.start_notify(
-                self._config.rx_channel_uuids[0], lambda _h, _d: None
+                self._config.rx_channel_uuids[0], self._rx_dispatch
             )
+            self._primed_notify_uuids.add(self._config.rx_channel_uuids[0])
             rx_notify_primed = True
             await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         except Exception as exc:
@@ -1592,8 +1624,9 @@ class OmronDeviceSession:
             nonlocal rx_notify_primed
             try:
                 await self._client.start_notify(
-                    self._config.rx_channel_uuids[0], lambda _h, _d: None
+                    self._config.rx_channel_uuids[0], self._rx_dispatch
                 )
+                self._primed_notify_uuids.add(self._config.rx_channel_uuids[0])
                 rx_notify_primed = True
                 await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
             except Exception as exc:
@@ -1667,6 +1700,7 @@ class OmronDeviceSession:
                         await self._client.stop_notify(self._config.rx_channel_uuids[0])
                     except Exception as exc:
                         _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
+                    self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
                 self._debug_ble_link("token_unlock_after_stop_notify")
 
     async def _secure_unlock(self) -> None:
@@ -1774,6 +1808,10 @@ class OmronDeviceSession:
             # Wait for Encryption Response
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
             enc_resp = response_holder[0]
+            # Timed from here, not from where the request is built: the gap
+            # that matters is the one the capture shows at 12 ms, between the
+            # device's 0xf0 85 landing and our 0x70 06 going out.
+            enc_resp_at = time.monotonic()
             _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
             if not enc_resp:
                 raise ConnectionError("Empty encryption response")
@@ -1797,20 +1835,39 @@ class OmronDeviceSession:
             # 0xf0 85 and 0x70 06 but 12 ms, and the same ATT opcode we use.
             # So log what the capture cannot supply — how long we took, and
             # whether the link was still up when we wrote.
-            enc_resp_at = time.monotonic()
             challenge_req = self._secure_session.build_challenge_req(enc_resp)
             _LOGGER.debug(
-                "Sending Challenge Request (len=%d, %.0f ms after the "
-                "encryption response, is_connected=%s, via %s): %s",
+                "Sending Challenge Request (len=%d, is_connected=%s, via %s): %s",
                 len(challenge_req),
-                (time.monotonic() - enc_resp_at) * 1000,
                 getattr(self._client, "is_connected", "?"),
                 _connected_path(self._client, self._ble_device),
                 challenge_req.hex(),
             )
             unlock_event.clear()
             response_holder[0] = None
-            await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
+            try:
+                await self._client.write_gatt_char(
+                    self._config.unlock_uuid, challenge_req, response=True
+                )
+            except Exception as exc:
+                # The span the reference capture puts at 12 ms, measured to
+                # the point the write actually failed — plus the link state
+                # then, since a GATT 133 here reads the same whether the cuff
+                # hung up on our ciphertext or the transport dropped out.
+                _LOGGER.warning(
+                    "Challenge Request write failed %.0f ms after the "
+                    "encryption response (capture does this in ~12 ms); "
+                    "is_connected=%s via %s: %s",
+                    (time.monotonic() - enc_resp_at) * 1000,
+                    getattr(self._client, "is_connected", "?"),
+                    _connected_path(self._client, self._ble_device),
+                    exc,
+                )
+                raise
+            _LOGGER.debug(
+                "Challenge Request written %.0f ms after the encryption response",
+                (time.monotonic() - enc_resp_at) * 1000,
+            )
 
             # Wait for Challenge Response
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
@@ -1884,6 +1941,7 @@ class OmronDeviceSession:
                     await self._client.stop_notify(self._config.rx_channel_uuids[0])
                 except Exception as exc:
                     _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
+                self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
 
     def _secure_frames_active(self) -> bool:
         """Whether this session's frames are encrypted right now."""
