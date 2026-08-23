@@ -423,9 +423,12 @@ def test_successful_handshake_keeps_its_subscriptions():
     tail = body[finally_at:]
     assert "if self._unlocked:" in tail, "성공/실패를 갈라야 한다"
     success, failure = tail.split("else:", 1)
-    # 실제 호출만 센다 — 로그 문자열에도 이름이 들어 있다.
-    assert "await self._client.stop_notify(" not in success
-    assert failure.count("await self._client.stop_notify(") == 2
+    # 성공 경로는 아무것도 내리지 않는다.
+    assert "stop_notify" not in success
+    assert "_release_primed_rx" not in success
+    # 실패 경로는 언락과 RX 를 모두 내린다 — RX 는 기록까지 지우는 헬퍼로.
+    assert "await self._client.stop_notify(self._config.unlock_uuid)" in failure
+    assert "_release_primed_rx(" in failure
 
 
 def test_challenge_request_logs_what_the_capture_cannot():
@@ -505,13 +508,47 @@ def test_memory_session_swaps_the_handler_instead_of_resubscribing():
     assert "continue" in body[guard : body.index("_start_notify_with_recovery(uuid)")]
 
 
-def test_dropping_the_rx_subscription_forgets_it():
-    """프라임 기록이 남으면 다음 세션이 없는 구독을 있다고 믿는다."""
-    driver = _driver_source()
+def test_every_method_that_primes_rx_also_releases_it():
+    """기록과 CCCD 가 따로 놀면 그 채널은 조용히 죽는다.
 
-    assert driver.count("_primed_notify_uuids.discard(") == 2, (
-        "프라임을 되돌리는 두 곳 모두에서 기록을 지워야 한다"
+    ``_subscribe_notify_channels`` 는 기록을 믿고 ``start_notify`` 를 건너뛴다.
+    그러니 CCCD 를 내린 곳이 기록을 안 지우면, 메모리 세션은 아무도 켜지 않은
+    디스크립터를 듣는다 — 클래식 언락 경로가 정확히 그랬고, 그 경로를 타는
+    프로필이 카탈로그의 대부분이다.
+
+    개수로 세지 않는다. 앞선 버전은 ``count(...) == 2`` 였고, 그래서 세 번째를
+    더하는 **수정 자체를 실패시켰다**.
+    """
+    import re
+
+    driver = _driver_source()
+    lines = driver.splitlines()
+
+    def method_of(idx):
+        for j in range(idx, -1, -1):
+            m = re.match(r"    (?:async )?def (\w+)\(", lines[j])
+            if m:
+                return m.group(1)
+        return "?"
+
+    primes = {
+        method_of(i) for i, l in enumerate(lines) if "_primed_notify_uuids.add(" in l
+    }
+    releases = {
+        method_of(i)
+        for i, l in enumerate(lines)
+        if "_release_primed_rx(" in l and "def _release_primed_rx" not in l
+    }
+    assert primes, "프라임하는 곳이 있어야 한다"
+    assert primes <= releases, (
+        f"프라임만 하고 해제하지 않는 메서드: {sorted(primes - releases)}"
     )
+
+    # 해제 헬퍼는 stop 과 discard 를 같이 한다 — 둘이 갈라질 수 없게.
+    helper = _method_body(driver, "_release_primed_rx")
+    assert "stop_notify(uuid)" in helper
+    assert "_primed_notify_uuids.discard(uuid)" in helper
+
     assert "_primed_notify_uuids.clear()" in _method_body(
         driver, "_unsubscribe_notify_channels"
     )

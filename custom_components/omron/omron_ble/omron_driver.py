@@ -1023,6 +1023,23 @@ class OmronDeviceSession:
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
 
+    async def _release_primed_rx(self, context: str) -> None:
+        """Drop the primed RX subscription and forget it, together.
+
+        The record and the CCCD have to move as one. If the set still claims a
+        channel is subscribed after the CCCD went down,
+        ``_subscribe_notify_channels`` skips ``start_notify`` for it and the
+        memory session listens on a descriptor nobody enabled — which is what
+        every CLASSIC_KEY profile got when only two of the three release paths
+        remembered to discard.
+        """
+        uuid = self._config.rx_channel_uuids[0]
+        try:
+            await self._client.stop_notify(uuid)
+        except Exception as exc:
+            _LOGGER.debug("%s RX pre-notify stop skipped: %s", context, exc)
+        self._primed_notify_uuids.discard(uuid)
+
     def _rx_dispatch(self, char: Any, rx_bytes: bytearray) -> None:
         """Fixed RX callback; the real handler is swapped in behind it."""
         handler = self._rx_notify_handler
@@ -1556,10 +1573,7 @@ class OmronDeviceSession:
         finally:
             await self._client.stop_notify(self._config.unlock_uuid)
             if rx_notify_primed:
-                try:
-                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
-                except Exception as exc:
-                    _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
+                await self._release_primed_rx("unlock")
             self._debug_ble_link("unlock_after_stop_notify")
 
     async def _token_unlock(self, *, keep_notify: bool = False) -> None:
@@ -1696,11 +1710,7 @@ class OmronDeviceSession:
                 except Exception as exc:
                     _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
                 if rx_notify_primed:
-                    try:
-                        await self._client.stop_notify(self._config.rx_channel_uuids[0])
-                    except Exception as exc:
-                        _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
-                    self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
+                    await self._release_primed_rx("token unlock")
                 self._debug_ble_link("token_unlock_after_stop_notify")
 
     async def _secure_unlock(self) -> None:
@@ -1937,11 +1947,7 @@ class OmronDeviceSession:
                 # _token_unlock(keep_notify=True) left the RX-channel CCCD
                 # enabled for us; release it here so it doesn't outlive a
                 # handshake that failed.
-                try:
-                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
-                except Exception as exc:
-                    _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
-                self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
+                await self._release_primed_rx("secure unlock")
 
     def _secure_frames_active(self) -> bool:
         """Whether this session's frames are encrypted right now."""
@@ -2150,6 +2156,7 @@ class OmronDeviceSession:
             await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
         if not entered_programming:
+            self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
             try:
                 await self._client.stop_notify(self._config.unlock_uuid)
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
@@ -2187,6 +2194,7 @@ class OmronDeviceSession:
             pass
 
         resp = response_holder[0]
+        self._primed_notify_uuids.discard(self._config.rx_channel_uuids[0])
         try:
             await self._client.stop_notify(self._config.unlock_uuid)
             await self._client.stop_notify(self._config.rx_channel_uuids[0])
