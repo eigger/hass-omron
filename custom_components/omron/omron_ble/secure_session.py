@@ -106,6 +106,16 @@ class SecureSession:
         c.update(message)
         return c.finalize()
 
+    @property
+    def is_encrypting(self) -> bool:
+        """Whether frames should go through this session.
+
+        Presence is not the same as readiness: a handshake that got partway
+        and failed leaves an object behind that raises on encrypt. Callers
+        should ask this, not ``is not None``.
+        """
+        return self.state == self.STATE_PAIRED
+
     # -- Stage 1: Pairing Request (cmd 0x01) --
     def build_pair_req(self) -> bytes:
         """Build a 89-byte Pairing Request.

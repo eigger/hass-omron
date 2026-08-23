@@ -1040,7 +1040,7 @@ class OmronDeviceSession:
             self._channel_fragments = [None] * 4
 
         # Decrypt if secure-session encryption is active
-        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
+        if self._secure_frames_active():
             try:
                 frame_bytes = bytearray(self._secure_session.decrypt(bytes(frame_bytes)))
             except Exception as exc:
@@ -1119,7 +1119,7 @@ class OmronDeviceSession:
         else:
             self._expected_reply_packet_type = None
 
-        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
+        if self._secure_frames_active():
             try:
                 command = bytearray(self._secure_session.encrypt(bytes(command)))
             except Exception as exc:
@@ -1434,6 +1434,12 @@ class OmronDeviceSession:
                     exc,
                 )
                 self._unlocked = False
+                # Drop the half-built session before falling back. Leaving it
+                # in place made every frame try to encrypt through a handshake
+                # that never reached PAIRED, which raises and takes the whole
+                # session down — a crash instead of the plaintext read the
+                # fallback exists to preserve.
+                self._secure_session = None
                 await self._token_unlock()
                 return
 
@@ -1815,6 +1821,13 @@ class OmronDeviceSession:
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception as exc:
                 _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
+
+    def _secure_frames_active(self) -> bool:
+        """Whether this session's frames are encrypted right now."""
+        if self._config.unlock_mode != UnlockMode.SECURE_SESSION:
+            return False
+        session = self._secure_session
+        return session is not None and session.is_encrypting
 
     async def _discard_secure_bond(self, reason: str) -> None:
         """Forget a stored key the cuff would not accept.

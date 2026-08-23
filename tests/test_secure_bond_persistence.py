@@ -344,3 +344,42 @@ def test_secure_family_subscribes_the_unlock_cccd_first():
     assert secure.index("_subscribe_unlock()") < secure.index("_prime_rx()")
     # 나머지: RX 먼저 (7155T-ESLI/7142T2 캡처 그대로)
     assert other.index("_prime_rx()") < other.index("_subscribe_unlock()")
+
+
+# ── 폴백이 세션을 무너뜨리면 안 된다 ───────────────────────────────────────
+
+def test_a_half_built_session_does_not_encrypt():
+    """실패한 핸드셰이크가 남긴 객체로 암호화하면 예외가 난다.
+
+    실기기 로그(이슈 #92, 2.8.0-beta.1): secure 가 거부돼 평문으로 폴백하고
+    토큰 언락까지 성공했는데, 그 다음 명령이 남아 있던 세션으로 암호화를
+    시도해 ``encrypt is only valid in PAIRED state`` 로 세션 전체가 죽었다.
+    폴백이 지키려던 그 읽기가 크래시로 바뀐 것이다.
+    """
+    pytest.importorskip("cryptography")
+    session = SecureSession()
+
+    assert session.is_encrypting is False       # IDLE
+    session.build_pair_req()
+    assert session.is_encrypting is False       # PAIR_REQ_SENT — 아직 아니다
+
+
+def test_driver_asks_the_state_not_the_object():
+    """``is not None`` 은 준비됐다는 뜻이 아니다."""
+    source = _driver_source()
+
+    assert source.count("if self._secure_frames_active():") == 2, (
+        "암복호화 두 곳 모두 상태를 물어야 한다"
+    )
+    assert "session is not None and session.is_encrypting" in source
+    assert "self._secure_session is not None:" not in source
+
+
+def test_fallback_drops_the_failed_session():
+    """폴백 전에 세션을 버려야 프레임이 평문으로 나간다."""
+    source = _driver_source()
+    body = source[source.index("async def unlock(self, key") :]
+    body = body[: body.index("\n    async def ")]
+
+    drop = body.index("self._secure_session = None")
+    assert drop < body.index("await self._token_unlock()")
