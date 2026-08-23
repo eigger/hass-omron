@@ -579,3 +579,65 @@ def test_rx_dispatcher_routes_only_when_a_handler_is_set():
     session._rx_notify_handler = lambda _c, data: seen.append(bytes(data))
     session._rx_dispatch(None, bytearray(b"\x03\x04"))
     assert seen == [b"\x03\x04"]
+
+
+# ── 실기기 프레임 리플레이 ─────────────────────────────────────────────────
+#
+# #92 btsnoop 세션1 에서 실제 HEM-7188T1-LEO 가 보낸 응답들. 하드웨어 없이
+# 핸드셰이크 전체를 돌려볼 수 있는 유일한 방법이고, 지금까지 실기기에서
+# 0x70 01 너머로 가 본 적이 없는 코드 경로다.
+DEVICE_F081 = bytes.fromhex(
+    "f08160db277084c587e475a1980e50905a90cecec57d7ad65b0f36f3d20cda2c"
+    "13648febf4dd21ca6009ec10096ce9df055774efb44643aba442c849c0607ab5"
+    "039330894760c12afa68f838182197f3dca2a0e7a099752628"
+)
+DEVICE_F085 = bytes.fromhex(
+    "f085beb82b482e9c9415e1f92029f8d045df72ab444be20fba013e3f71fac144"
+    "0a27696600000000000000000000"
+)
+DEVICE_F086 = bytes.fromhex(
+    "f086b78e89826c9d63c9c8a9ae390e3405d2fe3180c0f1982bb8f3d855258007"
+    "cacf512c7a9b7e2dbc7c6aa8aba7"
+)
+
+
+def test_handshake_replays_against_real_device_frames():
+    """실기기가 보낸 응답을 그대로 먹여 핸드셰이크를 끝까지 돌린다.
+
+    폰의 개인키가 없으니 마지막 인증은 통과할 수 없다. 확인하는 것은 그게
+    아니라, 우리 구현이 **실제 기기 프레임을 파싱하고 올바른 모양의 요청을
+    만들어내는가** 다. 특히 4단계 — 현장에서 GATT 133 이 나는 그 0x70 06 —
+    까지 도달하는지.
+    """
+    pytest.importorskip("cryptography")
+    session = SecureSession()
+
+    req = session.build_pair_req()
+    assert (req[:2], len(req)) == (b"\x70\x01", 89)
+
+    # 기기의 공개키·챌린지·솔트를 실제 바이트로 처리한다.
+    session.process_pair_resp(DEVICE_F081)
+    assert session.ltk is not None and len(session.ltk) == 16
+
+    enc = session.build_start_enc_req()
+    assert (enc[:2], len(enc)) == (b"\x70\x05", 46)
+
+    # 기기의 0xf0 85 에서 챌린지와 nonce 를 뽑아 CCM 으로 감싼다.
+    challenge = session.build_challenge_req(DEVICE_F085)
+    assert (challenge[:2], len(challenge)) == (b"\x70\x06", 46)
+
+
+def test_replay_rejects_the_peer_response_it_cannot_authenticate():
+    """키가 다르면 조용히 넘어가지 말고 태그 불일치로 막아야 한다.
+
+    여기서 통과한다면 상호 인증이 실제로는 검증을 안 하고 있다는 뜻이다.
+    """
+    pytest.importorskip("cryptography")
+    session = SecureSession()
+    session.build_pair_req()
+    session.process_pair_resp(DEVICE_F081)
+    session.build_start_enc_req()
+    session.build_challenge_req(DEVICE_F085)
+
+    with pytest.raises(ValueError, match="tag mismatch"):
+        session.process_challenge_resp(DEVICE_F086)
