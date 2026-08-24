@@ -23,6 +23,33 @@ from .devices import (
 # is the only change needed, every dependent behaviour is derived from it.
 _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 
+# Bond strategy for HEM-7386T1 alone, split out of _WLD3_BOND_POLICY to test
+# one device without moving the rest of the WLD3.0 family.
+#
+# A phone HCI capture of BP5465 (HEM-7382T1-AZAZ, under this profile) reported
+# in issue #91 shows the official app doing no pairing at all on a normal sync:
+# the cuff raises an SMP Security Request ~53 ms after connect, the phone
+# answers with LE Start Encryption from the bond it already holds, and the data
+# then flows over the same vendor path this integration uses — writes on GATT
+# handle 0x001E (db5b55e0) with notifications on 0x0020 (49123040). No pairing
+# request, no key distribution.
+#
+# PER_SESSION removes exactly that credential after every session, which would
+# leave the next normal-mode connection with nothing to resume encryption from.
+#
+# Not a re-run of the WLD4.0 experiment: that one moved HEM-7188T1 and came
+# back negative, but 7188T1 speaks the application-layer secure session and
+# this profile does not. And this profile has never been tried on REUSE *with*
+# pair_on_connect — it kept its bond via os_bond_once until 2.6.0, in builds
+# where pair_on_connect did not exist yet.
+#
+# On a proxy, pair_on_connect stays true and is what should resume encryption:
+# ESPHome's pair request on an already-bonded peer starts encryption from the
+# stored key rather than re-pairing, which is the phone's behaviour above. The
+# open risk is multi-proxy setups, where the reconnect has to reach the proxy
+# that owns the bond — hence the connect-path logging that ships with this.
+_HEM_7386T1_BOND_POLICY = BondPolicy.REUSE
+
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
     "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
@@ -1182,7 +1209,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        bond_policy=_HEM_7386T1_BOND_POLICY,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],

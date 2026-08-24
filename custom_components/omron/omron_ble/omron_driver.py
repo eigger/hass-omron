@@ -98,6 +98,30 @@ def _connection_source(ble_device: BLEDevice) -> str:
     return "unknown"
 
 
+def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
+    """Best-effort identity of the link a connection actually went over.
+
+    ``_connection_source`` reads the BLEDevice, which names the scanner that
+    saw the *advertisement* — not the path the connection took. habluetooth
+    picks that at connect time from whichever proxy scores best, so on a
+    multi-proxy setup the session that bonds and the session that reconnects
+    can land on different radios, and only one of them holds the bond. Issue
+    #91 flags exactly that as the risk in keeping the bond at all.
+
+    Probes the backend because that is the only place the answer exists, and
+    falls back to the advertised source when it does not — the shapes here are
+    private to bleak and bleak-esphome and may change.
+    """
+    backend = getattr(client, "_backend", None)
+    if backend is not None:
+        for attr in ("_source", "source"):
+            if value := getattr(backend, attr, None):
+                return str(value)
+        if path := getattr(backend, "_device_path", None):
+            return str(path)
+    return _connection_source(ble_device)
+
+
 async def _connect_once(
     ble_device: BLEDevice, name: str, *, pair: bool
 ) -> BleakClient:
@@ -186,11 +210,19 @@ async def establish_connection_with_bond_settle(
             _LOGGER.debug(
                 "Bonded %s via source=%s before service discovery", name, source
             )
+        # The advertised source and the path the connection took are not the
+        # same thing, and for a profile that keeps its bond the difference
+        # decides whether there is a bond to resume: only the radio that
+        # paired holds one. Report both.
+        connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
-            "BLE link established to %s via source=%s (is_connected=%s); settling "
-            "up to %.1fs for bonding/encryption before first GATT op",
+            "BLE link established to %s (advertised by source=%s, connected via "
+            "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
+            "for bonding/encryption before first GATT op",
             name,
             source,
+            connected_via,
+            pair_this_attempt,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
