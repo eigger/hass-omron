@@ -645,7 +645,11 @@ class OmronDeviceSession:
 
     @classmethod
     def adopt(
-        cls, client: BleakClient, device_config: DeviceConfig
+        cls,
+        client: BleakClient,
+        device_config: DeviceConfig,
+        *,
+        pairing_session: bool = False,
     ) -> "OmronDeviceSession":
         """Wrap an already-open client to run ops over a connection owned elsewhere.
 
@@ -654,8 +658,8 @@ class OmronDeviceSession:
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
         session._config = device_config
-        # __init__ is bypassed; an adopted link is never the one that bonds.
-        session._pairing_session = False
+        # __init__ is bypassed, so this has to be set by hand.
+        session._pairing_session = pairing_session
         session._init_session_state(client=client, owns_connection=False)
         return session
 

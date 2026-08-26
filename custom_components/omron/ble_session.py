@@ -19,6 +19,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Where the model-number probe parks its link for the pairing step that
+# follows. Separate from the pairing bucket so a poll can never adopt a
+# session opened under the placeholder profile.
+_PROBE_BUCKET = "_probe_sessions"
+
 
 async def stash_handoff_session(
     hass: HomeAssistant, address: str, session: OmronDeviceSession
@@ -42,6 +47,60 @@ async def stash_handoff_session(
         )
         await discard_handoff_session(hass, address)
     handoff[address] = session.release_for_handoff()
+
+
+def stash_probe_session(
+    hass: HomeAssistant, address: str, session: OmronDeviceSession
+) -> None:
+    """Park the model-number probe's link for the pairing step to continue on.
+
+    The probe is where a WLD3.0 cuff raises its Security Request, so it is the
+    connection that bonds — and closing it there cuts key distribution short
+    (see ``async_fetch_device_model_number``). Parking it lets pairing carry on
+    over the same link instead of tearing it down and reconnecting.
+    """
+    bucket = hass.data.setdefault(DOMAIN, {}).setdefault(_PROBE_BUCKET, {})
+    previous = bucket.get(address)
+    if previous is not None and previous is not session:
+        hass.async_create_task(_close_session(previous, address))
+    bucket[address] = session
+
+
+def take_probe_session(
+    hass: HomeAssistant, address: str
+) -> OmronDeviceSession | None:
+    """Take the parked probe link, if one is still open.
+
+    A link that dropped while the user was choosing a model is closed and None
+    returned, so the caller connects again rather than pairing over a corpse.
+    """
+    session = hass.data.get(DOMAIN, {}).get(_PROBE_BUCKET, {}).pop(address, None)
+    if session is None:
+        return None
+    if not session.is_connected:
+        _LOGGER.debug(
+            "The model-probe link parked for %s dropped before pairing; "
+            "connecting again",
+            address,
+        )
+        hass.async_create_task(_close_session(session, address))
+        return None
+    return session
+
+
+async def discard_probe_session(hass: HomeAssistant, address: str) -> None:
+    """Close a parked probe link that pairing never claimed."""
+    session = hass.data.get(DOMAIN, {}).get(_PROBE_BUCKET, {}).pop(address, None)
+    if session is not None:
+        await _close_session(session, address)
+
+
+async def _close_session(session: OmronDeviceSession, address: str) -> None:
+    """Close a session that no caller adopted, never raising into the flow."""
+    try:
+        await session.aclose()
+    except Exception as exc:
+        _LOGGER.debug("Closing the unused link for %s failed: %s", address, exc)
 
 
 async def poll_parked_session(

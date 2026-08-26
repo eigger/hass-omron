@@ -36,7 +36,11 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 
-from .ble_session import stash_handoff_session
+from .ble_session import (
+    stash_handoff_session,
+    stash_probe_session,
+    take_probe_session,
+)
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
@@ -251,7 +255,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
                 ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
                 if ble_device:
-                    model_num = await async_fetch_device_model_number(ble_device)
+                    # Keep the link: on WLD3.0 cuffs this read is where the
+                    # bond is made, and closing it here cuts SMP off before
+                    # EDIV/Rand arrive (see async_fetch_device_model_number).
+                    model_num, probe_session = await async_fetch_device_model_number(
+                        ble_device, keep_session_open=True
+                    )
+                    if probe_session is not None:
+                        stash_probe_session(
+                            self.hass, self._discovery_info.address, probe_session
+                        )
                     if model_num:
                         inferred = infer_model_id_from_local_name(model_num)
                         if inferred:
@@ -409,7 +422,20 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        session = OmronDeviceSession(ble_device, config, pairing_session=True)
+        # Continue on the probe's link when it is still up: it is the one the
+        # cuff bonded over, and reconnecting is what leaves the bond half made.
+        session = take_probe_session(self.hass, address)
+        if session is not None:
+            session = OmronDeviceSession.adopt(
+                session.release_client(), config, pairing_session=True
+            )
+            session.reclaim_ownership()
+            _LOGGER.debug(
+                "Pairing over the link opened to read the model number for %s",
+                address,
+            )
+        else:
+            session = OmronDeviceSession(ble_device, config, pairing_session=True)
         try:
             await session.connect()
             await async_pair_and_sync_device(

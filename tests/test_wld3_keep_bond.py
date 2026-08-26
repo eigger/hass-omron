@@ -154,3 +154,52 @@ def test_pairing_flows_are_the_ones_marked_as_pairing_sessions():
     assert "OmronDeviceSession(ble_device, config, pairing_session=True)" in flow
     # async_retry_pairing 도 본드를 만드는 자리다.
     assert "pairing_session=True" in parser
+
+
+def test_the_model_probe_can_hand_its_link_to_pairing():
+    """모델 조회 연결이 본드를 맺는 자리다 — 거기서 끊으면 키 배포가 잘린다.
+
+    이슈 #91 의 프록시 트레이스: 커프의 Encryption Information(LTK) 은 도착했고
+    EDIV/Rand 를 담은 Master Identification 은 오지 않은 채, SMP 가
+    ``BOND_PENDING`` 인 상태에서 우리가 링크를 끊었다. LE legacy 는 나중에
+    암호화를 재개하려면 셋이 다 필요하므로, 저장된 본드는 못 쓰는 물건이 되고
+    첫 폴이 ``SMP_ENC_FAIL``(97) 로 떨어진다.
+    """
+    import inspect
+    import pathlib
+
+    from custom_components.omron.omron_ble.setup import (
+        async_fetch_device_model_number,
+    )
+
+    sig = inspect.signature(async_fetch_device_model_number)
+    assert "keep_session_open" in sig.parameters
+
+    flow = pathlib.Path("custom_components/omron/config_flow.py").read_text(
+        encoding="utf-8"
+    )
+    # 조회 단계는 링크를 세워두고,
+    assert "keep_session_open=True" in flow
+    assert "stash_probe_session(" in flow
+    # 페어링 단계는 그 링크를 이어받는다.
+    assert "take_probe_session(" in flow
+
+
+def test_an_adopted_link_can_be_marked_as_the_pairing_session():
+    """adopt() 는 __init__ 을 우회한다 — 플래그를 손으로 안 넣으면 폴처럼 붙는다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    sig = inspect.signature(OmronDeviceSession.adopt)
+    assert sig.parameters["pairing_session"].default is False
+
+
+def test_a_parked_probe_link_is_closed_when_the_entry_unloads():
+    """아무도 이어받지 않은 링크가 언로드 뒤까지 살아 있으면 슬롯을 잡아먹는다."""
+    import pathlib
+
+    init = pathlib.Path("custom_components/omron/__init__.py").read_text(
+        encoding="utf-8"
+    )
+    assert "discard_probe_session(hass, address)" in init
