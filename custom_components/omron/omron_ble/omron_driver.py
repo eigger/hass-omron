@@ -153,6 +153,7 @@ async def establish_connection_with_bond_settle(
     *,
     pair_on_connect: bool = False,
     model: str = "",
+    max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
@@ -163,13 +164,13 @@ async def establish_connection_with_bond_settle(
     # Cleared if the backend reports it cannot pair at connect time, so the
     # remaining attempts fall back instead of failing repeatedly.
     pair_this_attempt = pair_on_connect
-    for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
+    for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d, "
             "pair_on_connect=%s)",
-            name, model or "?", source, attempt, _CONNECT_SETTLE_ATTEMPTS,
+            name, model or "?", source, attempt, max_attempts,
             pair_this_attempt,
         )
         try:
@@ -196,7 +197,7 @@ async def establish_connection_with_bond_settle(
                     model or "?",
                     source,
                     attempt,
-                    _CONNECT_SETTLE_ATTEMPTS,
+                    max_attempts,
                     exc,
                 )
                 pair_this_attempt = False
@@ -247,7 +248,7 @@ async def establish_connection_with_bond_settle(
             "%s dropped ~%.2fs into the post-connect settle via source=%s "
             "(attempt %d/%d) — retrying",
             name, waited, source,
-            attempt, _CONNECT_SETTLE_ATTEMPTS,
+            attempt, max_attempts,
         )
         try:
             await client.disconnect()
@@ -256,7 +257,7 @@ async def establish_connection_with_bond_settle(
 
     raise BleakError(
         f"{name} dropped during the post-connect settle on all "
-        f"{_CONNECT_SETTLE_ATTEMPTS} attempt(s) (last source={last_source})"
+        f"{max_attempts} attempt(s) (last source={last_source})"
     )
 
 
@@ -603,9 +604,18 @@ class OmronDeviceSession:
     (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
-    def __init__(self, ble_device: BLEDevice, device_config: DeviceConfig) -> None:
+    def __init__(
+        self,
+        ble_device: BLEDevice,
+        device_config: DeviceConfig,
+        *,
+        pairing_session: bool = False,
+    ) -> None:
         self._ble_device = ble_device
         self._config = device_config
+        # Only a session that exists to create a bond sends the connect-time
+        # pair request on profiles that opt out of it for polls.
+        self._pairing_session = pairing_session
         self._init_session_state(client=None, owns_connection=True)
 
     def _init_session_state(
@@ -644,6 +654,8 @@ class OmronDeviceSession:
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
         session._config = device_config
+        # __init__ is bypassed; an adopted link is never the one that bonds.
+        session._pairing_session = False
         session._init_session_state(client=client, owns_connection=False)
         return session
 
@@ -686,8 +698,11 @@ class OmronDeviceSession:
             self._client = await establish_connection_with_bond_settle(
                 self._ble_device,
                 self.address,
-                pair_on_connect=self._config.pair_on_connect,
+                pair_on_connect=self._config.pair_on_connect_for(
+                    pairing_session=self._pairing_session
+                ),
                 model=self._config.model,
+                max_attempts=self._config.connect_settle_attempts,
             )
         except BaseException:
             # A half-established bond is worse than none for PER_SESSION

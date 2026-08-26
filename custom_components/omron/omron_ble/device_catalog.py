@@ -50,6 +50,25 @@ _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 # that owns the bond — hence the connect-path logging that ships with this.
 _HEM_7386T1_BOND_POLICY = BondPolicy.REUSE
 
+# Send the connect-time pair request only when a bond has to be created.
+#
+# On an ESP32 proxy a pair request that does not complete is not free: ESP-IDF
+# routes SMP_CONN_TOUT (102) through the default branch of
+# ``btc_dm_ble_auth_cmpl_evt`` and deletes the stored bond from flash. Proxy
+# logs from issue #91 show a bond present right after pairing
+# ("bonded=YES (1 bond(s) stored)") and gone minutes later, after which every
+# connection re-pairs from scratch and the cuff — no longer in pairing mode —
+# drops the link.
+#
+# So one failed request costs the credential permanently. Polls now connect
+# plain and let the cuff raise its own Security Request, which is what the
+# phone capture shows the official app doing: Security Request 16-36 ms after
+# connect, then encryption resumed from the retained bond, no pairing.
+#
+# The attempt count comes down with it: with the bond at stake, one poll
+# should be one observation rather than three chances to lose it.
+_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING = True
+
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
     "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
@@ -1210,6 +1229,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_HEM_7386T1_BOND_POLICY,
+        pair_only_when_pairing=_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING,
+        connect_settle_attempts=1,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],

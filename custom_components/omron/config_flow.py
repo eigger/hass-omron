@@ -409,7 +409,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not ble_device:
             raise ConnectionError(f"BLE device {address} not available")
 
-        session = OmronDeviceSession(ble_device, config)
+        session = OmronDeviceSession(ble_device, config, pairing_session=True)
         try:
             await session.connect()
             await async_pair_and_sync_device(

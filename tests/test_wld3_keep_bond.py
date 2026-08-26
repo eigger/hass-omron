@@ -84,7 +84,7 @@ def test_connect_logs_the_path_that_owns_the_bond():
 
     source = pathlib.Path(
         "custom_components/omron/omron_ble/omron_driver.py"
-    ).read_text()
+    ).read_text(encoding="utf-8")
 
     assert "def _connected_path" in source
     assert "advertised by source=%s, connected via " in source
@@ -104,3 +104,53 @@ def test_driver_module_has_no_undefined_names():
     if "No module named" in result.stderr:
         pytest.skip("ruff not installed")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_polls_skip_the_pair_request_but_pairing_sessions_keep_it():
+    """실패한 pair 요청 한 번이 flash 의 본드를 지운다 — 그래서 폴에선 안 보낸다.
+
+    ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt`` 는 SMP_CONN_TOUT(102) 을 default
+    분기로 흘려서 ``btc_dm_remove_ble_bonding_keys()`` 를 부른다. 이슈 #91 의
+    프록시 로그에서 페어링 직후 ``bonded=YES (1 bond(s) stored)`` 였던 본드가
+    몇 분 뒤 사라진 게 그것이다. 커프는 -P- 밖에서 재페어링을 거부하므로,
+    한 번 잃으면 사용자가 손으로 다시 페어링해야 한다.
+    """
+    config = get_device_config("HEM-7386T1")
+
+    assert config.pair_on_connect_for(pairing_session=True) is True
+    assert config.pair_on_connect_for(pairing_session=False) is False
+
+
+def test_per_session_profiles_cannot_opt_out_of_the_pair_request():
+    """본드를 지우면서 다시 안 만드는 조합은 설정 가능하면 안 된다.
+
+    2.6.0 이전에 그 회귀가 실제로 있었다: 세션이 끝나며 본드를 지우고, 다음
+    연결은 재연결할 게 없어서 매번 settle 에서 떨어졌다.
+    """
+    for model in ("HEM-7380T1", "HEM-7155T-MW3", "HEM-7188T1"):
+        config = get_device_config(model)
+        assert config.bond_policy is BondPolicy.PER_SESSION, model
+        assert config.pair_on_connect_for(pairing_session=False) is True, model
+
+
+def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
+    """본드가 걸려 있으면 재시도는 방어가 아니라 추가 위험이다."""
+    assert get_device_config("HEM-7386T1").connect_settle_attempts == 1
+    # 다른 프로필의 기존 동작은 그대로.
+    assert get_device_config("HEM-7380T1").connect_settle_attempts == 3
+
+
+def test_pairing_flows_are_the_ones_marked_as_pairing_sessions():
+    """플래그를 안 넘기면 config flow 도 조용히 폴처럼 붙는다."""
+    import pathlib
+
+    flow = pathlib.Path("custom_components/omron/config_flow.py").read_text(
+        encoding="utf-8"
+    )
+    parser = pathlib.Path(
+        "custom_components/omron/omron_ble/parser.py"
+    ).read_text(encoding="utf-8")
+
+    assert "OmronDeviceSession(ble_device, config, pairing_session=True)" in flow
+    # async_retry_pairing 도 본드를 만드는 자리다.
+    assert "pairing_session=True" in parser
