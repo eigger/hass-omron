@@ -69,6 +69,21 @@ _HEM_7386T1_BOND_POLICY = BondPolicy.REUSE
 # should be one observation rather than three chances to lose it.
 _HEM_7386T1_PAIR_ONLY_WHEN_PAIRING = True
 
+# Let the cuff end its own session instead of hanging up on it.
+#
+# A phone HCI capture of BP5465 in issue #91 shows the official app going
+# quiet after its last read and the cuff dropping the link about three
+# seconds later (HCI 0x13, remote user terminated). This integration
+# disconnected in the same millisecond as the final notification, so every
+# session ended 0x16 - closed by us.
+#
+# Two symptoms fit a cuff that finalises a transfer at its own session end:
+# the unread-records counter that only grows across sessions whose data was
+# read fine (1 -> 4 over the 24 August captures), and the bond it does not
+# honour on the next connection even though both sides now complete key
+# distribution. Five seconds covers the phone's three with margin.
+_HEM_7386T1_PEER_CLOSES_SESSION_SEC = 5.0
+
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
     "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
@@ -1231,6 +1246,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         bond_policy=_HEM_7386T1_BOND_POLICY,
         pair_only_when_pairing=_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING,
         connect_settle_attempts=1,
+        peer_closes_session_sec=_HEM_7386T1_PEER_CLOSES_SESSION_SEC,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],

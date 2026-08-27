@@ -52,6 +52,8 @@ _PAIRING_SETTLE_DEFAULT_SEC: float = 1.0
 _PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
 _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
 _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
+# Polling step while waiting for the device to end a session itself.
+_PEER_CLOSE_POLL_STEP_SEC: float = 0.25
 _OS_BOND_REFRESH_DELAY_SEC: float = 0.3
 _OS_BOND_RETRY_DELAY_SEC: float = 0.5
 _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
@@ -856,14 +858,51 @@ class OmronDeviceSession:
                             addr,
                         )
             if self._owns_connection and client.is_connected:
-                await client.disconnect()
-                disconnected = True
+                await self._await_peer_close(client, addr)
+                if client.is_connected:
+                    await client.disconnect()
+                    disconnected = True
         except Exception:
             pass
         finally:
             self._client = None
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
+
+    async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
+        """Stay idle at the end of a session so the device can end it itself.
+
+        A phone HCI capture of a BP5465 (issue #91) shows the official app
+        going quiet after its last read and the cuff dropping the link about
+        three seconds later — HCI 0x13, remote user terminated. This
+        integration instead disconnects in the same millisecond as the final
+        notification, so every session ends 0x16, closed by us.
+
+        On a cuff that finalises a transfer at its own session end, that
+        difference costs whatever the session was meant to commit. Two
+        symptoms fit: the unread-records counter that only ever grows across
+        sessions whose data was read successfully, and the bond the cuff does
+        not honour on the next connection even though both sides completed
+        key distribution.
+
+        No-op unless the profile asks for it.
+        """
+        window = self._config.peer_closes_session_sec
+        if window <= 0:
+            return
+        waited = 0.0
+        while waited < window and client.is_connected:
+            await asyncio.sleep(_PEER_CLOSE_POLL_STEP_SEC)
+            waited += _PEER_CLOSE_POLL_STEP_SEC
+        if client.is_connected:
+            _LOGGER.debug(
+                "%s still up %.1fs after the session ended; closing it here",
+                addr, waited,
+            )
+        else:
+            _LOGGER.debug(
+                "%s ended the session itself after %.2fs", addr, waited
+            )
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()

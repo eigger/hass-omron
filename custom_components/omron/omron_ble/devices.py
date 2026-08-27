@@ -144,6 +144,10 @@ class DeviceConfig:
     # ``establish_connection_with_bond_settle``). Lowered on profiles where a
     # failed attempt costs the stored bond, so one poll is one observation.
     connect_settle_attempts: int = 3
+    # Seconds to stay idle at the end of a session, letting the device drop the
+    # link itself rather than closing it here. Zero keeps the immediate close.
+    # See ``OmronDeviceSession._await_peer_close``.
+    peer_closes_session_sec: float = 0.0
 
     # EEPROM layout
     endianness: Endianness = Endianness.BIG

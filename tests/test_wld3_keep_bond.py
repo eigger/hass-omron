@@ -203,3 +203,30 @@ def test_a_parked_probe_link_is_closed_when_the_entry_unloads():
         encoding="utf-8"
     )
     assert "discard_probe_session(hass, address)" in init
+
+
+def test_the_cuff_gets_to_end_its_own_session():
+    """폰 캡처에서는 커프가 링크를 끊는다 — 우리는 마지막 알림과 같은 밀리초에 끊었다.
+
+    BP5465 btsnoop(이슈 #91): 앱의 마지막 읽기 후 ~3초 무통신, 그다음 커프가
+    HCI 0x13 으로 종료. 우리 로그는 매번 0x16 — 우리가 끊은 것. 전송 완료를
+    자기 세션 종료 시점에 확정하는 커프라면 그 차이가 전부다. 미읽음 카운터가
+    줄지 않는 것과 커프가 본드를 안 들고 있는 것이 같이 설명된다.
+    """
+    config = get_device_config("HEM-7386T1")
+    assert config.peer_closes_session_sec >= 3.0
+
+    # 다른 프로필은 기존대로 즉시 종료.
+    assert get_device_config("HEM-7380T1").peer_closes_session_sec == 0.0
+    assert get_device_config("HEM-7142T2").peer_closes_session_sec == 0.0
+
+
+def test_waiting_for_the_peer_is_skipped_when_the_profile_does_not_ask():
+    """0 이면 한 바퀴도 안 돌아야 한다 — 모든 세션에 지연을 붙이면 안 된다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession._await_peer_close)
+    assert "if window <= 0:" in source
+    assert "return" in source
