@@ -127,7 +127,7 @@ def test_per_session_profiles_cannot_opt_out_of_the_pair_request():
     2.6.0 이전에 그 회귀가 실제로 있었다: 세션이 끝나며 본드를 지우고, 다음
     연결은 재연결할 게 없어서 매번 settle 에서 떨어졌다.
     """
-    for model in ("HEM-7380T1", "HEM-7155T-MW3", "HEM-7188T1"):
+    for model in ("HEM-7376T1", "HEM-7155T-MW3", "HEM-7188T1"):
         config = get_device_config(model)
         assert config.bond_policy is BondPolicy.PER_SESSION, model
         assert config.pair_on_connect_for(pairing_session=False) is True, model
@@ -137,7 +137,7 @@ def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
     """본드가 걸려 있으면 재시도는 방어가 아니라 추가 위험이다."""
     assert get_device_config("HEM-7386T1").connect_settle_attempts == 1
     # 다른 프로필의 기존 동작은 그대로.
-    assert get_device_config("HEM-7380T1").connect_settle_attempts == 3
+    assert get_device_config("HEM-7376T1").connect_settle_attempts == 3
 
 
 def test_pairing_flows_are_the_ones_marked_as_pairing_sessions():
@@ -217,7 +217,7 @@ def test_the_cuff_gets_to_end_its_own_session():
     assert config.peer_closes_session_sec >= 3.0
 
     # 다른 프로필은 기존대로 즉시 종료.
-    assert get_device_config("HEM-7380T1").peer_closes_session_sec == 0.0
+    assert get_device_config("HEM-7376T1").peer_closes_session_sec == 0.0
     assert get_device_config("HEM-7142T2").peer_closes_session_sec == 0.0
 
 
@@ -247,7 +247,7 @@ def test_pairing_subscribes_to_service_changed_like_the_app_does():
     """
     assert get_device_config("HEM-7386T1").subscribe_service_changed is True
     # 다른 프로필은 기존 동작 유지.
-    assert get_device_config("HEM-7380T1").subscribe_service_changed is False
+    assert get_device_config("HEM-7376T1").subscribe_service_changed is False
     assert get_device_config("HEM-7142T2").subscribe_service_changed is False
 
 
@@ -271,3 +271,37 @@ def test_the_subscribe_runs_inside_the_pairing_flow():
     )
     assert "config.subscribe_service_changed" in setup
     assert "await session.subscribe_service_changed()" in setup
+
+
+def test_both_profiles_under_test_run_the_identical_experiment():
+    """7380T1 은 7382T1(7386T1 프로필) 과 같은 계열·같은 증상이다 — 조건이 갈리면 비교가 안 된다.
+
+    한쪽만 고치고 다른 쪽을 잊는 표류를 막기 위해, 두 프로필은 같은
+    ``_WLD3_BOND_EXPERIMENT`` 세트를 펼쳐 쓴다. 이 테스트는 그 결과가 실제로
+    같은지를 본다 — 상수를 공유해도 프로필에서 덮어쓰면 갈릴 수 있다.
+    """
+    a = get_device_config("HEM-7386T1")
+    b = get_device_config("HEM-7380T1")
+
+    for field in (
+        "bond_policy",
+        "pair_only_when_pairing",
+        "connect_settle_attempts",
+        "peer_closes_session_sec",
+        "subscribe_service_changed",
+        "unpair_after_session",
+    ):
+        assert getattr(a, field) == getattr(b, field), field
+    assert a.pair_on_connect_for(pairing_session=False) is False
+    assert b.pair_on_connect_for(pairing_session=False) is False
+    assert a.pair_on_connect_for(pairing_session=True) is True
+    assert b.pair_on_connect_for(pairing_session=True) is True
+
+
+def test_the_rest_of_the_wld3_family_is_untouched():
+    """실험은 두 프로필에만 걸린다 — 계열 전체를 옮긴 적이 없다."""
+    for model in ("HEM-7376T1", "HEM-7377T1", "HEM-7155T-MW3", "HEM-7191T1", "HEM-7196T1"):
+        config = get_device_config(model)
+        assert config.bond_policy is BondPolicy.PER_SESSION, model
+        assert config.subscribe_service_changed is False, model
+        assert config.peer_closes_session_sec == 0.0, model

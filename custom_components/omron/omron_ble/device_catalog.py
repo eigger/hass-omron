@@ -48,7 +48,7 @@ _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 # stored key rather than re-pairing, which is the phone's behaviour above. The
 # open risk is multi-proxy setups, where the reconnect has to reach the proxy
 # that owns the bond — hence the connect-path logging that ships with this.
-_HEM_7386T1_BOND_POLICY = BondPolicy.REUSE
+_WLD3_EXPERIMENT_BOND_POLICY = BondPolicy.REUSE
 
 # Send the connect-time pair request only when a bond has to be created.
 #
@@ -67,7 +67,7 @@ _HEM_7386T1_BOND_POLICY = BondPolicy.REUSE
 #
 # The attempt count comes down with it: with the bond at stake, one poll
 # should be one observation rather than three chances to lose it.
-_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING = True
+_WLD3_EXPERIMENT_PAIR_ONLY_WHEN_PAIRING = True
 
 # Let the cuff end its own session instead of hanging up on it.
 #
@@ -82,7 +82,7 @@ _HEM_7386T1_PAIR_ONLY_WHEN_PAIRING = True
 # read fine (1 -> 4 over the 24 August captures), and the bond it does not
 # honour on the next connection even though both sides now complete key
 # distribution. Five seconds covers the phone's three with margin.
-_HEM_7386T1_PEER_CLOSES_SESSION_SEC = 5.0
+_WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC = 5.0
 
 # Subscribe to Service Changed while pairing, the way the official app does.
 #
@@ -97,7 +97,18 @@ _HEM_7386T1_PEER_CLOSES_SESSION_SEC = 5.0
 # client that writes none may leave it with nothing worth committing, which
 # is what a cuff refusing a resumed connection ("PIN or Key Missing") after a
 # complete key distribution looks like.
-_HEM_7386T1_SUBSCRIBE_SERVICE_CHANGED = True
+_WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED = True
+
+# The settings above as one set, so the profiles under test cannot drift apart.
+# Spread into a profile with ``**_WLD3_BOND_EXPERIMENT``; every other profile
+# keeps _WLD3_BOND_POLICY and the dataclass defaults.
+_WLD3_BOND_EXPERIMENT = {
+    "bond_policy": _WLD3_EXPERIMENT_BOND_POLICY,
+    "pair_only_when_pairing": _WLD3_EXPERIMENT_PAIR_ONLY_WHEN_PAIRING,
+    "connect_settle_attempts": 1,
+    "peer_closes_session_sec": _WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC,
+    "subscribe_service_changed": _WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED,
+}
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
@@ -1156,7 +1167,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7380T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        # Same protocol family as HEM-7386T1 and the same reported symptom
+        # (issue #20), so it runs the same experiment rather than a variant.
+        **_WLD3_BOND_EXPERIMENT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
@@ -1258,11 +1271,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_HEM_7386T1_BOND_POLICY,
-        pair_only_when_pairing=_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING,
-        connect_settle_attempts=1,
-        peer_closes_session_sec=_HEM_7386T1_PEER_CLOSES_SESSION_SEC,
-        subscribe_service_changed=_HEM_7386T1_SUBSCRIBE_SERVICE_CHANGED,
+        **_WLD3_BOND_EXPERIMENT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
