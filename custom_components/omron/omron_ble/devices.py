@@ -148,6 +148,9 @@ class DeviceConfig:
     # link itself rather than closing it here. Zero keeps the immediate close.
     # See ``OmronDeviceSession._await_peer_close``.
     peer_closes_session_sec: float = 0.0
+    # Subscribe to Service Changed while pairing, the way the official app does.
+    # See ``OmronDeviceSession.subscribe_service_changed``.
+    subscribe_service_changed: bool = False
 
     # EEPROM layout
     endianness: Endianness = Endianness.BIG

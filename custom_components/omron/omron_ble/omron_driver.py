@@ -13,7 +13,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
-from .const import MODEL_NUMBER_UUID
+from .const import MODEL_NUMBER_UUID, SERVICE_CHANGED_UUID
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -2038,6 +2038,42 @@ class OmronDeviceSession:
 
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
+    async def subscribe_service_changed(self) -> bool:
+        """Subscribe to Service Changed, as the official app does when pairing.
+
+        A phone HCI capture of the same cuff family (issue #67) shows the app
+        writing 0x0002 to handle 0x000B — the Service Changed client
+        configuration, the sole characteristic of the Generic Attribute
+        service — in both of its pairing sessions and in neither of its
+        reconnects. This integration has never written it.
+
+        That configuration is one the spec requires a peripheral to keep per
+        bonded client, so a client that writes nothing may leave it with
+        nothing worth committing. The cuff answering a resumed connection with
+        "PIN or Key Missing" while both sides completed key distribution is
+        what that would look like.
+
+        Best effort: a device without the characteristic, or a backend that
+        refuses the subscribe, must not fail the pairing.
+        """
+        def _on_service_changed(_handle: int, data: bytearray) -> None:
+            _LOGGER.debug(
+                "Service Changed indication from %s: %s", self.address, _hex(data)
+            )
+
+        try:
+            await self._client.start_notify(
+                SERVICE_CHANGED_UUID, _on_service_changed
+            )
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not subscribe to Service Changed on %s (continuing): %s",
+                self.address, exc,
+            )
+            return False
+        _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
+        return True
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program pairing credentials according to ``host_pairing_mode``."""

@@ -230,3 +230,44 @@ def test_waiting_for_the_peer_is_skipped_when_the_profile_does_not_ask():
     source = inspect.getsource(OmronDeviceSession._await_peer_close)
     assert "if window <= 0:" in source
     assert "return" in source
+
+
+def test_pairing_subscribes_to_service_changed_like_the_app_does():
+    """앱이 페어링 세션에서만 하는 쓰기 하나 — 우리는 한 번도 안 했다.
+
+    이슈 #67 의 폰 캡처(같은 WLD3.0 프로필 계열): 페어링 2회 모두 핸들
+    0x000B 에 0x0002 를 쓰고, 재연결 2회 모두 쓰지 않는다. 같은 캡처의 서비스
+    디스커버리가 그 핸들을 Generic Attribute(0x0008-0x000B, uuid 0x1801) 안에
+    놓는데, 그 서비스의 유일한 특성이 Service Changed 다. 즉 그 특성의 클라이언트
+    설정(indication 활성화)이다.
+
+    스펙상 페리페럴은 이 설정을 **본드된 클라이언트별로 보존**해야 한다. 아무것도
+    안 쓰는 클라이언트는 커밋할 게 없는 셈이고, 키 배포가 끝났는데도 재개를
+    "PIN or Key Missing" 으로 거절당하는 모습이 그것과 맞는다.
+    """
+    assert get_device_config("HEM-7386T1").subscribe_service_changed is True
+    # 다른 프로필은 기존 동작 유지.
+    assert get_device_config("HEM-7380T1").subscribe_service_changed is False
+    assert get_device_config("HEM-7142T2").subscribe_service_changed is False
+
+
+def test_a_missing_service_changed_does_not_fail_the_pairing():
+    """구독 실패가 페어링을 깨면 지금보다 나빠진다 — best effort 여야 한다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession.subscribe_service_changed)
+    assert "except Exception" in source
+    assert "return False" in source
+
+
+def test_the_subscribe_runs_inside_the_pairing_flow():
+    """프로필 플래그만 켜고 호출을 안 붙이면 조용히 아무것도 안 한다."""
+    import pathlib
+
+    setup = pathlib.Path("custom_components/omron/omron_ble/setup.py").read_text(
+        encoding="utf-8"
+    )
+    assert "config.subscribe_service_changed" in setup
+    assert "await session.subscribe_service_changed()" in setup

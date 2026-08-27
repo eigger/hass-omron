@@ -84,6 +84,21 @@ _HEM_7386T1_PAIR_ONLY_WHEN_PAIRING = True
 # distribution. Five seconds covers the phone's three with margin.
 _HEM_7386T1_PEER_CLOSES_SESSION_SEC = 5.0
 
+# Subscribe to Service Changed while pairing, the way the official app does.
+#
+# The phone capture in issue #67 (same WLD3.0 profile family) writes 0x0002 to
+# handle 0x000B in both of its pairing sessions and in neither of its
+# reconnects. The capture's own service discovery places that handle in the
+# Generic Attribute service (0x0008-0x000B, uuid 0x1801), whose only
+# characteristic is Service Changed - so the write is that characteristic's
+# client configuration, enabling indications.
+#
+# The spec has a peripheral keep that configuration per bonded client. A
+# client that writes none may leave it with nothing worth committing, which
+# is what a cuff refusing a resumed connection ("PIN or Key Missing") after a
+# complete key distribution looks like.
+_HEM_7386T1_SUBSCRIBE_SERVICE_CHANGED = True
+
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
     "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
@@ -1247,6 +1262,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         pair_only_when_pairing=_HEM_7386T1_PAIR_ONLY_WHEN_PAIRING,
         connect_settle_attempts=1,
         peer_closes_session_sec=_HEM_7386T1_PEER_CLOSES_SESSION_SEC,
+        subscribe_service_changed=_HEM_7386T1_SUBSCRIBE_SERVICE_CHANGED,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
