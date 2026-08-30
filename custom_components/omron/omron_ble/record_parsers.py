@@ -42,9 +42,9 @@ def parse_classic_vital_14_bitpacked(
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
-    # BE mappings derived from standard bit packing
+    # BE mappings derived from standard bit packing.  Bit 50 (byte 7 bit 5) is
+    # deliberately left undecoded: see parse_classic_vital_14.
     record["pos"] = _bytearray_bits_to_int(data, endianness, 48, 49)
-    record["battery"] = _bytearray_bits_to_int(data, endianness, 50, 50)
     record["cuff"] = _bytearray_bits_to_int(data, endianness, 51, 51)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
@@ -67,9 +67,9 @@ def parse_classic_vital_14_6232_family(
     hour = _bytearray_bits_to_int(data, endianness, 43, 47)
     minute = _bytearray_bits_to_int(data, endianness, 52, 57)
     second = min(_bytearray_bits_to_int(data, endianness, 58, 63), 59)
-    # BE mappings derived from standard bit packing
+    # BE mappings derived from standard bit packing.  Bit 50 (byte 7 bit 5) is
+    # deliberately left undecoded: see parse_classic_vital_14.
     record["pos"] = _bytearray_bits_to_int(data, endianness, 48, 49)
-    record["battery"] = _bytearray_bits_to_int(data, endianness, 50, 50)
     record["cuff"] = _bytearray_bits_to_int(data, endianness, 51, 51)
     record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
     return record
@@ -84,7 +84,8 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
       [2]   bpm
       [3]   year - 2000 (lower 6 bits)
       [4:5] flags1 (hour, day, month, ihb, mov)
-      [6:7] flags2 (second, minute)
+      [6:7] flags2 (second, minute, cuff, position)
+      [10:11] sequenceNo (_record_id)
     """
     # NOTE:
     # This format is byte/bit packed in a fixed little-endian on-wire layout.
@@ -110,9 +111,11 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     record["mov"] = (flags1 >> 15) & 0x01
     second = min(flags2 & 0x3F, 59)
     minute = min((flags2 >> 6) & 0x3F, 59)
-    # Modern stack flags2 bits: bit 12=Cuff, bit 13=Battery, bits 14-15=Position
+    # flags2 bits: 12=Cuff, 14-15=Position.  Bit 13 is NOT a battery flag —
+    # no known model defines a field there, and on the AFib cuffs
+    # (7191T1/7196T1/7376T1/7380T1/7386T1) it is one of the AFib/validity bits.
+    # Left undecoded rather than reported as "battery".
     record["cuff"] = (flags2 >> 12) & 0x01
-    record["battery"] = (flags2 >> 13) & 0x01
     record["pos"] = (flags2 >> 14) & 0x03
 
     # Devices may return partially initialized entries that are not 0xFF-filled.
@@ -126,10 +129,12 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     ):
         raise ValueError("record slot is empty")
 
-    # 714x family records appear to carry a trailing record sequence/id field.
-    # Keep it for latest-record selection heuristics.
-    if len(data) >= 2:
-        record["_record_id"] = int.from_bytes(bytes(data[-2:]), "little")
+    # Record sequence number.  It sits at offset 10, size 2 for every model on
+    # this layout (0x0E and 0x10 slots alike) — not at the end of the slot,
+    # which is where a previous guess read it from.  Kept for latest-record
+    # selection heuristics.
+    if len(data) >= 12:
+        record["_record_id"] = int.from_bytes(bytes(data[10:12]), "little")
 
     try:
         record["datetime"] = datetime.datetime(year, month, day, hour, minute, second)
