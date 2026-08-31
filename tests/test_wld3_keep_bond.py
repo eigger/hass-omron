@@ -21,6 +21,7 @@ from custom_components.omron.omron_ble.device_catalog import (
 )
 from custom_components.omron.omron_ble.devices import (
     BondPolicy,
+    ConnectType,
     get_device_config,
     resolve_profile_model_id,
 )
@@ -53,11 +54,20 @@ def test_variants_inherit_it(variant):
     assert config.unpair_after_session is False
 
 
-def test_wld4_experiment_is_not_repeated_here():
-    """7188T1 은 secure session 을 쓴다 — 그 음성 결과는 여기 적용되지 않는다."""
-    assert (
-        CANONICAL_DEVICE_PROFILES["HEM-7188T1"].bond_policy == BondPolicy.PER_SESSION
-    )
+def test_both_families_are_on_the_confirmed_bond_settings():
+    """실험이 끝났으므로 계열 전체가 같은 설정을 쓴다.
+
+    원인이 CCCD 로 확정되고(#91) PER_SESSION 이 이 계열에서 성립 불가임이
+    확인된 뒤(#133 의 AuthenticationCanceled — 커프는 -P- 밖에서 새 페어링을
+    거부한다) 두 프로필에만 걸려 있던 본드 설정을 WLD3.0/WLD4.0 전체로 옮겼다.
+    """
+    for name, config in CANONICAL_DEVICE_PROFILES.items():
+        if config.connect_type not in (ConnectType.WLD3_0, ConnectType.WLD4_0):
+            continue
+        assert config.bond_policy is BondPolicy.REUSE, name
+        assert config.unpair_after_session is False, name
+        assert config.pair_only_when_pairing is True, name
+        assert config.keep_notify_subscriptions is True, name
 
 
 def test_connect_logs_the_path_that_owns_the_bond():
@@ -112,11 +122,25 @@ def test_per_session_profiles_cannot_opt_out_of_the_pair_request():
 
     2.6.0 이전에 그 회귀가 실제로 있었다: 세션이 끝나며 본드를 지우고, 다음
     연결은 재연결할 게 없어서 매번 settle 에서 떨어졌다.
+
+    카탈로그에는 이제 PER_SESSION + OS_BONDING 프로필이 하나도 남지 않았으므로
+    (두 계열이 전부 REUSE), 카탈로그를 훑는 대신 속성을 직접 확인한다 — 가드는
+    프로필이 있든 없든 성립해야 한다.
     """
-    for model in ("HEM-7376T1", "HEM-7155T-MW3", "HEM-7188T1"):
-        config = get_device_config(model)
-        assert config.bond_policy is BondPolicy.PER_SESSION, model
-        assert config.pair_on_connect_for(pairing_session=False) is True, model
+    from dataclasses import replace
+
+    base = get_device_config("HEM-7386T1")
+    per_session = replace(
+        base, bond_policy=BondPolicy.PER_SESSION, pair_only_when_pairing=True
+    )
+
+    assert per_session.unpair_after_session is True
+    assert per_session.pair_on_connect_for(pairing_session=False) is True, (
+        "pair_only_when_pairing 이 PER_SESSION 을 무장해제하면 안 된다"
+    )
+    # REUSE 에서는 같은 플래그가 실제로 폴의 pair 요청을 끈다.
+    assert base.pair_on_connect_for(pairing_session=False) is False
+    assert base.pair_on_connect_for(pairing_session=True) is True
 
 
 def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
@@ -284,10 +308,17 @@ def test_both_profiles_under_test_run_the_identical_experiment():
     assert b.pair_on_connect_for(pairing_session=True) is True
 
 
-def test_the_rest_of_the_wld3_family_is_untouched():
-    """실험은 두 프로필에만 걸린다 — 계열 전체를 옮긴 적이 없다."""
+def test_the_two_unconfirmed_settings_did_not_spread():
+    """세션 끝 대기와 Service Changed 구독은 확정된 수정이 아니다.
+
+    본드 설정은 계열 전체로 갔지만 이 둘은 캡처가 있는 두 프로필에만 남는다 —
+    특히 5초 대기는 매 폴에 그만큼을 더한다.
+    """
     for model in ("HEM-7376T1", "HEM-7377T1", "HEM-7155T-MW3", "HEM-7191T1", "HEM-7196T1"):
         config = get_device_config(model)
-        assert config.bond_policy is BondPolicy.PER_SESSION, model
         assert config.subscribe_service_changed is False, model
         assert config.peer_closes_session_sec == 0.0, model
+    for model in ("HEM-7386T1", "HEM-7380T1"):
+        config = get_device_config(model)
+        assert config.subscribe_service_changed is True, model
+        assert config.peer_closes_session_sec == 5.0, model
