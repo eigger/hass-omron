@@ -10,6 +10,7 @@ from custom_components.omron.omron_ble.devices import (
     UnlockMode,
     get_device_config,
     get_supported_models,
+    infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
 
@@ -367,3 +368,22 @@ class TestCatalogResolution:
 
     def test_unknown_model_falls_back_to_default(self):
         assert resolve_profile_model_id("NOT-A-REAL-MODEL") == DEFAULT_DEVICE_MODEL
+
+
+def test_a_retail_model_number_resolves_to_its_profile():
+    """BP5465 은 HEM-* 코드를 담지 않아 프로브가 읽어도 버려졌다 (#91)."""
+    assert infer_model_id_from_local_name("BP5465") == "BP5465"
+    assert resolve_profile_model_id("BP5465") == "HEM-7386T1"
+    assert get_device_config("BP5465").settings_read_address == 0x0010
+
+
+def test_the_hem_code_path_is_unchanged():
+    """정규식이 맞으면 예전과 똑같이 그 코드를 쓴다."""
+    assert infer_model_id_from_local_name("Omron HEM-7382T1-AZAZ") == "HEM-7382T1-AZAZ"
+    assert infer_model_id_from_local_name("HEM-7386T1") == "HEM-7386T1"
+
+
+def test_an_unknown_name_still_infers_nothing():
+    """모르는 문자열에 억지로 프로파일을 붙이지 않는다."""
+    for value in (None, "", "   ", "BP0000", "12345", "Omron BP5465 monitor"):
+        assert infer_model_id_from_local_name(value) is None
