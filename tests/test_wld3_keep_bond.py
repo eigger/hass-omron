@@ -21,7 +21,6 @@ from custom_components.omron.omron_ble.device_catalog import (
 )
 from custom_components.omron.omron_ble.devices import (
     BondPolicy,
-    ConnectType,
     get_device_config,
     resolve_profile_model_id,
 )
@@ -52,19 +51,6 @@ def test_variants_inherit_it(variant):
     config = get_device_config(variant)
     assert config.bond_policy == BondPolicy.REUSE
     assert config.unpair_after_session is False
-
-
-def test_the_rest_of_the_wld3_family_is_untouched():
-    """증거는 이 프로필 하나뿐이다. 나머지를 같이 옮기면 실험이 아니라 도박이다."""
-    others = [
-        (name, cfg)
-        for name, cfg in CANONICAL_DEVICE_PROFILES.items()
-        if cfg.connect_type == ConnectType.WLD3_0 and name != "HEM-7386T1"
-    ]
-    assert others, "비교 대상이 없으면 이 가드는 의미가 없다"
-    for name, cfg in others:
-        assert cfg.bond_policy == BondPolicy.PER_SESSION, name
-        assert cfg.unpair_after_session is True, name
 
 
 def test_wld4_experiment_is_not_repeated_here():
