@@ -1277,7 +1277,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # addresses they land on (issue #91). HEM-7376T1/HEM-7377T1 share the
         # 0x0058 mirror base and HEM-7380T1 shares the family, but their offsets
         # are inferred, so they stay off until someone captures one.
-        session_ack_mirror_writes=True,
+        session_ack_mirror_writes=False,
         # Same capture, same reason: across four sessions the app never writes
         # 0x0000 to a CCCD, and we write six CCCD values per session — the last
         # of them after the session-close command.

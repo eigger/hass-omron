@@ -22,6 +22,8 @@ import datetime as dt
 
 import pytest
 
+from dataclasses import replace
+
 from custom_components.omron.omron_ble.devices import (
     TimeSyncLayout,
     get_device_config,
@@ -67,15 +69,22 @@ class _FakeSession:
 
 @pytest.fixture
 def session():
-    return _FakeSession(get_device_config("HEM-7386T1"))
+    # This branch turns the mirrors off in the catalog to A/B them against the
+    # CCCD change, so force the flag back on here: these tests cover the mirror
+    # code path itself, not whether any shipped profile asks for it.
+    return _FakeSession(
+        replace(get_device_config("HEM-7386T1"), session_ack_mirror_writes=True)
+    )
 
 
-def test_the_profile_under_test_asks_for_the_mirrors():
-    """BP5465 만 켠다 — 나머지는 폰 캡처가 없어 오프셋이 추정일 뿐이다."""
-    assert get_device_config("HEM-7386T1").session_ack_mirror_writes is True
+def test_no_profile_asks_for_the_mirrors_on_this_branch():
+    """A/B 가지: 미러는 전부 끄고 CCCD 유지만 남긴다."""
+    assert get_device_config("HEM-7386T1").session_ack_mirror_writes is False
     assert get_device_config("HEM-7380T1").session_ack_mirror_writes is False
     assert get_device_config("HEM-7376T1").session_ack_mirror_writes is False
     assert get_device_config("HEM-7142T2").session_ack_mirror_writes is False
+    # 이 가지가 격리하려는 변경은 그대로 켜져 있어야 한다.
+    assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
 
 
 @pytest.mark.asyncio
