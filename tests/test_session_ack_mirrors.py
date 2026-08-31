@@ -204,7 +204,7 @@ async def test_an_unexpected_index_source_byte_is_called_out(session, caplog):
     assert session.writes[0][1][-1] == 0x80
 
 
-def test_the_profile_under_test_keeps_its_notify_subscriptions():
+def test_the_wld3_and_wld4_families_keep_their_notify_subscriptions():
     """앱은 CCCD 를 켜기만 하고 끄지 않는다 — 두 캡처 4개 세션에서 0x0000 이 0건.
 
     앱이 쓰는 CCCD 값 전부: 0x000B=0x0002(페어링 세션만), 0x001C=0x0100,
@@ -217,9 +217,20 @@ def test_the_profile_under_test_keeps_its_notify_subscriptions():
     규격(Vol 3 Part G, 3.3.3.3)은 페리페럴이 CCCD 설정을 본드된 클라이언트별로
     보존하게 한다. 작은 스택은 이걸 본드 레코드에 같이 담는 경우가 흔하다.
     """
-    assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
-    assert get_device_config("HEM-7380T1").keep_notify_subscriptions is False
-    assert get_device_config("HEM-7376T1").keep_notify_subscriptions is False
+    # 계열 전체에 적용한다: 근거가 두 기기(#91 BP5465, #67 HEM-7155T)에 걸쳐
+    # 있고, 기기에 쓰는 것을 늘리는 게 아니라 없애는 변경이기 때문이다.
+    for model in (
+        "HEM-7386T1",
+        "HEM-7380T1",
+        "HEM-7376T1",
+        "HEM-7377T1",
+        "HEM-7155T-MW3",
+        "HEM-7188T1",
+        "HEM-7191T1",
+        "HEM-7196T1",
+    ):
+        assert get_device_config(model).keep_notify_subscriptions is True, model
+    # 계열 밖은 건드리지 않는다.
     assert get_device_config("HEM-7142T2").keep_notify_subscriptions is False
 
 

@@ -23,6 +23,28 @@ from .devices import (
 # is the only change needed, every dependent behaviour is derived from it.
 _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 
+# Whether WLD3.0/WLD4.0 profiles leave their notify CCCDs enabled at session
+# close instead of writing 0x0000 to them.
+#
+# Counted across every ATT write in both phone captures we have -- issue #91
+# (BP5465) and issue #67 (HEM-7155T), four sessions, pairing and retained-bond
+# alike -- the official app writes 0x0100 to the vendor CCCDs and 0x0002 to
+# Service Changed, and never writes 0x0000 to any CCCD. It just disconnects.
+# Disables: zero. This integration writes six CCCD values per session, the last
+# of them after the session-close command, as the final GATT operation before
+# the link drops.
+#
+# The spec has a peripheral keep CCCD configuration per bonded client (Vol 3
+# Part G, 3.3.3.3) and small stacks commonly store it inside the bond record,
+# which would make that last write the one thing we do to persistent per-bond
+# state that the app never does.
+#
+# Family-wide rather than per profile because it only ever removes a write, and
+# because the evidence spans two device families rather than one. It is not on
+# its own a fix for a profile still on PER_SESSION -- that path deletes the bond
+# deliberately -- but it stops the divergence either way.
+_WLD_KEEP_NOTIFY_SUBSCRIPTIONS = True
+
 # Bond strategy for HEM-7386T1 alone, split out of _WLD3_BOND_POLICY to test
 # one device without moving the rest of the WLD3.0 family.
 #
@@ -939,6 +961,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7155T-MW3",
         # Modern-fe4a-firmware HEM-7155T_ESL ("X4 Smart"); WLD3.0 like 7380T1.
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1101,6 +1124,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7191T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1132,6 +1156,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7196T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1166,6 +1191,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         # Same protocol family as HEM-7386T1 and the same reported symptom
         # (issue #20), so it runs the same experiment rather than a variant.
@@ -1203,6 +1229,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7376T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1238,6 +1265,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7377T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1270,6 +1298,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         **_WLD3_BOND_EXPERIMENT,
         # This profile alone: BP5465 is the only device under it with a phone
@@ -1278,10 +1307,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # 0x0058 mirror base and HEM-7380T1 shares the family, but their offsets
         # are inferred, so they stay off until someone captures one.
         session_ack_mirror_writes=True,
-        # Same capture, same reason: across four sessions the app never writes
-        # 0x0000 to a CCCD, and we write six CCCD values per session — the last
-        # of them after the session-close command.
-        keep_notify_subscriptions=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
@@ -1321,6 +1346,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
