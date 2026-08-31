@@ -174,3 +174,106 @@ def test_a_short_read_is_not_written_back(session):
     source = inspect.getsource(omron_driver.OmronDeviceSession._write_session_ack_mirrors)
     assert "Short index read" in source
     assert "Short status read" in source
+
+
+def test_the_profile_under_test_keeps_its_notify_subscriptions():
+    """앱은 CCCD 를 켜기만 하고 끄지 않는다 — 두 캡처 4개 세션에서 0x0000 이 0건.
+
+    앱이 쓰는 CCCD 값 전부: 0x000B=0x0002(페어링 세션만), 0x001C=0x0100,
+    0x0021=0x0100. 비활성화는 한 번도 없고 그냥 끊는다.
+
+    우리는 세션당 6번 쓴다. 토큰 언락이 둘을 켰다가 끄고, 메모리 세션이 RX 를
+    다시 켜고, 세션 종료가 **080f 다음에** 또 끈다 — 링크가 내려가기 직전의
+    마지막 GATT 동작이다.
+
+    규격(Vol 3 Part G, 3.3.3.3)은 페리페럴이 CCCD 설정을 본드된 클라이언트별로
+    보존하게 한다. 작은 스택은 이걸 본드 레코드에 같이 담는 경우가 흔하다.
+    """
+    assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
+    assert get_device_config("HEM-7380T1").keep_notify_subscriptions is False
+    assert get_device_config("HEM-7376T1").keep_notify_subscriptions is False
+    assert get_device_config("HEM-7142T2").keep_notify_subscriptions is False
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.stopped: list[str] = []
+
+    async def stop_notify(self, uuid: str) -> None:
+        self.stopped.append(uuid)
+
+
+def _release_target(model: str) -> _FakeSession:
+    target = _FakeSession(get_device_config(model))
+    target._client = _FakeClient()
+    target._notify_subscribed = True
+    target._debug_ble_link = lambda *_a, **_k: None
+    target._unsubscribe_notify_channels = (
+        OmronDeviceSession._unsubscribe_notify_channels.__get__(target)
+    )
+    return target
+
+
+@pytest.mark.asyncio
+async def test_the_normal_close_leaves_the_cccd_enabled():
+    """정상 종료에서 stop_notify 가 한 건도 나가면 안 된다 — 앱이 남기는 상태다."""
+    target = _release_target("HEM-7386T1")
+
+    await OmronDeviceSession.close_memory_session(target)
+
+    assert target._client.stopped == []
+    assert target.commands == ["080f000000000007"]
+
+
+@pytest.mark.asyncio
+async def test_other_profiles_still_disable_it_on_close():
+    """켜지 않은 프로필의 종료 동작은 그대로여야 한다."""
+    target = _release_target("HEM-7376T1")
+
+    await OmronDeviceSession.close_memory_session(target)
+
+    assert target._client.stopped == list(
+        get_device_config("HEM-7376T1").rx_channel_uuids
+    )
+
+
+@pytest.mark.asyncio
+async def test_force_releases_it_even_on_the_profile_under_test():
+    """실패 경로는 강제로 풀 수 있어야 한다 — 아니면 재시도가 막힌다."""
+    target = _release_target("HEM-7386T1")
+
+    await target._unsubscribe_notify_channels(force=True)
+
+    assert target._client.stopped == list(
+        get_device_config("HEM-7386T1").rx_channel_uuids
+    )
+
+
+@pytest.mark.asyncio
+async def test_failure_paths_can_still_release_the_subscription():
+    """실패한 세션까지 구독을 붙들고 있으면 재시도가 막힌다 — force 로 풀린다."""
+    import inspect
+
+    for name in ("reset_session_state", "open_memory_session"):
+        source = inspect.getsource(getattr(OmronDeviceSession, name))
+        assert "_unsubscribe_notify_channels(force=True)" in source, name
+
+    source = inspect.getsource(OmronDeviceSession._unsubscribe_notify_channels)
+    assert "if self._config.keep_notify_subscriptions and not force:" in source
+
+
+def test_the_token_unlock_primes_the_channel_it_will_keep():
+    """구독을 유지하면 프라임 콜백이 진짜 핸들러여야 한다.
+
+    죽은 콜백으로 켜 두면 메모리 세션이 이미 켜진 CCCD 에 start_notify 를 다시
+    걸고, 백엔드는 그걸 거부하며 복구 경로가 CCCD 를 0x0000 으로 되돌린다 —
+    없애려던 바로 그 churn 이다.
+    """
+    import inspect
+
+    source = inspect.getsource(OmronDeviceSession._token_unlock)
+    assert "self._on_notify_channel_data if keep_notify else" in source
+    assert "self._notify_subscribed = True" in source
+
+    unlock = inspect.getsource(OmronDeviceSession.unlock)
+    assert "keep_notify=self._config.keep_notify_subscriptions" in unlock

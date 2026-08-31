@@ -179,6 +179,27 @@ class DeviceConfig:
     # capture behind them.
     session_ack_mirror_writes: bool = False
 
+    # Enable each notify CCCD once and leave it enabled for the life of the
+    # link, the way the official app does. Off by default, because dropping the
+    # subscriptions is what every other profile has always done.
+    #
+    # Across both phone captures — issues #91 and #67, four sessions, pairing
+    # and retained-bond alike — the app writes 0x0100 to the vendor CCCDs and
+    # 0x0002 to Service Changed, and **never writes 0x0000 to any CCCD**. It
+    # just disconnects. This integration writes six CCCD values per session:
+    # the token unlock enables both and then disables both, the memory session
+    # re-enables the RX channel, and the session close disables it again — as
+    # the last GATT operation before the link drops.
+    #
+    # The spec has a peripheral keep the CCCD configuration per bonded client
+    # (Vol 3 Part G, 3.3.3.3), and small stacks commonly store it inside the
+    # bond record. That makes this the one thing we do to persistent per-bond
+    # state that the app never does. ``_secure_unlock`` already avoids the
+    # churn on its own path, with a comment recording that this device family
+    # rejects a pairing request (0xff 0x26) when the unlock CCCD is dropped and
+    # re-added; the token-key path never got the same treatment.
+    keep_notify_subscriptions: bool = False
+
     # Record layout key -> parser in parse_record()
     record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14
     equivalent_model_ids: tuple[str, ...] = ()

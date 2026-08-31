@@ -1025,8 +1025,20 @@ class OmronDeviceSession:
         if last_exc is not None:
             raise last_exc
 
-    async def _unsubscribe_notify_channels(self) -> None:
-        """Disable notifications on all RX channels."""
+    async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
+        """Disable notifications on all RX channels.
+
+        ``force`` overrides ``keep_notify_subscriptions`` for the paths that
+        have to release a subscription to make progress — a failed session
+        teardown and ``reset_session_state``. The normal session close does
+        not, so profiles that ask leave the CCCD enabled the way the app does.
+        """
+        if self._config.keep_notify_subscriptions and not force:
+            _LOGGER.debug(
+                "RX notify left enabled for %s (profile keeps its subscriptions)",
+                self._config.model,
+            )
+            return
         for uuid in self._config.rx_channel_uuids:
             try:
                 await self._client.stop_notify(uuid)
@@ -1043,7 +1055,7 @@ class OmronDeviceSession:
         best-effort; failures are silently ignored so the caller can proceed with
         the next attempt regardless.
         """
-        await self._unsubscribe_notify_channels()
+        await self._unsubscribe_notify_channels(force=True)
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
@@ -1368,7 +1380,7 @@ class OmronDeviceSession:
             self._memory_session_active = False
             self._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
-            await self._unsubscribe_notify_channels()
+            await self._unsubscribe_notify_channels(force=True)
             raise
 
     async def _write_session_ack_mirrors(self) -> None:
@@ -1591,7 +1603,9 @@ class OmronDeviceSession:
 
         # Stateless token handshake (0x11 / 0x91)
         if self._config.unlock_mode == UnlockMode.TOKEN_KEY:
-            await self._token_unlock()
+            await self._token_unlock(
+                keep_notify=self._config.keep_notify_subscriptions
+            )
             return
 
         unlock_key = key or PAIRING_KEY
@@ -1697,11 +1711,21 @@ class OmronDeviceSession:
         await self._ensure_services_cache()
 
         # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
+        #
+        # When the subscription is kept for the life of the link, prime it with
+        # the real handler rather than a dead callback: the memory session then
+        # inherits it instead of calling start_notify on an already-enabled
+        # CCCD, which the backends reject and recover from by writing the CCCD
+        # back to 0x0000 first — the very churn keep_notify exists to avoid.
         try:
+            self._rebuild_notify_handle_index_map()
             await self._client.start_notify(
-                self._config.rx_channel_uuids[0], lambda _h, _d: None
+                self._config.rx_channel_uuids[0],
+                self._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
             )
             rx_notify_primed = True
+            if keep_notify:
+                self._notify_subscribed = True
             await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         except Exception as exc:
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
