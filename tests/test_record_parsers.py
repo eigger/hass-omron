@@ -34,6 +34,31 @@ class TestParseClassicVital14:
         assert record["bpm"] == 67
         assert record["datetime"] == datetime.datetime(2026, 5, 19, 19, 48, 22)
 
+    def test_record_id_reads_official_sequence_no_offset(self):
+        # The record sequence number sits at offset 10, size 2. On the two real
+        # HEM-7142T2 slots above that yields 70 (slot 7) and 76 (slot 13) —
+        # monotonic with the slot index, as a sequence number must be. Reading
+        # the last two bytes instead gives 25 and 186.
+        slot7 = parse_classic_vital_14(
+            bytes.fromhex("6457431a7316161c000046001900"), endianness="little"
+        )
+        slot13 = parse_classic_vital_14(
+            bytes.fromhex("6558541a331ade1800004c00ba00"), endianness="little"
+        )
+        assert slot7["_record_id"] == 70
+        assert slot13["_record_id"] == 76
+        assert slot13["_record_id"] - slot7["_record_id"] == 13 - 7
+
+    def test_no_battery_field(self):
+        # flags2 bit 13 is not a battery flag on any model — no known memory map
+        # defines a field there, so the parser must not invent one.
+        record = parse_classic_vital_14(
+            bytes.fromhex("6558541a331ade1800004c00ba00"), endianness="little"
+        )
+        assert "battery" not in record
+        assert record["cuff"] == 1
+        assert record["pos"] == 0
+
     def test_empty_slot_all_ff_raises(self):
         raw = bytes.fromhex("ff" * 14)
         with pytest.raises(ValueError):
@@ -62,6 +87,17 @@ class TestParseClassicVital14Bitpacked:
         assert record["sys"] == 145
         assert record["dia"] == 91
         assert record["bpm"] == 72
+        assert "battery" not in record
+
+    def test_no_battery_field_6232_family(self):
+        from custom_components.omron.omron_ble.record_parsers import (
+            parse_classic_vital_14_6232_family,
+        )
+
+        record = parse_classic_vital_14_6232_family(
+            bytes.fromhex("5b781a4819d71b42000014006996"), endianness="big"
+        )
+        assert "battery" not in record
 
 
 class TestParseClassicVital24Heartguide:
