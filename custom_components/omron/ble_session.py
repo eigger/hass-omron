@@ -92,6 +92,31 @@ def adopt_handoff_session(
     return hass.data.get(DOMAIN, {}).get("_setup_sessions", {}).pop(address, None)
 
 
+def has_handoff_session(hass: HomeAssistant, address: str) -> bool:
+    """Whether a pairing session is parked for this address, without taking it."""
+    return address in hass.data.get(DOMAIN, {}).get("_setup_sessions", {})
+
+
+def request_poll(hass: HomeAssistant, entry_id: str) -> None:
+    """Mark the next poll as asked for by a person rather than by the clock."""
+    entry_data = hass.data.get(DOMAIN, {}).get(entry_id)
+    if entry_data is not None:
+        entry_data["user_requested_poll"] = True
+
+
+def take_poll_request(hass: HomeAssistant, entry_id: str) -> bool:
+    """Consume the request flag.
+
+    Consumed whatever the poll goes on to do: a request that ends up skipped
+    for some other reason must not leave the flag armed for a later scheduled
+    poll nobody asked for.
+    """
+    entry_data = hass.data.get(DOMAIN, {}).get(entry_id)
+    if entry_data is None:
+        return False
+    return bool(entry_data.pop("user_requested_poll", False))
+
+
 async def discard_handoff_session(hass: HomeAssistant, address: str) -> None:
     """Close a parked pairing session that no poll ended up adopting.
 

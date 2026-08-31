@@ -13,8 +13,11 @@ from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 from .ble_session import (
     adopt_handoff_session,
     discard_handoff_session,
+    has_handoff_session,
     omron_poll_ble_telemetry,
     poll_parked_session,
+    request_poll,
+    take_poll_request,
     run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
@@ -356,6 +359,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         address = entry_data["address"]
+        # Consumed here, before any path can return: a request that ends up
+        # skipped must not leave the flag armed for a later scheduled poll.
+        user_requested = take_poll_request(hass, entry.entry_id)
         preconnected_session = None
         handed_off = False
         try:
@@ -370,6 +376,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 )
                 return entry.runtime_data.device_data._finish_update()
             coordinator = entry.runtime_data
+            device_data = coordinator.device_data
+            # Profiles that drop their bond every session cannot read on a
+            # timer: the cuff refuses a new bond once it leaves pairing mode,
+            # so a poll fired only because the interval elapsed spends a
+            # connect, a bond attempt and the session lock to reach a failure
+            # that was certain before it started. Let the cuff say when a read
+            # can work -- pairing_mode (a bond can be made now) or
+            # forced_transfer (a measurement is waiting) -- instead of guessing
+            # on the clock.
+            #
+            # A person pressing Refresh Data is not the clock, so their request
+            # goes through and they see the real error rather than a button
+            # that silently does nothing. A parked pairing session is exempt
+            # too: that link is already open and bonded, and skipping would
+            # strand it.
+            if (
+                not user_requested
+                and device_data.device_config.poll_requires_pairing_window
+                and not getattr(device_data, "pairing_mode", False)
+                and not getattr(device_data, "forced_transfer", False)
+                and not has_handoff_session(hass, address)
+            ):
+                _LOGGER.debug(
+                    "Skipping scheduled poll for %s (%s): the cuff is not "
+                    "advertising pairing mode or pending data, and this "
+                    "profile needs a fresh bond for every session. Put it in "
+                    "pairing mode (blinking -P-) to read now",
+                    address,
+                    device_data.device_config.model,
+                )
+                if poll_coordinator.data is not None:
+                    return poll_coordinator.data
+                return device_data._finish_update()
+
             session_lock: asyncio.Lock = entry_data["session_lock"]
 
             # Try-acquire only — if another BLE session is in flight (e.g. an

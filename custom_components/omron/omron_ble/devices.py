@@ -285,6 +285,26 @@ class DeviceConfig:
         )
 
     @property
+    def poll_requires_pairing_window(self) -> bool:
+        """Whether a scheduled poll needs the cuff to say a read can work.
+
+        These cuffs drop their side of the bond when the session ends, and
+        refuse to make a new one once they leave pairing mode. A poll fired
+        because the interval elapsed therefore spends a connect, a bond
+        attempt and the session lock to reach a failure that was certain
+        before it started -- and every one of those is a log line that looks
+        like a fault.
+
+        Derived from the bond policy rather than set per profile, so a profile
+        moved to a kept bond stops being gated in the same edit that changes
+        the bonding, and the two cannot drift apart.
+        """
+        return (
+            self.bond_policy == BondPolicy.PER_SESSION
+            and self.host_pairing_mode == HostPairingMode.OS_BONDING
+        )
+
+    @property
     def pair_on_connect(self) -> bool:
         """Bond during connect, before GATT discovery.
 

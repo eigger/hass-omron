@@ -15,6 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .ble_session import (
     omron_poll_ble_telemetry,
     poll_parked_session,
+    request_poll,
     run_post_pairing_poll,
 )
 from .const import DOMAIN
@@ -80,6 +81,12 @@ class OmronRefreshDataButtonEntity(ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle button press to poll device and refresh sensor data."""
+        # Scheduled polls for bond-per-session profiles are gated on the cuff
+        # advertising that a read can work. A person pressing this button
+        # asked for the connect, so it happens even when the gate would
+        # have skipped it. One-shot -- the next scheduled poll is gated
+        # again.
+        request_poll(self.hass, self._entry_id)
         poll_coordinator = self._entry.runtime_data.poll_coordinator
         try:
             await poll_coordinator.async_request_refresh()
