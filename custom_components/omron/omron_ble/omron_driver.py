@@ -39,18 +39,6 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # follow-up service-cache refresh below.
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 
-# End-of-session mirror bytes the official app changes relative to the region it
-# copies (see OmronDeviceSession._write_session_ack_mirrors). The flag offset and
-# value are confirmed on both captured models; the index marker rests on a single
-# BP5465 sample, where the last byte of the mirrored index region went 0x01 -> 0x80.
-_SESSION_ACK_INDEX_MARKER: int = 0x80
-# What that byte held in the capture before the app overwrote it. A live device
-# holding anything else means the mirror is being written from a state the
-# capture never showed, so it is worth saying so out loud.
-_SESSION_ACK_INDEX_SOURCE_EXPECTED: int = 0x01
-_SESSION_ACK_FLAG_OFFSET: int = 4
-_SESSION_ACK_FLAG_VALUE: int = 0x01
-# If the device drops during the post-connect settle (multi-proxy ESPHome
 # setups: connection routed through a proxy that did not bond the device),
 # re-establish to let habluetooth re-score and possibly pick a working proxy.
 # The settle is polled in small steps so a drop is detected immediately instead
@@ -1387,112 +1375,12 @@ class OmronDeviceSession:
             await self._unsubscribe_notify_channels(force=True)
             raise
 
-    async def _write_session_ack_mirrors(self) -> None:
-        """Mirror the session state the official app writes before closing.
-
-        A phone btsnoop of a BP5465 (issue #91, Task 4) and of an HEM-7155T
-        (issue #67) show the app ending *every* session — the first pairing one
-        and every retained-bond poll alike — with two ``01c0`` EEPROM writes
-        immediately before ``080f``. Each one copies a device-owned region into
-        a mirror at a fixed model-specific offset, with a couple of bytes
-        changed::
-
-            read 0x0010 (28B) -> write 0x0058   last byte set to 0x80
-            read 0x0040 (16B) -> write 0x0088   byte[4] 0 -> 1, timestamp = now
-
-        The 16-byte record is the same struct this driver already reads as its
-        EEPROM clock: ``[0:4]`` counter, ``[4]`` flag, ``[8:14]`` timestamp,
-        ``[14:16]`` little-endian ``sum(bytes[0:14]) & 0xFF``. The checksum rule
-        verifies on every sample from both captures, which is why
-        ``_encode_eeprom_time_payload`` can build the payload here unchanged
-        once the flag byte is set.
-
-        This integration has never written either mirror: the only writer in the
-        codebase is the clock sync, and it is gated on more than 60 seconds of
-        drift, which every captured run skipped. So this is an untested
-        variable, not a known fix — the cuff refusing a retained bond with
-        "PIN or Key Missing" may or may not be downstream of an unacknowledged
-        session. Judge it on whether a second and third poll succeed without
-        re-pairing; the first session already succeeds today.
-
-        Both targets are in the mirror region, not the device's own, so a wrong
-        value costs transfer bookkeeping rather than measurement records.
-        Failures here are logged and swallowed: the close command matters more.
-        """
-        cfg = self._config
-        read_addr = cfg.settings_read_address
-        write_addr = cfg.settings_write_address
-        time_range = cfg.settings_time_sync_bytes
-        index_size = int((cfg.index_pointer_layout or {}).get("index_region_byte_size", 0))
-        if read_addr is None or write_addr is None or time_range is None or index_size <= 0:
-            _LOGGER.debug(
-                "Session ack mirrors skipped for %s: profile has no mirror layout",
-                cfg.model,
-            )
-            return
-
-        index_src = await self.read_memory_block(read_addr, index_size)
-        if len(index_src) < index_size:
-            raise ConnectionError(
-                f"Short index read for the session ack mirror: got {len(index_src)}, "
-                f"expected {index_size}"
-            )
-        index_mirror = bytearray(index_src[:index_size])
-        if index_mirror[-1] != _SESSION_ACK_INDEX_SOURCE_EXPECTED:
-            _LOGGER.warning(
-                "Session ack index mirror for %s: source byte %d is 0x%02X, not the "
-                "0x%02X the capture showed before the app wrote 0x%02X. Writing "
-                "0x%02X anyway; if the reconnect still fails this byte is the first "
-                "thing to re-capture.",
-                cfg.model, index_size - 1, index_mirror[-1],
-                _SESSION_ACK_INDEX_SOURCE_EXPECTED, _SESSION_ACK_INDEX_MARKER,
-                _SESSION_ACK_INDEX_MARKER,
-            )
-        index_mirror[-1] = _SESSION_ACK_INDEX_MARKER
-        await self.write_memory_block(write_addr, index_mirror)
-        _LOGGER.debug(
-            "Session ack index mirror for %s: 0x%04X -> 0x%04X (%d bytes) %s",
-            cfg.model, read_addr, write_addr, index_size, bytes(index_mirror).hex(),
-        )
-
-        section_start, section_end = time_range
-        section_size = section_end - section_start
-        record_src = await self.read_memory_block(read_addr + section_start, section_size)
-        if len(record_src) < section_size:
-            raise ConnectionError(
-                f"Short status read for the session ack mirror: got {len(record_src)}, "
-                f"expected {section_size}"
-            )
-        record = bytearray(record_src[:section_size])
-        record[_SESSION_ACK_FLAG_OFFSET] = _SESSION_ACK_FLAG_VALUE
-        payload = _encode_eeprom_time_payload(
-            cfg.resolved_time_sync_layout(), record, dt.datetime.now()
-        )
-        await self.write_memory_block(write_addr + section_start, payload)
-        _LOGGER.debug(
-            "Session ack status mirror for %s: 0x%04X -> 0x%04X (%d bytes) %s",
-            cfg.model,
-            read_addr + section_start,
-            write_addr + section_start,
-            len(payload),
-            bytes(payload).hex(),
-        )
-
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
         if not self._memory_session_active:
             return
 
         try:
-            if self._config.session_ack_mirror_writes:
-                try:
-                    await self._write_session_ack_mirrors()
-                except Exception as exc:
-                    _LOGGER.warning(
-                        "Session ack mirror writes failed for %s (closing anyway): %s",
-                        self.address,
-                        exc,
-                    )
             stop_cmd = bytearray.fromhex("080f000000000007")
             await self._write_command_and_wait_reply(stop_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8f00"):

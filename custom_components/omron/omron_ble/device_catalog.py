@@ -1301,12 +1301,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         **_WLD3_BOND_EXPERIMENT,
-        # This profile alone: BP5465 is the only device under it with a phone
-        # capture that shows the two end-of-session mirror writes and the exact
-        # addresses they land on (issue #91). HEM-7376T1/HEM-7377T1 share the
-        # 0x0058 mirror base and HEM-7380T1 shares the family, but their offsets
-        # are inferred, so they stay off until someone captures one.
-        session_ack_mirror_writes=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
