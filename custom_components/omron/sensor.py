@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import datetime as dt
 from typing import Any
 from .omron_ble import SensorDeviceClass as OmronSensorDeviceClass, SensorUpdate, Units
@@ -218,9 +220,14 @@ async def async_setup_entry(
     duration_coordinator = (
         hass.data[DOMAIN][entry.entry_id].get("duration_coordinator")
     )
+    readout_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("readout_coordinator")
+    )
     extra_entities: list[SensorEntity] = []
     if duration_coordinator is not None:
         extra_entities.append(OmronPollDurationSensorEntity(hass, entry, duration_coordinator))
+    if readout_coordinator is not None:
+        extra_entities.append(OmronLastReadoutSensorEntity(hass, entry, readout_coordinator))
     if extra_entities:
         async_add_entities(extra_entities)
 
@@ -420,6 +427,50 @@ class OmronPollDurationSensorEntity(
     @property
     def native_value(self) -> float | None:
         """Return wall-clock seconds for the last poll attempt (success or failure)."""
+        return self.coordinator.data
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
+
+
+class OmronLastReadoutSensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator["datetime | None"]],
+    SensorEntity,
+):
+    """Diagnostic sensor for when a poll last decoded a record.
+
+    The poll serves cached data instead of failing, so that a cuff which is
+    asleep or out of range -- its normal state between readings -- does not
+    take every entity unavailable. The cost is that a run where nothing got
+    through looks the same from the outside as a quiet one. This is the
+    difference: it only moves when a record was actually decoded.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:cloud-check-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator["datetime | None"],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Last Readout"
+        self._attr_unique_id = f"{model_slug}_{identifier}_last_readout"
+
+    @property
+    def native_value(self) -> "datetime | None":
+        """Return when a record was last decoded, or None if none ever was."""
         return self.coordinator.data
 
     @property
