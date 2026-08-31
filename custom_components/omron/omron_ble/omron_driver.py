@@ -13,7 +13,7 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
-from .const import MODEL_NUMBER_UUID
+from .const import MODEL_NUMBER_UUID, SERVICE_CHANGED_UUID
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # explicit short wait gives the stack a stable starting point before the
 # follow-up service-cache refresh below.
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
-# If the device drops during the post-connect settle (multi-proxy ESPHome
+
 # setups: connection routed through a proxy that did not bond the device),
 # re-establish to let habluetooth re-score and possibly pick a working proxy.
 # The settle is polled in small steps so a drop is detected immediately instead
@@ -52,6 +52,8 @@ _PAIRING_SETTLE_DEFAULT_SEC: float = 1.0
 _PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
 _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
 _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
+# Polling step while waiting for the device to end a session itself.
+_PEER_CLOSE_POLL_STEP_SEC: float = 0.25
 _OS_BOND_REFRESH_DELAY_SEC: float = 0.3
 _OS_BOND_RETRY_DELAY_SEC: float = 0.5
 _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
@@ -98,6 +100,30 @@ def _connection_source(ble_device: BLEDevice) -> str:
     return "unknown"
 
 
+def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
+    """Best-effort identity of the link a connection actually went over.
+
+    ``_connection_source`` reads the BLEDevice, which names the scanner that
+    saw the *advertisement* — not the path the connection took. habluetooth
+    picks that at connect time from whichever proxy scores best, so on a
+    multi-proxy setup the session that bonds and the session that reconnects
+    can land on different radios, and only one of them holds the bond. Issue
+    #91 flags exactly that as the risk in keeping the bond at all.
+
+    Probes the backend because that is the only place the answer exists, and
+    falls back to the advertised source when it does not — the shapes here are
+    private to bleak and bleak-esphome and may change.
+    """
+    backend = getattr(client, "_backend", None)
+    if backend is not None:
+        for attr in ("_source", "source"):
+            if value := getattr(backend, attr, None):
+                return str(value)
+        if path := getattr(backend, "_device_path", None):
+            return str(path)
+    return _connection_source(ble_device)
+
+
 async def _connect_once(
     ble_device: BLEDevice, name: str, *, pair: bool
 ) -> BleakClient:
@@ -129,6 +155,7 @@ async def establish_connection_with_bond_settle(
     *,
     pair_on_connect: bool = False,
     model: str = "",
+    max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
@@ -139,13 +166,13 @@ async def establish_connection_with_bond_settle(
     # Cleared if the backend reports it cannot pair at connect time, so the
     # remaining attempts fall back instead of failing repeatedly.
     pair_this_attempt = pair_on_connect
-    for attempt in range(1, _CONNECT_SETTLE_ATTEMPTS + 1):
+    for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d, "
             "pair_on_connect=%s)",
-            name, model or "?", source, attempt, _CONNECT_SETTLE_ATTEMPTS,
+            name, model or "?", source, attempt, max_attempts,
             pair_this_attempt,
         )
         try:
@@ -172,7 +199,7 @@ async def establish_connection_with_bond_settle(
                     model or "?",
                     source,
                     attempt,
-                    _CONNECT_SETTLE_ATTEMPTS,
+                    max_attempts,
                     exc,
                 )
                 pair_this_attempt = False
@@ -186,11 +213,19 @@ async def establish_connection_with_bond_settle(
             _LOGGER.debug(
                 "Bonded %s via source=%s before service discovery", name, source
             )
+        # The advertised source and the path the connection took are not the
+        # same thing, and for a profile that keeps its bond the difference
+        # decides whether there is a bond to resume: only the radio that
+        # paired holds one. Report both.
+        connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
-            "BLE link established to %s via source=%s (is_connected=%s); settling "
-            "up to %.1fs for bonding/encryption before first GATT op",
+            "BLE link established to %s (advertised by source=%s, connected via "
+            "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
+            "for bonding/encryption before first GATT op",
             name,
             source,
+            connected_via,
+            pair_this_attempt,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
@@ -215,7 +250,7 @@ async def establish_connection_with_bond_settle(
             "%s dropped ~%.2fs into the post-connect settle via source=%s "
             "(attempt %d/%d) — retrying",
             name, waited, source,
-            attempt, _CONNECT_SETTLE_ATTEMPTS,
+            attempt, max_attempts,
         )
         try:
             await client.disconnect()
@@ -224,7 +259,7 @@ async def establish_connection_with_bond_settle(
 
     raise BleakError(
         f"{name} dropped during the post-connect settle on all "
-        f"{_CONNECT_SETTLE_ATTEMPTS} attempt(s) (last source={last_source})"
+        f"{max_attempts} attempt(s) (last source={last_source})"
     )
 
 
@@ -571,9 +606,18 @@ class OmronDeviceSession:
     (OS-bonding) and multi-channel (classic pairing) profiles.
     """
 
-    def __init__(self, ble_device: BLEDevice, device_config: DeviceConfig) -> None:
+    def __init__(
+        self,
+        ble_device: BLEDevice,
+        device_config: DeviceConfig,
+        *,
+        pairing_session: bool = False,
+    ) -> None:
         self._ble_device = ble_device
         self._config = device_config
+        # Only a session that exists to create a bond sends the connect-time
+        # pair request on profiles that opt out of it for polls.
+        self._pairing_session = pairing_session
         self._init_session_state(client=None, owns_connection=True)
 
     def _init_session_state(
@@ -603,7 +647,11 @@ class OmronDeviceSession:
 
     @classmethod
     def adopt(
-        cls, client: BleakClient, device_config: DeviceConfig
+        cls,
+        client: BleakClient,
+        device_config: DeviceConfig,
+        *,
+        pairing_session: bool = False,
     ) -> "OmronDeviceSession":
         """Wrap an already-open client to run ops over a connection owned elsewhere.
 
@@ -612,6 +660,8 @@ class OmronDeviceSession:
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
         session._config = device_config
+        # __init__ is bypassed, so this has to be set by hand.
+        session._pairing_session = pairing_session
         session._init_session_state(client=client, owns_connection=False)
         return session
 
@@ -654,8 +704,11 @@ class OmronDeviceSession:
             self._client = await establish_connection_with_bond_settle(
                 self._ble_device,
                 self.address,
-                pair_on_connect=self._config.pair_on_connect,
+                pair_on_connect=self._config.pair_on_connect_for(
+                    pairing_session=self._pairing_session
+                ),
                 model=self._config.model,
+                max_attempts=self._config.connect_settle_attempts,
             )
         except BaseException:
             # A half-established bond is worse than none for PER_SESSION
@@ -805,14 +858,51 @@ class OmronDeviceSession:
                             addr,
                         )
             if self._owns_connection and client.is_connected:
-                await client.disconnect()
-                disconnected = True
+                await self._await_peer_close(client, addr)
+                if client.is_connected:
+                    await client.disconnect()
+                    disconnected = True
         except Exception:
             pass
         finally:
             self._client = None
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
+
+    async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
+        """Stay idle at the end of a session so the device can end it itself.
+
+        A phone HCI capture of a BP5465 (issue #91) shows the official app
+        going quiet after its last read and the cuff dropping the link about
+        three seconds later — HCI 0x13, remote user terminated. This
+        integration instead disconnects in the same millisecond as the final
+        notification, so every session ends 0x16, closed by us.
+
+        On a cuff that finalises a transfer at its own session end, that
+        difference costs whatever the session was meant to commit. Two
+        symptoms fit: the unread-records counter that only ever grows across
+        sessions whose data was read successfully, and the bond the cuff does
+        not honour on the next connection even though both sides completed
+        key distribution.
+
+        No-op unless the profile asks for it.
+        """
+        window = self._config.peer_closes_session_sec
+        if window <= 0:
+            return
+        waited = 0.0
+        while waited < window and client.is_connected:
+            await asyncio.sleep(_PEER_CLOSE_POLL_STEP_SEC)
+            waited += _PEER_CLOSE_POLL_STEP_SEC
+        if client.is_connected:
+            _LOGGER.debug(
+                "%s still up %.1fs after the session ended; closing it here",
+                addr, waited,
+            )
+        else:
+            _LOGGER.debug(
+                "%s ended the session itself after %.2fs", addr, waited
+            )
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()
@@ -927,8 +1017,20 @@ class OmronDeviceSession:
         if last_exc is not None:
             raise last_exc
 
-    async def _unsubscribe_notify_channels(self) -> None:
-        """Disable notifications on all RX channels."""
+    async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
+        """Disable notifications on all RX channels.
+
+        ``force`` overrides ``keep_notify_subscriptions`` for the paths that
+        have to release a subscription to make progress — a failed session
+        teardown and ``reset_session_state``. The normal session close does
+        not, so profiles that ask leave the CCCD enabled the way the app does.
+        """
+        if self._config.keep_notify_subscriptions and not force:
+            _LOGGER.debug(
+                "RX notify left enabled for %s (profile keeps its subscriptions)",
+                self._config.model,
+            )
+            return
         for uuid in self._config.rx_channel_uuids:
             try:
                 await self._client.stop_notify(uuid)
@@ -945,7 +1047,7 @@ class OmronDeviceSession:
         best-effort; failures are silently ignored so the caller can proceed with
         the next attempt regardless.
         """
-        await self._unsubscribe_notify_channels()
+        await self._unsubscribe_notify_channels(force=True)
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
@@ -1270,7 +1372,7 @@ class OmronDeviceSession:
             self._memory_session_active = False
             self._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
-            await self._unsubscribe_notify_channels()
+            await self._unsubscribe_notify_channels(force=True)
             raise
 
     async def close_memory_session(self) -> None:
@@ -1403,7 +1505,9 @@ class OmronDeviceSession:
 
         # Stateless token handshake (0x11 / 0x91)
         if self._config.unlock_mode == UnlockMode.TOKEN_KEY:
-            await self._token_unlock()
+            await self._token_unlock(
+                keep_notify=self._config.keep_notify_subscriptions
+            )
             return
 
         unlock_key = key or PAIRING_KEY
@@ -1509,11 +1613,21 @@ class OmronDeviceSession:
         await self._ensure_services_cache()
 
         # Official app: RX notify CCCD (h=33) before unlock CCCD (h=28).
+        #
+        # When the subscription is kept for the life of the link, prime it with
+        # the real handler rather than a dead callback: the memory session then
+        # inherits it instead of calling start_notify on an already-enabled
+        # CCCD, which the backends reject and recover from by writing the CCCD
+        # back to 0x0000 first — the very churn keep_notify exists to avoid.
         try:
+            self._rebuild_notify_handle_index_map()
             await self._client.start_notify(
-                self._config.rx_channel_uuids[0], lambda _h, _d: None
+                self._config.rx_channel_uuids[0],
+                self._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
             )
             rx_notify_primed = True
+            if keep_notify:
+                self._notify_subscribed = True
             await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         except Exception as exc:
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
@@ -1948,6 +2062,42 @@ class OmronDeviceSession:
 
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
+    async def subscribe_service_changed(self) -> bool:
+        """Subscribe to Service Changed, as the official app does when pairing.
+
+        A phone HCI capture of the same cuff family (issue #67) shows the app
+        writing 0x0002 to handle 0x000B — the Service Changed client
+        configuration, the sole characteristic of the Generic Attribute
+        service — in both of its pairing sessions and in neither of its
+        reconnects. This integration has never written it.
+
+        That configuration is one the spec requires a peripheral to keep per
+        bonded client, so a client that writes nothing may leave it with
+        nothing worth committing. The cuff answering a resumed connection with
+        "PIN or Key Missing" while both sides completed key distribution is
+        what that would look like.
+
+        Best effort: a device without the characteristic, or a backend that
+        refuses the subscribe, must not fail the pairing.
+        """
+        def _on_service_changed(_handle: int, data: bytearray) -> None:
+            _LOGGER.debug(
+                "Service Changed indication from %s: %s", self.address, _hex(data)
+            )
+
+        try:
+            await self._client.start_notify(
+                SERVICE_CHANGED_UUID, _on_service_changed
+            )
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not subscribe to Service Changed on %s (continuing): %s",
+                self.address, exc,
+            )
+            return False
+        _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
+        return True
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program pairing credentials according to ``host_pairing_mode``."""

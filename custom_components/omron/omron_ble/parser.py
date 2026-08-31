@@ -1310,7 +1310,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         ``async_poll`` adopts this link instead of opening a new one; a caller
         that does not park it still owns the link and must close it.
         """
-        session = OmronDeviceSession(ble_device, self._device_config)
+        session = OmronDeviceSession(
+            ble_device, self._device_config, pairing_session=True
+        )
         try:
             await session.connect()
             if not await session.verify_parent_service():

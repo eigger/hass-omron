@@ -28,26 +28,44 @@ __all__ = [
 
 
 async def async_fetch_device_model_number(
-    ble_device: BLEDevice,
-) -> str | None:
-    """Connect to the device, read the model number, and disconnect."""
+    ble_device: BLEDevice, *, keep_session_open: bool = False
+) -> tuple[str | None, OmronDeviceSession | None]:
+    """Read the model number, returning the session when asked to keep it open.
+
+    The link is not incidental. WLD3.0 cuffs raise an SMP Security Request a
+    few tens of milliseconds after connect, so this short read is where the
+    bond actually gets made — and proxy traces in issue #91 show it being cut
+    off mid key distribution: the cuff's Encryption Information (the LTK)
+    arrives, the Master Identification carrying EDIV/Rand does not, and this
+    function disconnects with SMP still in BOND_PENDING. LE legacy pairing
+    needs all three to restart encryption later, so the stored bond is
+    unusable and the first ordinary poll fails to resume with SMP_ENC_FAIL.
+
+    ``keep_session_open`` hands the caller the live session instead, so the
+    pairing that follows continues on the link that bonded. The caller owns it
+    from then on, including closing it if the flow does not get that far.
+    """
     # Model is unknown here; a placeholder profile is enough because
     # read_model_number() only uses the standard DIS characteristic.
+    session = OmronDeviceSession(
+        ble_device, get_device_config(DEFAULT_DEVICE_MODEL)
+    )
     try:
-        async with OmronDeviceSession(
-            ble_device, get_device_config(DEFAULT_DEVICE_MODEL)
-        ) as session:
-            try:
-                model_num = await session.read_model_number()
-                if model_num:
-                    _LOGGER.debug("Fetched Model Number during setup: %s", model_num)
-                return model_num
-            except Exception as exc:
-                _LOGGER.debug("Error reading Model Number: %s", exc)
-                return None
+        await session.connect()
     except Exception as exc:
         _LOGGER.debug("Could not connect to read Model Number: %s", exc)
-        return None
+        return None, None
+    model_num: str | None = None
+    try:
+        model_num = await session.read_model_number()
+        if model_num:
+            _LOGGER.debug("Fetched Model Number during setup: %s", model_num)
+    except Exception as exc:
+        _LOGGER.debug("Error reading Model Number: %s", exc)
+    if keep_session_open:
+        return model_num, session
+    await session.aclose()
+    return model_num, None
 
 
 async def async_pair_and_sync_device(
@@ -66,6 +84,9 @@ async def async_pair_and_sync_device(
         )
 
     await session.pair()
+    if session.config.subscribe_service_changed:
+        # Before any vendor traffic, matching the order in the app's capture.
+        await session.subscribe_service_changed()
     await async_sync_device_time(
         session.client,
         model,

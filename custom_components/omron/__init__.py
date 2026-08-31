@@ -13,6 +13,7 @@ from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 from .ble_session import (
     adopt_handoff_session,
     discard_handoff_session,
+    discard_probe_session,
     omron_poll_ble_telemetry,
     poll_parked_session,
     run_post_pairing_poll,
@@ -480,4 +481,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bo
     address = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("address")
     if address:
         await discard_handoff_session(hass, address)
+        # Same for a model-number probe whose flow never reached pairing.
+        await discard_probe_session(hass, address)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

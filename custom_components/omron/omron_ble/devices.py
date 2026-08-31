@@ -136,6 +136,21 @@ class DeviceConfig:
     os_bond_once: bool = False
     # Bond lifetime; see BondPolicy. Only meaningful for OS_BONDING profiles.
     bond_policy: BondPolicy = BondPolicy.REUSE
+    # Send the connect-time pair request only where a bond has to be created,
+    # and let the peripheral drive security on every other connection. See
+    # ``pair_on_connect_for``; ignored under BondPolicy.PER_SESSION.
+    pair_only_when_pairing: bool = False
+    # Connection attempts per session before giving up (see
+    # ``establish_connection_with_bond_settle``). Lowered on profiles where a
+    # failed attempt costs the stored bond, so one poll is one observation.
+    connect_settle_attempts: int = 3
+    # Seconds to stay idle at the end of a session, letting the device drop the
+    # link itself rather than closing it here. Zero keeps the immediate close.
+    # See ``OmronDeviceSession._await_peer_close``.
+    peer_closes_session_sec: float = 0.0
+    # Subscribe to Service Changed while pairing, the way the official app does.
+    # See ``OmronDeviceSession.subscribe_service_changed``.
+    subscribe_service_changed: bool = False
 
     # EEPROM layout
     endianness: Endianness = Endianness.BIG
@@ -157,6 +172,27 @@ class DeviceConfig:
     # - eeprom_time_hem6401_prefix: [0:6] = [year-2000, month, day, hour, minute, second] in 16-byte block
     time_sync_layout: TimeSyncLayout | None = None
     index_pointer_layout: dict[str, Any] | None = None
+
+    # Enable each notify CCCD once and leave it enabled for the life of the
+    # link, the way the official app does. Off by default, because dropping the
+    # subscriptions is what every other profile has always done.
+    #
+    # Across both phone captures — issues #91 and #67, four sessions, pairing
+    # and retained-bond alike — the app writes 0x0100 to the vendor CCCDs and
+    # 0x0002 to Service Changed, and **never writes 0x0000 to any CCCD**. It
+    # just disconnects. This integration writes six CCCD values per session:
+    # the token unlock enables both and then disables both, the memory session
+    # re-enables the RX channel, and the session close disables it again — as
+    # the last GATT operation before the link drops.
+    #
+    # The spec has a peripheral keep the CCCD configuration per bonded client
+    # (Vol 3 Part G, 3.3.3.3), and small stacks commonly store it inside the
+    # bond record. That makes this the one thing we do to persistent per-bond
+    # state that the app never does. ``_secure_unlock`` already avoids the
+    # churn on its own path, with a comment recording that this device family
+    # rejects a pairing request (0xff 0x26) when the unlock CCCD is dropped and
+    # re-added; the token-key path never got the same treatment.
+    keep_notify_subscriptions: bool = False
 
     # Record layout key -> parser in parse_record()
     record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14
@@ -308,6 +344,24 @@ class DeviceConfig:
         if self.bond_policy == BondPolicy.PER_SESSION:
             return True
         return self.connect_type in (ConnectType.WLD3_0, ConnectType.WLD4_0)
+
+    def pair_on_connect_for(self, *, pairing_session: bool) -> bool:
+        """``pair_on_connect`` for one session, honouring ``pair_only_when_pairing``.
+
+        A connect-time pair request is not free on ESP32 proxies: when it does
+        not complete, ESP-IDF treats the failure as an authentication failure
+        and deletes the stored bond from flash (``btc_dm_ble_auth_cmpl_evt``
+        routes SMP_CONN_TOUT through its default branch). One such failure
+        costs the credential permanently, so a profile can ask to send the
+        request only where a bond has to be created.
+        """
+        if not self.pair_on_connect:
+            return False
+        # PER_SESSION drops the bond on close, so every connect has to remake
+        # it; opting out here would leave the next poll with nothing.
+        if self.bond_policy == BondPolicy.PER_SESSION:
+            return True
+        return pairing_session or not self.pair_only_when_pairing
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""

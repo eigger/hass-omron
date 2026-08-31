@@ -11,6 +11,10 @@ FIRMWARE_REVISION_UUID = "00002a26-0000-1000-8000-00805f9b34fb"
 HARDWARE_REVISION_UUID = "00002a27-0000-1000-8000-00805f9b34fb"
 MANUFACTURER_NAME_UUID = "00002a29-0000-1000-8000-00805f9b34fb"
 MODEL_NUMBER_UUID = "00002a24-0000-1000-8000-00805f9b34fb"
+# Service Changed, the only characteristic of the Generic Attribute service.
+# Indicate-only, and its client configuration is one the peer has to keep per
+# bonded client — see OmronDeviceSession.subscribe_service_changed.
+SERVICE_CHANGED_UUID = "00002a05-0000-1000-8000-00805f9b34fb"
 LOCAL_TIME_INFO_UUID = "00002a0f-0000-1000-8000-00805f9b34fb"
 
 BP_MEASUREMENT_CHAR_UUID = "00002a35-0000-1000-8000-00805f9b34fb"

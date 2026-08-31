@@ -23,6 +23,115 @@ from .devices import (
 # is the only change needed, every dependent behaviour is derived from it.
 _WLD3_BOND_POLICY = BondPolicy.PER_SESSION
 
+# Whether WLD3.0/WLD4.0 profiles leave their notify CCCDs enabled at session
+# close instead of writing 0x0000 to them.
+#
+# Counted across every ATT write in both phone captures we have -- issue #91
+# (BP5465) and issue #67 (HEM-7155T), four sessions, pairing and retained-bond
+# alike -- the official app writes 0x0100 to the vendor CCCDs and 0x0002 to
+# Service Changed, and never writes 0x0000 to any CCCD. It just disconnects.
+# Disables: zero. This integration writes six CCCD values per session, the last
+# of them after the session-close command, as the final GATT operation before
+# the link drops.
+#
+# The spec has a peripheral keep CCCD configuration per bonded client (Vol 3
+# Part G, 3.3.3.3) and small stacks commonly store it inside the bond record,
+# which would make that last write the one thing we do to persistent per-bond
+# state that the app never does.
+#
+# Family-wide rather than per profile because it only ever removes a write, and
+# because the evidence spans two device families rather than one. It is not on
+# its own a fix for a profile still on PER_SESSION -- that path deletes the bond
+# deliberately -- but it stops the divergence either way.
+_WLD_KEEP_NOTIFY_SUBSCRIPTIONS = True
+
+# Bond strategy for HEM-7386T1 alone, split out of _WLD3_BOND_POLICY to test
+# one device without moving the rest of the WLD3.0 family.
+#
+# A phone HCI capture of BP5465 (HEM-7382T1-AZAZ, under this profile) reported
+# in issue #91 shows the official app doing no pairing at all on a normal sync:
+# the cuff raises an SMP Security Request ~53 ms after connect, the phone
+# answers with LE Start Encryption from the bond it already holds, and the data
+# then flows over the same vendor path this integration uses — writes on GATT
+# handle 0x001E (db5b55e0) with notifications on 0x0020 (49123040). No pairing
+# request, no key distribution.
+#
+# PER_SESSION removes exactly that credential after every session, which would
+# leave the next normal-mode connection with nothing to resume encryption from.
+#
+# Not a re-run of the WLD4.0 experiment: that one moved HEM-7188T1 and came
+# back negative, but 7188T1 speaks the application-layer secure session and
+# this profile does not. And this profile has never been tried on REUSE *with*
+# pair_on_connect — it kept its bond via os_bond_once until 2.6.0, in builds
+# where pair_on_connect did not exist yet.
+#
+# On a proxy, pair_on_connect stays true and is what should resume encryption:
+# ESPHome's pair request on an already-bonded peer starts encryption from the
+# stored key rather than re-pairing, which is the phone's behaviour above. The
+# open risk is multi-proxy setups, where the reconnect has to reach the proxy
+# that owns the bond — hence the connect-path logging that ships with this.
+_WLD3_EXPERIMENT_BOND_POLICY = BondPolicy.REUSE
+
+# Send the connect-time pair request only when a bond has to be created.
+#
+# On an ESP32 proxy a pair request that does not complete is not free: ESP-IDF
+# routes SMP_CONN_TOUT (102) through the default branch of
+# ``btc_dm_ble_auth_cmpl_evt`` and deletes the stored bond from flash. Proxy
+# logs from issue #91 show a bond present right after pairing
+# ("bonded=YES (1 bond(s) stored)") and gone minutes later, after which every
+# connection re-pairs from scratch and the cuff — no longer in pairing mode —
+# drops the link.
+#
+# So one failed request costs the credential permanently. Polls now connect
+# plain and let the cuff raise its own Security Request, which is what the
+# phone capture shows the official app doing: Security Request 16-36 ms after
+# connect, then encryption resumed from the retained bond, no pairing.
+#
+# The attempt count comes down with it: with the bond at stake, one poll
+# should be one observation rather than three chances to lose it.
+_WLD3_EXPERIMENT_PAIR_ONLY_WHEN_PAIRING = True
+
+# Let the cuff end its own session instead of hanging up on it.
+#
+# A phone HCI capture of BP5465 in issue #91 shows the official app going
+# quiet after its last read and the cuff dropping the link about three
+# seconds later (HCI 0x13, remote user terminated). This integration
+# disconnected in the same millisecond as the final notification, so every
+# session ended 0x16 - closed by us.
+#
+# Two symptoms fit a cuff that finalises a transfer at its own session end:
+# the unread-records counter that only grows across sessions whose data was
+# read fine (1 -> 4 over the 24 August captures), and the bond it does not
+# honour on the next connection even though both sides now complete key
+# distribution. Five seconds covers the phone's three with margin.
+_WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC = 5.0
+
+# Subscribe to Service Changed while pairing, the way the official app does.
+#
+# The phone capture in issue #67 (same WLD3.0 profile family) writes 0x0002 to
+# handle 0x000B in both of its pairing sessions and in neither of its
+# reconnects. The capture's own service discovery places that handle in the
+# Generic Attribute service (0x0008-0x000B, uuid 0x1801), whose only
+# characteristic is Service Changed - so the write is that characteristic's
+# client configuration, enabling indications.
+#
+# The spec has a peripheral keep that configuration per bonded client. A
+# client that writes none may leave it with nothing worth committing, which
+# is what a cuff refusing a resumed connection ("PIN or Key Missing") after a
+# complete key distribution looks like.
+_WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED = True
+
+# The settings above as one set, so the profiles under test cannot drift apart.
+# Spread into a profile with ``**_WLD3_BOND_EXPERIMENT``; every other profile
+# keeps _WLD3_BOND_POLICY and the dataclass defaults.
+_WLD3_BOND_EXPERIMENT = {
+    "bond_policy": _WLD3_EXPERIMENT_BOND_POLICY,
+    "pair_only_when_pairing": _WLD3_EXPERIMENT_PAIR_ONLY_WHEN_PAIRING,
+    "connect_settle_attempts": 1,
+    "peer_closes_session_sec": _WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC,
+    "subscribe_service_changed": _WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED,
+}
+
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
     "rx_channel_uuids": ["49123040-aee8-11e1-a74d-0002a5d5c51b"],
@@ -869,6 +978,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7155T-MW3",
         # Modern-fe4a-firmware HEM-7155T_ESL ("X4 Smart"); WLD3.0 like 7380T1.
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1041,6 +1151,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7191T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1072,6 +1183,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7196T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1106,8 +1218,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        # Same protocol family as HEM-7386T1 and the same reported symptom
+        # (issue #20), so it runs the same experiment rather than a variant.
+        **_WLD3_BOND_EXPERIMENT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
@@ -1141,6 +1256,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7376T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1176,6 +1292,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7377T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
@@ -1208,8 +1325,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        bond_policy=_WLD3_BOND_POLICY,
+        **_WLD3_BOND_EXPERIMENT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
@@ -1252,6 +1370,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
         unlock_mode=UnlockMode.TOKEN_KEY,
         bond_policy=_WLD3_BOND_POLICY,
         endianness=Endianness.LITTLE,
