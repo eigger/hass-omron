@@ -29,7 +29,7 @@ from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from datetime import timedelta
+from datetime import datetime, timedelta
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .const import (
     CONF_DEVICE_MODEL,
@@ -342,10 +342,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         _LOGGER,
         name=f"{DOMAIN}_duration_{address}",
     )
+    readout_coordinator = DataUpdateCoordinator[datetime | None](
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_readout_{address}",
+    )
     connection_coordinator.async_set_updated_data(False)
     duration_coordinator.async_set_updated_data(None)
+    readout_coordinator.async_set_updated_data(None)
     hass.data[DOMAIN][entry.entry_id]["connection_coordinator"] = connection_coordinator
     hass.data[DOMAIN][entry.entry_id]["duration_coordinator"] = duration_coordinator
+    hass.data[DOMAIN][entry.entry_id]["readout_coordinator"] = readout_coordinator
 
     async def _async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
         entry_data = hass.data[DOMAIN][entry.entry_id]
@@ -391,6 +398,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                         result = await coordinator.device_data.async_poll(
                             device, preconnected_session=preconnected_session
                         )
+                readout_coordinator.async_set_updated_data(
+                    coordinator.device_data.last_readout_at
+                )
                 prev_data = poll_coordinator.data
                 if prev_data is not None:
                     result = _merge_poll_sensor_update(prev_data, result)

@@ -142,6 +142,7 @@ _MODERN_OS_BONDING_BASE = {
 CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-6320T": DeviceConfig(
         model="HEM-6320T",
+        connect_type=ConnectType.WLB1_0,
         endianness=Endianness.BIG,
         user_start_addresses=[0x0370],
         per_user_records_count=[100],
@@ -170,6 +171,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6321T": DeviceConfig(
         model="HEM-6321T",
+        connect_type=ConnectType.WLB1_0,
         endianness=Endianness.BIG,
         user_start_addresses=[0x0370, 0x08E8],
         per_user_records_count=[100, 100],
@@ -196,6 +198,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6401T": DeviceConfig(
         model="HEM-6401T",
+        connect_type=ConnectType.WLB1_0,
         endianness=Endianness.LITTLE,
         # HEM-6401T exposes multiple data types; only the BP data_5 area is mapped here.
         user_start_addresses=[0x1350],
@@ -222,6 +225,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6410T": DeviceConfig(
         model="HEM-6410T",
+        connect_type=ConnectType.WLB1_0,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x5590],
         per_user_records_count=[100],
@@ -249,6 +253,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7320T": DeviceConfig(
         model="HEM-7320T",
+        connect_type=ConnectType.WLB1_0,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02AC, 0x05F4],
         per_user_records_count=[60, 60],
@@ -396,6 +401,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7600T": DeviceConfig(
         model="HEM-7600T",
+        connect_type=ConnectType.WLB1_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02AC],
@@ -509,6 +515,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7325T": DeviceConfig(
         model="HEM-7325T",
+        connect_type=ConnectType.WLB1_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02AC],
@@ -531,6 +538,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-6232T": DeviceConfig(
         model="HEM-6232T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8, 0x0860],
@@ -590,6 +598,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7530T": DeviceConfig(
         model="HEM-7530T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
@@ -631,6 +640,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # Single-user 30-slot variant of the 7530T EEPROM family (0x260/0x2E8).
     "HEM-6161T": DeviceConfig(
         model="HEM-6161T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
@@ -661,6 +671,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # Single-user 60-slot variant of the 7530T EEPROM family (0x260/0x2E8).
     "HEM-7136T": DeviceConfig(
         model="HEM-7136T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
@@ -690,6 +701,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # Single-user 100-slot variant of the 7530T EEPROM family (0x260/0x2E8).
     "HEM-6231T": DeviceConfig(
         model="HEM-6231T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
@@ -716,6 +728,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # Single-user 90-slot variant of the 7530T EEPROM family (0x260/0x2E8).
     "HEM-6231T_Z": DeviceConfig(
         model="HEM-6231T_Z",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02E8],
@@ -739,6 +752,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7153JT: same layout as HEM-7150T but has 30 record slots
     "HEM-7153JT": DeviceConfig(
         model="HEM-7153JT",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
@@ -764,6 +778,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7150T": DeviceConfig(
         model="HEM-7150T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
@@ -796,6 +811,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7157T / HEM-7158T: same layout as HEM-7150T but has 100 record slots
     "HEM-7157T": DeviceConfig(
         model="HEM-7157T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
@@ -824,6 +840,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7151T: same layout as HEM-7150T but has 80 record slots
     "HEM-7151T": DeviceConfig(
         model="HEM-7151T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098],
@@ -1046,6 +1063,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     "HEM-7342T": DeviceConfig(
         model="HEM-7342T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x06D8],
@@ -1087,16 +1105,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7347T2-AJC32",
             "HEM-7347T2-AJE32",
             "HEM-7349T_ABR",
-            "HEM-7361T-ALRU",
-            "HEM-7361T-AP",
-            "HEM-7361T-D",
-            "HEM-7361T-EBK",
-            "HEM-7361T1-BS",
-            "HEM-7361T_ESL",
         ),
     ),
     "HEM-7361T": DeviceConfig(
         model="HEM-7361T",
+        connect_type=ConnectType.WLS3_0,
         aggressive_gatt_timing=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x0098, 0x06D8],
@@ -1117,6 +1130,20 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
+        equivalent_model_ids=(
+            # These all used to sit on the HEM-7342T profile.  The two profiles
+            # carry identical settings today, so nothing changes behaviourally,
+            # but HEM-7361T is an AFib model and carries extra AFib/validity
+            # fields in the record (byte 12 bits 1-2) that HEM-7342T does not
+            # have — decoding those later requires them to resolve here.
+            # HEM-7361T1-BS shares the HEM-7361T memory map exactly.
+            "HEM-7361T-ALRU",
+            "HEM-7361T-AP",
+            "HEM-7361T-D",
+            "HEM-7361T-EBK",
+            "HEM-7361T1-BS",
+            "HEM-7361T_ESL",
+        ),
     ),
     # HEM-7191T1 family ("M3 Comfort AFib" / "X3 Comfort AFib") —
     # 1-user, 60 records (data_1=0x01C4) on WLD4.0 transport with token-key unlock.
@@ -1326,6 +1353,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7382T1-AZAZ",
             "HEM-7386T1-AJF3",
             "HEM-7388T1-AJF3",
+            # The GATT Model Number String this cuff answers with; US retail
+            # cartons carry the same name (issue #91).
+            "BP5465",
         ),
     ),
     # HEM-7188T1 / HEM-7183T1 family ("X2+ Connect" / "M2+" etc.) — dedicated single-user profile

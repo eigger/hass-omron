@@ -448,6 +448,15 @@ def get_supported_model_stats() -> dict[str, int]:
 _HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
 
 
+def _exact_catalog_model_id(token: str) -> str | None:
+    """Catalog model id for an exact name, ignoring case and inner spaces."""
+    supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
+    for cand in (token, token.upper(), token.replace(" ", "").upper()):
+        if cand in supported:
+            return cand
+    return None
+
+
 def infer_model_id_from_local_name(local_name: str | None) -> str | None:
     """Return a catalog model id if the BLE local name embeds a known HEM-* code.
 
@@ -457,9 +466,15 @@ def infer_model_id_from_local_name(local_name: str | None) -> str | None:
     """
     if not local_name or not str(local_name).strip():
         return None
-    match = _HEM_MODEL_CODE_RE.search(str(local_name).strip())
+    name = str(local_name).strip()
+    match = _HEM_MODEL_CODE_RE.search(name)
     if not match:
-        return None
+        # The config flow also feeds this the GATT Model Number String, which is
+        # a different namespace: a US retail cuff answers with its carton name,
+        # like the BP5465 in issue #91, and no HEM-* code appears anywhere in
+        # it. Fall back to an exact catalog id so a name that is already one
+        # resolves; anything else still infers nothing.
+        return _exact_catalog_model_id(name)
     token = match.group(1).strip()
     candidates = {
         token,

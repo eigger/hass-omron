@@ -76,6 +76,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
+        self._last_readout_at: dt.datetime | None = None
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -827,6 +828,11 @@ class OmronBluetoothDeviceData(BluetoothData):
             except Exception:
                 pass
 
+    @property
+    def last_readout_at(self) -> dt.datetime | None:
+        """When a poll last decoded a record, or None if none ever has."""
+        return self._last_readout_at
+
     def _setup_device_info(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Set up device metadata from advertisement."""
         model = self._device_config.model
@@ -954,6 +960,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                     if "user" not in merged:
                         merged["user"] = 1
                     record = merged
+
+        # Reached only once a record has been decoded, so it separates "the
+        # cuff had nothing new" from "nothing got through". The poll swallows
+        # its own failures by design -- an asleep cuff must not flip every
+        # entity to unavailable -- which leaves a run where the memory session
+        # never opened looking exactly like a quiet one (issue #91).
+        if latest_by_user or record:
+            self._last_readout_at = dt.datetime.now(dt.timezone.utc)
 
         if multi_user_mode:
             if latest_by_user:
