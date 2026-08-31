@@ -37,6 +37,10 @@ _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 # sporadic "Characteristic not found" or silently-dropped CCCD writes.  An
 # explicit short wait gives the stack a stable starting point before the
 # follow-up service-cache refresh below.
+# The device answers 0x8f00 for the session-close ack and for a rejected
+# command alike, so it is accepted whatever was asked for.
+END_OF_TRANSMISSION_PACKET_TYPE = bytes([0x8F, 0x00])
+
 _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 
 # setups: connection routed through a proxy that did not bond the device),
@@ -630,6 +634,7 @@ class OmronDeviceSession:
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
         self._expected_reply_packet_type: bytes | None = None
+        self._expected_reply_frame_head: bytes | None = None
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
@@ -1053,6 +1058,7 @@ class OmronDeviceSession:
         self._memory_session_active = False
         self._channel_fragments = [None] * 4
         self._expected_reply_packet_type = None
+        self._expected_reply_frame_head = None
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
 
@@ -1155,19 +1161,40 @@ class OmronDeviceSession:
         memory_address = bytes(frame_bytes[3:5])
         expected_data_len = frame_bytes[5]
 
-        # If a specific reply packet type is expected, discard late or unrelated frames,
-        # but always accept 0x8f00 (end-of-transmission / device error frame).
-        if (
-            self._expected_reply_packet_type is not None
-            and packet_type != self._expected_reply_packet_type
-            and packet_type != b"\x8f\x00"
-        ):
-            _LOGGER.debug(
-                "Ignoring unexpected or late reply packet type %s (expected %s)",
-                _hex(packet_type),
-                _hex(self._expected_reply_packet_type),
-            )
-            return
+        # If a specific reply is expected, discard late or unrelated frames, but
+        # always accept 0x8f00 (end-of-transmission / device error frame).
+        #
+        # Type alone cannot tell replies apart: every memory read answers 0x8100
+        # and only the address differs. A late reply to the previous command used
+        # to pass this gate, satisfy the wait, and fail the address check in
+        # read_memory_block afterwards -- by which point the wait was spent, the
+        # real reply arrived with nobody listening, and every following command
+        # consumed the one before it. The address and declared length come
+        # straight out of the command in flight, so a stale frame is dropped here
+        # and the wait continues until the right one lands or the timeout fires.
+        if packet_type != END_OF_TRANSMISSION_PACKET_TYPE:
+            if (
+                self._expected_reply_packet_type is not None
+                and packet_type != self._expected_reply_packet_type
+            ):
+                _LOGGER.debug(
+                    "Ignoring unexpected or late reply packet type %s (expected %s)",
+                    _hex(packet_type),
+                    _hex(self._expected_reply_packet_type),
+                )
+                return
+            head = bytes(frame_bytes[1:6])
+            if (
+                self._expected_reply_frame_head is not None
+                and head != self._expected_reply_frame_head
+            ):
+                _LOGGER.debug(
+                    "Ignoring a late reply meant for another request: got %s, "
+                    "waiting for %s",
+                    _hex(head),
+                    _hex(self._expected_reply_frame_head),
+                )
+                return
 
         self._last_reply_packet_type = packet_type
         self._last_reply_memory_address = memory_address
@@ -1202,6 +1229,14 @@ class OmronDeviceSession:
             self._expected_reply_packet_type = bytes([command[1] | 0x80, command[2]])
         else:
             self._expected_reply_packet_type = None
+        # type(2) + address(2) + declared length(1), all of which a reply echoes
+        # from the command that asked for it.
+        if len(command) >= 6:
+            self._expected_reply_frame_head = (
+                bytes([command[1] | 0x80]) + bytes(command[2:6])
+            )
+        else:
+            self._expected_reply_frame_head = None
 
         if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
             try:
@@ -1316,6 +1351,7 @@ class OmronDeviceSession:
             )
         finally:
             self._expected_reply_packet_type = None
+            self._expected_reply_frame_head = None
 
     @property
     def memory_session_active(self) -> bool:
