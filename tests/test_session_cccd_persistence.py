@@ -20,7 +20,7 @@
 본드된 클라이언트별로 보존하게 하고, 작은 스택은 그것을 본드 레코드에 함께
 담는 경우가 흔하다.
 """
-import pytest
+import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
@@ -96,19 +96,17 @@ def _release_target(model: str) -> _FakeSession:
     return target
 
 
-@pytest.mark.asyncio
-async def test_the_normal_close_leaves_the_cccd_enabled():
+def test_the_normal_close_leaves_the_cccd_enabled():
     """정상 종료에서 stop_notify 가 한 건도 나가면 안 된다 — 앱이 남기는 상태다."""
     target = _release_target("HEM-7386T1")
 
-    await OmronDeviceSession.close_memory_session(target)
+    asyncio.run(OmronDeviceSession.close_memory_session(target))
 
     assert target._client.stopped == []
     assert target.commands == ["080f000000000007"]
 
 
-@pytest.mark.asyncio
-async def test_profiles_outside_the_two_families_still_disable_it_on_close():
+def test_profiles_outside_the_two_families_still_disable_it_on_close():
     """계열 밖 프로필의 종료 동작은 그대로여야 한다.
 
     HEM-7376T1 을 쓰던 테스트였는데, 계열 전체로 확대하면서 그 기기가 안쪽으로
@@ -116,30 +114,26 @@ async def test_profiles_outside_the_two_families_still_disable_it_on_close():
     """
     target = _release_target("HEM-7142T2")
 
-    await OmronDeviceSession.close_memory_session(target)
+    asyncio.run(OmronDeviceSession.close_memory_session(target))
 
     assert target._client.stopped == list(
         get_device_config("HEM-7142T2").rx_channel_uuids
     )
 
 
-@pytest.mark.asyncio
-async def test_force_releases_it_even_on_the_profile_under_test():
+def test_force_releases_it_even_on_the_profile_under_test():
     """실패 경로는 강제로 풀 수 있어야 한다 — 아니면 재시도가 막힌다."""
     target = _release_target("HEM-7386T1")
 
-    await target._unsubscribe_notify_channels(force=True)
+    asyncio.run(target._unsubscribe_notify_channels(force=True))
 
     assert target._client.stopped == list(
         get_device_config("HEM-7386T1").rx_channel_uuids
     )
 
 
-@pytest.mark.asyncio
-async def test_reset_releases_the_subscription_on_the_profile_under_test():
+def test_reset_releases_the_subscription_on_the_profile_under_test():
     """실패한 세션까지 구독을 붙들고 있으면 재시도가 막힌다 — reset 은 풀어야 한다."""
-    import asyncio
-
     target = _release_target("HEM-7386T1")
     target._secure_session = None
     target._channel_fragments = [None] * 4
@@ -147,7 +141,7 @@ async def test_reset_releases_the_subscription_on_the_profile_under_test():
     target._reply_ready = asyncio.Event()
     target._unlocked = True
 
-    await OmronDeviceSession.reset_session_state(target)
+    asyncio.run(OmronDeviceSession.reset_session_state(target))
 
     assert target._client.stopped == list(
         get_device_config("HEM-7386T1").rx_channel_uuids
@@ -155,8 +149,7 @@ async def test_reset_releases_the_subscription_on_the_profile_under_test():
     assert target._unlocked is False
 
 
-@pytest.mark.asyncio
-async def test_a_kept_subscription_is_not_subscribed_again():
+def test_a_kept_subscription_is_not_subscribed_again():
     """이미 켜진 CCCD 에 start_notify 를 다시 걸면 백엔드가 거부하고, 복구 경로가
     CCCD 를 0x0000 으로 되돌린다 — 없애려던 바로 그 churn 이다.
 
@@ -167,7 +160,7 @@ async def test_a_kept_subscription_is_not_subscribed_again():
     target._client.started = []
     target._notify_subscribed = True
 
-    await OmronDeviceSession._subscribe_notify_channels(target)
+    asyncio.run(OmronDeviceSession._subscribe_notify_channels(target))
 
     assert target._client.started == []
 
