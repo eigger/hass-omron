@@ -173,12 +173,44 @@ class DeviceConfig:
     time_sync_layout: TimeSyncLayout | None = None
     index_pointer_layout: dict[str, Any] | None = None
 
+    # Write the end-of-session mirrors the official app writes just before the
+    # session-close command (see ``_write_session_ack_mirrors``). Off by
+    # default: the mirror layout is only decoded for profiles that have a phone
+    # capture behind them.
+    session_ack_mirror_writes: bool = False
+
     # Record layout key -> parser in parse_record()
     record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14
     equivalent_model_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Validate unlock/pairing strategy combinations."""
+        if self.session_ack_mirror_writes:
+            missing = [
+                name
+                for name, value in (
+                    ("settings_read_address", self.settings_read_address),
+                    ("settings_write_address", self.settings_write_address),
+                    ("settings_time_sync_bytes", self.settings_time_sync_bytes),
+                    ("index_pointer_layout", self.index_pointer_layout),
+                )
+                if value is None
+            ]
+            if missing:
+                raise ValueError(
+                    "Invalid profile config for %s: session_ack_mirror_writes needs %s"
+                    % (self.model, ", ".join(missing))
+                )
+            if self.resolved_time_sync_layout() != TimeSyncLayout.MODERN_OFFSET8:
+                raise ValueError(
+                    "Invalid profile config for %s: session_ack_mirror_writes is only "
+                    "decoded for %s (got %s)"
+                    % (
+                        self.model,
+                        TimeSyncLayout.MODERN_OFFSET8,
+                        self.resolved_time_sync_layout(),
+                    )
+                )
         if (
             self.unlock_mode == UnlockMode.SECURE_SESSION
             and self.host_pairing_mode != HostPairingMode.OS_BONDING
