@@ -44,6 +44,10 @@ _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 # value are confirmed on both captured models; the index marker rests on a single
 # BP5465 sample, where the last byte of the mirrored index region went 0x01 -> 0x80.
 _SESSION_ACK_INDEX_MARKER: int = 0x80
+# What that byte held in the capture before the app overwrote it. A live device
+# holding anything else means the mirror is being written from a state the
+# capture never showed, so it is worth saying so out loud.
+_SESSION_ACK_INDEX_SOURCE_EXPECTED: int = 0x01
 _SESSION_ACK_FLAG_OFFSET: int = 4
 _SESSION_ACK_FLAG_VALUE: int = 0x01
 # If the device drops during the post-connect settle (multi-proxy ESPHome
@@ -1434,6 +1438,16 @@ class OmronDeviceSession:
                 f"expected {index_size}"
             )
         index_mirror = bytearray(index_src[:index_size])
+        if index_mirror[-1] != _SESSION_ACK_INDEX_SOURCE_EXPECTED:
+            _LOGGER.warning(
+                "Session ack index mirror for %s: source byte %d is 0x%02X, not the "
+                "0x%02X the capture showed before the app wrote 0x%02X. Writing "
+                "0x%02X anyway; if the reconnect still fails this byte is the first "
+                "thing to re-capture.",
+                cfg.model, index_size - 1, index_mirror[-1],
+                _SESSION_ACK_INDEX_SOURCE_EXPECTED, _SESSION_ACK_INDEX_MARKER,
+                _SESSION_ACK_INDEX_MARKER,
+            )
         index_mirror[-1] = _SESSION_ACK_INDEX_MARKER
         await self.write_memory_block(write_addr, index_mirror)
         _LOGGER.debug(

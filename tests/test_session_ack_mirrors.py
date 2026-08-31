@@ -22,7 +22,6 @@ import datetime as dt
 
 import pytest
 
-from custom_components.omron.omron_ble import omron_driver
 from custom_components.omron.omron_ble.devices import (
     TimeSyncLayout,
     get_device_config,
@@ -42,9 +41,9 @@ class _FakeSession:
         self._memory_session_active = True
         self.address = "C1:8D:32:97:D5:BB"
         self.reads: list[tuple[int, int]] = []
+        self.released: list[bool] = []
         self.writes: list[tuple[int, bytes]] = []
         self.commands: list[str] = []
-        self.unsubscribed = False
         self._last_reply_packet_type = bytearray.fromhex("8f00")
         self._last_reply_payload = b"\x00"
 
@@ -59,8 +58,8 @@ class _FakeSession:
     async def _write_command_and_wait_reply(self, cmd: bytearray) -> None:
         self.commands.append(bytes(cmd).hex())
 
-    async def _unsubscribe_notify_channels(self) -> None:
-        self.unsubscribed = True
+    async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
+        self.released.append(force)
 
     _write_session_ack_mirrors = OmronDeviceSession._write_session_ack_mirrors
     close_memory_session = OmronDeviceSession.close_memory_session
@@ -86,7 +85,6 @@ async def test_both_mirrors_go_out_before_the_close_command(session):
 
     assert [addr for addr, _ in session.writes] == [0x0058, 0x0088]
     assert session.commands == ["080f000000000007"]
-    assert session.unsubscribed is True
 
 
 @pytest.mark.asyncio
@@ -151,7 +149,7 @@ async def test_a_failed_mirror_write_still_closes_the_session(session, caplog):
     await session.close_memory_session()
 
     assert session.commands == ["080f000000000007"]
-    assert session.unsubscribed is True
+    assert session.writes == []
     assert "Session ack mirror writes failed" in caplog.text
 
 
@@ -167,13 +165,43 @@ async def test_profiles_that_do_not_ask_write_nothing():
     assert off.commands == ["080f000000000007"]
 
 
-def test_a_short_read_is_not_written_back(session):
-    """길이가 모자란 응답을 그대로 미러에 쓰면 장부가 깨진다."""
-    import inspect
+@pytest.mark.asyncio
+async def test_a_short_read_is_not_written_back(session, caplog):
+    """길이가 모자란 응답을 그대로 미러에 쓰면 장부가 깨진다 — 쓰지 말아야 한다."""
 
-    source = inspect.getsource(omron_driver.OmronDeviceSession._write_session_ack_mirrors)
-    assert "Short index read" in source
-    assert "Short status read" in source
+    async def _short(address, blocksize):
+        session.reads.append((address, blocksize))
+        return bytes(blocksize - 1)
+
+    session.read_memory_block = _short
+
+    await session.close_memory_session()
+
+    assert session.writes == []
+    assert "Session ack mirror writes failed" in caplog.text
+    assert session.commands == ["080f000000000007"]
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_index_source_byte_is_called_out(session, caplog):
+    """캡처와 다른 상태에서 쓰고 있으면 로그로라도 남아야 한다 — 샘플이 하나뿐이다."""
+    import logging
+
+    caplog.set_level(logging.WARNING)
+    source = bytearray(_INDEX_SRC)
+    source[0x1C - 1] = 0x02
+
+    async def _read(address, blocksize):
+        session.reads.append((address, blocksize))
+        return bytes(source)[:blocksize] if address == 0x0010 else _STATUS_SRC[:blocksize]
+
+    session.read_memory_block = _read
+
+    await session.close_memory_session()
+
+    assert "not the 0x01 the capture showed" in caplog.text
+    # 그래도 캡처가 보여준 값을 쓴다 — 추측을 바꾸는 것은 더 위험하다.
+    assert session.writes[0][1][-1] == 0x80
 
 
 def test_the_profile_under_test_keeps_its_notify_subscriptions():
@@ -198,9 +226,13 @@ def test_the_profile_under_test_keeps_its_notify_subscriptions():
 class _FakeClient:
     def __init__(self) -> None:
         self.stopped: list[str] = []
+        self.started: list[str] = []
 
     async def stop_notify(self, uuid: str) -> None:
         self.stopped.append(uuid)
+
+    async def start_notify(self, uuid: str, _cb) -> None:
+        self.started.append(uuid)
 
 
 def _release_target(model: str) -> _FakeSession:
@@ -250,30 +282,46 @@ async def test_force_releases_it_even_on_the_profile_under_test():
 
 
 @pytest.mark.asyncio
-async def test_failure_paths_can_still_release_the_subscription():
-    """실패한 세션까지 구독을 붙들고 있으면 재시도가 막힌다 — force 로 풀린다."""
-    import inspect
+async def test_reset_releases_the_subscription_on_the_profile_under_test():
+    """실패한 세션까지 구독을 붙들고 있으면 재시도가 막힌다 — reset 은 풀어야 한다."""
+    import asyncio
 
-    for name in ("reset_session_state", "open_memory_session"):
-        source = inspect.getsource(getattr(OmronDeviceSession, name))
-        assert "_unsubscribe_notify_channels(force=True)" in source, name
+    target = _release_target("HEM-7386T1")
+    target._secure_session = None
+    target._channel_fragments = [None] * 4
+    target._expected_reply_packet_type = None
+    target._reply_ready = asyncio.Event()
+    target._unlocked = True
 
-    source = inspect.getsource(OmronDeviceSession._unsubscribe_notify_channels)
-    assert "if self._config.keep_notify_subscriptions and not force:" in source
+    await OmronDeviceSession.reset_session_state(target)
+
+    assert target._client.stopped == list(
+        get_device_config("HEM-7386T1").rx_channel_uuids
+    )
+    assert target._unlocked is False
 
 
-def test_the_token_unlock_primes_the_channel_it_will_keep():
-    """구독을 유지하면 프라임 콜백이 진짜 핸들러여야 한다.
+@pytest.mark.asyncio
+async def test_a_kept_subscription_is_not_subscribed_again():
+    """이미 켜진 CCCD 에 start_notify 를 다시 걸면 백엔드가 거부하고, 복구 경로가
+    CCCD 를 0x0000 으로 되돌린다 — 없애려던 바로 그 churn 이다.
 
-    죽은 콜백으로 켜 두면 메모리 세션이 이미 켜진 CCCD 에 start_notify 를 다시
-    걸고, 백엔드는 그걸 거부하며 복구 경로가 CCCD 를 0x0000 으로 되돌린다 —
-    없애려던 바로 그 churn 이다.
+    토큰 언락이 진짜 핸들러로 프라임하고 _notify_subscribed 를 세우므로, 메모리
+    세션의 구독은 아무 프레임도 내보내지 않아야 한다.
     """
+    target = _release_target("HEM-7386T1")
+    target._client.started = []
+    target._notify_subscribed = True
+
+    await OmronDeviceSession._subscribe_notify_channels(target)
+
+    assert target._client.started == []
+
+
+def test_the_token_unlock_asks_for_what_the_profile_wants():
+    """unlock() 이 프로필 값을 그대로 넘겨야 한다 — 기본값이면 아무것도 안 바뀐다."""
     import inspect
 
-    source = inspect.getsource(OmronDeviceSession._token_unlock)
-    assert "self._on_notify_channel_data if keep_notify else" in source
-    assert "self._notify_subscribed = True" in source
-
-    unlock = inspect.getsource(OmronDeviceSession.unlock)
-    assert "keep_notify=self._config.keep_notify_subscriptions" in unlock
+    sig = inspect.signature(OmronDeviceSession._token_unlock)
+    assert sig.parameters["keep_notify"].default is False
+    assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
