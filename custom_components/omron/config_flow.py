@@ -15,6 +15,7 @@ from .omron_ble.devices import (
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
+    ambiguous_model_candidates,
     infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
@@ -51,6 +52,30 @@ from .omron_ble.setup import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _probed_note(
+    probed_name: str | None,
+    inferred_model: str | None,
+    candidates: tuple[str, ...],
+) -> str:
+    """Lead sentence for the model form, telling the user what the cuff said."""
+    if inferred_model is not None:
+        return ""
+    if candidates:
+        listed = ", ".join(f"**{c}**" for c in candidates)
+        return (
+            f"This device calls itself **{probed_name}**, a name shared by "
+            f"{len(candidates)} models that read differently: {listed}. "
+            "Nothing it sends over the air tells them apart, so pick the one "
+            "printed on the cuff. "
+        )
+    if probed_name:
+        return (
+            f"The device reports its model number as **{probed_name}**, "
+            "which is not in the list. "
+        )
+    return ""
 
 
 def _resolved_user_aliases_from_input(
@@ -279,12 +304,31 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         if inferred:
                             inferred_model = inferred
 
+        # A name several stacks share cannot be resolved by anything read over
+        # the air -- the app itself goes by a group id the device never sends.
+        # Naming the candidates beats a bare "could not identify".
+        candidates: tuple[str, ...] = ()
         if inferred_model is None:
+            for name in (probed_name, getattr(self._discovery_info, "name", None)):
+                candidates = ambiguous_model_candidates(name)
+                if candidates:
+                    break
+
+        address = getattr(self._discovery_info, "address", "the device")
+        if candidates:
+            _LOGGER.warning(
+                "%s reports the model name %r, which covers %d models that do "
+                "not read alike: %s. Pick the one printed on the cuff -- "
+                "nothing sent over the air distinguishes them",
+                address, probed_name or self._discovery_info.name,
+                len(candidates), ", ".join(candidates),
+            )
+        elif inferred_model is None:
             _LOGGER.warning(
                 "Could not identify %s from its advertised name%s; the model has "
                 "to be picked by hand. Choosing the wrong one reads the cuff "
                 "through another model's memory map and reports no error",
-                getattr(self._discovery_info, "address", "the device"),
+                address,
                 f" or its reported model number {probed_name!r}" if probed_name else "",
             )
 
@@ -293,13 +337,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             "model_total": str(stats["total"]),
             "profile_count": str(stats["profiles"]),
             "variant_count": str(stats["extra_variants"]),
-            # Empty when nothing was probed, so the sentence just drops out.
-            "probed_note": (
-                f"The device reports its model number as **{probed_name}**, "
-                "which is not in the list. "
-                if probed_name and inferred_model is None
-                else ""
-            ),
+            # Empty when there is nothing to say, so the sentence drops out.
+            "probed_note": _probed_note(probed_name, inferred_model, candidates),
         }
 
         return self.async_show_form(
