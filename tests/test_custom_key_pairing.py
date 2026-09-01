@@ -161,8 +161,7 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     message = str(excinfo.value)
     assert "dropped the link" in message
     assert "was not found" not in message
-    # The SMP trigger's own failure, which used to go only to a debug log and
-    # left issue #2 with a bare "Not connected" three steps downstream.
+    # The SMP trigger's own failure, which used to go only to a debug log (#2).
     assert "Not Connected" in message
     # RX notify만 1회. 죽은 링크에는 언락 구독을 시도하지도 않는다.
     assert len(client.start_notify_calls) == 1
