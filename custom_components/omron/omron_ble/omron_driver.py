@@ -638,7 +638,7 @@ class OmronDeviceSession:
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
         self._expected_reply_packet_type: bytes | None = None
-        self._expected_reply_frame_head: bytes | None = None
+        self._expected_reply_memory_address: bytes | None = None
         self._reply_ready = asyncio.Event()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
@@ -1054,7 +1054,7 @@ class OmronDeviceSession:
         self._memory_session_active = False
         self._channel_fragments = [None] * 4
         self._expected_reply_packet_type = None
-        self._expected_reply_frame_head = None
+        self._expected_reply_memory_address = None
         self._reply_ready.clear()
         self._debug_ble_link("reset_session_state")
 
@@ -1162,8 +1162,15 @@ class OmronDeviceSession:
         # anything. Type alone cannot tell replies apart -- every memory read
         # answers 0x8100 and only the address differs -- and accepting the wrong
         # one spends the wait, leaving the real reply to be consumed by the next
-        # command in turn. Address and declared length come from the command in
-        # flight, so a stale frame is dropped and the wait simply continues.
+        # command in turn. Matching the address as well is what keeps a stale
+        # frame from doing that, and the wait then simply continues.
+        #
+        # The declared length is deliberately not matched. Only two device
+        # families have ever been captured, so what every other one puts in that
+        # byte is unknown, and a device that answers with anything but the
+        # requested length would have every reply dropped and every poll fall
+        # back to cached data. The address alone separates the replies that can
+        # be in flight at once.
         if packet_type != END_OF_TRANSMISSION_PACKET_TYPE:
             if (
                 self._expected_reply_packet_type is not None
@@ -1175,16 +1182,15 @@ class OmronDeviceSession:
                     _hex(self._expected_reply_packet_type),
                 )
                 return
-            head = bytes(frame_bytes[1:6])
             if (
-                self._expected_reply_frame_head is not None
-                and head != self._expected_reply_frame_head
+                self._expected_reply_memory_address is not None
+                and memory_address != self._expected_reply_memory_address
             ):
                 _LOGGER.debug(
-                    "Ignoring a late reply meant for another request: got %s, "
+                    "Ignoring a late reply meant for another address: got %s, "
                     "waiting for %s",
-                    _hex(head),
-                    _hex(self._expected_reply_frame_head),
+                    _hex(memory_address),
+                    _hex(self._expected_reply_memory_address),
                 )
                 return
 
@@ -1221,14 +1227,11 @@ class OmronDeviceSession:
             self._expected_reply_packet_type = bytes([command[1] | 0x80, command[2]])
         else:
             self._expected_reply_packet_type = None
-        # type(2) + address(2) + declared length(1), all of which a reply echoes
-        # from the command that asked for it.
-        if len(command) >= 6:
-            self._expected_reply_frame_head = (
-                bytes([command[1] | 0x80]) + bytes(command[2:6])
-            )
+        # The address a reply must echo back from the command asking for it.
+        if len(command) >= 5:
+            self._expected_reply_memory_address = bytes(command[3:5])
         else:
-            self._expected_reply_frame_head = None
+            self._expected_reply_memory_address = None
 
         if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
             try:
@@ -1343,7 +1346,7 @@ class OmronDeviceSession:
             )
         finally:
             self._expected_reply_packet_type = None
-            self._expected_reply_frame_head = None
+            self._expected_reply_memory_address = None
 
     @property
     def memory_session_active(self) -> bool:

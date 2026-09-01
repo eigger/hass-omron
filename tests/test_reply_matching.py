@@ -47,7 +47,7 @@ class _Session:
         self._notify_handle_to_channel = {}
         self._secure_session = None
         self._expected_reply_packet_type = None
-        self._expected_reply_frame_head = None
+        self._expected_reply_memory_address = None
         self._last_reply_packet_type = None
         self._last_reply_memory_address = None
         self._last_reply_payload = None
@@ -56,7 +56,7 @@ class _Session:
     def expect(self, command: bytearray) -> None:
         """_write_command_and_wait_reply 가 전송 직전에 세우는 기대값."""
         self._expected_reply_packet_type = bytes([command[1] | 0x80, command[2]])
-        self._expected_reply_frame_head = bytes([command[1] | 0x80]) + bytes(command[2:6])
+        self._expected_reply_memory_address = bytes(command[3:5])
 
     def feed(self, frame: bytearray) -> None:
         OmronDeviceSession._on_notify_channel_data(self, object(), bytearray(frame))
@@ -98,12 +98,19 @@ def test_the_real_reply_still_lands_after_a_late_one():
     assert s._last_reply_memory_address == (0x0E3C).to_bytes(2, "big")
 
 
-def test_a_reply_of_the_right_address_but_the_wrong_length_is_refused():
-    """주소만 맞고 길이가 다르면 다른 요청의 답이다."""
+def test_a_reply_with_an_unexpected_length_is_still_accepted():
+    """선언 길이는 일부러 비교하지 않는다.
+
+    캡처가 있는 기기 계열은 둘뿐이라 나머지가 그 바이트에 무엇을 싣는지 모른다.
+    요청 길이와 다르게 답하는 기기가 있으면 모든 응답이 버려지고 폴이 매번
+    캐시로 떨어진다 — 이슈 #45(HEM-7196T1, WLD4.0)의 2.8.0 증상이 그 모양이었다.
+    동시에 떠 있을 수 있는 응답을 가르는 데는 주소로 충분하다.
+    """
     s = _Session()
     s.expect(_read_cmd(0x0E3C, 16))
 
-    assert _fed(s, _read_reply(0x0E3C, 28)) is False
+    assert _fed(s, _read_reply(0x0E3C, 28)) is True
+    assert s._last_reply_memory_address == (0x0E3C).to_bytes(2, "big")
 
 
 def test_the_desync_cascade_cannot_start():
