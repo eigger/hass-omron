@@ -139,17 +139,6 @@ SENSOR_DESCRIPTIONS = {
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
-    (
-        OmronSensorDeviceClass.BATTERY,
-        Units.PERCENTAGE,
-    ): SensorEntityDescription(
-        key=f"{OmronSensorDeviceClass.BATTERY}_{Units.PERCENTAGE}",
-        device_class=SensorDeviceClass.BATTERY,
-        native_unit_of_measurement=Units.PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,
-        icon="mdi:battery",
-    ),
 }
 
 def hass_device_info(sensor_device_info, address: str | None = None):

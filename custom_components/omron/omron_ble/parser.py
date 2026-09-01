@@ -16,14 +16,12 @@ from bleak.backends.device import BLEDevice
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
 from sensor_state_data import (
-    BinarySensorDeviceClass,
     SensorUpdate,
     SensorDeviceClass,
 )
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    BATTERY_LEVEL_UUID,
     FIRMWARE_REVISION_UUID,
     HARDWARE_REVISION_UUID,
     MANUFACTURER_NAME_UUID,
@@ -1003,56 +1001,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             if signature != self._last_record_signature:
                 self._last_record_signature = signature
 
-        absolute_latest_record = None
-        if multi_user_mode and latest_by_user:
-            absolute_latest_record = max(
-                latest_by_user.values(),
-                key=lambda r: self._ensure_aware_datetime(r.get("datetime"))
-                if isinstance(r.get("datetime"), dt.datetime)
-                else dt.datetime.min.replace(tzinfo=dt.timezone.utc),
-            )
-        elif record:
-            absolute_latest_record = record
-
-        if absolute_latest_record and "battery" in absolute_latest_record:
-            is_low_battery = bool(absolute_latest_record["battery"])
-            _LOGGER.debug(
-                "Extracted device-level low battery flag from measurements: %s",
-                is_low_battery,
-            )
-            self.update_binary_sensor(
-                "battery",
-                is_low_battery,
-                BinarySensorDeviceClass.BATTERY,
-                "Battery",
-            )
-
-        try:
-            char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
-            bat_bytes = None
-            if char_bat:
-                _LOGGER.debug(
-                    "Found battery characteristic in cached services for %s",
-                    ble_device.address,
-                )
-                bat_bytes = await client.read_gatt_char(char_bat)
-            else:
-                _LOGGER.debug(
-                    "Battery char not in cached services, falling back to UUID for %s",
-                    ble_device.address,
-                )
-                bat_bytes = await client.read_gatt_char(BATTERY_LEVEL_UUID)
-
-            if bat_bytes:
-                bat_level = int(bat_bytes[0])
-                _LOGGER.debug(
-                    "Battery level byte received for %s: %s (Parsed: %d%%)",
-                    ble_device.address,
-                    bat_bytes.hex(),
-                    bat_level,
-                )
-        except Exception as exc:
-            _LOGGER.debug("Failed to read Battery Level: %s", exc)
 
         try:
             char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)

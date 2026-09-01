@@ -111,10 +111,21 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     record["mov"] = (flags1 >> 15) & 0x01
     second = min(flags2 & 0x3F, 59)
     minute = min((flags2 >> 6) & 0x3F, 59)
-    # flags2 bits: 12=Cuff, 14-15=Position.  Bit 13 is NOT a battery flag —
-    # no known model defines a field there, and on the AFib cuffs
-    # (7191T1/7196T1/7376T1/7380T1/7386T1) it is one of the AFib/validity bits.
-    # Left undecoded rather than reported as "battery".
+    # flags2 bits: 12=Cuff, 14-15=Position. Bit 13 is left undecoded.
+    #
+    # It used to be read as a low-battery flag, and that was never right.
+    # Reference memory maps for 244 model variants define no field there, and
+    # on the AFib cuffs (7191T1/7196T1/7376T1/7380T1/7386T1) the bit belongs to
+    # the AFib/validity group -- the likeliest reading, though not confirmed:
+    # every real record captured so far has it clear, so nothing observed
+    # distinguishes the candidates.
+    #
+    # There is no battery field to look for elsewhere either. The OMRON connect
+    # app shows no battery state for blood pressure monitors -- no such string,
+    # no such key in its BLE library, nothing in its measurement model -- and
+    # the standard Blood Pressure Measurement Status this layout mirrors has no
+    # battery bit. Devices that report one do it through the standard Battery
+    # Level characteristic, which few of these carry.
     record["cuff"] = (flags2 >> 12) & 0x01
     record["pos"] = (flags2 >> 14) & 0x03
 
