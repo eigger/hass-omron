@@ -387,3 +387,47 @@ def test_an_unknown_name_still_infers_nothing():
     """모르는 문자열에 억지로 프로파일을 붙이지 않는다."""
     for value in (None, "", "   ", "BP0000", "12345", "Omron BP5465 monitor"):
         assert infer_model_id_from_local_name(value) is None
+
+
+class TestNoDeadConfigSurface:
+    """설정처럼 보이지만 아무도 안 읽는 값이 다시 생기지 않게 한다."""
+
+    def test_removed_fields_are_gone(self):
+        """카탈로그 40곳이 채우던 값을 읽는 코드가 없었다.
+
+        ``settings_unread_records_bytes`` 는 ``supports_unread_counter`` 만
+        읽었고, 그 속성을 읽는 곳은 없었다. 미읽음 카운터 기능이 만들어지다
+        만 흔적이다.
+        """
+        cfg = get_device_config("HEM-7386T1")
+        for name in (
+            "settings_unread_records_bytes",
+            "supports_unread_counter",
+            "unlock_uuid",
+        ):
+            assert not hasattr(cfg, name), name
+
+    def test_the_unlock_characteristic_is_one_constant(self):
+        """40개 프로필이 전부 같은 값을 쓰던 필드였다 — 상수가 맞다."""
+        from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
+
+        assert UNLOCK_CHARACTERISTIC_UUID == "b305b680-aee7-11e1-a730-0002a5d5c51b"
+
+    def test_every_field_is_read_somewhere(self):
+        """dataclass 필드는 최소한 코드 어딘가에서 읽혀야 한다."""
+        import dataclasses
+        import pathlib
+
+        from custom_components.omron.omron_ble.devices import DeviceConfig
+
+        code = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in pathlib.Path("custom_components/omron").rglob("*.py")
+            if p.name != "device_catalog.py"
+        )
+        unread = [
+            f.name
+            for f in dataclasses.fields(DeviceConfig)
+            if f".{f.name}" not in code and f'"{f.name}"' not in code
+        ]
+        assert not unread, f"카탈로그만 채우고 아무도 안 읽는 필드: {unread}"

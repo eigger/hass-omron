@@ -13,7 +13,11 @@ from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
 
-from .const import MODEL_NUMBER_UUID, SERVICE_CHANGED_UUID
+from .const import (
+    MODEL_NUMBER_UUID,
+    SERVICE_CHANGED_UUID,
+    UNLOCK_CHARACTERISTIC_UUID,
+)
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -1509,7 +1513,7 @@ class OmronDeviceSession:
         response_holder[0] = None
         try:
             await self._client.write_gatt_char(
-                self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+                UNLOCK_CHARACTERISTIC_UUID, b'\x02' + b'\x00' * 16, response=True
             )
             await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_PROBE_WAIT_TIMEOUT_SEC)
         except Exception:
@@ -1567,7 +1571,7 @@ class OmronDeviceSession:
             _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("unlock_before_notify")
-        await self._client.start_notify(self._config.unlock_uuid, _unlock_callback)
+        await self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, _unlock_callback)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
             # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
@@ -1576,7 +1580,7 @@ class OmronDeviceSession:
             unlock_event.clear()
             response_holder[0] = None
             await self._client.write_gatt_char(
-                self._config.unlock_uuid, b'\x01' + unlock_key, response=True
+                UNLOCK_CHARACTERISTIC_UUID, b'\x01' + unlock_key, response=True
             )
             await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC)
 
@@ -1594,7 +1598,7 @@ class OmronDeviceSession:
             self._debug_ble_link("unlock_notify_timeout")
             raise ConnectionError("Unlock failed: notify timeout") from None
         finally:
-            await self._client.stop_notify(self._config.unlock_uuid)
+            await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
             if rx_notify_primed:
                 try:
                     await self._client.stop_notify(self._config.rx_channel_uuids[0])
@@ -1669,7 +1673,7 @@ class OmronDeviceSession:
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("token_unlock_before_notify")
-        await self._client.start_notify(self._config.unlock_uuid, _unlock_dispatch)
+        await self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
             unlock_event.clear()
@@ -1683,7 +1687,7 @@ class OmronDeviceSession:
                     use_response,
                 )
                 await self._client.write_gatt_char(
-                    self._config.unlock_uuid, packet, response=use_response
+                    UNLOCK_CHARACTERISTIC_UUID, packet, response=use_response
                 )
                 try:
                     await asyncio.wait_for(
@@ -1720,7 +1724,7 @@ class OmronDeviceSession:
                 self._debug_ble_link("token_unlock_keep_notify")
             else:
                 try:
-                    await self._client.stop_notify(self._config.unlock_uuid)
+                    await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
                 except Exception as exc:
                     _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
                 if rx_notify_primed:
@@ -1773,7 +1777,7 @@ class OmronDeviceSession:
             _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
             unlock_event.clear()
             response_holder[0] = None
-            await self._client.write_gatt_char(self._config.unlock_uuid, pair_req, response=True)
+            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, pair_req, response=True)
             
             # Wait for Pairing Response
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
@@ -1806,7 +1810,7 @@ class OmronDeviceSession:
             _LOGGER.debug("Sending Encryption Start Request (len=%d): %s", len(start_enc_req), start_enc_req.hex())
             unlock_event.clear()
             response_holder[0] = None
-            await self._client.write_gatt_char(self._config.unlock_uuid, start_enc_req, response=True)
+            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, start_enc_req, response=True)
 
             # Wait for Encryption Response
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
@@ -1828,7 +1832,7 @@ class OmronDeviceSession:
             _LOGGER.debug("Sending Challenge Request (len=%d): %s", len(challenge_req), challenge_req.hex())
             unlock_event.clear()
             response_holder[0] = None
-            await self._client.write_gatt_char(self._config.unlock_uuid, challenge_req, response=True)
+            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, challenge_req, response=True)
 
             # Wait for Challenge Response
             await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
@@ -1859,7 +1863,7 @@ class OmronDeviceSession:
         finally:
             self._unlock_notify_handler = None
             try:
-                await self._client.stop_notify(self._config.unlock_uuid)
+                await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
             except Exception as exc:
                 _LOGGER.debug("secure unlock stop_notify skipped: %s", exc)
             # _token_unlock(keep_notify=True) left the RX-channel CCCD enabled
@@ -1973,7 +1977,7 @@ class OmronDeviceSession:
         unlock_subscribed = False
         for attempt in range(unlock_attempts):
             try:
-                await self._client.start_notify(self._config.unlock_uuid, _pair_callback)
+                await self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, _pair_callback)
                 unlock_subscribed = True
                 break
             except Exception as exc:
@@ -1991,7 +1995,7 @@ class OmronDeviceSession:
                     # dropped us because its SMP request went unanswered.
                     raise ConnectionError(
                         "Device disconnected while subscribing to "
-                        f"{self._config.unlock_uuid} during pairing "
+                        f"{UNLOCK_CHARACTERISTIC_UUID} during pairing "
                         f"({type(exc).__name__}: {exc}). The cuff dropped the "
                         "link — make sure it shows the blinking -P- symbol and "
                         "that no phone is connected to it."
@@ -2001,7 +2005,7 @@ class OmronDeviceSession:
                 await asyncio.sleep(unlock_retry_delay)
         if not unlock_subscribed:
             raise ConnectionError(
-                f"Characteristic {self._config.unlock_uuid} was not found! "
+                f"Characteristic {UNLOCK_CHARACTERISTIC_UUID} was not found! "
                 "Try clearing Bluetooth cache, or remove the device from OS Bluetooth and retry in -P- mode."
             )
 
@@ -2021,7 +2025,7 @@ class OmronDeviceSession:
             response_holder[0] = None
             try:
                 await self._client.write_gatt_char(
-                    self._config.unlock_uuid, b'\x02' + b'\x00' * 16, response=True
+                    UNLOCK_CHARACTERISTIC_UUID, b'\x02' + b'\x00' * 16, response=True
                 )
             except Exception as exc:
                 write_failures += 1
@@ -2051,7 +2055,7 @@ class OmronDeviceSession:
 
         if not entered_programming:
             try:
-                await self._client.stop_notify(self._config.unlock_uuid)
+                await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
                 await self._client.stop_notify(self._config.rx_channel_uuids[0])
             except Exception:
                 pass
@@ -2061,7 +2065,7 @@ class OmronDeviceSession:
                 "expected_notify_first_byte=0x82 last_notify_hex=%s samples=%s",
                 self._config.model,
                 aggressive_timing,
-                self._config.unlock_uuid,
+                UNLOCK_CHARACTERISTIC_UUID,
                 max_retries,
                 write_failures,
                 _hex(last_notify) if last_notify else "None",
@@ -2076,7 +2080,7 @@ class OmronDeviceSession:
         response_holder[0] = None
         try:
             await self._client.write_gatt_char(
-                self._config.unlock_uuid, b'\x00' + pair_key, response=True
+                UNLOCK_CHARACTERISTIC_UUID, b'\x00' + pair_key, response=True
             )
         except Exception as exc:
             _LOGGER.error("Failed to write new key: %s", exc)
@@ -2088,7 +2092,7 @@ class OmronDeviceSession:
 
         resp = response_holder[0]
         try:
-            await self._client.stop_notify(self._config.unlock_uuid)
+            await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
             await self._client.stop_notify(self._config.rx_channel_uuids[0])
         except Exception:
             pass
@@ -2903,20 +2907,6 @@ class OmronDeviceDriver:
         )
         return self._finalize_public_latest_record(record, user)
 
-    async def get_all_records_flat(
-        self, transport: OmronDeviceSession
-    ) -> list[dict[str, Any]]:
-        """Read all records, adding user index, and return a flat sorted list."""
-        all_user_records = await self.get_all_records(transport)
-
-        flat = []
-        for user_idx, user_records in enumerate(all_user_records):
-            for record in user_records:
-                record["user"] = user_idx + 1
-                flat.append(record)
-
-        flat.sort(key=lambda r: r["datetime"])
-        return flat
 
     def _parse_user_records(
         self,

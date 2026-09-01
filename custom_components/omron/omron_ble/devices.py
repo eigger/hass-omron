@@ -13,7 +13,6 @@ from .const import (
     STANDARD_BLOOD_PRESSURE_SERVICE_UUID,
     CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS,
     CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS,
-    CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID,
     DEFAULT_DEVICE_MODEL,
 )
 from .record_parsers import (
@@ -123,7 +122,6 @@ class DeviceConfig:
     tx_channel_uuids: list[str] = field(
         default_factory=lambda: list(CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS)
     )
-    unlock_uuid: str = CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID
     unlock_mode: UnlockMode = UnlockMode.CLASSIC_KEY
     host_pairing_mode: HostPairingMode = HostPairingMode.CUSTOM_KEY
     # Enable more aggressive GATT timing for classic custom-key profiles
@@ -162,7 +160,6 @@ class DeviceConfig:
     # Settings addresses
     settings_read_address: int | None = None
     settings_write_address: int | None = None
-    settings_unread_records_bytes: list[int] | None = None
     settings_time_sync_bytes: list[int] | None = None
     # Optional override for EEPROM time layout (see omron_driver _decode/_encode_eeprom_time_payload).
     # - eeprom_time_classic_mixed: [2:8] = [month, year-2000, hour, day, second, minute]
@@ -257,11 +254,6 @@ class DeviceConfig:
     def is_single_channel(self) -> bool:
         """Return True if the device uses a single BLE channel."""
         return len(self.tx_channel_uuids) == 1
-
-    @property
-    def supports_unread_counter(self) -> bool:
-        """Return True if the device supports unread record counters."""
-        return self.settings_unread_records_bytes is not None
 
     @property
     def supports_eeprom_time_sync(self) -> bool:
