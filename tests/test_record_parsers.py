@@ -151,3 +151,21 @@ class TestParseClassicVital24Heartguide:
         with pytest.raises(ValueError, match="record too short"):
             parse_classic_vital_24_heartguide(raw, endianness="little")
 
+
+
+def test_flags2_bit_13_is_not_decoded():
+    """저전압으로 읽던 비트다. 무엇인지 모르므로 아무 이름도 붙이지 않는다.
+
+    244개 모델 레퍼런스 메모리맵에 그 자리 필드가 없고, AFib 커프에서는
+    AFib/유효성 그룹에 속한다. 확정된 게 아니므로 디코드하지 않는다.
+    """
+    # cuff=1, pos=0, bit13=1 인 레코드를 만들어 어떤 키로도 새어나오지 않는지 본다.
+    flags2 = (1 << 12) | (1 << 13)
+    data = bytes([100, 71, 80, 26, 0x54, 0x1E, flags2 & 0xFF, flags2 >> 8]) + bytes(6)
+
+    record = parse_classic_vital_14(data, "little")
+
+    assert record["cuff"] == 1
+    assert record["pos"] == 0
+    assert "battery" not in record
+    assert not any("batt" in k.lower() for k in record), sorted(record)

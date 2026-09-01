@@ -7,7 +7,6 @@ import asyncio
 import logging
 import time
 
-from sensor_state_data import BinarySensorDeviceClass as SSDBinarySensorDeviceClass
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass
 
 from .ble_session import (
@@ -62,15 +61,12 @@ SETTLE_DELAY_SECONDS = 0.5
 # retries. Past that the link is stuck, not slow.
 POLL_TIMEOUT_SECONDS = 180
 
-# When a poll fails mid-flight, keep measurement history but drop stale RSSI/battery
-# unless this poll refreshed those keys (avoids showing outdated diagnostics).
+# When a poll fails mid-flight, keep measurement history but drop stale RSSI
+# unless this poll refreshed it (avoids showing outdated diagnostics).
 _STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
-    SSDSensorDeviceClass.BATTERY,
     SSDSensorDeviceClass.SIGNAL_STRENGTH,
 })
-_STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset({
-    SSDBinarySensorDeviceClass.BATTERY,
-})
+_STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset()
 
 
 def _merge_poll_sensor_update(prev: SensorUpdate, new: SensorUpdate) -> SensorUpdate:
