@@ -128,17 +128,8 @@ class DeviceConfig:
     # Enable more aggressive GATT timing for classic custom-key profiles
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
-    # Bond once at setup and never re-pair on pairing-mode adverts (avoids bond
-    # churn). Only meaningful for host_pairing_mode=OS_BONDING, and only when
-    # the profile does not already bond during connect (``pair_on_connect``),
-    # which makes the advert-triggered re-pair a no-op either way.
-    os_bond_once: bool = False
     # Bond lifetime; see BondPolicy. Only meaningful for OS_BONDING profiles.
     bond_policy: BondPolicy = BondPolicy.REUSE
-    # Send the connect-time pair request only where a bond has to be created,
-    # and let the peripheral drive security on every other connection. See
-    # ``pair_on_connect_for``; ignored under BondPolicy.PER_SESSION.
-    pair_only_when_pairing: bool = False
     # Connection attempts per session before giving up (see
     # ``establish_connection_with_bond_settle``). Lowered on profiles where a
     # failed attempt costs the stored bond, so one poll is one observation.
@@ -321,49 +312,6 @@ class DeviceConfig:
             self.bond_policy == BondPolicy.PER_SESSION
             and self.host_pairing_mode == HostPairingMode.OS_BONDING
         )
-
-    @property
-    def pair_on_connect(self) -> bool:
-        """Bond during connect, before GATT discovery.
-
-        WLD3.0 cuffs drop the link shortly after connect when security is not
-        already up. Bonding as part of connect establishes it before any
-        characteristic is touched, whereas pairing after discovery leaves a
-        window where the device sees an unencrypted host poking at GATT —
-        which is when the observed disconnects happen. On an already-bonded
-        device the backend re-encrypts with the stored LTK rather than
-        re-bonding, so this does not churn a kept bond.
-
-        Always true under ``BondPolicy.PER_SESSION``, which is what makes
-        dropping the bond safe: the pairing that replaces it is part of the
-        next connect. Deriving it here rather than asking profiles to set
-        both means "drop the bond but never make a new one" — an earlier
-        regression that left the next connection with nothing to reconnect
-        with — cannot be configured at all.
-        """
-        if self.host_pairing_mode != HostPairingMode.OS_BONDING:
-            return False
-        if self.bond_policy == BondPolicy.PER_SESSION:
-            return True
-        return self.connect_type in (ConnectType.WLD3_0, ConnectType.WLD4_0)
-
-    def pair_on_connect_for(self, *, pairing_session: bool) -> bool:
-        """``pair_on_connect`` for one session, honouring ``pair_only_when_pairing``.
-
-        A connect-time pair request is not free on ESP32 proxies: when it does
-        not complete, ESP-IDF treats the failure as an authentication failure
-        and deletes the stored bond from flash (``btc_dm_ble_auth_cmpl_evt``
-        routes SMP_CONN_TOUT through its default branch). One such failure
-        costs the credential permanently, so a profile can ask to send the
-        request only where a bond has to be created.
-        """
-        if not self.pair_on_connect:
-            return False
-        # PER_SESSION drops the bond on close, so every connect has to remake
-        # it; opting out here would leave the next poll with nothing.
-        if self.bond_policy == BondPolicy.PER_SESSION:
-            return True
-        return pairing_session or not self.pair_only_when_pairing
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""

@@ -19,7 +19,6 @@ from .devices import (
 # bond leaves nothing able to make another one.
 _WLD_BOND_SETTINGS = {
     "bond_policy": BondPolicy.REUSE,
-    "pair_only_when_pairing": True,
 }
 
 # Leave the notify CCCDs enabled at session close instead of writing 0x0000.

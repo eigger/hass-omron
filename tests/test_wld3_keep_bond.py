@@ -10,9 +10,9 @@ PER_SESSION 은 매 세션이 끝날 때 바로 그 크레덴셜을 지웁니다
 
 WLD4.0 실험의 재탕이 아닙니다. 그쪽은 HEM-7188T1 을 옮겼고 음성이었지만,
 7188T1 은 앱 레이어 secure session 을 쓰고 이 프로필은 안 씁니다. 그리고 이
-프로필은 REUSE + ``pair_on_connect`` 조합을 한 번도 써 본 적이 없습니다 —
-2.6.0 전까지 ``os_bond_once`` 로 본드를 유지했지만 그 시절엔 ``pair_on_connect``
-가 존재하지 않았습니다.
+연결 시점에 우리가 먼저 페어링을 요청하지는 않습니다. 커프가 연결 직후 SMP
+Security Request 를 올리고 양쪽 스택이 그것에 답합니다 — 저장된 키로 재개하거나,
+없으면 페어링을 시작합니다.
 """
 import pytest
 
@@ -42,7 +42,6 @@ def test_hem_7386t1_keeps_its_bond():
     # 프록시에서 재개를 일으키는 것이 이것이다: 이미 본딩된 상대에게 보내는
     # ESPHome 의 pair 요청은 재페어링이 아니라 저장된 키로 암호화를 시작한다 —
     # 캡처 속 폰의 동작과 같다.
-    assert config.pair_on_connect is True
 
 
 @pytest.mark.parametrize(
@@ -66,7 +65,6 @@ def test_both_families_are_on_the_confirmed_bond_settings():
             continue
         assert config.bond_policy is BondPolicy.REUSE, name
         assert config.unpair_after_session is False, name
-        assert config.pair_only_when_pairing is True, name
         assert config.keep_notify_subscriptions is True, name
 
 
@@ -84,7 +82,7 @@ def test_connect_logs_the_path_that_owns_the_bond():
 
     assert "def _connected_path" in source
     assert "advertised by source=%s, connected via " in source
-    assert "bonded_this_connect=%s" in source
+    assert "connected via" in source
 
 
 def test_driver_module_has_no_undefined_names():
@@ -102,45 +100,47 @@ def test_driver_module_has_no_undefined_names():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_polls_skip_the_pair_request_but_pairing_sessions_keep_it():
-    """실패한 pair 요청 한 번이 flash 의 본드를 지운다 — 그래서 폴에선 안 보낸다.
+def test_nothing_asks_to_bond_at_connect_time():
+    """연결 시점 pair 요청은 사라졌다 — 커프가 Security Request 로 몰고 간다.
 
-    ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt`` 는 SMP_CONN_TOUT(102) 을 default
-    분기로 흘려서 ``btc_dm_remove_ble_bonding_keys()`` 를 부른다. 이슈 #91 의
-    프록시 로그에서 페어링 직후 ``bonded=YES (1 bond(s) stored)`` 였던 본드가
-    몇 분 뒤 사라진 게 그것이다. 커프는 -P- 밖에서 재페어링을 거부하므로,
-    한 번 잃으면 사용자가 손으로 다시 페어링해야 한다.
+    보내서 얻는 게 없고 잃을 게 있었다. ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt``
+    는 SMP_CONN_TOUT(102) 을 default 분기로 흘려 ``btc_dm_remove_ble_bonding_keys()``
+    를 부른다. 이슈 #91 의 프록시 로그에서 페어링 직후 ``bonded=YES`` 였던 본드가
+    몇 분 뒤 사라진 게 그것이고, ``pair_only_when_pairing`` 은 그 손실을 줄이려고
+    있던 플래그였다. 요청 자체를 없애면 둘 다 필요 없다.
+
+    본드를 만들어야 하는 프로필은 디스커버리 뒤 ``pair()`` 에서 만든다.
     """
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import (
+        establish_connection_with_bond_settle,
+    )
+
+    source = inspect.getsource(establish_connection_with_bond_settle)
+    assert "pair=" not in source, "연결 경로가 다시 본딩을 요청하면 안 된다"
+
     config = get_device_config("HEM-7386T1")
+    assert not hasattr(config, "pair_on_connect")
+    assert not hasattr(config, "pair_on_connect_for")
+    assert not hasattr(config, "pair_only_when_pairing")
+    assert not hasattr(config, "os_bond_once")
 
-    assert config.pair_on_connect_for(pairing_session=True) is True
-    assert config.pair_on_connect_for(pairing_session=False) is False
 
+def test_per_session_still_derives_the_unpair():
+    """PER_SESSION 은 쓰는 프로필이 없지만 파생 규칙은 남아 있어야 한다.
 
-def test_per_session_profiles_cannot_opt_out_of_the_pair_request():
-    """본드를 지우면서 다시 안 만드는 조합은 설정 가능하면 안 된다.
-
-    2.6.0 이전에 그 회귀가 실제로 있었다: 세션이 끝나며 본드를 지우고, 다음
-    연결은 재연결할 게 없어서 매번 settle 에서 떨어졌다.
-
-    카탈로그에는 이제 PER_SESSION + OS_BONDING 프로필이 하나도 남지 않았으므로
-    (두 계열이 전부 REUSE), 카탈로그를 훑는 대신 속성을 직접 확인한다 — 가드는
-    프로필이 있든 없든 성립해야 한다.
+    되살릴 일이 생기면 ``unpair_after_session`` 이 정책에서 따라 나와야지,
+    프로필이 둘을 따로 설정하게 두면 "지우고 다시 안 만드는" 조합이 다시
+    가능해진다. 2.6.0 이전에 실제로 있던 회귀다.
     """
     from dataclasses import replace
 
     base = get_device_config("HEM-7386T1")
-    per_session = replace(
-        base, bond_policy=BondPolicy.PER_SESSION, pair_only_when_pairing=True
-    )
+    assert base.unpair_after_session is False
 
+    per_session = replace(base, bond_policy=BondPolicy.PER_SESSION)
     assert per_session.unpair_after_session is True
-    assert per_session.pair_on_connect_for(pairing_session=False) is True, (
-        "pair_only_when_pairing 이 PER_SESSION 을 무장해제하면 안 된다"
-    )
-    # REUSE 에서는 같은 플래그가 실제로 폴의 pair 요청을 끈다.
-    assert base.pair_on_connect_for(pairing_session=False) is False
-    assert base.pair_on_connect_for(pairing_session=True) is True
 
 
 def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
@@ -295,17 +295,12 @@ def test_both_profiles_under_test_run_the_identical_experiment():
 
     for field in (
         "bond_policy",
-        "pair_only_when_pairing",
         "connect_settle_attempts",
         "peer_closes_session_sec",
         "subscribe_service_changed",
         "unpair_after_session",
     ):
         assert getattr(a, field) == getattr(b, field), field
-    assert a.pair_on_connect_for(pairing_session=False) is False
-    assert b.pair_on_connect_for(pairing_session=False) is False
-    assert a.pair_on_connect_for(pairing_session=True) is True
-    assert b.pair_on_connect_for(pairing_session=True) is True
 
 
 def test_the_two_unconfirmed_settings_did_not_spread():
