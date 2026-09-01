@@ -92,3 +92,23 @@ def test_model_number_aliases_resolve_to_a_profile() -> None:
 def test_unknown_names_stay_unknown() -> None:
     for value in ("BLESmart_0000123", "", "Living Room"):
         assert infer_model_id_from_local_name(value) is None
+
+
+def _config_flow_class() -> ast.ClassDef:
+    tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name == "OmronConfigFlow":
+            return node
+    raise AssertionError("OmronConfigFlow not found — was it renamed?")
+
+
+def test_no_step_substitutes_a_default_for_the_chosen_model() -> None:
+    # The steps after select_model (user aliases, pairing, the pairing call
+    # itself) used to read `self._selected_model or DEFAULT_DEVICE_MODEL`,
+    # which would have paired and configured the device on the wrong profile
+    # without a word. They must fail loudly instead.
+    flow = _config_flow_class()
+    names = {n.id for n in ast.walk(flow) if isinstance(n, ast.Name)}
+    assert "DEFAULT_DEVICE_MODEL" not in names, (
+        "a config flow step fell back to the default model again (#45)"
+    )

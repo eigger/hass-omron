@@ -50,7 +50,8 @@
       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
       "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
       "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
-      "not_supported": "This device is not supported."
+      "not_supported": "This device is not supported.",
+      "model_not_selected": "The device model was not selected. Start over and pick the model from the list."
     }
   },
   "options": {

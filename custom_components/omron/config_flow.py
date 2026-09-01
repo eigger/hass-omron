@@ -35,6 +35,7 @@ from homeassistant.config_entries import (
     OptionsFlow,
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
+from homeassistant.data_entry_flow import AbortFlow
 
 from .ble_session import (
     stash_handoff_session,
@@ -42,12 +43,12 @@ from .ble_session import (
     take_probe_session,
 )
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.omron_driver import OmronDeviceSession
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
 )
-from .omron_ble.const import DEFAULT_DEVICE_MODEL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -320,11 +321,23 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders=desc_ph,
         )
 
+    def _require_selected_model(self) -> str:
+        """The model chosen in select_model, which every later step depends on.
+
+        Substituting a default here would put the device on a foreign EEPROM
+        map without saying so -- the failure mode of #45. Every path into these
+        steps runs select_model first, so this only fires if that stops being
+        true.
+        """
+        if self._selected_model is None:
+            raise AbortFlow("model_not_selected")
+        return self._selected_model
+
     async def async_step_user_aliases(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect display names for each device user slot (multi-user models only)."""
-        model = self._selected_model or DEFAULT_DEVICE_MODEL
+        model = self._require_selected_model()
         cfg = get_device_config(model)
         if cfg.num_users <= 1:
             self._user_aliases = {}
@@ -390,7 +403,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 _log_pairing_exception("Unexpected error during pairing", exc)
                 errors["base"] = "pairing_failed"
 
-        model = self._selected_model or DEFAULT_DEVICE_MODEL
+        model = self._require_selected_model()
         config = get_device_config(model)
         step_id = "pairing_os" if config.host_pairing_mode == HostPairingMode.OS_BONDING else "pairing"
 
@@ -418,7 +431,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._discovery_info:
             raise ConnectionError("No device discovered")
 
-        model = self._selected_model or DEFAULT_DEVICE_MODEL
+        model = self._require_selected_model()
         config = get_device_config(model)
         profile_key = resolve_profile_model_id(model)
         if model != profile_key:
