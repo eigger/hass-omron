@@ -1948,15 +1948,28 @@ class OmronDeviceSession:
             unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_DEFAULT, _PAIRING_SETTLE_DEFAULT_SEC
             key_max_retries = 5
 
+        # This subscribe triggers SMP; its failure is the only record of why
+        # the link dies a moment later (#2).
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
+        rx_notify_error: str | None = None
         try:
             await self._client.start_notify(
                 self._config.rx_channel_uuids[0], lambda h, d: None
             )
         except Exception as exc:
+            rx_notify_error = f"{type(exc).__name__}: {exc}"
             _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
         await self._apply_pairing_settle_delay(aggressive_timing)
+
+        if not getattr(self._client, "is_connected", True):
+            # Dead already: no point retrying the unlock subscribe ten times.
+            raise ConnectionError(
+                "The cuff dropped the link right after the pairing request"
+                + (f" ({rx_notify_error})" if rx_notify_error else "")
+                + ". Make sure it shows the blinking -P- symbol and that no "
+                "phone is connected to it."
+            )
 
         prog_event = asyncio.Event()
         response_holder: list[bytes | None] = [None]
@@ -1987,9 +2000,15 @@ class OmronDeviceSession:
                     raise ConnectionError(
                         "Device disconnected while subscribing to "
                         f"{UNLOCK_CHARACTERISTIC_UUID} during pairing "
-                        f"({type(exc).__name__}: {exc}). The cuff dropped the "
-                        "link — make sure it shows the blinking -P- symbol and "
-                        "that no phone is connected to it."
+                        f"({type(exc).__name__}: {exc})."
+                        + (
+                            " The pairing request that preceded it also failed"
+                            f" ({rx_notify_error})."
+                            if rx_notify_error
+                            else ""
+                        )
+                        + " The cuff dropped the link — make sure it shows the "
+                        "blinking -P- symbol and that no phone is connected to it."
                     ) from exc
                 if aggressive_timing:
                     await _bleak_refresh_services(self._client)

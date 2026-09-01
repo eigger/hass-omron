@@ -13,18 +13,13 @@ target already resolves in this catalog. Firmware answers with any of the
 three.
 
 Some names cannot be mapped at all, and those live in AMBIGUOUS_MODEL_NAMES.
-"X4 Smart" is the clearest case: the app carries HEM-7155T_ESL and
-HEM-7155T_K4-ESL with identical name, Bluetooth settings name and display name,
-and separates them only by a group id the device never transmits. One is WLS3.0
-with four RX/TX channels and custom-key pairing, the other WLD2.0 with one
-channel and OS bonding, so guessing reads the device through the wrong stack
-entirely. The app cannot tell them apart by name either -- it knows which is
-which because the user picked the model during setup. Neither can we, so the
-config flow names the candidates and lets the user choose.
+The app ships HEM-7155T_ESL and HEM-7155T_K4-ESL with all three names identical
+-- WLS3.0 with custom-key pairing against WLD2.0 with OS bonding -- and tells
+them apart by a group id the device never transmits. It knows which is which
+only because the user picked the model, and so must we.
 
-They are resolvable in principle: the two stacks expose different parent service
-UUIDs, which is visible on connect. Doing that needs the device in hand rather
-than a model string, so it is left for later.
+Resolvable in principle: the two stacks expose different parent service UUIDs,
+visible on connect. That needs the device in hand, so it is left for later.
 
 Resolution aliases only: get_supported_models does not offer them in the
 config-flow dropdown, which stays on the HEM designations.

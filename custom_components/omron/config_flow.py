@@ -244,12 +244,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         models = get_supported_models()
         model_dict = {m: m for m in models}
         stats = get_supported_model_stats()
-        # No default until something identifies the device. The placeholder is a
-        # real profile (HEM-7142T2) and pre-selecting it is indistinguishable
-        # from a successful probe: the form looks answered, the user confirms,
-        # and the cuff is read through another model's EEPROM map for good --
-        # wrong record size, wrong addresses, wrong user count, no error. That
-        # is issue #45, where a HEM-7196T1 ran as a HEM-7142T2 for months.
+        # No default until something identifies the device: the fallback is a
+        # real profile, so confirming it reads the cuff through the wrong
+        # EEPROM map with no error anywhere (#45).
         inferred_model: str | None = None
         probed_name: str | None = None
 
@@ -280,9 +277,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         if inferred:
                             inferred_model = inferred
 
-        # A name several stacks share cannot be resolved by anything read over
-        # the air -- the app itself goes by a group id the device never sends.
-        # Naming the candidates beats a bare "could not identify".
+        # Nothing read over the air separates a shared name, so name the
+        # candidates instead of saying "could not identify".
         candidates: tuple[str, ...] = ()
         if inferred_model is None:
             for name in (probed_name, getattr(self._discovery_info, "name", None)):
@@ -315,13 +311,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             "variant_count": str(stats["extra_variants"]),
             "probed_model": probed_name or "",
             "candidate_count": str(len(candidates)),
-            # A markdown list, so the models land on their own lines rather
-            # than buried in a sentence.
+            # Markdown list: one model per line.
             "candidates": "\n".join(f"- **{c}**" for c in candidates),
         }
 
-        # Three steps rather than one sentence assembled here: what to say
-        # about the probe differs, and only a step id gets it translated.
+        # Three step ids, because only a step id gets its wording translated.
         if candidates:
             step_id = "select_model_ambiguous"
         elif inferred_model is None and probed_name:
@@ -333,8 +327,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id=step_id,
             data_schema=vol.Schema(
                 {
-                    # Required with no default when nothing identified the
-                    # device, so the choice has to be made rather than confirmed.
+                    # No default, so the choice is made rather than confirmed.
                     (
                         vol.Required(CONF_DEVICE_MODEL, default=inferred_model)
                         if inferred_model is not None
