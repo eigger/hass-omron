@@ -456,11 +456,18 @@ _HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
 
 
 def _exact_catalog_model_id(token: str) -> str | None:
-    """Catalog model id for an exact name, ignoring case and inner spaces."""
+    """Catalog model id for an exact name, ignoring case and inner spaces.
+
+    Aliases count: a Model Number String is exactly where a carton name shows
+    up, and MODEL_NUMBER_ALIASES exists to turn those into catalog ids.
+    """
     supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
     for cand in (token, token.upper(), token.replace(" ", "").upper()):
         if cand in supported:
             return cand
+        alias = MODEL_NUMBER_ALIASES.get(cand)
+        if alias:
+            return alias
     return None
 
 
@@ -493,6 +500,10 @@ def infer_model_id_from_local_name(local_name: str | None) -> str | None:
     for cand in candidates:
         if cand in supported:
             return cand
+    for cand in candidates:
+        alias = MODEL_NUMBER_ALIASES.get(cand)
+        if alias:
+            return alias
     return None
 
 

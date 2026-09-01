@@ -242,15 +242,22 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         models = get_supported_models()
         model_dict = {m: m for m in models}
         stats = get_supported_model_stats()
-        default_model = DEFAULT_DEVICE_MODEL
-        
+        # No default until something identifies the device. The placeholder is a
+        # real profile (HEM-7142T2) and pre-selecting it is indistinguishable
+        # from a successful probe: the form looks answered, the user confirms,
+        # and the cuff is read through another model's EEPROM map for good --
+        # wrong record size, wrong addresses, wrong user count, no error. That
+        # is issue #45, where a HEM-7196T1 ran as a HEM-7142T2 for months.
+        inferred_model: str | None = None
+        probed_name: str | None = None
+
         # Check manufacturer data directly if available for model code (often in BLE beacons)
         # Or read from config flow context if we cached it.
         # However, for passive discovery, we only have local_name.
         if self._discovery_info:
             inferred = infer_model_id_from_local_name(self._discovery_info.name)
             if inferred is not None:
-                default_model = inferred
+                inferred_model = inferred
             else:
                 # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
                 ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
@@ -266,23 +273,44 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                             self.hass, self._discovery_info.address, probe_session
                         )
                     if model_num:
+                        probed_name = model_num
                         inferred = infer_model_id_from_local_name(model_num)
                         if inferred:
-                            default_model = inferred
+                            inferred_model = inferred
+
+        if inferred_model is None:
+            _LOGGER.warning(
+                "Could not identify %s from its advertised name%s; the model has "
+                "to be picked by hand. Choosing the wrong one reads the cuff "
+                "through another model's memory map and reports no error",
+                getattr(self._discovery_info, "address", "the device"),
+                f" or its reported model number {probed_name!r}" if probed_name else "",
+            )
 
         desc_ph = {
             **self.context.get("title_placeholders", {}),
             "model_total": str(stats["total"]),
             "profile_count": str(stats["profiles"]),
             "variant_count": str(stats["extra_variants"]),
+            # Empty when nothing was probed, so the sentence just drops out.
+            "probed_note": (
+                f"The device reports its model number as **{probed_name}**, "
+                "which is not in the list. "
+                if probed_name and inferred_model is None
+                else ""
+            ),
         }
 
         return self.async_show_form(
             step_id="select_model",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_DEVICE_MODEL, default=default_model
+                    # Required with no default when nothing identified the
+                    # device, so the choice has to be made rather than confirmed.
+                    (
+                        vol.Required(CONF_DEVICE_MODEL, default=inferred_model)
+                        if inferred_model is not None
+                        else vol.Required(CONF_DEVICE_MODEL)
                     ): vol.In(model_dict),
                     vol.Optional(
                         CONF_SCAN_INTERVAL, default=300
