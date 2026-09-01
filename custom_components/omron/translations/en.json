@@ -14,7 +14,7 @@
       },
       "select_model": {
         "title": "Select Device Model",
-        "description": "If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected by default—confirm or change it. Otherwise choose the model printed on the cuff or in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model; wrong EEPROM layouts show up as empty or bad readings—check the log for **profile=** lines.",
+        "description": "{probed_note}If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected for you—confirm or change it. Otherwise nothing is preselected: choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
         "data": {
           "device_model": "Device Model",
           "scan_interval": "Update Interval (seconds)"
