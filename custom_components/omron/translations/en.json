@@ -14,7 +14,7 @@
       },
       "select_model": {
         "title": "Select Device Model",
-        "description": "{probed_note}If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected for you—confirm or change it. Otherwise nothing is preselected: choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
+        "description": "If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected for you—confirm or change it. Otherwise nothing is preselected: choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
         "data": {
           "device_model": "Device Model",
           "scan_interval": "Update Interval (seconds)"
@@ -37,6 +37,22 @@
       "pairing_os": {
         "title": "Pair {model}",
         "description": "Submit (Confirm) will start pairing from Home Assistant. First set the device to pairing or discoverable mode as in the manual, then press Submit."
+      },
+      "select_model_unknown": {
+        "title": "Select Device Model",
+        "description": "The device reports its model number as **{probed_model}**, which is in no list here, so nothing is preselected. Choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
+        "data": {
+          "device_model": "Device Model",
+          "scan_interval": "Update Interval (seconds)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Select Device Model",
+        "description": "The device reports its model number as **{probed_model}**. **{candidate_count}** models answer to that name and they do not read alike:\n\n{candidates}\n\nNothing the cuff sends over the air tells them apart—the Omron app knows only because you told it. Pick the one printed on the cuff.\n\nThe list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
+        "data": {
+          "device_model": "Device Model",
+          "scan_interval": "Update Interval (seconds)"
+        }
       }
     },
     "error": {

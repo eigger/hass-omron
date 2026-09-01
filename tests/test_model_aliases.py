@@ -13,11 +13,16 @@ from custom_components.omron.omron_ble.device_catalog import (
 )
 from custom_components.omron.omron_ble.devices import (
     MODEL_VARIANT_MAP,
+    ambiguous_model_candidates,
     get_device_config,
     get_supported_models,
+    infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
-from custom_components.omron.omron_ble.model_aliases import MODEL_NUMBER_ALIASES
+from custom_components.omron.omron_ble.model_aliases import (
+    AMBIGUOUS_MODEL_NAMES,
+    MODEL_NUMBER_ALIASES,
+)
 
 
 def test_the_reported_cuff_shows_its_hem_designation():
@@ -70,3 +75,46 @@ def test_aliases_do_not_grow_the_dropdown():
 
     # BP5465 는 원래 카탈로그 변형으로 등록돼 있어 예외다.
     assert added <= {"BP5465"}, added
+
+
+def test_marketing_names_resolve() -> None:
+    # Some firmware answers the Model Number String with the carton's marketing
+    # name rather than a code: a HEM-7188T1-LEO reports "X2+ Connect" (#92).
+    assert infer_model_id_from_local_name("X2+ Connect") == "HEM-7188T1-LEO"
+    assert infer_model_id_from_local_name("X2+") == "HEM-7188T1-LEO"
+    assert infer_model_id_from_local_name("Evolv\u2122") == "HEM-7600T-Z"
+    assert infer_model_id_from_local_name("3 Series Upper Arm") == "HEM-7142T2-Z"
+
+
+def test_names_covering_several_stacks_are_not_guessed() -> None:
+    # The app ships HEM-7155T_ESL and HEM-7155T_K4-ESL with identical name,
+    # Bluetooth settings name and display name, separated only by a group id
+    # the device never transmits. WLS3.0 with custom-key pairing vs WLD2.0 with
+    # OS bonding -- guessing reads the device through the wrong stack.
+    for name in ("X4 Smart", "HEM-7155T_ESL", "M4 Intelli IT", "BP5350"):
+        assert infer_model_id_from_local_name(name) is None, name
+        assert len(ambiguous_model_candidates(name)) > 1, name
+
+    assert ambiguous_model_candidates("X4 Smart") == (
+        "HEM-7155T_ESL",
+        "HEM-7155T_K4-ESL",
+    )
+
+
+def test_a_resolvable_name_is_not_called_ambiguous() -> None:
+    for name in ("HEM-7386T1", "BP5465", "X2+ Connect", "BLESmart_0000123"):
+        assert ambiguous_model_candidates(name) == (), name
+
+
+def test_every_candidate_is_selectable_in_the_dropdown() -> None:
+    # Naming a model the user cannot then pick would be worse than saying
+    # nothing.
+    offered = set(get_supported_models())
+    for name, candidates in AMBIGUOUS_MODEL_NAMES.items():
+        for candidate in candidates:
+            assert candidate in offered, f"{name} -> {candidate}"
+
+
+def test_no_name_is_both_resolvable_and_ambiguous() -> None:
+    for name in AMBIGUOUS_MODEL_NAMES:
+        assert name not in MODEL_NUMBER_ALIASES, name

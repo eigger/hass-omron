@@ -6,17 +6,21 @@ a BP5465 is a HEM-7382T1-AZAZ, and a cuff calling itself HEM-7140T1 is really a
 HEM-7140T1-AP. Without a mapping such a name matches nothing and falls back to
 the default profile, which then reads the wrong EEPROM layout.
 
-Taken from the OMRON connect Android app's own device list, which carries both
-names for every device it supports, and kept only where the target already
-resolves in this catalog.
+Taken from the OMRON connect Android app's own device list, which carries three
+names for every device it supports -- an identifier (HEM-7600T-Z), a Bluetooth
+settings name (BP7000) and a display name (Evolv) -- and kept only where the
+target already resolves in this catalog. Firmware answers with any of the
+three.
 
-Three names are deliberately absent. BP5350, BP7350 and BP7350CAN each cover two
-hardware revisions that speak different protocols -- HEM-7155T is WLS3.0 with
-four RX/TX channels and custom-key pairing, HEM-7155T-K4 is WLD2.0 with one
-channel and OS bonding -- so a wrong guess reads the device through the wrong
-stack entirely. The app separates them too, by a group id that lands in a range
-this catalog already classifies the same way, so the split is real rather than
-an artefact of how these profiles were once divided here.
+Some names cannot be mapped at all, and those live in AMBIGUOUS_MODEL_NAMES.
+"X4 Smart" is the clearest case: the app carries HEM-7155T_ESL and
+HEM-7155T_K4-ESL with identical name, Bluetooth settings name and display name,
+and separates them only by a group id the device never transmits. One is WLS3.0
+with four RX/TX channels and custom-key pairing, the other WLD2.0 with one
+channel and OS bonding, so guessing reads the device through the wrong stack
+entirely. The app cannot tell them apart by name either -- it knows which is
+which because the user picked the model during setup. Neither can we, so the
+config flow names the candidates and lets the user choose.
 
 They are resolvable in principle: the two stacks expose different parent service
 UUIDs, which is visible on connect. Doing that needs the device in hand rather
@@ -79,4 +83,137 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "HEM-7156T": "HEM-7156T_AP",
     "HEM-7156T-AAP": "HEM-7156T_AAP",
     "HEM-9601T-E3": "HEM-9601T_E3",
+    # Marketing and series names, which some firmware answers with
+    # instead of a code -- a HEM-7188T1-LEO reports "X2+ Connect".
+    "10 Series Wrist": "HEM-6321T-Z",
+    "3 Series Upper Arm": "HEM-7142T2-Z",
+    "Blood Pressure Monitor / Tensiomètre": "HEM-7376T1-ACACD6",
+    "Boots Blood Pressure device": "HEM-7361T1-BS",
+    "Bronze Upper Arm": "HEM-7142T2-ZAZ",
+    "Complete": "HEM-7530T_E3",
+    "Complete(HEM-7530T1)": "HEM-7530T1-BR3",
+    "EVOLV": "HEM-7600T-E",
+    "Evolv": "HEM-7600T-Z",
+    "HCR-7501T": "HEM-7158T-JC",
+    "HCR-7502T": "HEM-7346T-AJE3",
+    "HCR-750AT": "HEM-7346T-AJC3",
+    "HCR-7601T": "HEM-7347T-AJC3",
+    "HCR-7602T": "HEM-7347T-AJE3",
+    "HCR-7800T": "HEM-7530T_J3",
+    "HEM-7141T1": "HEM-7141T1-AP",
+    "HEM-7143T1": "HEM-7143T1-AP",
+    "HEM-7143T2": "HEM-7143T2-E",
+    "HEM-7144T1": "HEM-7144T1-AU",
+    "HEM-7156T-A": "HEM-7156T_AAP",
+    "HEM-7280T": "HEM-7280T-AP",
+    "HeartGuide": "HEM-6410T-Z",
+    "HeartVue": "HEM-6402T-Z",
+    "JPN610T": "HEM-7158T_AP3",
+    "JPN616T": "HEM-7159T_AP3",
+    "JPN710T": "HEM-7346T_AP3",
+    "M2 Intelli IT": "HEM-7143T1-E",
+    "M2 Intelli IT+": "HEM-7146T2-EBK",
+    "M2+": "HEM-7188T1-LE",
+    "M300 Intelli IT": "HEM-7143T1-D",
+    "M4 Connect AFib": "HEM-7196T1-FLE",
+    "M500 Intelli IT": "HEM-7361T-D",
+    "M7 Intelli IT AFib": "HEM-7380T1-EBK",
+    "M700 Intelli IT": "HEM-7322T-D",
+    "MIT5s": "HEM-7280T-E",
+    "NightView": "HEM-9601T_E3",
+    "OMRON Complete": "HEM-7530T-Z",
+    "OMRON upper arm blood pressure monitor": "HEM-7600T-ZCD6BK",
+    "Platinum": "HEM-7343T-Z",
+    "RS3 Intelli IT": "HEM-6161T-E",
+    "RS7 Intelli IT": "HEM-6232T-D",
+    "Wrist Blood Pressure Monitor": "HEM-6232T-Z",
+    "X2 Smart": "HEM-7143T2-E",
+    "X2 Smart+": "HEM-7146T2-ESL",
+    "X2+": "HEM-7188T1-LEO",
+    "X4 Connect AFib": "HEM-7196T1-FLEO",
+    "X7 Smart": "HEM-7361T_ESL",
+    "X7 Smart AFib": "HEM-7380T1-EOSL",
+}
+
+
+AMBIGUOUS_MODEL_NAMES: dict[str, tuple[str, ...]] = {
+    "10 Series Upper Arm": (
+        "HEM-7321T-CA",
+        "HEM-7321T-ZV",
+        "HEM-7321T_TI-Z",
+        "HEM-7342T-CA",
+        "HEM-7342T-Z",
+        "HEM-7342T1-ACACD6",
+        "HEM-7381T1-AZ",
+        "HEM-7382T1-AZAZ",
+    ),
+    "5 Series Upper Arm": (
+        "HEM-7150T-CA",
+        "HEM-7150T-Z",
+        "HEM-716CT2-Z",
+    ),
+    "7 Series Upper Arm": (
+        "HEM-7320T-CA",
+        "HEM-7320T-CACS",
+        "HEM-7320T-ZV",
+        "HEM-7320T_TI-Z",
+        "HEM-7340T-CA",
+        "HEM-7340T-Z",
+        "HEM-7340T_K4-CA",
+        "HEM-7340T_K4-Z",
+        "HEM-7376T1-Z",
+        "HEM-7377T1-ZAZ",
+    ),
+    "7 Series Wrist": (
+        "HEM-6231T_Z",
+        "HEM-6320T-Z",
+    ),
+    "BP5350": (
+        "HEM-7341T-Z",
+        "HEM-7341T_K4-Z",
+    ),
+    "BP7350": (
+        "HEM-7340T-Z",
+        "HEM-7340T_K4-Z",
+    ),
+    "BP7350CAN": (
+        "HEM-7340T-CA",
+        "HEM-7340T_K4-CA",
+    ),
+    "Gold": (
+        "HEM-7341T-Z",
+        "HEM-7341T_K4-Z",
+    ),
+    "HEM-7155T-D": (
+        "HEM-7155T-D",
+        "HEM-7155T_K4-D",
+    ),
+    "HEM-7155T-EBK": (
+        "HEM-7155T-EBK",
+        "HEM-7155T_K4-EBK",
+    ),
+    "HEM-7155T_ESL": (
+        "HEM-7155T_ESL",
+        "HEM-7155T_K4-ESL",
+    ),
+    "M4 Intelli IT": (
+        "HEM-7155T-EBK",
+        "HEM-7155T_K4-EBK",
+    ),
+    "M400 Intelli IT": (
+        "HEM-7155T-D",
+        "HEM-7155T_K4-D",
+    ),
+    "M7 Intelli IT": (
+        "HEM-7322T-E",
+        "HEM-7361T-EBK",
+    ),
+    "Silver": (
+        "HEM-7151T-Z",
+        "HEM-716BT2-ZAZ",
+    ),
+    "X4 Smart": (
+        "HEM-7155T_ESL",
+        "HEM-7155T_K4-ESL",
+    ),
 }

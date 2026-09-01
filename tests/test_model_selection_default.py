@@ -13,6 +13,8 @@ be instantiated; the schema construction is checked with the AST instead
 """
 
 import ast
+import json
+import re
 from pathlib import Path
 
 from custom_components.omron.omron_ble.devices import infer_model_id_from_local_name
@@ -112,3 +114,49 @@ def test_no_step_substitutes_a_default_for_the_chosen_model() -> None:
     assert "DEFAULT_DEVICE_MODEL" not in names, (
         "a config flow step fell back to the default model again (#45)"
     )
+
+
+_SUPPLIED_PLACEHOLDERS = frozenset(
+    # What async_step_select_model puts in description_placeholders. Home
+    # Assistant raises on a name the description uses but the flow omits.
+    {"name", "model_total", "profile_count", "variant_count",
+     "probed_model", "candidate_count", "candidates"}
+)
+_MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous")
+
+
+def _string_files() -> list[Path]:
+    component = _CONFIG_FLOW.parent
+    return [
+        component / "strings.json",
+        component / "translations" / "en.json",
+        component / "translations" / "ko.json",
+    ]
+
+
+def test_every_model_step_is_translated_everywhere() -> None:
+    # The wording lives in the string files rather than being assembled in
+    # Python, which is the only way it reaches a non-English UI.
+    for path in _string_files():
+        steps = json.loads(path.read_text(encoding="utf-8"))["config"]["step"]
+        for step_id in _MODEL_STEPS:
+            assert step_id in steps, f"{path.name} is missing {step_id}"
+            assert steps[step_id].get("description"), f"{path.name}:{step_id}"
+
+
+def test_no_description_asks_for_a_placeholder_the_flow_omits() -> None:
+    for path in _string_files():
+        steps = json.loads(path.read_text(encoding="utf-8"))["config"]["step"]
+        for step_id in _MODEL_STEPS:
+            used = set(re.findall(r"\{(\w+)\}", steps[step_id]["description"]))
+            missing = used - _SUPPLIED_PLACEHOLDERS
+            assert not missing, f"{path.name}:{step_id} uses {sorted(missing)}"
+
+
+def test_each_model_step_id_has_a_handler() -> None:
+    tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
+    handlers = {
+        n.name for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
+    }
+    for step_id in _MODEL_STEPS:
+        assert f"async_step_{step_id}" in handlers, step_id

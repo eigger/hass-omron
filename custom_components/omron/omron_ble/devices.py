@@ -15,7 +15,7 @@ from .const import (
     CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS,
     DEFAULT_DEVICE_MODEL,
 )
-from .model_aliases import MODEL_NUMBER_ALIASES
+from .model_aliases import AMBIGUOUS_MODEL_NAMES, MODEL_NUMBER_ALIASES
 from .record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_14_6232_family,
@@ -453,6 +453,52 @@ def get_supported_model_stats() -> dict[str, int]:
 
 
 _HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
+# Trailing decoration the carton carries but the alias table does not: a
+# HEM-7188T1-LEO reports "X2+ Connect" where the app lists it as "X2+", and the
+# Japanese models append a parenthesised region.
+_NAME_DECORATION_RE = re.compile(
+    r"\s*\((?:Japan|China|US|EU)[^)]*\)\s*$|\s+Connect$", re.IGNORECASE
+)
+
+
+def normalise_reported_name(name: str) -> str:
+    """Strip the decoration a reported model name carries over the app's own.
+
+    Exact matching only -- substrings would be a disaster here, because the app
+    uses display names as short as "Gold" and "Silver".
+    """
+    stripped = name.replace("™", "").replace("®", "")
+    stripped = _NAME_DECORATION_RE.sub("", stripped)
+    return " ".join(stripped.split())
+
+
+def ambiguous_model_candidates(name: str | None) -> tuple[str, ...]:
+    """Catalog ids a reported name covers, when it covers more than one.
+
+    Some names identify two different stacks: the app ships HEM-7155T_ESL and
+    HEM-7155T_K4-ESL with identical name, Bluetooth settings name and display
+    name, telling them apart by a group id the device never transmits. Nothing
+    read over the air can resolve those, so the config flow names the
+    candidates instead of guessing one.
+    """
+    if not name or not str(name).strip():
+        return ()
+    for cand in _name_candidates(str(name).strip()):
+        found = AMBIGUOUS_MODEL_NAMES.get(cand)
+        if found:
+            return found
+    return ()
+
+
+def _name_candidates(token: str) -> tuple[str, ...]:
+    """Spellings of a reported name to try against the lookup tables."""
+    normalised = normalise_reported_name(token)
+    seen: list[str] = []
+    for cand in (token, normalised, token.upper(), normalised.upper(),
+                 token.replace(" ", "").upper()):
+        if cand and cand not in seen:
+            seen.append(cand)
+    return tuple(seen)
 
 
 def _exact_catalog_model_id(token: str) -> str | None:
@@ -462,9 +508,16 @@ def _exact_catalog_model_id(token: str) -> str | None:
     up, and MODEL_NUMBER_ALIASES exists to turn those into catalog ids.
     """
     supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
-    for cand in (token, token.upper(), token.replace(" ", "").upper()):
+    candidates = _name_candidates(token)
+    if any(cand in AMBIGUOUS_MODEL_NAMES for cand in candidates):
+        # Covers several stacks; the caller asks for the candidate list. This
+        # is checked before the catalog, because a name like HEM-7155T_ESL is
+        # itself a catalog id and also what its K4 sibling reports.
+        return None
+    for cand in candidates:
         if cand in supported:
             return cand
+    for cand in candidates:
         alias = MODEL_NUMBER_ALIASES.get(cand)
         if alias:
             return alias
@@ -490,13 +543,10 @@ def infer_model_id_from_local_name(local_name: str | None) -> str | None:
         # resolves; anything else still infers nothing.
         return _exact_catalog_model_id(name)
     token = match.group(1).strip()
-    candidates = {
-        token,
-        token.upper(),
-        token.replace(" ", ""),
-        token.upper().replace(" ", ""),
-    }
+    candidates = _name_candidates(token) + (token.replace(" ", ""),)
     supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
+    if any(cand in AMBIGUOUS_MODEL_NAMES for cand in candidates):
+        return None
     for cand in candidates:
         if cand in supported:
             return cand

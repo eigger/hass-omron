@@ -15,6 +15,7 @@ from .omron_ble.devices import (
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
+    ambiguous_model_candidates,
     infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
@@ -279,12 +280,31 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         if inferred:
                             inferred_model = inferred
 
+        # A name several stacks share cannot be resolved by anything read over
+        # the air -- the app itself goes by a group id the device never sends.
+        # Naming the candidates beats a bare "could not identify".
+        candidates: tuple[str, ...] = ()
         if inferred_model is None:
+            for name in (probed_name, getattr(self._discovery_info, "name", None)):
+                candidates = ambiguous_model_candidates(name)
+                if candidates:
+                    break
+
+        address = getattr(self._discovery_info, "address", "the device")
+        if candidates:
+            _LOGGER.warning(
+                "%s reports the model name %r, which covers %d models that do "
+                "not read alike: %s. Pick the one printed on the cuff -- "
+                "nothing sent over the air distinguishes them",
+                address, probed_name or self._discovery_info.name,
+                len(candidates), ", ".join(candidates),
+            )
+        elif inferred_model is None:
             _LOGGER.warning(
                 "Could not identify %s from its advertised name%s; the model has "
                 "to be picked by hand. Choosing the wrong one reads the cuff "
                 "through another model's memory map and reports no error",
-                getattr(self._discovery_info, "address", "the device"),
+                address,
                 f" or its reported model number {probed_name!r}" if probed_name else "",
             )
 
@@ -293,17 +313,24 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             "model_total": str(stats["total"]),
             "profile_count": str(stats["profiles"]),
             "variant_count": str(stats["extra_variants"]),
-            # Empty when nothing was probed, so the sentence just drops out.
-            "probed_note": (
-                f"The device reports its model number as **{probed_name}**, "
-                "which is not in the list. "
-                if probed_name and inferred_model is None
-                else ""
-            ),
+            "probed_model": probed_name or "",
+            "candidate_count": str(len(candidates)),
+            # A markdown list, so the models land on their own lines rather
+            # than buried in a sentence.
+            "candidates": "\n".join(f"- **{c}**" for c in candidates),
         }
 
+        # Three steps rather than one sentence assembled here: what to say
+        # about the probe differs, and only a step id gets it translated.
+        if candidates:
+            step_id = "select_model_ambiguous"
+        elif inferred_model is None and probed_name:
+            step_id = "select_model_unknown"
+        else:
+            step_id = "select_model"
+
         return self.async_show_form(
-            step_id="select_model",
+            step_id=step_id,
             data_schema=vol.Schema(
                 {
                     # Required with no default when nothing identified the
@@ -320,6 +347,18 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             description_placeholders=desc_ph,
         )
+
+    async def async_step_select_model_unknown(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Model form after a probe returned a name that is in no table."""
+        return await self.async_step_select_model(user_input)
+
+    async def async_step_select_model_ambiguous(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Model form after a probe returned a name several models share."""
+        return await self.async_step_select_model(user_input)
 
     def _require_selected_model(self) -> str:
         """The model chosen in select_model, which every later step depends on.
