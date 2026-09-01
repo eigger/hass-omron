@@ -453,20 +453,15 @@ def get_supported_model_stats() -> dict[str, int]:
 
 
 _HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
-# Trailing decoration the carton carries but the alias table does not: a
-# HEM-7188T1-LEO reports "X2+ Connect" where the app lists it as "X2+", and the
-# Japanese models append a parenthesised region.
+# Decoration the carton adds over the app's own listing: a HEM-7188T1-LEO
+# reports "X2+ Connect" where the app says "X2+".
 _NAME_DECORATION_RE = re.compile(
     r"\s*\((?:Japan|China|US|EU)[^)]*\)\s*$|\s+Connect$", re.IGNORECASE
 )
 
 
 def normalise_reported_name(name: str) -> str:
-    """Strip the decoration a reported model name carries over the app's own.
-
-    Exact matching only -- substrings would be a disaster here, because the app
-    uses display names as short as "Gold" and "Silver".
-    """
+    """Strip a reported name down to the spelling the alias table uses."""
     stripped = name.replace("™", "").replace("®", "")
     stripped = _NAME_DECORATION_RE.sub("", stripped)
     return " ".join(stripped.split())
@@ -475,11 +470,8 @@ def normalise_reported_name(name: str) -> str:
 def ambiguous_model_candidates(name: str | None) -> tuple[str, ...]:
     """Catalog ids a reported name covers, when it covers more than one.
 
-    Some names identify two different stacks: the app ships HEM-7155T_ESL and
-    HEM-7155T_K4-ESL with identical name, Bluetooth settings name and display
-    name, telling them apart by a group id the device never transmits. Nothing
-    read over the air can resolve those, so the config flow names the
-    candidates instead of guessing one.
+    See AMBIGUOUS_MODEL_NAMES: nothing sent over the air separates these, so
+    the config flow names them rather than guessing one.
     """
     if not name or not str(name).strip():
         return ()
@@ -502,17 +494,12 @@ def _name_candidates(token: str) -> tuple[str, ...]:
 
 
 def _exact_catalog_model_id(token: str) -> str | None:
-    """Catalog model id for an exact name, ignoring case and inner spaces.
-
-    Aliases count: a Model Number String is exactly where a carton name shows
-    up, and MODEL_NUMBER_ALIASES exists to turn those into catalog ids.
-    """
+    """Catalog model id for an exact name, ignoring case and inner spaces."""
     supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
     candidates = _name_candidates(token)
+    # Before the catalog lookup: HEM-7155T_ESL is itself a catalog id and also
+    # what its K4 sibling reports.
     if any(cand in AMBIGUOUS_MODEL_NAMES for cand in candidates):
-        # Covers several stacks; the caller asks for the candidate list. This
-        # is checked before the catalog, because a name like HEM-7155T_ESL is
-        # itself a catalog id and also what its K4 sibling reports.
         return None
     for cand in candidates:
         if cand in supported:

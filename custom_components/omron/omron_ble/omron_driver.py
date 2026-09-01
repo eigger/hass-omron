@@ -1948,12 +1948,8 @@ class OmronDeviceSession:
             unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_DEFAULT, _PAIRING_SETTLE_DEFAULT_SEC
             key_max_retries = 5
 
-        # This subscribe is what triggers SMP: the RX characteristic needs
-        # encryption, so the cuff answers it with a pairing request. Failing
-        # here is often harmless (already subscribed), but when the link dies
-        # a moment later this is the only record of why -- issue #2 arrived as
-        # a bare "Not connected" from the unlock subscribe below, three steps
-        # downstream of the actual event.
+        # This subscribe triggers SMP; its failure is the only record of why
+        # the link dies a moment later (#2).
         _LOGGER.debug("Enabling RX notification to trigger BLE pairing")
         rx_notify_error: str | None = None
         try:
@@ -1967,8 +1963,7 @@ class OmronDeviceSession:
         await self._apply_pairing_settle_delay(aggressive_timing)
 
         if not getattr(self._client, "is_connected", True):
-            # Gone before the unlock subscribe is even attempted. Say so now
-            # rather than sleeping through ten retries against a dead link.
+            # Dead already: no point retrying the unlock subscribe ten times.
             raise ConnectionError(
                 "The cuff dropped the link right after the pairing request"
                 + (f" ({rx_notify_error})" if rx_notify_error else "")
