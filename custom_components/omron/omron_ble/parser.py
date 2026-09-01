@@ -835,7 +835,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _setup_device_info(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Set up device metadata from advertisement."""
-        model = self._device_config.model
+        model = self._device_config.display_model
         manufacturer = "Omron"
         normalized_address = service_info.address.replace(":", "")
         identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address

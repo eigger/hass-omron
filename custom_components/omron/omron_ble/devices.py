@@ -234,6 +234,27 @@ class DeviceConfig:
             )
 
     @property
+    def display_model(self) -> str:
+        """Model name for the UI, kept in the HEM- form.
+
+        A profile can be reached by a retail carton name -- BP5465 is the only
+        one in the catalog -- and that is also what the cuff answers with over
+        GATT, so it can end up in the device registry as the model. Show the
+        profile key instead: it is a real HEM designation and the one thing we
+        know maps to this device. There is no retail-to-variant table to do
+        better with, and inventing one would be a guess.
+
+        An unrecognised name is left alone rather than replaced with the
+        fallback profile, which would name a device we did not identify. Logs
+        keep ``model`` either way, so a report still shows what was resolved.
+        """
+        if self.model.upper().startswith("HEM-"):
+            return self.model
+        if self.model in CANONICAL_DEVICE_PROFILES or self.model in MODEL_VARIANT_MAP:
+            return resolve_profile_model_id(self.model)
+        return self.model
+
+    @property
     def num_users(self) -> int:
         """Return the number of users this device supports."""
         return len(self.user_start_addresses)
