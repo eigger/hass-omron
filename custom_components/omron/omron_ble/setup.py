@@ -32,14 +32,10 @@ async def async_fetch_device_model_number(
 ) -> tuple[str | None, OmronDeviceSession | None]:
     """Read the model number, returning the session when asked to keep it open.
 
-    The link is not incidental. WLD3.0 cuffs raise an SMP Security Request a
-    few tens of milliseconds after connect, so this short read is where the
-    bond actually gets made — and proxy traces in issue #91 show it being cut
-    off mid key distribution: the cuff's Encryption Information (the LTK)
-    arrives, the Master Identification carrying EDIV/Rand does not, and this
-    function disconnects with SMP still in BOND_PENDING. LE legacy pairing
-    needs all three to restart encryption later, so the stored bond is
-    unusable and the first ordinary poll fails to resume with SMP_ENC_FAIL.
+    The link is not incidental: WLD3.0 cuffs raise an SMP Security Request a few
+    tens of milliseconds after connect, so this short read is where the bond
+    actually gets made. Closing it mid key distribution leaves a stored bond
+    missing the EDIV/Rand half, which legacy pairing needs to resume later.
 
     ``keep_session_open`` hands the caller the live session instead, so the
     pairing that follows continues on the link that bonded. The caller owns it

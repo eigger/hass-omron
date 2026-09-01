@@ -881,18 +881,10 @@ class OmronDeviceSession:
     async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
         """Stay idle at the end of a session so the device can end it itself.
 
-        A phone HCI capture of a BP5465 (issue #91) shows the official app
-        going quiet after its last read and the cuff dropping the link about
-        three seconds later — HCI 0x13, remote user terminated. This
-        integration instead disconnects in the same millisecond as the final
-        notification, so every session ends 0x16, closed by us.
-
-        On a cuff that finalises a transfer at its own session end, that
-        difference costs whatever the session was meant to commit. Two
-        symptoms fit: the unread-records counter that only ever grows across
-        sessions whose data was read successfully, and the bond the cuff does
-        not honour on the next connection even though both sides completed
-        key distribution.
+        Unconfirmed, and the capture reading behind it does not hold: in the
+        phone trace it is the phone that sends HCI Disconnect (reason 0x13) and
+        the controller that answers 0x16, so the app hangs up, not the cuff.
+        Costs its window on every poll of the two profiles that set it.
 
         No-op unless the profile asks for it.
         """
@@ -1165,17 +1157,13 @@ class OmronDeviceSession:
         memory_address = bytes(frame_bytes[3:5])
         expected_data_len = frame_bytes[5]
 
-        # If a specific reply is expected, discard late or unrelated frames, but
-        # always accept 0x8f00 (end-of-transmission / device error frame).
-        #
-        # Type alone cannot tell replies apart: every memory read answers 0x8100
-        # and only the address differs. A late reply to the previous command used
-        # to pass this gate, satisfy the wait, and fail the address check in
-        # read_memory_block afterwards -- by which point the wait was spent, the
-        # real reply arrived with nobody listening, and every following command
-        # consumed the one before it. The address and declared length come
-        # straight out of the command in flight, so a stale frame is dropped here
-        # and the wait continues until the right one lands or the timeout fires.
+        # Discard late or unrelated frames, but always accept 0x8f00: it is both
+        # the session-close ack and the rejection frame, so it can answer
+        # anything. Type alone cannot tell replies apart -- every memory read
+        # answers 0x8100 and only the address differs -- and accepting the wrong
+        # one spends the wait, leaving the real reply to be consumed by the next
+        # command in turn. Address and declared length come from the command in
+        # flight, so a stale frame is dropped and the wait simply continues.
         if packet_type != END_OF_TRANSMISSION_PACKET_TYPE:
             if (
                 self._expected_reply_packet_type is not None
@@ -2106,17 +2094,9 @@ class OmronDeviceSession:
     async def subscribe_service_changed(self) -> bool:
         """Subscribe to Service Changed, as the official app does when pairing.
 
-        A phone HCI capture of the same cuff family (issue #67) shows the app
-        writing 0x0002 to handle 0x000B — the Service Changed client
-        configuration, the sole characteristic of the Generic Attribute
-        service — in both of its pairing sessions and in neither of its
-        reconnects. This integration has never written it.
-
-        That configuration is one the spec requires a peripheral to keep per
-        bonded client, so a client that writes nothing may leave it with
-        nothing worth committing. The cuff answering a resumed connection with
-        "PIN or Key Missing" while both sides completed key distribution is
-        what that would look like.
+        The #67 capture writes 0x0002 to handle 0x000B in both pairing sessions
+        and neither reconnect. The spec has a peripheral keep that client
+        configuration per bonded client. Unconfirmed as a fix.
 
         Best effort: a device without the characteristic, or a backend that
         refuses the subscribe, must not fail the pairing.

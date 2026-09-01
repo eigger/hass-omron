@@ -13,88 +13,43 @@ from .devices import (
     UnlockMode,
 )
 
-# Bond strategy for the WLD3.0 and WLD4.0 families.
-#
-# These cuffs served data during the pairing session and then refused every
-# later connection with "PIN or Key Missing", which read like a device that
-# does not keep its side of the bond -- so the family ran on PER_SESSION,
-# dropping ours to match and bonding from scratch each time.
-#
-# That reading was wrong twice over. The cuff was dropping its side because we
-# disabled the notify CCCDs at session close (see
-# _WLD_KEEP_NOTIFY_SUBSCRIPTIONS); once we stopped, a BP5465 resumed the same
-# bond across four consecutive reconnects with no pairing at all, confirmed on
-# the wire in issue #91. And PER_SESSION could never have worked here anyway:
-# issue #133 caught the cuff answering a fresh pair request with
-# AuthenticationCanceled outside its -P- window, so deleting the bond leaves
-# nothing able to make another one.
-#
-# pair_only_when_pairing keeps the connect-time pair request for the sessions
-# that have to create a bond and off every ordinary poll, which is what the
-# phone capture shows the app doing.
+# Bond strategy for the WLD3.0 and WLD4.0 families. REUSE because the cuff does
+# keep its side of the bond, and because PER_SESSION cannot work here: the cuff
+# refuses a fresh pair request outside its -P- window (#133), so deleting the
+# bond leaves nothing able to make another one.
 _WLD_BOND_SETTINGS = {
     "bond_policy": BondPolicy.REUSE,
     "pair_only_when_pairing": True,
 }
 
-# Whether WLD3.0/WLD4.0 profiles leave their notify CCCDs enabled at session
-# close instead of writing 0x0000 to them.
+# Leave the notify CCCDs enabled at session close instead of writing 0x0000.
 #
-# Counted across every ATT write in both phone captures we have -- issue #91
-# (BP5465) and issue #67 (HEM-7155T), four sessions, pairing and retained-bond
-# alike -- the official app writes 0x0100 to the vendor CCCDs and 0x0002 to
-# Service Changed, and never writes 0x0000 to any CCCD. It just disconnects.
-# Disables: zero. This integration writes six CCCD values per session, the last
-# of them after the session-close command, as the final GATT operation before
-# the link drops.
+# Disabling them was why the cuff dropped its side of the bond and answered
+# every reconnect with "PIN or Key Missing" (#91). The app never writes 0x0000
+# to a CCCD in either phone capture; the spec has a peripheral keep CCCD
+# configuration per bonded client (Vol 3 Part G, 3.3.3.3) and small stacks
+# store it inside the bond record.
 #
-# The spec has a peripheral keep CCCD configuration per bonded client (Vol 3
-# Part G, 3.3.3.3) and small stacks commonly store it inside the bond record,
-# which would make that last write the one thing we do to persistent per-bond
-# state that the app never does.
-#
-# Family-wide rather than per profile because it only ever removes a write, and
-# because the evidence spans two device families rather than one. It is not on
-# its own a fix for a profile still on PER_SESSION -- that path deletes the bond
-# deliberately -- but it stops the divergence either way.
+# Family-wide because it only ever removes a write and the evidence spans both
+# families.
 _WLD_KEEP_NOTIFY_SUBSCRIPTIONS = True
 
-# Let the cuff end its own session instead of hanging up on it.
+# Stay idle at session end so the cuff can close the link itself.
 #
-# A phone HCI capture of BP5465 in issue #91 shows the official app going
-# quiet after its last read and the cuff dropping the link about three
-# seconds later (HCI 0x13, remote user terminated). This integration
-# disconnected in the same millisecond as the final notification, so every
-# session ended 0x16 - closed by us.
-#
-# Two symptoms fit a cuff that finalises a transfer at its own session end:
-# the unread-records counter that only grows across sessions whose data was
-# read fine (1 -> 4 over the 24 August captures), and the bond it does not
-# honour on the next connection even though both sides now complete key
-# distribution. Five seconds covers the phone's three with margin.
+# Unconfirmed, and the capture reading behind it was wrong: the phone sends
+# HCI Disconnect with reason 0x13 and the controller answers 0x16, which is the
+# phone hanging up, not the cuff. Kept on the two profiles it shipped on rather
+# than removed blind -- it costs five seconds a poll, so it is worth settling.
 _WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC = 5.0
 
-# Subscribe to Service Changed while pairing, the way the official app does.
-#
-# The phone capture in issue #67 (same WLD3.0 profile family) writes 0x0002 to
-# handle 0x000B in both of its pairing sessions and in neither of its
-# reconnects. The capture's own service discovery places that handle in the
-# Generic Attribute service (0x0008-0x000B, uuid 0x1801), whose only
-# characteristic is Service Changed - so the write is that characteristic's
-# client configuration, enabling indications.
-#
-# The spec has a peripheral keep that configuration per bonded client. A
-# client that writes none may leave it with nothing worth committing, which
-# is what a cuff refusing a resumed connection ("PIN or Key Missing") after a
-# complete key distribution looks like.
+# Subscribe to Service Changed while pairing, as the app does: the #67 capture
+# writes 0x0002 to handle 0x000B in both pairing sessions and neither reconnect.
+# Unconfirmed; the CCCD fix landed without it.
 _WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED = True
 
-# The two settings that are still only on the profiles that were taken apart:
-# the idle window at session end and the Service Changed subscription. Neither
-# is part of the confirmed fix, so they stay where they were rather than
-# spreading to devices nobody has captured. Spread with
-# ``**_WLD3_BOND_EXPERIMENT``; every other profile takes _WLD_BOND_SETTINGS and
-# the dataclass defaults.
+# The two settings above plus a single connect attempt, still only on the two
+# profiles that were taken apart. None is part of the confirmed fix, so they do
+# not spread to devices nobody has captured.
 _WLD3_BOND_EXPERIMENT = {
     **_WLD_BOND_SETTINGS,
     "connect_settle_attempts": 1,
