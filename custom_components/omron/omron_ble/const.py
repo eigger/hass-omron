@@ -41,9 +41,12 @@ CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS = [
     "0ae12b00-aee8-11e1-a192-0002a5d5c51b",
     "10e1ba60-aee8-11e1-89e5-0002a5d5c51b",
 ]
-CLASSIC_STACK_UNLOCK_CHARACTERISTIC_UUID = "b305b680-aee7-11e1-a730-0002a5d5c51b"
+# Unlock characteristic. Named without a stack prefix because both stacks use
+# it: every profile in the catalog resolved to this UUID, and the modern-stack
+# capture in issue #67 has the token handshake on the characteristic that
+# discovery reports under it (value handle 0x001B).
+UNLOCK_CHARACTERISTIC_UUID = "b305b680-aee7-11e1-a730-0002a5d5c51b"
 # I2: secondary notify channel present on FE4A-service devices with AFib support (old WLP4COM protocol)
-MODERN_STACK_I2_CHARACTERISTIC_UUID = "8858eb40-aee8-11e1-bb67-0002a5d5c51b"
 
 DISCOVERABLE_PARENT_SERVICE_UUIDS = [
     CLASSIC_STACK_PARENT_SERVICE_UUID,
