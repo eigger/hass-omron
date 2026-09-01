@@ -40,7 +40,8 @@
       "duplicate_user_aliases": "각 사용자 슬롯 이름은 서로 달라야 합니다(대소문자 구분 없음)."
     },
     "abort": {
-      "not_supported": "지원되지 않는 기기입니다."
+      "not_supported": "지원되지 않는 기기입니다.",
+      "model_not_selected": "기기 모델이 선택되지 않았습니다. 처음부터 다시 진행해 목록에서 모델을 선택하세요."
     }
   },
   "options": {

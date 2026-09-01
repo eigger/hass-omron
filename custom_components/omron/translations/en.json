@@ -50,7 +50,8 @@
       "no_devices_found": "No unconfigured devices found on the network",
       "already_in_progress": "Configuration flow is already in progress",
       "already_configured": "Device is already configured",
-      "not_supported": "This device is not supported."
+      "not_supported": "This device is not supported.",
+      "model_not_selected": "The device model was not selected. Start over and pick the model from the list."
     }
   },
   "options": {
