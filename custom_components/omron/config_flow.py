@@ -54,30 +54,6 @@ from .omron_ble.setup import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def _probed_note(
-    probed_name: str | None,
-    inferred_model: str | None,
-    candidates: tuple[str, ...],
-) -> str:
-    """Lead sentence for the model form, telling the user what the cuff said."""
-    if inferred_model is not None:
-        return ""
-    if candidates:
-        listed = ", ".join(f"**{c}**" for c in candidates)
-        return (
-            f"This device calls itself **{probed_name}**, a name shared by "
-            f"{len(candidates)} models that read differently: {listed}. "
-            "Nothing it sends over the air tells them apart, so pick the one "
-            "printed on the cuff. "
-        )
-    if probed_name:
-        return (
-            f"The device reports its model number as **{probed_name}**, "
-            "which is not in the list. "
-        )
-    return ""
-
-
 def _resolved_user_aliases_from_input(
     num_users: int, user_input: dict[str, Any]
 ) -> list[str]:
@@ -337,12 +313,24 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             "model_total": str(stats["total"]),
             "profile_count": str(stats["profiles"]),
             "variant_count": str(stats["extra_variants"]),
-            # Empty when there is nothing to say, so the sentence drops out.
-            "probed_note": _probed_note(probed_name, inferred_model, candidates),
+            "probed_model": probed_name or "",
+            "candidate_count": str(len(candidates)),
+            # A markdown list, so the models land on their own lines rather
+            # than buried in a sentence.
+            "candidates": "\n".join(f"- **{c}**" for c in candidates),
         }
 
+        # Three steps rather than one sentence assembled here: what to say
+        # about the probe differs, and only a step id gets it translated.
+        if candidates:
+            step_id = "select_model_ambiguous"
+        elif inferred_model is None and probed_name:
+            step_id = "select_model_unknown"
+        else:
+            step_id = "select_model"
+
         return self.async_show_form(
-            step_id="select_model",
+            step_id=step_id,
             data_schema=vol.Schema(
                 {
                     # Required with no default when nothing identified the
@@ -359,6 +347,18 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
             description_placeholders=desc_ph,
         )
+
+    async def async_step_select_model_unknown(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Model form after a probe returned a name that is in no table."""
+        return await self.async_step_select_model(user_input)
+
+    async def async_step_select_model_ambiguous(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Model form after a probe returned a name several models share."""
+        return await self.async_step_select_model(user_input)
 
     def _require_selected_model(self) -> str:
         """The model chosen in select_model, which every later step depends on.
