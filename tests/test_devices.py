@@ -333,20 +333,30 @@ class TestNoDeadConfigSurface:
         assert UNLOCK_CHARACTERISTIC_UUID == "b305b680-aee7-11e1-a730-0002a5d5c51b"
 
     def test_every_field_is_read_somewhere(self):
-        """dataclass 필드는 최소한 코드 어딘가에서 읽혀야 한다."""
+        """dataclass 필드는 코드나 테스트 어딘가에서 읽혀야 한다.
+
+        테스트까지 세는 이유는 ``connect_type`` 같은 분류용 필드 때문이다.
+        런타임 분기가 읽지 않아도(프로토콜 계열을 나누는 메타데이터다) 테스트가
+        단언한다면 조용히 죽은 것이 아니다. 정말 죽은 필드는 카탈로그가 채우기만
+        하고 어느 쪽에서도 안 읽는다.
+        """
         import dataclasses
         import pathlib
 
         from custom_components.omron.omron_ble.devices import DeviceConfig
 
-        code = "\n".join(
+        sources = (
+            *pathlib.Path("custom_components/omron").rglob("*.py"),
+            *pathlib.Path("tests").rglob("*.py"),
+        )
+        read_by = "".join(
             p.read_text(encoding="utf-8")
-            for p in pathlib.Path("custom_components/omron").rglob("*.py")
-            if p.name != "device_catalog.py"
+            for p in sources
+            if p.name not in ("device_catalog.py", "test_devices.py")
         )
         unread = [
             f.name
             for f in dataclasses.fields(DeviceConfig)
-            if f".{f.name}" not in code and f'"{f.name}"' not in code
+            if f".{f.name}" not in read_by and f'"{f.name}"' not in read_by
         ]
         assert not unread, f"카탈로그만 채우고 아무도 안 읽는 필드: {unread}"
