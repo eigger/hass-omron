@@ -15,6 +15,7 @@ from .const import (
     CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS,
     DEFAULT_DEVICE_MODEL,
 )
+from .model_aliases import MODEL_NUMBER_ALIASES
 from .record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_14_6232_family,
@@ -250,6 +251,9 @@ class DeviceConfig:
         """
         if self.model.upper().startswith("HEM-"):
             return self.model
+        alias = MODEL_NUMBER_ALIASES.get(self.model)
+        if alias:
+            return alias
         if self.model in CANONICAL_DEVICE_PROFILES or self.model in MODEL_VARIANT_MAP:
             return resolve_profile_model_id(self.model)
         return self.model
@@ -415,6 +419,11 @@ def get_device_config(model: str) -> DeviceConfig:
     if variant_profile:
         config = CANONICAL_DEVICE_PROFILES[variant_profile]
         return replace(config, model=model)
+    alias = MODEL_NUMBER_ALIASES.get(model)
+    if alias:
+        # The name the device answers with is kept, so logs show what it said;
+        # display_model turns it into the HEM designation for the UI.
+        return replace(get_device_config(alias), model=model)
     _LOGGER.warning(
         "Unknown device model '%s', falling back to %s",
         model, DEFAULT_DEVICE_MODEL,
@@ -494,5 +503,8 @@ def resolve_profile_model_id(model: str) -> str:
     variant_profile = MODEL_VARIANT_MAP.get(model)
     if variant_profile:
         return variant_profile
+    alias = MODEL_NUMBER_ALIASES.get(model)
+    if alias:
+        return resolve_profile_model_id(alias)
     return DEFAULT_DEVICE_MODEL
 

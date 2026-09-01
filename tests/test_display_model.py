@@ -18,11 +18,20 @@ from custom_components.omron.omron_ble.devices import (
 )
 
 
-def test_the_retail_name_is_shown_as_its_profile():
+def test_the_retail_name_is_shown_in_hem_form():
+    """앱 자체 데이터가 대응을 알려주므로 프로파일 키가 아니라 정확한 변형이다."""
     config = get_device_config("BP5465")
 
     assert config.model == "BP5465", "로그에는 실제로 해석된 이름이 남아야 한다"
-    assert config.display_model == "HEM-7386T1"
+    assert config.display_model == "HEM-7382T1-AZAZ"
+
+
+def test_a_name_with_no_mapping_at_all_is_left_alone():
+    """모르는 이름에 프로파일명을 붙이면 식별하지 못한 기기에 이름을 지어주는 셈이다."""
+    from dataclasses import replace
+
+    unmapped = replace(get_device_config("HEM-7386T1"), model="BP-UNMAPPED")
+    assert unmapped.display_model == "BP-UNMAPPED"
 
 
 def test_hem_names_are_left_exactly_as_chosen():
