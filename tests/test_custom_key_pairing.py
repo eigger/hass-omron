@@ -159,11 +159,13 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
         asyncio.run(session._pair_custom_key(bytearray(16)))
 
     message = str(excinfo.value)
-    assert "disconnected" in message
+    assert "dropped the link" in message
     assert "was not found" not in message
+    # The SMP trigger's own failure, which used to go only to a debug log and
+    # left issue #2 with a bare "Not connected" three steps downstream.
     assert "Not Connected" in message
-    # RX notify 1회 + 언락 구독 1회. 죽은 링크를 10회 두드리지 않는다.
-    assert len(client.start_notify_calls) == 2
+    # RX notify만 1회. 죽은 링크에는 언락 구독을 시도하지도 않는다.
+    assert len(client.start_notify_calls) == 1
 
 
 def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
@@ -207,3 +209,32 @@ def test_bluez_device_path_cannot_identify_a_link_from_the_client_alone():
         == "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
     )
     assert omron_driver._bluez_device_path(FakeBLEDevice(PROXY_DEVICE_DETAILS)) is None
+
+
+def test_pairing_error_names_both_failures(monkeypatch):
+    """링크가 언락 구독 도중에 죽으면 SMP 촉발 실패까지 함께 보고한다."""
+    monkeypatch.setattr(omron_driver, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+
+    class _DiesOnUnlock(FakeClient):
+        """RX notify 는 실패하되 링크는 살아있고, 언락 구독에서 끊긴다."""
+
+        async def start_notify(self, uuid, callback):
+            self.start_notify_calls.append(uuid)
+            if len(self.start_notify_calls) > 1:
+                self.is_connected = False
+            raise Exception(
+                "rx failed"
+                if len(self.start_notify_calls) == 1
+                else "unlock failed"
+            )
+
+    client = _DiesOnUnlock(connected=True)
+    session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
+
+    with pytest.raises(ConnectionError) as excinfo:
+        asyncio.run(session._pair_custom_key(bytearray(16)))
+
+    message = str(excinfo.value)
+    assert "unlock failed" in message
+    assert "rx failed" in message, "the SMP trigger's failure was swallowed again"
