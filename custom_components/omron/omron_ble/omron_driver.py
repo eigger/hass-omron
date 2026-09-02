@@ -28,18 +28,9 @@ _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
 _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 
-# Pause inserted between establish_connection() returning and the first GATT
-# operation.  On OS-bonding Omron devices (and through the ESP32
-# bluetooth_proxy in particular) the L2CAP link comes up before the BLE
-# stack finishes:
-#   * LL_ENC_REQ / LL_ENC_RSP encryption negotiation using a previously
-#     stored LTK,
-#   * any service-changed indication processing, and
-#   * encryption-required characteristic visibility refresh.
-# Issuing GATT operations immediately races this settling and produces
-# sporadic "Characteristic not found" or silently-dropped CCCD writes.  An
-# explicit short wait gives the stack a stable starting point before the
-# follow-up service-cache refresh below.
+# Wait between establish_connection() returning and the first GATT operation.
+# The L2CAP link comes up before encryption settles, and touching GATT in that
+# window gives "Characteristic not found" or a silently dropped CCCD write.
 # The device answers 0x8f00 for the session-close ack and for a rejected
 # command alike, so it is accepted whatever was asked for.
 END_OF_TRANSMISSION_PACKET_TYPE = bytes([0x8F, 0x00])
@@ -109,16 +100,10 @@ def _connection_source(ble_device: BLEDevice) -> str:
 def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
     """Best-effort identity of the link a connection actually went over.
 
-    ``_connection_source`` reads the BLEDevice, which names the scanner that
-    saw the *advertisement* — not the path the connection took. habluetooth
-    picks that at connect time from whichever proxy scores best, so on a
-    multi-proxy setup the session that bonds and the session that reconnects
-    can land on different radios, and only one of them holds the bond. Issue
-    #91 flags exactly that as the risk in keeping the bond at all.
-
-    Probes the backend because that is the only place the answer exists, and
-    falls back to the advertised source when it does not — the shapes here are
-    private to bleak and bleak-esphome and may change.
+    ``_connection_source`` names the scanner that saw the advertisement, not
+    the radio the connection took, and on a multi-proxy setup only one of them
+    holds the bond (#91). The backend is the only place the real answer exists;
+    its shapes are private to bleak and bleak-esphome and may change.
     """
     backend = getattr(client, "_backend", None)
     if backend is not None:
@@ -141,15 +126,9 @@ async def establish_connection_with_bond_settle(
 
     Retries if the device drops during the settle (common on multi-proxy setups).
 
-    Nothing here asks to bond. These cuffs raise an SMP Security Request tens of
-    milliseconds after connect and both host stacks answer it themselves --
-    resuming from a stored key, or pairing when there is none. Sending our own
-    pair request on top of that bought nothing and cost something: on an ESP32
-    proxy a request that does not complete is read as an authentication failure
-    and ESP-IDF deletes the stored bond, which is what pair_only_when_pairing
-    then existed to suppress. Profiles that need a bond made get it from
-    ``pair()`` after discovery, as they did before the connect-time request was
-    added.
+    Nothing here asks to bond: the cuff raises its own SMP Security Request and
+    both host stacks answer it. Ours only cost the stored bond on an ESP32
+    proxy (#142). A bond is made by ``pair()`` after discovery.
     """
     last_source = "unknown"
     for attempt in range(1, max_attempts + 1):
@@ -160,10 +139,7 @@ async def establish_connection_with_bond_settle(
             name, model or "?", source, attempt, max_attempts,
         )
         client = await establish_connection(BleakClient, ble_device, name)
-        # The advertised source and the path the connection took are not the
-        # same thing, and for a profile that keeps its bond the difference
-        # decides whether there is a bond to resume: only the radio that
-        # paired holds one. Report both.
+        # Only the radio that paired holds the bond, so report both paths.
         connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
             "BLE link established to %s (advertised by source=%s, connected via "
@@ -370,15 +346,11 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
 async def _bluez_agent_pair(client: BleakClient) -> bool:
     """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
 
-    On BlueZ 5.72+ (Linux), calling ``Device1.Pair()`` without a registered
-    agent causes the Just Works confirmation to go unanswered, producing
-    ``AuthenticationFailed`` even though the device supports the pairing
-    method.  Registering a ``KeyboardDisplay`` agent that auto-confirms
-    passkeys resolves this for OS-bonding-only devices like the HEM-716BT2.
+    On BlueZ 5.72+, ``Device1.Pair()`` without a registered agent leaves the
+    Just Works confirmation unanswered and fails with ``AuthenticationFailed``.
+    A ``KeyboardDisplay`` agent that auto-confirms passkeys fixes it.
 
-    Uses ``dbus-fast`` (already a bleak dependency) so no extra packages
-    are needed.  Silently returns False on non-Linux platforms or when the
-    BlueZ DBus path is unavailable.
+    Returns False on non-Linux platforms or when the DBus path is unavailable.
     """
     try:
         from dbus_fast.constants import MessageType
@@ -759,9 +731,8 @@ class OmronDeviceSession:
                 except Exception:
                     pass
             if self._owns_connection and client.is_connected:
-                if client.is_connected:
-                    await client.disconnect()
-                    disconnected = True
+                await client.disconnect()
+                disconnected = True
         except Exception:
             pass
         finally:
@@ -1021,20 +992,9 @@ class OmronDeviceSession:
         memory_address = bytes(frame_bytes[3:5])
         expected_data_len = frame_bytes[5]
 
-        # Discard late or unrelated frames, but always accept 0x8f00: it is both
-        # the session-close ack and the rejection frame, so it can answer
-        # anything. Type alone cannot tell replies apart -- every memory read
-        # answers 0x8100 and only the address differs -- and accepting the wrong
-        # one spends the wait, leaving the real reply to be consumed by the next
-        # command in turn. Matching the address as well is what keeps a stale
-        # frame from doing that, and the wait then simply continues.
-        #
-        # The declared length is deliberately not matched. Only two device
-        # families have ever been captured, so what every other one puts in that
-        # byte is unknown, and a device that answers with anything but the
-        # requested length would have every reply dropped and every poll fall
-        # back to cached data. The address alone separates the replies that can
-        # be in flight at once.
+        # Match on type and address, never the declared length (#148): every
+        # memory read answers 0x8100 and only the address tells them apart.
+        # 0x8f00 always passes -- it is both the close ack and the rejection.
         if packet_type != END_OF_TRANSMISSION_PACKET_TYPE:
             if (
                 self._expected_reply_packet_type is not None
@@ -1593,17 +1553,9 @@ class OmronDeviceSession:
         """Perform encrypted secure handshake to unlock the device."""
         _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
 
-        # The device requires a preliminary stateless token handshake
-        # (0x11/0x91) before it will accept the ECDH pairing request, performed
-        # immediately before the Pairing Request. Reset ``_unlocked`` afterward
-        # so a later failure in the ECDH stage below doesn't leave the
-        # transport thinking it's already unlocked.
-        #
-        # keep_notify: both CCCDs are enabled once and the token handshake and
-        # the pairing request then run on those same subscriptions. Dropping
-        # and re-adding the unlock CCCD in between makes the device reject the
-        # pairing request with 0xff 0x26, so hold the subscription and just
-        # swap in the secure-stage callback below.
+        # The 0x11/0x91 token handshake has to run immediately before the ECDH
+        # pairing request, on the same CCCD subscriptions -- re-adding the
+        # unlock CCCD in between makes the device reject it with 0xff 0x26.
         from .secure_session import SecureSession
 
         self._secure_session = SecureSession()
