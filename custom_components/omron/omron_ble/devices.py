@@ -95,6 +95,11 @@ class TimeSyncLayout(StrEnum):
     AT_8_SWAPPED = "eeprom_time_at_8_swapped"
 
 
+# How long to wait for the peer to hang up before closing the link ourselves.
+# The #91 capture shows the cuff taking about three seconds; this covers it.
+_PEER_CLOSES_SESSION_SEC: float = 5.0
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -144,6 +149,34 @@ class DeviceConfig:
     # avoided the churn, its comment recording that this family rejects a
     # pairing request (0xff 0x26) when the unlock CCCD is dropped and re-added.
     keep_notify_subscriptions: bool = False
+
+    @property
+    def subscribe_service_changed(self) -> bool:
+        """Whether to subscribe to Service Changed while pairing, as the app does.
+
+        Service Changed is a CCCD like the vendor ones, so this is the same
+        mechanism ``keep_notify_subscriptions`` exists for and follows it
+        rather than being a knob of its own. The phone writes 0x0002 to handle
+        0x000B in both pairing sessions of the #67 capture and in neither
+        reconnect; we wrote every other CCCD and never that one.
+        """
+        return self.keep_notify_subscriptions
+
+    @property
+    def peer_closes_session_sec(self) -> float:
+        """Seconds to stay idle at session end, letting the cuff drop the link.
+
+        In the #91 phone capture the app goes quiet after its last read and the
+        cuff hangs up about three seconds later; there is no HCI Disconnect
+        command from the phone, and reason 0x13 is "remote terminated". We
+        closed in the same millisecond as the final notification, so our
+        sessions ended 0x16 — closed by us.
+
+        Tied to ``keep_notify_subscriptions`` because both are about leaving
+        per-bond state as the app leaves it. Zero elsewhere keeps the immediate
+        close for every other profile.
+        """
+        return _PEER_CLOSES_SESSION_SEC if self.keep_notify_subscriptions else 0.0
 
     # Record layout key -> parser in parse_record()
     record_parser: RecordParser = RecordParser.CLASSIC_VITAL_14

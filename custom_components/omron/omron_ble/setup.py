@@ -79,6 +79,10 @@ async def async_pair_and_sync_device(
             session.address,
         )
 
+    if session.config.subscribe_service_changed:
+        # Before any vendor traffic, matching the order in the app's capture.
+        await session.subscribe_service_changed()
+
     await session.pair()
     await async_sync_device_time(
         session.client,

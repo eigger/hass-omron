@@ -15,6 +15,7 @@ from bleak_retry_connector import establish_connection
 
 from .const import (
     MODEL_NUMBER_UUID,
+    SERVICE_CHANGED_UUID,
     UNLOCK_CHARACTERISTIC_UUID,
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
@@ -26,6 +27,10 @@ _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
+
+# How often to check whether the peer has hung up during the idle window at
+# the end of a session (see _await_peer_close).
+_PEER_CLOSE_POLL_STEP_SEC: float = 0.25
 _NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 
 # Wait between establish_connection() returning and the first GATT operation.
@@ -731,14 +736,46 @@ class OmronDeviceSession:
                 except Exception:
                     pass
             if self._owns_connection and client.is_connected:
-                await client.disconnect()
-                disconnected = True
+                await self._await_peer_close(client, addr)
+                if client.is_connected:
+                    await client.disconnect()
+                    disconnected = True
         except Exception:
             pass
         finally:
             self._client = None
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
+
+    async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
+        """Stay idle at the end of a session so the cuff can end it itself.
+
+        In the #91 phone capture the app sends nothing after its last read and
+        the cuff hangs up about three seconds later. The phone's host issues no
+        HCI Disconnect for that link, and the Disconnection Complete carries
+        reason 0x13 -- remote terminated. We used to close in the same
+        millisecond as the final notification, which is why our sessions ended
+        0x16, closed by us.
+
+        No-op unless the profile keeps its notify subscriptions; see
+        ``DeviceConfig.peer_closes_session_sec``.
+        """
+        window = self._config.peer_closes_session_sec
+        if window <= 0:
+            return
+        waited = 0.0
+        while waited < window and client.is_connected:
+            await asyncio.sleep(_PEER_CLOSE_POLL_STEP_SEC)
+            waited += _PEER_CLOSE_POLL_STEP_SEC
+        if client.is_connected:
+            _LOGGER.debug(
+                "%s still up %.1fs after the session ended; closing it here",
+                addr, waited,
+            )
+        else:
+            _LOGGER.debug(
+                "%s ended the session itself after %.2fs", addr, waited
+            )
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()
@@ -1928,6 +1965,34 @@ class OmronDeviceSession:
 
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
+
+    async def subscribe_service_changed(self) -> bool:
+        """Subscribe to Service Changed, as the app does when pairing.
+
+        The #67 capture writes 0x0002 to handle 0x000B in both pairing sessions
+        and in neither reconnect. It is a CCCD like the vendor ones, and the
+        spec has a peripheral keep that configuration per bonded client.
+
+        Best effort: a device without the characteristic, or a backend that
+        refuses the subscribe, must not fail the pairing.
+        """
+        def _on_service_changed(_handle: int, data: bytearray) -> None:
+            _LOGGER.debug(
+                "Service Changed indication from %s: %s", self.address, _hex(data)
+            )
+
+        try:
+            await self._client.start_notify(
+                SERVICE_CHANGED_UUID, _on_service_changed
+            )
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not subscribe to Service Changed on %s (continuing): %s",
+                self.address, exc,
+            )
+            return False
+        _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
+        return True
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program pairing credentials according to ``host_pairing_mode``."""
