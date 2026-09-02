@@ -255,7 +255,8 @@ class TestCatalogResolution:
 
 def test_a_retail_model_number_resolves_to_its_profile():
     """BP5465 은 HEM-* 코드를 담지 않아 프로브가 읽어도 버려졌다 (#91)."""
-    assert infer_model_id_from_local_name("BP5465") == "BP5465"
+    # 카톤에 인쇄된 HEM 이름으로 해석한다 — 목록의 나머지와 같은 체계다.
+    assert infer_model_id_from_local_name("BP5465") == "HEM-7382T1-AZAZ"
     assert resolve_profile_model_id("BP5465") == "HEM-7386T1"
     assert get_device_config("BP5465").settings_read_address == 0x0010
 
@@ -347,3 +348,23 @@ def test_the_cccd_switch_carries_the_two_settings_that_shipped_with_it():
 def test_the_peer_close_window_covers_the_captured_delay():
     """폰 캡처에서 커프는 마지막 읽기 약 3초 뒤에 끊는다 — 여유가 있어야 한다."""
     assert get_device_config("HEM-7386T1").peer_closes_session_sec >= 3.0
+
+
+def test_a_retail_name_is_not_also_a_catalog_id():
+    """소매명은 별칭 표에서만 산다 — 카탈로그에 같이 넣으면 표를 가린다 (#91).
+
+    `_exact_catalog_model_id` 는 카탈로그를 먼저 보고 거기서 찾으면 그대로
+    반환한다. 그래서 소매명이 카탈로그 id 이기도 하면 별칭 표의 HEM 지정에
+    영원히 도달하지 못하고, 폼이 카톤에 없는 이름을 미리 고른다.
+    """
+    from custom_components.omron.omron_ble.devices import (
+        CANONICAL_DEVICE_PROFILES,
+        MODEL_VARIANT_MAP,
+    )
+    from custom_components.omron.omron_ble.model_aliases import MODEL_NUMBER_ALIASES
+
+    catalog_ids = set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)
+    shadowed = sorted(catalog_ids & set(MODEL_NUMBER_ALIASES))
+    assert not shadowed, (
+        f"소매명이 카탈로그 id 로도 등록돼 별칭이 가려진다: {shadowed}"
+    )
