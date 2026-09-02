@@ -19,6 +19,7 @@ from .ble_session import (
 )
 from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
+from .omron_ble.devices import get_device_config
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
@@ -310,13 +311,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
     identifier = address.replace(":", "")[-4:].upper()
-    device_name = f"{device_model} {identifier}"
+    # display_model, to match what the advertisement path names the device
+    # (parser._setup_device_info). A cuff configured as BP5465 was showing that
+    # here and HEM-7382T1-AZAZ there (#91).
+    display_model = get_device_config(device_model).display_model
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
         connections={(CONNECTION_BLUETOOTH, address)},
         manufacturer="Omron",
-        model=device_model,
-        name=device_name,
+        model=display_model,
+        name=f"{display_model} {identifier}",
     )
 
     bt_coordinator = OmronBluetoothProcessorCoordinator(
