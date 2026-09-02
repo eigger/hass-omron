@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from .const import MODERN_STACK_PARENT_SERVICE_UUID
 from .devices import (
-    BondPolicy,
     ConnectType,
     DeviceConfig,
     Endianness,
@@ -12,14 +11,6 @@ from .devices import (
     TimeSyncLayout,
     UnlockMode,
 )
-
-# Bond strategy for the WLD3.0 and WLD4.0 families. REUSE because the cuff does
-# keep its side of the bond, and because PER_SESSION cannot work here: the cuff
-# refuses a fresh pair request outside its -P- window (#133), so deleting the
-# bond leaves nothing able to make another one.
-_WLD_BOND_SETTINGS = {
-    "bond_policy": BondPolicy.REUSE,
-}
 
 # Leave the notify CCCDs enabled at session close instead of writing 0x0000.
 #
@@ -31,30 +22,12 @@ _WLD_BOND_SETTINGS = {
 #
 # Family-wide because it only ever removes a write and the evidence spans both
 # families.
-_WLD_KEEP_NOTIFY_SUBSCRIPTIONS = True
+_WLD_KEEP_NOTIFY = True
 
-# Stay idle at session end so the cuff can close the link itself.
-#
-# Unconfirmed, and the capture reading behind it was wrong: the phone sends
-# HCI Disconnect with reason 0x13 and the controller answers 0x16, which is the
-# phone hanging up, not the cuff. Kept on the two profiles it shipped on rather
-# than removed blind -- it costs five seconds a poll, so it is worth settling.
-_WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC = 5.0
-
-# Subscribe to Service Changed while pairing, as the app does: the #67 capture
-# writes 0x0002 to handle 0x000B in both pairing sessions and neither reconnect.
-# Unconfirmed; the CCCD fix landed without it.
-_WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED = True
-
-# The two settings above plus a single connect attempt, still only on the two
-# profiles that were taken apart. None is part of the confirmed fix, so they do
-# not spread to devices nobody has captured.
-_WLD3_BOND_EXPERIMENT = {
-    **_WLD_BOND_SETTINGS,
-    "connect_settle_attempts": 1,
-    "peer_closes_session_sec": _WLD3_EXPERIMENT_PEER_CLOSES_SESSION_SEC,
-    "subscribe_service_changed": _WLD3_EXPERIMENT_SUBSCRIBE_SERVICE_CHANGED,
-}
+# One connect attempt on the two profiles taken apart in #91, so a poll is one
+# observation. Kept until 2.8.4 confirms a failed attempt no longer costs the
+# stored bond.
+_WLD3_SINGLE_CONNECT_ATTEMPT = 1
 
 _MODERN_OS_BONDING_BASE = {
     "parent_service_uuid": MODERN_STACK_PARENT_SERVICE_UUID,
@@ -875,9 +848,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         model="HEM-7155T-MW3",
         # Modern-fe4a-firmware HEM-7155T_ESL ("X4 Smart"); WLD3.0 like 7380T1.
         connect_type=ConnectType.WLD3_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x02E8, 0x06A8],
         per_user_records_count=[60, 60],
@@ -1044,9 +1016,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7191T1",
         connect_type=ConnectType.WLD4_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],
         per_user_records_count=[60],
@@ -1075,9 +1046,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7196T1",
         connect_type=ConnectType.WLD4_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0584],
         per_user_records_count=[60, 60],
@@ -1109,11 +1079,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7380T1",
         connect_type=ConnectType.WLD3_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
         # Same protocol family as HEM-7386T1 and the same reported symptom
         # (issue #20), so it runs the same experiment rather than a variant.
-        **_WLD3_BOND_EXPERIMENT,
+        connect_settle_attempts=_WLD3_SINGLE_CONNECT_ATTEMPT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
@@ -1146,9 +1116,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7376T1",
         connect_type=ConnectType.WLD3_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0BCC],
         per_user_records_count=[60, 60],
@@ -1181,9 +1150,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7377T1",
         connect_type=ConnectType.WLD3_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0D0C],
         per_user_records_count=[80, 80],
@@ -1213,9 +1181,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7386T1",
         connect_type=ConnectType.WLD3_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD3_BOND_EXPERIMENT,
+        connect_settle_attempts=_WLD3_SINGLE_CONNECT_ATTEMPT,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
@@ -1257,9 +1225,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY_SUBSCRIPTIONS,
+        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
-        **_WLD_BOND_SETTINGS,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],
         per_user_records_count=[30],

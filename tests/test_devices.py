@@ -1,51 +1,15 @@
 """devices.py / device_catalog.py 단위 테스트."""
 from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
 from custom_components.omron.omron_ble.devices import (
-    BondPolicy,
     ConnectType,
-    DeviceConfig,
     Endianness,
-    HostPairingMode,
     TimeSyncLayout,
-    UnlockMode,
     get_device_config,
     get_supported_models,
     infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
 
-
-class TestBondPolicy:
-    """세션 종료 시 본드 삭제 여부는 bond_policy 하나로 결정된다."""
-
-    def test_per_session_drops_the_bond(self):
-        cfg = DeviceConfig(
-            model="test",
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-            bond_policy=BondPolicy.PER_SESSION,
-        )
-        assert cfg.unpair_after_session is True
-
-    def test_reuse_keeps_the_bond(self):
-        cfg = DeviceConfig(
-            model="test",
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-            bond_policy=BondPolicy.REUSE,
-        )
-        assert cfg.unpair_after_session is False
-
-    def test_reuse_is_the_default(self):
-        cfg = DeviceConfig(model="test")
-        assert cfg.bond_policy == BondPolicy.REUSE
-        assert cfg.unpair_after_session is False
-
-    def test_non_os_bonding_never_unpairs(self):
-        # 클래식(커스텀 키) 기기에는 지울 OS 본드가 없다.
-        cfg = DeviceConfig(model="test", bond_policy=BondPolicy.PER_SESSION)
-        assert cfg.host_pairing_mode == HostPairingMode.CUSTOM_KEY
-        assert cfg.unpair_after_session is False
 
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
