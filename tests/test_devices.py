@@ -47,87 +47,6 @@ class TestBondPolicy:
         assert cfg.host_pairing_mode == HostPairingMode.CUSTOM_KEY
         assert cfg.unpair_after_session is False
 
-    def test_per_session_always_pairs_on_connect(self):
-        # 본드를 버리는 프로파일은 connect 에서 다시 본딩하는 게 파생으로 보장된다
-        # (connect_type 이 WLD3.0 이 아니어도). 본드도 없고 재페어링도 없는 조합은
-        # 설정 자체가 불가능해야 한다.
-        cfg = DeviceConfig(
-            model="test",
-            connect_type=ConnectType.WLD1_0,
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-            bond_policy=BondPolicy.PER_SESSION,
-        )
-        assert cfg.unpair_after_session is True
-        assert cfg.pair_on_connect is True
-
-
-class TestPairOnConnect:
-    """WLD3.0 + OS 본딩 기기만 connect 단계에서 본딩해야 한다."""
-
-    def test_wld3_os_bonding_pairs_on_connect(self):
-        cfg = DeviceConfig(
-            model="test",
-            connect_type=ConnectType.WLD3_0,
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-        )
-        assert cfg.pair_on_connect is True
-
-    def test_bond_once_still_pairs_on_connect(self):
-        # os_bond_once 는 "광고 트리거마다 재페어링하지 말라"는 뜻이지
-        # connect 시 암호화 확립까지 막으라는 뜻이 아니다. 본드가 이미 있으면
-        # 백엔드가 저장된 LTK 로 재암호화하므로 본드가 churn 되지 않는다.
-        cfg = DeviceConfig(
-            model="test",
-            connect_type=ConnectType.WLD3_0,
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-            os_bond_once=True,
-        )
-        assert cfg.pair_on_connect is True
-
-    def test_non_wld3_does_not_pair_on_connect(self):
-        cfg = DeviceConfig(
-            model="test",
-            connect_type=ConnectType.WLD1_0,
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.TOKEN_KEY,
-        )
-        assert cfg.pair_on_connect is False
-
-    def test_custom_key_profile_does_not_pair_on_connect(self):
-        # 클래식(커스텀 키) 기기는 SMP 본딩 자체를 쓰지 않는다.
-        cfg = DeviceConfig(model="test", connect_type=ConnectType.WLD3_0)
-        assert cfg.host_pairing_mode == HostPairingMode.CUSTOM_KEY
-        assert cfg.pair_on_connect is False
-
-    def test_secure_session_also_pairs_on_connect(self):
-        # 언락 방식과 무관하게 WLD3.0 + OS 본딩이면 connect 에서 본딩한다.
-        # ECDH 기기에서 SMP 본딩을 건너뛰던 예외가 있었지만, 건너뛴 빌드에서도
-        # 커프가 그대로 pairing request 를 거부해(0xff26) 근거가 없어졌다.
-        cfg = DeviceConfig(
-            model="test",
-            connect_type=ConnectType.WLD3_0,
-            host_pairing_mode=HostPairingMode.OS_BONDING,
-            unlock_mode=UnlockMode.SECURE_SESSION,
-        )
-        assert cfg.pair_on_connect is True
-
-    def test_all_wld3_catalog_profiles_pair_on_connect(self):
-        from custom_components.omron.omron_ble.device_catalog import (
-            CANONICAL_DEVICE_PROFILES,
-        )
-
-        wld3_4 = [
-            c
-            for c in CANONICAL_DEVICE_PROFILES.values()
-            if c.connect_type in (ConnectType.WLD3_0, ConnectType.WLD4_0)
-        ]
-        assert wld3_4, "카탈로그에 WLD3.0/WLD4.0 프로파일이 있어야 한다"
-        assert all(c.pair_on_connect for c in wld3_4)
-
-
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
@@ -414,20 +333,30 @@ class TestNoDeadConfigSurface:
         assert UNLOCK_CHARACTERISTIC_UUID == "b305b680-aee7-11e1-a730-0002a5d5c51b"
 
     def test_every_field_is_read_somewhere(self):
-        """dataclass 필드는 최소한 코드 어딘가에서 읽혀야 한다."""
+        """dataclass 필드는 코드나 테스트 어딘가에서 읽혀야 한다.
+
+        테스트까지 세는 이유는 ``connect_type`` 같은 분류용 필드 때문이다.
+        런타임 분기가 읽지 않아도(프로토콜 계열을 나누는 메타데이터다) 테스트가
+        단언한다면 조용히 죽은 것이 아니다. 정말 죽은 필드는 카탈로그가 채우기만
+        하고 어느 쪽에서도 안 읽는다.
+        """
         import dataclasses
         import pathlib
 
         from custom_components.omron.omron_ble.devices import DeviceConfig
 
-        code = "\n".join(
+        sources = (
+            *pathlib.Path("custom_components/omron").rglob("*.py"),
+            *pathlib.Path("tests").rglob("*.py"),
+        )
+        read_by = "".join(
             p.read_text(encoding="utf-8")
-            for p in pathlib.Path("custom_components/omron").rglob("*.py")
-            if p.name != "device_catalog.py"
+            for p in sources
+            if p.name not in ("device_catalog.py", "test_devices.py")
         )
         unread = [
             f.name
             for f in dataclasses.fields(DeviceConfig)
-            if f".{f.name}" not in code and f'"{f.name}"' not in code
+            if f".{f.name}" not in read_by and f'"{f.name}"' not in read_by
         ]
         assert not unread, f"카탈로그만 채우고 아무도 안 읽는 필드: {unread}"

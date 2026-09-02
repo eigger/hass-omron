@@ -1268,16 +1268,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     f"Required service {self._device_config.parent_service_uuid} "
                     f"not found on device {ble_device.address}"
                 )
-            if self._device_config.os_bond_once:
-                # Bond-once profiles: never re-pair on a pairing-mode advert
-                # (re-pairing churns the bond). Refresh + time-sync only.
-                _LOGGER.debug(
-                    "Skipping OS re-pair for %s (os_bond_once): using existing "
-                    "bond + on-demand encryption",
-                    self._device_config.model,
-                )
-            else:
-                await session.pair()
+            await session.pair()
             await session.refresh_services()
             await async_sync_device_time(
                 session.client,

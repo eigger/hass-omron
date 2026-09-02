@@ -1,7 +1,7 @@
 """커스텀키(CUSTOM_KEY) 페어링 회귀 테스트.
 
 HEM-7155T 계열은 RX notification 을 켜는 순간 SMP security request 를 올린다.
-CUSTOM_KEY 프로필은 ``pair_on_connect`` 가 항상 False 라 connect 경로의
+CUSTOM_KEY 프로필은 OS 본딩을 하지 않으므로 connect 경로의
 ``_bluez_pairing_agent()`` 블록을 타지 않으므로, 로컬 BlueZ 링크에서는 Just
 Works 확인이 무응답으로 남아 커프가 링크를 끊었다(이슈 #125). 그 뒤 언락 재시도
 루프가 이미 죽은 클라이언트를 10회 두드리고 "characteristic was not found" 로

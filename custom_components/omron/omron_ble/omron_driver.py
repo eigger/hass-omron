@@ -132,95 +132,36 @@ def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
     return _connection_source(ble_device)
 
 
-async def _connect_once(
-    ble_device: BLEDevice, name: str, *, pair: bool
-) -> BleakClient:
-    """One connect attempt, optionally bonding before service discovery.
-
-    With ``pair`` the backend establishes link security first (BlueZ calls
-    ``Device1.Pair()``; the ESPHome proxy sends a pair request over its own
-    RPC) and only then runs GATT discovery. On an already-bonded device this
-    re-encrypts with the stored LTK instead of re-bonding, so it does not
-    churn the bond.
-
-    A Just Works agent is registered only for local BlueZ adapters, which
-    otherwise leave the pairing confirmation unanswered. Proxy connections
-    skip it: the agent is registered as the system *default*, so putting one
-    up around every proxy connect would take over pairing confirmation for
-    unrelated local devices while buying nothing.
-    """
-    if not pair:
-        return await establish_connection(BleakClient, ble_device, name)
-    if _bluez_device_path(ble_device) is None:
-        return await establish_connection(BleakClient, ble_device, name, pair=True)
-    async with _bluez_pairing_agent():
-        return await establish_connection(BleakClient, ble_device, name, pair=True)
-
-
 async def establish_connection_with_bond_settle(
     ble_device: BLEDevice,
     name: str,
     *,
-    pair_on_connect: bool = False,
     model: str = "",
     max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
     Retries if the device drops during the settle (common on multi-proxy setups).
-    ``pair_on_connect`` bonds before service discovery — see ``_connect_once``.
+
+    Nothing here asks to bond. These cuffs raise an SMP Security Request tens of
+    milliseconds after connect and both host stacks answer it themselves --
+    resuming from a stored key, or pairing when there is none. Sending our own
+    pair request on top of that bought nothing and cost something: on an ESP32
+    proxy a request that does not complete is read as an authentication failure
+    and ESP-IDF deletes the stored bond, which is what pair_only_when_pairing
+    then existed to suppress. Profiles that need a bond made get it from
+    ``pair()`` after discovery, as they did before the connect-time request was
+    added.
     """
     last_source = "unknown"
-    # Cleared if the backend reports it cannot pair at connect time, so the
-    # remaining attempts fall back instead of failing repeatedly.
-    pair_this_attempt = pair_on_connect
     for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
-            "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d, "
-            "pair_on_connect=%s)",
+            "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
             name, model or "?", source, attempt, max_attempts,
-            pair_this_attempt,
         )
-        try:
-            client = await _connect_once(ble_device, name, pair=pair_this_attempt)
-        except NotImplementedError as exc:
-            # ESPHome proxy firmware older than the PAIRING feature flag.
-            _LOGGER.warning(
-                "Pair-on-connect unavailable for %s via source=%s (%s); "
-                "connecting without it — update ESPHome on that proxy to "
-                "let the cuff bond before GATT discovery",
-                name, source, exc,
-            )
-            pair_this_attempt = False
-            client = await _connect_once(ble_device, name, pair=False)
-        except BleakError as exc:
-            if pair_this_attempt:
-                # The device refused to bond (e.g. error 102 when the cuff is
-                # in normal transfer mode instead of pairing mode). Fall back to
-                # connecting without pair so stateless/token-key transfers succeed.
-                _LOGGER.warning(
-                    "Bonding %s [%s] during connect via source=%s failed "
-                    "(attempt %d/%d): %s; falling back to connect without pair",
-                    name,
-                    model or "?",
-                    source,
-                    attempt,
-                    max_attempts,
-                    exc,
-                )
-                pair_this_attempt = False
-                try:
-                    client = await _connect_once(ble_device, name, pair=False)
-                except Exception:
-                    raise exc
-            else:
-                raise
-        if pair_this_attempt:
-            _LOGGER.debug(
-                "Bonded %s via source=%s before service discovery", name, source
-            )
+        client = await establish_connection(BleakClient, ble_device, name)
         # The advertised source and the path the connection took are not the
         # same thing, and for a profile that keeps its bond the difference
         # decides whether there is a bond to resume: only the radio that
@@ -228,12 +169,11 @@ async def establish_connection_with_bond_settle(
         connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
             "BLE link established to %s (advertised by source=%s, connected via "
-            "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
+            "%s, is_connected=%s); settling up to %.1fs "
             "for bonding/encryption before first GATT op",
             name,
             source,
             connected_via,
-            pair_this_attempt,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
@@ -713,9 +653,6 @@ class OmronDeviceSession:
             self._client = await establish_connection_with_bond_settle(
                 self._ble_device,
                 self.address,
-                pair_on_connect=self._config.pair_on_connect_for(
-                    pairing_session=self._pairing_session
-                ),
                 model=self._config.model,
                 max_attempts=self._config.connect_settle_attempts,
             )
@@ -2145,15 +2082,6 @@ class OmronDeviceSession:
         """Program pairing credentials according to ``host_pairing_mode``."""
         pair_key = key or PAIRING_KEY
         if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
-            if self._config.pair_on_connect:
-                # connect() already bonded before GATT discovery. Bonding a
-                # second time on the same link only rotates the fresh keys.
-                _LOGGER.debug(
-                    "Skipping explicit OS bonding for %s: already bonded during "
-                    "connect (pair_on_connect)",
-                    self._config.model,
-                )
-                return
             await self._pair_os_bonding()
             return
         if self._config.host_pairing_mode == HostPairingMode.NONE:
@@ -2162,7 +2090,7 @@ class OmronDeviceSession:
             raise ConnectionError("Pairing is not supported for this device")
         # Ask the BLEDevice first: only its details reliably carry the DBus
         # path (bleak's own BlueZ backend reads ble_device.details["path"]),
-        # which is why _connect_once tests the BLEDevice and not the client.
+        # which is why this tests the BLEDevice and not the client.
         # A BleakClient exposes no .details at all and its BlueZ backend keeps
         # a _device_path string rather than a _device object, so asking the
         # client alone answers "not BlueZ" for every local adapter too.
@@ -2171,12 +2099,13 @@ class OmronDeviceSession:
             and _bluez_device_path(self._client) is None
         ):
             # Proxy link: there is no local SMP confirmation to answer, and the
-            # agent registers as the system *default* — see _connect_once.
+            # agent registers as the system *default*, so putting one up here
+            # would take over pairing confirmation for unrelated local devices.
             await self._pair_custom_key(pair_key)
             return
-        # Custom-key profiles never bond during connect (pair_on_connect is
-        # False outside OS_BONDING), so nothing has put an agent up for this
-        # link. Cuffs that raise an SMP security request when RX notifications
+        # Nothing has put an agent up for this link -- connect no longer bonds
+        # and _pair_os_bonding is the OS_BONDING path, not this one. Cuffs that
+        # raise an SMP security request when RX notifications
         # are enabled (HEM-7155T) then drop the link because BlueZ leaves the
         # Just Works confirmation unanswered.
         async with _bluez_pairing_agent():
