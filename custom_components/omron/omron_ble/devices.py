@@ -129,18 +129,12 @@ class DeviceConfig:
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
     # Bond lifetime; see BondPolicy. Only meaningful for OS_BONDING profiles.
+    # Every profile reuses: a WLD cuff refuses a fresh pair request outside its
+    # -P- window (#133), so dropping the bond leaves nothing able to make one.
     bond_policy: BondPolicy = BondPolicy.REUSE
     # Connection attempts per session before giving up (see
-    # ``establish_connection_with_bond_settle``). Lowered on profiles where a
-    # failed attempt costs the stored bond, so one poll is one observation.
+    # ``establish_connection_with_bond_settle``).
     connect_settle_attempts: int = 3
-    # Seconds to stay idle at the end of a session, letting the device drop the
-    # link itself rather than closing it here. Zero keeps the immediate close.
-    # See ``OmronDeviceSession._await_peer_close``.
-    peer_closes_session_sec: float = 0.0
-    # Subscribe to Service Changed while pairing, the way the official app does.
-    # See ``OmronDeviceSession.subscribe_service_changed``.
-    subscribe_service_changed: bool = False
 
     # EEPROM layout
     endianness: Endianness = Endianness.BIG

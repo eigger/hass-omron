@@ -15,7 +15,6 @@ from bleak_retry_connector import establish_connection
 
 from .const import (
     MODEL_NUMBER_UUID,
-    SERVICE_CHANGED_UUID,
     UNLOCK_CHARACTERISTIC_UUID,
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
@@ -61,7 +60,6 @@ _PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
 _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
 _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
 # Polling step while waiting for the device to end a session itself.
-_PEER_CLOSE_POLL_STEP_SEC: float = 0.25
 _OS_BOND_REFRESH_DELAY_SEC: float = 0.3
 _OS_BOND_RETRY_DELAY_SEC: float = 0.5
 _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
@@ -804,7 +802,6 @@ class OmronDeviceSession:
                             addr,
                         )
             if self._owns_connection and client.is_connected:
-                await self._await_peer_close(client, addr)
                 if client.is_connected:
                     await client.disconnect()
                     disconnected = True
@@ -814,33 +811,6 @@ class OmronDeviceSession:
             self._client = None
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
-
-    async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
-        """Stay idle at the end of a session so the device can end it itself.
-
-        Unconfirmed, and the capture reading behind it does not hold: in the
-        phone trace it is the phone that sends HCI Disconnect (reason 0x13) and
-        the controller that answers 0x16, so the app hangs up, not the cuff.
-        Costs its window on every poll of the two profiles that set it.
-
-        No-op unless the profile asks for it.
-        """
-        window = self._config.peer_closes_session_sec
-        if window <= 0:
-            return
-        waited = 0.0
-        while waited < window and client.is_connected:
-            await asyncio.sleep(_PEER_CLOSE_POLL_STEP_SEC)
-            waited += _PEER_CLOSE_POLL_STEP_SEC
-        if client.is_connected:
-            _LOGGER.debug(
-                "%s still up %.1fs after the session ended; closing it here",
-                addr, waited,
-            )
-        else:
-            _LOGGER.debug(
-                "%s ended the session itself after %.2fs", addr, waited
-            )
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()
@@ -2049,34 +2019,6 @@ class OmronDeviceSession:
 
         _LOGGER.debug("Device paired successfully with new key")
         await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
-
-    async def subscribe_service_changed(self) -> bool:
-        """Subscribe to Service Changed, as the official app does when pairing.
-
-        The #67 capture writes 0x0002 to handle 0x000B in both pairing sessions
-        and neither reconnect. The spec has a peripheral keep that client
-        configuration per bonded client. Unconfirmed as a fix.
-
-        Best effort: a device without the characteristic, or a backend that
-        refuses the subscribe, must not fail the pairing.
-        """
-        def _on_service_changed(_handle: int, data: bytearray) -> None:
-            _LOGGER.debug(
-                "Service Changed indication from %s: %s", self.address, _hex(data)
-            )
-
-        try:
-            await self._client.start_notify(
-                SERVICE_CHANGED_UUID, _on_service_changed
-            )
-        except Exception as exc:
-            _LOGGER.debug(
-                "Could not subscribe to Service Changed on %s (continuing): %s",
-                self.address, exc,
-            )
-            return False
-        _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
-        return True
 
     async def pair(self, key: bytearray | None = None) -> None:
         """Program pairing credentials according to ``host_pairing_mode``."""
