@@ -324,3 +324,26 @@ class TestNoDeadConfigSurface:
             if f".{f.name}" not in read_by and f'"{f.name}"' not in read_by
         ]
         assert not unread, f"카탈로그만 채우고 아무도 안 읽는 필드: {unread}"
+
+
+def test_the_cccd_switch_carries_the_two_settings_that_shipped_with_it():
+    """CCCD 유지를 켠 프로파일은 Service Changed 구독과 피어 종료 대기도 함께 켠다.
+
+    셋 다 "본드에 딸린 상태를 앱이 남기는 대로 남긴다"는 같은 이유에서 나왔고,
+    유일하게 재접속이 성공한 빌드(2.7.8-beta.15)에는 셋이 다 들어 있었다.
+    따로 켤 수 있게 두면 그 조합이 다시 깨질 수 있으므로 파생시킨다.
+    """
+    on = get_device_config("HEM-7386T1")
+    assert on.keep_notify_subscriptions is True
+    assert on.subscribe_service_changed is True
+    assert on.peer_closes_session_sec > 0
+
+    off = get_device_config("HEM-7142T2")
+    assert off.keep_notify_subscriptions is False
+    assert off.subscribe_service_changed is False
+    assert off.peer_closes_session_sec == 0.0
+
+
+def test_the_peer_close_window_covers_the_captured_delay():
+    """폰 캡처에서 커프는 마지막 읽기 약 3초 뒤에 끊는다 — 여유가 있어야 한다."""
+    assert get_device_config("HEM-7386T1").peer_closes_session_sec >= 3.0
