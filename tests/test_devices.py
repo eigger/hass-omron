@@ -110,7 +110,7 @@ class TestCatalogResolution:
         assert cfg.record_byte_size == 0x10
         assert cfg.connect_type == ConnectType.WLD2_0
         assert cfg.endianness == Endianness.LITTLE
-        assert cfg.time_sync_layout == TimeSyncLayout.MODERN_OFFSET8
+        assert cfg.time_sync_layout == TimeSyncLayout.AT_8
         assert cfg.index_pointer_layout["endianness"] == "little"
 
     def test_hem7511t_and_8732_resolution(self):
