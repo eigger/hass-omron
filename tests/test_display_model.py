@@ -9,6 +9,7 @@ Model Number String 으로 답하는 값이기도 하다. 모델명으로 프로
 BP5465 가 HEM-7382T1-AZAZ 인지 HEM-7388T1-AJF3 인지 카탈로그는 모른다. 그래서
 추측하지 않고 프로파일 키를 쓴다 — 실제로 아는 사실이고, 진짜 HEM 표기다.
 """
+from pathlib import Path
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )
@@ -78,3 +79,22 @@ def test_the_device_name_path_reads_display_model():
     assert "self._device_config.model" not in body, (
         "설정 필드를 그대로 읽으면 소매명이 다시 새어나간다"
     )
+
+
+def test_both_naming_paths_agree() -> None:
+    """설정 시점과 광고 처리 시점이 같은 이름을 써야 한다 (#91).
+
+    __init__.py 는 device registry 항목을 만들 때, parser 는 광고를 받을 때
+    기기 이름을 짓는다. 한쪽만 HEM 표기로 정규화하면 BP5465 로 설정한 커프가
+    한 화면에서는 BP5465, 다른 화면에서는 HEM-7382T1-AZAZ 로 보인다.
+    """
+    component = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+    init_src = (component / "__init__.py").read_text(encoding="utf-8")
+    parser_src = (component / "omron_ble" / "parser.py").read_text(encoding="utf-8")
+
+    assert "display_model" in parser_src
+    assert "display_model" in init_src, (
+        "the device registry entry is named from the raw model id again"
+    )
+    assert 'model=display_model' in init_src
+    assert 'name=f"{display_model} {identifier}"' in init_src
