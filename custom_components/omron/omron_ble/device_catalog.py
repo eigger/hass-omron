@@ -1208,9 +1208,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7382T1-AZAZ",
             "HEM-7386T1-AJF3",
             "HEM-7388T1-AJF3",
-            # The GATT Model Number String this cuff answers with; US retail
-            # cartons carry the same name (issue #91).
-            "BP5465",
         ),
     ),
     # HEM-7188T1 / HEM-7183T1 family ("X2+ Connect" / "M2+" etc.) — dedicated single-user profile
