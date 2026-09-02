@@ -14,7 +14,6 @@ from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )
 from custom_components.omron.omron_ble.devices import (
-    BondPolicy,
     ConnectType,
     get_device_config,
     resolve_profile_model_id,
@@ -29,8 +28,7 @@ def test_reporter_device_maps_to_the_profile_under_test():
 def test_hem_7386t1_keeps_its_bond():
     config = CANONICAL_DEVICE_PROFILES["HEM-7386T1"]
 
-    assert config.bond_policy == BondPolicy.REUSE
-    assert config.unpair_after_session is False, (
+    assert config.keep_notify_subscriptions is True, (
         "세션 종료 시 본드를 지우면 다음 연결이 암호화를 재개할 게 없다"
     )
     # 프록시에서 재개를 일으키는 것이 이것이다: 이미 본딩된 상대에게 보내는
@@ -43,8 +41,7 @@ def test_hem_7386t1_keeps_its_bond():
 )
 def test_variants_inherit_it(variant):
     config = get_device_config(variant)
-    assert config.bond_policy == BondPolicy.REUSE
-    assert config.unpair_after_session is False
+    assert config.keep_notify_subscriptions is True
 
 
 def test_both_families_are_on_the_confirmed_bond_settings():
@@ -57,8 +54,7 @@ def test_both_families_are_on_the_confirmed_bond_settings():
     for name, config in CANONICAL_DEVICE_PROFILES.items():
         if config.connect_type not in (ConnectType.WLD3_0, ConnectType.WLD4_0):
             continue
-        assert config.bond_policy is BondPolicy.REUSE, name
-        assert config.unpair_after_session is False, name
+        assert config.keep_notify_subscriptions is True, name
         assert config.keep_notify_subscriptions is True, name
 
 
@@ -119,22 +115,6 @@ def test_nothing_asks_to_bond_at_connect_time():
     assert not hasattr(config, "pair_on_connect_for")
     assert not hasattr(config, "pair_only_when_pairing")
     assert not hasattr(config, "os_bond_once")
-
-
-def test_per_session_still_derives_the_unpair():
-    """PER_SESSION 은 쓰는 프로필이 없지만 파생 규칙은 남아 있어야 한다.
-
-    되살릴 일이 생기면 ``unpair_after_session`` 이 정책에서 따라 나와야지,
-    프로필이 둘을 따로 설정하게 두면 "지우고 다시 안 만드는" 조합이 다시
-    가능해진다. 2.6.0 이전에 실제로 있던 회귀다.
-    """
-    from dataclasses import replace
-
-    base = get_device_config("HEM-7386T1")
-    assert base.unpair_after_session is False
-
-    per_session = replace(base, bond_policy=BondPolicy.PER_SESSION)
-    assert per_session.unpair_after_session is True
 
 
 def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
@@ -221,6 +201,5 @@ def test_the_two_profiles_under_test_stay_comparable():
     """7380T1 과 7386T1 프로필이 갈리면 두 기기의 보고를 비교할 수 없다."""
     a = get_device_config("HEM-7386T1")
     b = get_device_config("HEM-7380T1")
-    for field in ("bond_policy", "connect_settle_attempts",
-                  "keep_notify_subscriptions", "unpair_after_session"):
+    for field in ("connect_settle_attempts", "keep_notify_subscriptions"):
         assert getattr(a, field) == getattr(b, field), field

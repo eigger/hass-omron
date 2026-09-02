@@ -50,24 +50,6 @@ class HostPairingMode(str, Enum):
     NONE = "none"
 
 
-class BondPolicy(StrEnum):
-    """Lifetime of the OS-level BLE bond, for ``host_pairing_mode=OS_BONDING``.
-
-    One switch for the whole bonding strategy, so a profile can be moved
-    between the two without leaving other flags to keep in sync. See
-    ``_WLD3_BOND_POLICY`` in the catalog for the family-wide setting.
-    """
-
-    # Bond once and keep reusing it across connections.
-    REUSE = "reuse"
-    # Treat a bond as good for a single session: drop it when the session
-    # closes so the next connection bonds from scratch. For devices that
-    # invalidate their side of the bond after each session, a kept bond is
-    # worse than none — the host offers an LTK the device no longer holds,
-    # security fails, and the device hangs up.
-    PER_SESSION = "per_session"
-
-
 class ConnectType(StrEnum):
     """OMRON communication type; groups devices by BLE bonding/transfer behaviour."""
 
@@ -128,10 +110,6 @@ class DeviceConfig:
     # Enable more aggressive GATT timing for classic custom-key profiles
     # (extra refresh/retry and pre-unlock 0x02 probe).
     aggressive_gatt_timing: bool = False
-    # Bond lifetime; see BondPolicy. Only meaningful for OS_BONDING profiles.
-    # Every profile reuses: a WLD cuff refuses a fresh pair request outside its
-    # -P- window (#133), so dropping the bond leaves nothing able to make one.
-    bond_policy: BondPolicy = BondPolicy.REUSE
     # Connection attempts per session before giving up (see
     # ``establish_connection_with_bond_settle``).
     connect_settle_attempts: int = 3
@@ -293,19 +271,6 @@ class DeviceConfig:
     def is_classic_stack(self) -> bool:
         """Whether this profile uses the classic 1812 parent-service layout."""
         return not self.is_modern_stack
-
-    @property
-    def unpair_after_session(self) -> bool:
-        """Drop the OS bond when the session closes (``BondPolicy.PER_SESSION``).
-
-        Derived rather than configurable so "drop the bond and never make
-        another" cannot be set: an earlier build did exactly that and every
-        connection after the first failed with nothing to reconnect with.
-        """
-        return (
-            self.bond_policy == BondPolicy.PER_SESSION
-            and self.host_pairing_mode == HostPairingMode.OS_BONDING
-        )
 
     def is_service_compatible(self, service_uuids: list[str]) -> bool:
         """Check whether advertised GATT services match this profile's parent service."""
