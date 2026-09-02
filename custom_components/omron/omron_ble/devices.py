@@ -80,13 +80,19 @@ class RecordParser(StrEnum):
 
 
 class TimeSyncLayout(StrEnum):
-    """EEPROM time-sync field layout selector."""
+    """Where the six time bytes sit in the settings block, and in what order.
 
-    LINEAR_10 = "eeprom_time_linear_10"
-    CLASSIC_MIXED = "eeprom_time_classic_mixed"
-    CLASSIC_OFFSET8 = "eeprom_time_classic_offset8"
-    MODERN_OFFSET8 = "eeprom_time_modern_offset8"
-    HEM6401_PREFIX = "eeprom_time_hem6401_prefix"
+    Every layout stores [year-2000, month, day, hour, minute, second]. The name
+    says the byte offset the six start at, and ``_SWAPPED`` says the transport
+    hands them over with each 16-bit word's bytes exchanged, so they read as
+    [month, year, hour, day, second, minute].
+    """
+
+    AT_0 = "eeprom_time_at_0"
+    AT_2 = "eeprom_time_at_2"
+    AT_2_SWAPPED = "eeprom_time_at_2_swapped"
+    AT_8 = "eeprom_time_at_8"
+    AT_8_SWAPPED = "eeprom_time_at_8_swapped"
 
 
 @dataclass
@@ -125,12 +131,8 @@ class DeviceConfig:
     settings_read_address: int | None = None
     settings_write_address: int | None = None
     settings_time_sync_bytes: list[int] | None = None
-    # Optional override for EEPROM time layout (see omron_driver _decode/_encode_eeprom_time_payload).
-    # - eeprom_time_classic_mixed: [2:8] = [month, year-2000, hour, day, second, minute]
-    # - eeprom_time_linear_10:      [2:8] = [year-2000, month, day, hour, minute, second]
-    # - eeprom_time_modern_offset8: [8:14] = [year-2000, month, day, hour, minute, second]
-    # - eeprom_time_classic_offset8: [8:14] = [month, year-2000, hour, day, second, minute]
-    # - eeprom_time_hem6401_prefix: [0:6] = [year-2000, month, day, hour, minute, second] in 16-byte block
+    # EEPROM time layout; see TimeSyncLayout and _decode_eeprom_time_payload.
+    # AT_0 also writes the whole 16-byte block back with no checksum tail.
     time_sync_layout: TimeSyncLayout | None = None
     index_pointer_layout: dict[str, Any] | None = None
 
@@ -245,8 +247,8 @@ class DeviceConfig:
         if self.time_sync_layout is not None:
             return self.time_sync_layout
         if self.settings_time_sync_bytes == [0x2C, 0x3C]:
-            return TimeSyncLayout.MODERN_OFFSET8
-        return TimeSyncLayout.CLASSIC_MIXED
+            return TimeSyncLayout.AT_8
+        return TimeSyncLayout.AT_2_SWAPPED
 
     def parse_record(self, data: bytes | bytearray) -> dict[str, Any]:
         """Parse a single record using the device-specific parser."""
