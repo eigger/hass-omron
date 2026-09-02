@@ -186,7 +186,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -224,7 +224,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -247,7 +247,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -273,7 +273,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -300,7 +300,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
         # classic-mixed field order (confirmed from HEM-7600T-E EEPROM dumps)
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -410,7 +410,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.CLASSIC_MIXED,
+        time_sync_layout=TimeSyncLayout.LINEAR_10,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -432,7 +432,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -492,7 +492,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # Unread counter unsupported; time sync at [0x2C, 0x3C] uses classic offset8
         # field order (same 16-byte block as HEM-6232T, not modern linear order).
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -531,7 +531,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -561,7 +561,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -590,7 +590,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",
@@ -616,7 +616,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x02A4,
         settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.CLASSIC_OFFSET8,
+        time_sync_layout=TimeSyncLayout.MODERN_OFFSET8,
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "big",

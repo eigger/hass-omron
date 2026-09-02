@@ -1989,23 +1989,13 @@ def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
         )
-    if layout == "eeprom_time_classic_offset8":
-        month, year_off, hour, day, second, minute = (int(b) for b in cached[8:14])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
     if layout == "eeprom_time_hem6401_prefix":
         year_off, month, day, hour, minute, second = (int(b) for b in cached[0:6])
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
         )
-    if layout == "eeprom_time_linear_10":
-        year_off, month, day, hour, minute, second = (int(b) for b in cached[2:8])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
-    # Default: eeprom_time_classic_mixed
-    month, year_off, hour, day, second, minute = (int(b) for b in cached[2:8])
+    # Default: eeprom_time_linear_10
+    year_off, month, day, hour, minute, second = (int(b) for b in cached[2:8])
     return dt.datetime(
         year_off + 2000, month, day, hour, minute, min(second, 59)
     )
@@ -2030,21 +2020,6 @@ def _encode_eeprom_time_payload(
         result.append(sum(result) & 0xFF)
         result += bytes([0x00])
         return result
-    if layout == "eeprom_time_classic_offset8":
-        result = bytearray(cached[0:8])
-        result += bytes(
-            [
-                now.month,
-                now.year - 2000,
-                now.hour,
-                now.day,
-                now.second,
-                now.minute,
-            ]
-        )
-        result.append(sum(result) & 0xFF)
-        result += bytes([0x00])
-        return result
     if layout == "eeprom_time_hem6401_prefix":
         result = bytearray(cached)
         if len(result) < 16:
@@ -2060,31 +2035,16 @@ def _encode_eeprom_time_payload(
             ]
         )
         return result
-    if layout == "eeprom_time_linear_10":
-        result = bytearray(cached[0:2])
-        result += bytes(
-            [
-                now.year - 2000,
-                now.month,
-                now.day,
-                now.hour,
-                now.minute,
-                now.second,
-            ]
-        )
-        result += bytes([0x00])
-        result.append(sum(result) & 0xFF)
-        return result
-    # Default: eeprom_time_classic_mixed
+    # Default: eeprom_time_linear_10
     result = bytearray(cached[0:2])
     result += bytes(
         [
-            now.month,
             now.year - 2000,
-            now.hour,
+            now.month,
             now.day,
-            now.second,
+            now.hour,
             now.minute,
+            now.second,
         ]
     )
     result += bytes([0x00])
@@ -2115,13 +2075,11 @@ class OmronDeviceDriver:
 
         Layout keys (``DeviceConfig.time_sync_layout`` / ``resolved_time_sync_layout``):
 
-        eeprom_time_classic_mixed (default for [0x14, 0x1E] classic block)
-            Time bytes [2:8] = [month, year-2000, hour, day, second, minute]
-            Checksum [9] = sum(bytes[0:9]) & 0xFF
+        Every layout stores [year-2000, month, day, hour, minute, second] and
+        differs only in where the window starts.
 
-        eeprom_time_linear_10 (same 10-byte window, chronological field order)
-            Time bytes [2:8] = [year-2000, month, day, hour, minute, second]
-            Checksum [9] = sum(bytes[0:9]) & 0xFF
+        eeprom_time_linear_10 (default, 10-byte classic block)
+            Time bytes [2:8], checksum [9] = sum(bytes[0:9]) & 0xFF
 
         eeprom_time_modern_offset8 ([0x2C, 0x3C] 16-byte block)
             Time bytes [8:14] = [year-2000, month, day, hour, minute, second]

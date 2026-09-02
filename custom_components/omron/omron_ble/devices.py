@@ -83,8 +83,6 @@ class TimeSyncLayout(StrEnum):
     """EEPROM time-sync field layout selector."""
 
     LINEAR_10 = "eeprom_time_linear_10"
-    CLASSIC_MIXED = "eeprom_time_classic_mixed"
-    CLASSIC_OFFSET8 = "eeprom_time_classic_offset8"
     MODERN_OFFSET8 = "eeprom_time_modern_offset8"
     HEM6401_PREFIX = "eeprom_time_hem6401_prefix"
 
@@ -126,11 +124,11 @@ class DeviceConfig:
     settings_write_address: int | None = None
     settings_time_sync_bytes: list[int] | None = None
     # Optional override for EEPROM time layout (see omron_driver _decode/_encode_eeprom_time_payload).
-    # - eeprom_time_classic_mixed: [2:8] = [month, year-2000, hour, day, second, minute]
-    # - eeprom_time_linear_10:      [2:8] = [year-2000, month, day, hour, minute, second]
-    # - eeprom_time_modern_offset8: [8:14] = [year-2000, month, day, hour, minute, second]
-    # - eeprom_time_classic_offset8: [8:14] = [month, year-2000, hour, day, second, minute]
-    # - eeprom_time_hem6401_prefix: [0:6] = [year-2000, month, day, hour, minute, second] in 16-byte block
+    # Every layout is [year-2000, month, day, hour, minute, second]; they differ
+    # only in where the window starts.
+    # - eeprom_time_linear_10:       [2:8]
+    # - eeprom_time_modern_offset8:  [8:14]
+    # - eeprom_time_hem6401_prefix:  [0:6] in a 16-byte block
     time_sync_layout: TimeSyncLayout | None = None
     index_pointer_layout: dict[str, Any] | None = None
 
@@ -246,7 +244,7 @@ class DeviceConfig:
             return self.time_sync_layout
         if self.settings_time_sync_bytes == [0x2C, 0x3C]:
             return TimeSyncLayout.MODERN_OFFSET8
-        return TimeSyncLayout.CLASSIC_MIXED
+        return TimeSyncLayout.LINEAR_10
 
     def parse_record(self, data: bytes | bytearray) -> dict[str, Any]:
         """Parse a single record using the device-specific parser."""
