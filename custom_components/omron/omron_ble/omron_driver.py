@@ -446,6 +446,51 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
         bus.disconnect()
 
 
+async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
+    """Whether BlueZ currently holds a bond for this device.
+
+    ``None`` when it cannot be determined -- no dbus_fast, no device path, or
+    the property read failed -- so a caller can keep its previous behaviour
+    rather than act on a guess.
+    """
+    try:
+        from dbus_fast.aio.message_bus import MessageBus
+        from dbus_fast.constants import BusType, MessageType
+        from dbus_fast.message import Message
+    except ImportError:
+        return None
+
+    device_path = _bluez_device_path(client)
+    if not device_path or "/dev_" not in device_path:
+        return None
+
+    try:
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    except Exception as exc:
+        _LOGGER.debug("BlueZ Paired: cannot connect to system bus: %s", exc)
+        return None
+    try:
+        reply = await bus.call(
+            Message(
+                destination="org.bluez",
+                path=device_path,
+                interface="org.freedesktop.DBus.Properties",
+                member="Get",
+                signature="ss",
+                body=["org.bluez.Device1", "Paired"],
+            )
+        )
+        if reply.message_type != MessageType.METHOD_RETURN or not reply.body:
+            _LOGGER.debug("BlueZ Paired(%s) -> %s", device_path, reply)
+            return None
+        return bool(reply.body[0].value)
+    except Exception as exc:
+        _LOGGER.debug("BlueZ Paired read failed for %s: %s", device_path, exc)
+        return None
+    finally:
+        bus.disconnect()
+
+
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
     """Whether an OS-level BLE pairing exception can be safely ignored.
 
@@ -1750,19 +1795,45 @@ class OmronDeviceSession:
                 # Stale bond → AuthenticationFailed. Remove it and raise; the
                 # next connection re-pairs from a clean slate.
                 if _is_stale_bond_auth_error(exc) and not stale_bond_cleared:
-                    stale_bond_cleared = True
+                    # Only a bond that exists can be stale. On a first pairing
+                    # there is none, and the same AuthenticationFailed just
+                    # means the cuff refused -- removing nothing and abandoning
+                    # the attempt spends the pairing window the user opened by
+                    # pressing the button, and the "retry the poll" this used to
+                    # raise lands after that window has closed (#92).
+                    had_bond = await _bluez_is_paired(self._client)
+                    if had_bond is not False:
+                        stale_bond_cleared = True
+                        _LOGGER.warning(
+                            "OS-level bonding rejected (%s) for %s — removing stale "
+                            "bond so the next connection can re-pair cleanly",
+                            type(exc).__name__,
+                            self._config.model,
+                        )
+                        if not await _bluez_remove_device(self._client):
+                            await self.unpair()
+                        raise ConnectionError(
+                            "Stale BLE bond removed after AuthenticationFailed; "
+                            "retry the poll to re-pair"
+                        ) from exc
                     _LOGGER.warning(
-                        "OS-level bonding rejected (%s) for %s — removing stale "
-                        "bond so the next connection can re-pair cleanly",
+                        "OS-level bonding rejected (%s) for %s and no bond exists "
+                        "to be stale — the peer refused. Attempt %d/%d",
                         type(exc).__name__,
                         self._config.model,
+                        attempt,
+                        max_attempts,
                     )
-                    if not await _bluez_remove_device(self._client):
-                        await self.unpair()
-                    raise ConnectionError(
-                        "Stale BLE bond removed after AuthenticationFailed; "
-                        "retry the poll to re-pair"
-                    ) from exc
+                    if attempt < max_attempts:
+                        # Retry on this link, while the cuff is still in its
+                        # pairing window. Falling through would hit the
+                        # non-fatal branch below, which treats
+                        # AuthenticationFailed as "no bond needed" and returns
+                        # on the first refusal.
+                        continue
+                    # Out of attempts: leave the existing non-fatal handling to
+                    # decide, so profiles that genuinely do not need a bond are
+                    # unaffected.
                 if _is_non_fatal_os_pairing_error(exc):
                     _LOGGER.warning(
                         "OS-level bonding returned non-fatal error on attempt %d/%d: %s (%r)",
