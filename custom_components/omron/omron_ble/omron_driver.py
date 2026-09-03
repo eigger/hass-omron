@@ -258,8 +258,12 @@ def _bluez_device_path(obj: BleakClient | BLEDevice) -> str | None:
         details = getattr(getattr(obj, "_device", None), "details", None)
     if isinstance(details, dict) and (path := details.get("path")):
         return str(path)
-    # Older bleak versions expose the device on the backend instead.
     backend = getattr(obj, "_backend", None)
+    # A BleakClient carries no .details; its BlueZ backend keeps the path as a
+    # string. Reading it is what lets a client answer at all (#92).
+    if path := getattr(backend, "_device_path", None):
+        return str(path)
+    # Older bleak versions expose the device on the backend instead.
     return getattr(getattr(backend, "_device", None), "path", None)
 
 
@@ -827,6 +831,17 @@ class OmronDeviceSession:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+    def _bluez_target(self) -> "BleakClient | BLEDevice":
+        """Whichever of the client and the BLEDevice carries a BlueZ path.
+
+        Both can answer, and neither always does: a proxy link has no path on
+        either. Asking only the client left every BlueZ bond check unanswered
+        (#92).
+        """
+        if self._client is not None and _bluez_device_path(self._client):
+            return self._client
+        return self._ble_device
 
     def _require_connected(self, context: str) -> None:
         """Raise if the Bleak client is not connected (avoids opaque service-cache errors)."""
@@ -1781,7 +1796,7 @@ class OmronDeviceSession:
                 if attempt > 1:
                     await asyncio.sleep(_OS_BOND_RETRY_DELAY_SEC)
                     await _bleak_refresh_services(self._client)
-                agent_paired = await _bluez_agent_pair(self._client)
+                agent_paired = await _bluez_agent_pair(self._bluez_target())
                 if not agent_paired:
                     try:
                         await self._client.pair()
@@ -1801,7 +1816,7 @@ class OmronDeviceSession:
                     # the attempt spends the pairing window the user opened by
                     # pressing the button, and the "retry the poll" this used to
                     # raise lands after that window has closed (#92).
-                    had_bond = await _bluez_is_paired(self._client)
+                    had_bond = await _bluez_is_paired(self._bluez_target())
                     if had_bond is not False:
                         stale_bond_cleared = True
                         _LOGGER.warning(
@@ -1810,7 +1825,7 @@ class OmronDeviceSession:
                             type(exc).__name__,
                             self._config.model,
                         )
-                        if not await _bluez_remove_device(self._client):
+                        if not await _bluez_remove_device(self._bluez_target()):
                             await self.unpair()
                         raise ConnectionError(
                             "Stale BLE bond removed after AuthenticationFailed; "
@@ -2075,16 +2090,7 @@ class OmronDeviceSession:
             raise ConnectionError("Pairing is disabled for this device profile")
         if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
             raise ConnectionError("Pairing is not supported for this device")
-        # Ask the BLEDevice first: only its details reliably carry the DBus
-        # path (bleak's own BlueZ backend reads ble_device.details["path"]),
-        # which is why this tests the BLEDevice and not the client.
-        # A BleakClient exposes no .details at all and its BlueZ backend keeps
-        # a _device_path string rather than a _device object, so asking the
-        # client alone answers "not BlueZ" for every local adapter too.
-        if (
-            _bluez_device_path(self._ble_device) is None
-            and _bluez_device_path(self._client) is None
-        ):
+        if _bluez_device_path(self._bluez_target()) is None:
             # Proxy link: there is no local SMP confirmation to answer, and the
             # agent registers as the system *default*, so putting one up here
             # would take over pairing confirmation for unrelated local devices.
