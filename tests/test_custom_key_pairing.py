@@ -191,23 +191,48 @@ async def _noop_sleep(delay, *args, **kwargs):
     return None
 
 
-def test_bluez_device_path_cannot_identify_a_link_from_the_client_alone():
-    """링크 판별을 클라이언트로만 하면 안 되는 이유를 못박는다.
+def test_bluez_device_path_reads_the_client_and_the_device():
+    """로컬 BlueZ 링크는 클라이언트로도, BLEDevice 로도 판별돼야 한다.
 
-    실물 ``BleakClient`` 에는 ``details`` 가 없고, BlueZ 백엔드는 ``_device``
-    객체가 아니라 ``_device_path`` 문자열을 들고 있다. 따라서
-    ``_bluez_device_path(client)`` 는 로컬 BlueZ 연결에서도 None 을 돌려준다 —
-    이걸 게이트로 쓰면 에이전트가 필요한 바로 그 경우에 등록되지 않는다.
+    실물 ``BleakClient`` 에는 ``details`` 가 없고 BlueZ 백엔드가 ``_device``
+    객체가 아니라 ``_device_path`` 문자열을 들고 있다. 그 문자열을 안 읽으면
+    클라이언트는 로컬 링크에서도 None 을 돌려주고, 본드 조회가 통째로
+    "판단 불가"가 된다 (#92).
     """
-    local_client = FakeClient(device_path="/org/bluez/hci0/dev_00_5F_BF_F4_43_D1")
-
-    assert omron_driver._bluez_device_path(local_client) is None
-    # BLEDevice 쪽에는 남아 있으므로 이쪽을 봐야 한다.
+    path = "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
+    assert omron_driver._bluez_device_path(FakeClient(device_path=path)) == path
     assert (
         omron_driver._bluez_device_path(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS))
-        == "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
+        == path
     )
+    # 프록시 링크에는 어느 쪽에도 경로가 없다.
+    assert omron_driver._bluez_device_path(FakeClient()) is None
     assert omron_driver._bluez_device_path(FakeBLEDevice(PROXY_DEVICE_DETAILS)) is None
+
+
+def test_bluez_target_falls_back_to_the_device():
+    """클라이언트가 경로를 못 내면 BLEDevice 로 넘어간다."""
+    path = "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
+    device = FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS)
+
+    with_path = _custom_key_session(device, FakeClient(device_path=path))
+    assert with_path._bluez_target() is with_path._client
+
+    without = _custom_key_session(device, FakeClient())
+    assert without._bluez_target() is device
+
+    proxy = _custom_key_session(FakeBLEDevice(PROXY_DEVICE_DETAILS), FakeClient())
+    assert omron_driver._bluez_device_path(proxy._bluez_target()) is None
+
+
+def test_the_bond_check_goes_through_the_target():
+    """본드 조회/삭제가 클라이언트만 보면 #92 로 돌아간다."""
+    import inspect
+
+    source = inspect.getsource(omron_driver.OmronDeviceSession._pair_os_bonding)
+    assert "_bluez_is_paired(self._bluez_target())" in source
+    assert "_bluez_remove_device(self._bluez_target())" in source
+    assert "_bluez_is_paired(self._client)" not in source
 
 
 def test_pairing_error_names_both_failures(monkeypatch):
