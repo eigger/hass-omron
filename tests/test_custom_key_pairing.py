@@ -225,16 +225,6 @@ def test_bluez_target_falls_back_to_the_device():
     assert omron_driver._bluez_device_path(proxy._bluez_target()) is None
 
 
-def test_the_bond_check_goes_through_the_target():
-    """본드 조회/삭제가 클라이언트만 보면 #92 로 돌아간다."""
-    import inspect
-
-    source = inspect.getsource(omron_driver.OmronDeviceSession._pair_os_bonding)
-    assert "_bluez_is_paired(self._bluez_target())" in source
-    assert "_bluez_remove_device(self._bluez_target())" in source
-    assert "_bluez_is_paired(self._client)" not in source
-
-
 def test_pairing_error_names_both_failures(monkeypatch):
     """링크가 언락 구독 도중에 죽으면 SMP 촉발 실패까지 함께 보고한다."""
     monkeypatch.setattr(omron_driver, "_bleak_refresh_services", _noop_refresh)

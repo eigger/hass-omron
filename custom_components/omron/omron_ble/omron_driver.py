@@ -1796,7 +1796,7 @@ class OmronDeviceSession:
                 if attempt > 1:
                     await asyncio.sleep(_OS_BOND_RETRY_DELAY_SEC)
                     await _bleak_refresh_services(self._client)
-                agent_paired = await _bluez_agent_pair(self._client)
+                agent_paired = await _bluez_agent_pair(self._bluez_target())
                 if not agent_paired:
                     try:
                         await self._client.pair()

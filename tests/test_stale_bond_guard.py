@@ -100,3 +100,44 @@ def test_the_probe_answers_none_when_it_cannot_tell():
         if isinstance(node, ast.Return)
     }
     assert "None" in returns, "판단 불가를 None 으로 돌려주지 않는다"
+
+
+def test_the_bluez_calls_ask_the_target_not_the_client():
+    """클라이언트만 물으면 경로를 못 찾아 가드가 통째로 무력해진다 (#92).
+
+    ``BleakClient`` 에는 ``details`` 가 없고 bleak 3 의 BlueZ 백엔드는
+    ``_device_path`` 문자열을 든다. ``_bluez_target()`` 이 클라이언트와
+    BLEDevice 중 경로가 있는 쪽을 고른다.
+    """
+    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    fn = _find_function(tree, "_pair_os_bonding")
+
+    watched = {"_bluez_is_paired", "_bluez_remove_device", "_bluez_agent_pair"}
+    seen = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "id", None)
+        if name not in watched or not node.args:
+            continue
+        seen.add(name)
+        arg = ast.unparse(node.args[0])
+        assert arg == "self._bluez_target()", f"{name}({arg})"
+    assert seen == watched, f"호출이 사라졌다: {sorted(watched - seen)}"
+
+
+def test_the_path_probe_reads_the_backend_string():
+    """bleak 3 백엔드는 ``_device`` 객체가 아니라 ``_device_path`` 문자열을 든다."""
+    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    fn = _find_function(tree, "_bluez_device_path")
+    attrs = {
+        node.args[1].value
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+    }
+    assert "_device_path" in attrs, (
+        "클라이언트가 로컬 BlueZ 링크에서도 None 을 돌려준다"
+    )
