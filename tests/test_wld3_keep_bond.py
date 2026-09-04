@@ -119,6 +119,33 @@ def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_sessi
     assert source.count("establish_connection(BleakClient") >= 2, (
         "연결 시점 본딩이 실패했을 때 물러날 경로가 없다"
     )
+    assert "_bluez_pairing_agent" in source, (
+        "agent 없이 Device1.Pair() 를 부르면 BlueZ 5.72+ 는 Just Works 확인을 "
+        "응답하지 않고 AuthenticationFailed 로 떨어진다 — 그러면 폴백이 타서 "
+        "디스커버리 뒤 pair() 와 구분되지 않는다"
+    )
+    assert "TimeoutError" in source, (
+        "bleak_retry_connector 가 소진 후 던지는 TimeoutError 에 폴백이 없다"
+    )
+    assert "pair_this_attempt = False" in source, (
+        "거절이 매 시도마다 반복된다 — 한 번 거절되면 남은 시도는 평범한 연결이어야 한다"
+    )
+
+
+def test_a_second_bonding_is_skipped_only_when_the_connect_actually_bonded():
+    """플래그가 아니라 결과로 판단해야 한다 — 폴백이 탄 뒤에도 본드는 만들어져야."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession.pair)
+    assert "_omron_bonded_at_connect" in source, (
+        "connect 가 실제로 본딩했는지 보지 않는다 — 같은 링크에서 두 번 본딩하면 "
+        "방금 만든 키를 돌린다"
+    )
+    assert "pair_on_connect" not in source, (
+        "프로파일 플래그로 건너뛰면 폴백이 탄 뒤에도 건너뛰어 본드가 없이 끝난다"
+    )
 
 
 def test_only_the_pairing_session_bonds_at_connect():

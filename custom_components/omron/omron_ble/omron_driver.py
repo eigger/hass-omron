@@ -142,32 +142,46 @@ async def establish_connection_with_bond_settle(
     """
     # A bare BLEDevice is enough: BlueZ routes carry a /org/bluez/... path,
     # proxy routes do not.
-    bond_at_connect = pair_on_connect and bool(_bluez_device_path(ble_device))
-    if pair_on_connect and not bond_at_connect:
+    pair_this_attempt = pair_on_connect and bool(_bluez_device_path(ble_device))
+    bonded_at_connect = False
+    if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
             name,
         )
     last_source = "unknown"
-    for attempt in range(1, max_attempts + 1):
+    for attempt in range(1, max_attempts + 1):  # noqa: B007
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
             name, model or "?", source, attempt, max_attempts,
         )
-        if bond_at_connect:
+        if pair_this_attempt:
             try:
-                client = await establish_connection(
-                    BleakClient, ble_device, name, pair=True
+                # BlueZ 5.72+ leaves the Just Works confirmation unanswered
+                # without a registered agent and fails the pair with
+                # AuthenticationFailed, so the agent is what makes this path
+                # actually bond rather than quietly fall back.
+                async with _bluez_pairing_agent():
+                    client = await establish_connection(
+                        BleakClient, ble_device, name, pair=True
+                    )
+                bonded_at_connect = True
+                _LOGGER.info(
+                    "%s bonded before service discovery via %s", name, source
                 )
-            except BleakError as pair_exc:
-                # Falling back rather than failing: a refused connect-time pair
-                # still leaves pair() after discovery, which is where every
-                # build since #142 has made the bond.
-                _LOGGER.debug(
-                    "Connect-time bonding for %s failed (%s); connecting without it",
+            except (BleakError, TimeoutError, asyncio.TimeoutError) as pair_exc:
+                # Fall back rather than fail: pair() after discovery still makes
+                # the bond, as it does on every build since #142. One shot only
+                # -- retrying the request on each attempt turns one refusal into
+                # several.
+                pair_this_attempt = False
+                _LOGGER.warning(
+                    "Connect-time bonding for %s failed (%s: %s); connecting "
+                    "without it and leaving the bond to pair()",
                     name,
+                    type(pair_exc).__name__,
                     pair_exc,
                 )
                 client = await establish_connection(BleakClient, ble_device, name)
@@ -175,13 +189,18 @@ async def establish_connection_with_bond_settle(
             client = await establish_connection(BleakClient, ble_device, name)
         # Only the radio that paired holds the bond, so report both paths.
         connected_via = _connected_path(client, ble_device)
+        # Read back by pair(): bonding again on the same link only rotates the
+        # keys the connect just made, and skipping on the config flag alone
+        # would also skip after the fallback, leaving no bond at all.
+        client._omron_bonded_at_connect = bonded_at_connect  # type: ignore[attr-defined]
         _LOGGER.debug(
             "BLE link established to %s (advertised by source=%s, connected via "
-            "%s, is_connected=%s); settling up to %.1fs "
+            "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
             "for bonding/encryption before first GATT op",
             name,
             source,
             connected_via,
+            bonded_at_connect,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )
@@ -2131,6 +2150,17 @@ class OmronDeviceSession:
         """Program pairing credentials according to ``host_pairing_mode``."""
         pair_key = key or PAIRING_KEY
         if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
+            if getattr(self._client, "_omron_bonded_at_connect", False):
+                # connect() bonded before GATT discovery. Bonding again on the
+                # same link only rotates the keys it just made. Keyed on what
+                # actually happened rather than on the profile flag, so a
+                # connect-time pair that fell back still gets a bond here.
+                _LOGGER.debug(
+                    "Skipping explicit OS bonding for %s: already bonded during "
+                    "connect",
+                    self._config.model,
+                )
+                return
             await self._pair_os_bonding()
             return
         if self._config.host_pairing_mode == HostPairingMode.NONE:
@@ -2143,7 +2173,8 @@ class OmronDeviceSession:
             # would take over pairing confirmation for unrelated local devices.
             await self._pair_custom_key(pair_key)
             return
-        # Nothing has put an agent up for this link -- connect no longer bonds
+        # Nothing has put an agent up for this link: connect-time bonding is
+        # for OS_BONDING profiles over a local adapter, not this path
         # and _pair_os_bonding is the OS_BONDING path, not this one. Cuffs that
         # raise an SMP security request when RX notifications
         # are enabled (HEM-7155T) then drop the link because BlueZ leaves the
