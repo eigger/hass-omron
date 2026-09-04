@@ -237,3 +237,35 @@ def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch)
     # 호출자가 준 콜백이 그대로 전달돼야 한다 — RX 핸들러로 바뀌면 언락 응답을
     # 받을 곳이 없어진다.
     assert all(cb is sentinel for _, cb in client.started)
+
+
+def test_the_unlock_subscribe_stays_on_the_recovery_path():
+    """언락 구독이 start_notify 를 직접 부르면 위 복구가 걸리지 않는다 (#92).
+
+    소스 문자열이 아니라 AST 로 본다 — 줄바꿈을 바꿔도 깨지지 않아야 한다.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(
+        textwrap.dedent(inspect.getsource(OmronDeviceSession._token_unlock))
+    )
+    direct: list[str] = []
+    recovered: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        first = ast.unparse(node.args[0]) if node.args else ""
+        if node.func.attr == "start_notify":
+            direct.append(first)
+        elif node.func.attr == "_start_notify_with_recovery":
+            recovered.append(first)
+
+    assert not direct, f"복구를 우회하는 직접 호출이 남아 있다: {direct}"
+    assert "UNLOCK_CHARACTERISTIC_UUID" in recovered, (
+        "언락 구독이 복구 경로를 타지 않는다"
+    )
+    assert any("rx_channel_uuids" in arg for arg in recovered), (
+        "RX 프라임이 복구 경로를 타지 않는다"
+    )
