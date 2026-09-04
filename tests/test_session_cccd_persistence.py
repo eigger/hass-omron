@@ -21,8 +21,10 @@
 담는 경우가 흔하다.
 """
 import asyncio
+from types import SimpleNamespace
 
 from custom_components.omron.omron_ble.devices import get_device_config
+from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
 
 
@@ -143,9 +145,12 @@ def test_reset_releases_the_subscription_on_the_profile_under_test():
 
     asyncio.run(OmronDeviceSession.reset_session_state(target))
 
+    # The unlock characteristic is released too. It is not an RX channel, so the
+    # loop over rx_channel_uuids never covered it -- and on BlueZ it is the one
+    # left holding a notify session from the previous connection (#92).
     assert target._client.stopped == list(
         get_device_config("HEM-7386T1").rx_channel_uuids
-    )
+    ) + [UNLOCK_CHARACTERISTIC_UUID]
     assert target._unlocked is False
 
 
@@ -172,3 +177,95 @@ def test_the_token_unlock_asks_for_what_the_profile_wants():
     sig = inspect.signature(OmronDeviceSession._token_unlock)
     assert sig.parameters["keep_notify"].default is False
     assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
+
+
+class _BlueZError(Exception):
+    """conftest 가 bleak 를 MagicMock 으로 치환하므로 실제 예외 클래스가 필요하다."""
+
+
+class _NotifyHeldClient:
+    """첫 start_notify 를 BlueZ 가 거부하고, stop_notify 뒤에는 받아주는 클라이언트."""
+
+    def __init__(self, uuid: str) -> None:
+        self._uuid = uuid
+        self.started: list[tuple[str, object]] = []
+        self.stopped: list[str] = []
+        self._released = False
+
+    async def start_notify(self, uuid: str, callback) -> None:
+        self.started.append((uuid, callback))
+        if uuid == self._uuid and not self._released:
+            raise _BlueZError(
+                "[org.bluez.Error.Failed] Failed to register notify session"
+            )
+
+    async def stop_notify(self, uuid: str) -> None:
+        self.stopped.append(uuid)
+        if uuid == self._uuid:
+            self._released = True
+
+
+def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch):
+    """이전 연결이 남긴 세션 때문에 재구독이 거부되면, 풀고 다시 걸어야 한다 (#92).
+
+    keep_notify 프로파일은 언락 캐릭터리스틱을 해제하지 않으므로 BlueZ 가
+    ``Failed to register notify session`` 을 돌려준다. 그 문구가 복구 대상에서
+    빠져 있으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를 시도해
+    ``Failed to initiate write`` 로 이어진다.
+    """
+    from custom_components.omron.omron_ble import omron_driver
+
+    monkeypatch.setattr(omron_driver, "BleakError", _BlueZError)
+    client = _NotifyHeldClient(UNLOCK_CHARACTERISTIC_UUID)
+    target = SimpleNamespace(
+        _client=client,
+        _config=get_device_config("HEM-7188T1"),
+        _on_notify_channel_data=lambda *_: None,
+    )
+    sentinel = object()
+
+    asyncio.run(
+        OmronDeviceSession._start_notify_with_recovery(
+            target, UNLOCK_CHARACTERISTIC_UUID, sentinel
+        )
+    )
+
+    assert client.stopped == [UNLOCK_CHARACTERISTIC_UUID], "구독을 풀지 않았다"
+    assert [u for u, _ in client.started] == [UNLOCK_CHARACTERISTIC_UUID] * 2, (
+        "풀고 나서 다시 걸지 않았다"
+    )
+    # 호출자가 준 콜백이 그대로 전달돼야 한다 — RX 핸들러로 바뀌면 언락 응답을
+    # 받을 곳이 없어진다.
+    assert all(cb is sentinel for _, cb in client.started)
+
+
+def test_the_unlock_subscribe_stays_on_the_recovery_path():
+    """언락 구독이 start_notify 를 직접 부르면 위 복구가 걸리지 않는다 (#92).
+
+    소스 문자열이 아니라 AST 로 본다 — 줄바꿈을 바꿔도 깨지지 않아야 한다.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(
+        textwrap.dedent(inspect.getsource(OmronDeviceSession._token_unlock))
+    )
+    direct: list[str] = []
+    recovered: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        first = ast.unparse(node.args[0]) if node.args else ""
+        if node.func.attr == "start_notify":
+            direct.append(first)
+        elif node.func.attr == "_start_notify_with_recovery":
+            recovered.append(first)
+
+    assert not direct, f"복구를 우회하는 직접 호출이 남아 있다: {direct}"
+    assert "UNLOCK_CHARACTERISTIC_UUID" in recovered, (
+        "언락 구독이 복구 경로를 타지 않는다"
+    )
+    assert any("rx_channel_uuids" in arg for arg in recovered), (
+        "RX 프라임이 복구 경로를 타지 않는다"
+    )

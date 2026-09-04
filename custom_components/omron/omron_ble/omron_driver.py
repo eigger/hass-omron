@@ -900,12 +900,15 @@ class OmronDeviceSession:
         self._notify_subscribed = True
         self._debug_ble_link("after_rx_subscribe")
 
-    async def _start_notify_with_recovery(self, uuid: str) -> None:
+    async def _start_notify_with_recovery(
+        self, uuid: str, callback: Any | None = None
+    ) -> None:
         """Start notify with recovery for transient BlueZ/stack races."""
+        handler = callback if callback is not None else self._on_notify_channel_data
         last_exc: BaseException | None = None
         for attempt in range(_NOTIFY_SUBSCRIBE_MAX_RETRIES):
             try:
-                await self._client.start_notify(uuid, self._on_notify_channel_data)
+                await self._client.start_notify(uuid, handler)
                 return
             except BleakError as exc:
                 last_exc = exc
@@ -918,6 +921,9 @@ class OmronDeviceSession:
                     "notify acquired" in msg
                     or "notpermitted" in msg
                     or "already enabled" in msg
+                    # BlueZ's wording when it still holds the session from the
+                    # previous connection, which keep_notify never released (#92).
+                    or "register notify session" in msg
                 ):
                     _LOGGER.debug(
                         "start_notify recovery (%d/%d) for %s on %s: %s",
@@ -975,12 +981,19 @@ class OmronDeviceSession:
     async def reset_session_state(self) -> None:
         """Release any stale BLE notify subscriptions and reset session flags.
 
-        Call this before retrying ``open_memory_session`` when a previous attempt
-        failed with a BlueZ ``Notify acquired`` error.  The stop_notify calls are
+        Call this before retrying ``open_memory_session`` when a previous
+        attempt failed with a BlueZ ``Notify acquired`` or ``Failed to register
+        notify session`` error.  The stop_notify calls are
         best-effort; failures are silently ignored so the caller can proceed with
         the next attempt regardless.
         """
         await self._unsubscribe_notify_channels(force=True)
+        # The unlock characteristic is not an RX channel, so the loop above
+        # never covered it -- and it is the one BlueZ was still holding (#92).
+        try:
+            await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
+        except Exception as exc:
+            _LOGGER.debug("unlock stop_notify during reset ignored: %s", exc)
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
@@ -1573,7 +1586,7 @@ class OmronDeviceSession:
         # back to 0x0000 first — the very churn keep_notify exists to avoid.
         try:
             self._rebuild_notify_handle_index_map()
-            await self._client.start_notify(
+            await self._start_notify_with_recovery(
                 self._config.rx_channel_uuids[0],
                 self._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
             )
@@ -1585,7 +1598,9 @@ class OmronDeviceSession:
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("token_unlock_before_notify")
-        await self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch)
+        await self._start_notify_with_recovery(
+            UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch
+        )
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
             unlock_event.clear()
