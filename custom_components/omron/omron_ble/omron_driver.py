@@ -981,8 +981,9 @@ class OmronDeviceSession:
     async def reset_session_state(self) -> None:
         """Release any stale BLE notify subscriptions and reset session flags.
 
-        Call this before retrying ``open_memory_session`` when a previous attempt
-        failed with a BlueZ ``Notify acquired`` error.  The stop_notify calls are
+        Call this before retrying ``open_memory_session`` when a previous
+        attempt failed with a BlueZ ``Notify acquired`` or ``Failed to register
+        notify session`` error.  The stop_notify calls are
         best-effort; failures are silently ignored so the caller can proceed with
         the next attempt regardless.
         """
@@ -1585,7 +1586,7 @@ class OmronDeviceSession:
         # back to 0x0000 first — the very churn keep_notify exists to avoid.
         try:
             self._rebuild_notify_handle_index_map()
-            await self._client.start_notify(
+            await self._start_notify_with_recovery(
                 self._config.rx_channel_uuids[0],
                 self._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
             )

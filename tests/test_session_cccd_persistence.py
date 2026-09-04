@@ -21,6 +21,7 @@
 담는 경우가 흔하다.
 """
 import asyncio
+from types import SimpleNamespace
 
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
@@ -178,32 +179,61 @@ def test_the_token_unlock_asks_for_what_the_profile_wants():
     assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
 
 
-def test_a_held_notify_session_is_recovered_not_raised():
-    """BlueZ 가 이전 연결의 notify 세션을 붙들고 있으면 재구독이 거부된다 (#92).
+class _BlueZError(Exception):
+    """conftest 가 bleak 를 MagicMock 으로 치환하므로 실제 예외 클래스가 필요하다."""
 
-    keep_notify 프로파일은 언락 캐릭터리스틱을 끝내 해제하지 않으므로, BlueZ 는
-    다음 연결에서 ``Failed to register notify session`` 을 돌려준다. 복구 목록에
-    그 문구가 없으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를
-    시도해 ``Failed to initiate write`` 로 이어진다.
+
+class _NotifyHeldClient:
+    """첫 start_notify 를 BlueZ 가 거부하고, stop_notify 뒤에는 받아주는 클라이언트."""
+
+    def __init__(self, uuid: str) -> None:
+        self._uuid = uuid
+        self.started: list[tuple[str, object]] = []
+        self.stopped: list[str] = []
+        self._released = False
+
+    async def start_notify(self, uuid: str, callback) -> None:
+        self.started.append((uuid, callback))
+        if uuid == self._uuid and not self._released:
+            raise _BlueZError(
+                "[org.bluez.Error.Failed] Failed to register notify session"
+            )
+
+    async def stop_notify(self, uuid: str) -> None:
+        self.stopped.append(uuid)
+        if uuid == self._uuid:
+            self._released = True
+
+
+def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch):
+    """이전 연결이 남긴 세션 때문에 재구독이 거부되면, 풀고 다시 걸어야 한다 (#92).
+
+    keep_notify 프로파일은 언락 캐릭터리스틱을 해제하지 않으므로 BlueZ 가
+    ``Failed to register notify session`` 을 돌려준다. 그 문구가 복구 대상에서
+    빠져 있으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를 시도해
+    ``Failed to initiate write`` 로 이어진다.
     """
-    import inspect
-
     from custom_components.omron.omron_ble import omron_driver
 
-    source = inspect.getsource(omron_driver.OmronDeviceSession._start_notify_with_recovery)
-    assert "register notify session" in source, (
-        "BlueZ 가 세션을 붙들고 있을 때의 문구가 복구 대상에서 빠졌다"
+    monkeypatch.setattr(omron_driver, "BleakError", _BlueZError)
+    client = _NotifyHeldClient(UNLOCK_CHARACTERISTIC_UUID)
+    target = SimpleNamespace(
+        _client=client,
+        _config=get_device_config("HEM-7188T1"),
+        _on_notify_channel_data=lambda *_: None,
+    )
+    sentinel = object()
+
+    asyncio.run(
+        OmronDeviceSession._start_notify_with_recovery(
+            target, UNLOCK_CHARACTERISTIC_UUID, sentinel
+        )
     )
 
-
-def test_the_unlock_subscribe_goes_through_the_recovery_path():
-    """언락 구독이 start_notify 를 직접 부르면 위 복구가 적용되지 않는다."""
-    import inspect
-
-    from custom_components.omron.omron_ble import omron_driver
-
-    source = inspect.getsource(omron_driver.OmronDeviceSession._token_unlock)
-    assert "_start_notify_with_recovery(\n            UNLOCK_CHARACTERISTIC_UUID" in source, (
-        "토큰 언락이 복구 경로를 우회한다"
+    assert client.stopped == [UNLOCK_CHARACTERISTIC_UUID], "구독을 풀지 않았다"
+    assert [u for u, _ in client.started] == [UNLOCK_CHARACTERISTIC_UUID] * 2, (
+        "풀고 나서 다시 걸지 않았다"
     )
-    assert "self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID" not in source
+    # 호출자가 준 콜백이 그대로 전달돼야 한다 — RX 핸들러로 바뀌면 언락 응답을
+    # 받을 곳이 없어진다.
+    assert all(cb is sentinel for _, cb in client.started)
