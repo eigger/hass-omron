@@ -23,6 +23,7 @@
 import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
+from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
 
 
@@ -143,9 +144,12 @@ def test_reset_releases_the_subscription_on_the_profile_under_test():
 
     asyncio.run(OmronDeviceSession.reset_session_state(target))
 
+    # The unlock characteristic is released too. It is not an RX channel, so the
+    # loop over rx_channel_uuids never covered it -- and on BlueZ it is the one
+    # left holding a notify session from the previous connection (#92).
     assert target._client.stopped == list(
         get_device_config("HEM-7386T1").rx_channel_uuids
-    )
+    ) + [UNLOCK_CHARACTERISTIC_UUID]
     assert target._unlocked is False
 
 
@@ -172,3 +176,34 @@ def test_the_token_unlock_asks_for_what_the_profile_wants():
     sig = inspect.signature(OmronDeviceSession._token_unlock)
     assert sig.parameters["keep_notify"].default is False
     assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
+
+
+def test_a_held_notify_session_is_recovered_not_raised():
+    """BlueZ 가 이전 연결의 notify 세션을 붙들고 있으면 재구독이 거부된다 (#92).
+
+    keep_notify 프로파일은 언락 캐릭터리스틱을 끝내 해제하지 않으므로, BlueZ 는
+    다음 연결에서 ``Failed to register notify session`` 을 돌려준다. 복구 목록에
+    그 문구가 없으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를
+    시도해 ``Failed to initiate write`` 로 이어진다.
+    """
+    import inspect
+
+    from custom_components.omron.omron_ble import omron_driver
+
+    source = inspect.getsource(omron_driver.OmronDeviceSession._start_notify_with_recovery)
+    assert "register notify session" in source, (
+        "BlueZ 가 세션을 붙들고 있을 때의 문구가 복구 대상에서 빠졌다"
+    )
+
+
+def test_the_unlock_subscribe_goes_through_the_recovery_path():
+    """언락 구독이 start_notify 를 직접 부르면 위 복구가 적용되지 않는다."""
+    import inspect
+
+    from custom_components.omron.omron_ble import omron_driver
+
+    source = inspect.getsource(omron_driver.OmronDeviceSession._token_unlock)
+    assert "_start_notify_with_recovery(\n            UNLOCK_CHARACTERISTIC_UUID" in source, (
+        "토큰 언락이 복구 경로를 우회한다"
+    )
+    assert "self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID" not in source
