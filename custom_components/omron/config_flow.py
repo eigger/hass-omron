@@ -46,7 +46,7 @@ from .ble_session import (
 )
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
-from .omron_ble.omron_driver import OmronDeviceSession
+from .omron_ble.omron_driver import OmronDeviceSession, is_local_adapter
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -507,8 +507,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         # exactly this: a fresh connection with pair=True rather than the
         # probe's. The half-made bond the handoff avoids does not survive here
         # either, because the reconnect bonds again straight away.
+        #
+        # Local adapters only, matching the connect path: on a proxy no pair
+        # request follows, so dropping the probe link would discard the one the
+        # bond was being made over and replace it with an identical connect.
         session = take_probe_session(self.hass, address)
-        if session is not None and config.pair_on_connect:
+        if (
+            session is not None
+            and config.pair_on_connect
+            and is_local_adapter(ble_device)
+        ):
             _LOGGER.debug(
                 "Reconnecting to %s to bond before service discovery, which the "
                 "model-number link could not do",

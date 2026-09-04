@@ -142,7 +142,7 @@ async def establish_connection_with_bond_settle(
     """
     # A bare BLEDevice is enough: BlueZ routes carry a /org/bluez/... path,
     # proxy routes do not.
-    pair_this_attempt = pair_on_connect and bool(_bluez_device_path(ble_device))
+    pair_this_attempt = pair_on_connect and is_local_adapter(ble_device)
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
@@ -499,6 +499,18 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
         return False
     finally:
         bus.disconnect()
+
+
+def is_local_adapter(client: BleakClient | BLEDevice) -> bool:
+    """Whether this link runs on a local BlueZ adapter rather than a proxy.
+
+    BlueZ routes carry a ``/org/bluez/...`` object path; ESPHome proxy routes do
+    not. Callers that gate connect-time bonding share this so the connect path
+    and the config flow cannot drift apart -- closing the probe link on a proxy,
+    where no pair request follows, would drop the link the bond was being made
+    over and put nothing in its place.
+    """
+    return bool(_bluez_device_path(client))
 
 
 async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
@@ -2154,10 +2166,11 @@ class OmronDeviceSession:
         pair_key = key or PAIRING_KEY
         if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
             if getattr(self._client, "_omron_bonded_at_connect", False):
-                # connect() bonded before GATT discovery. Bonding again on the
-                # same link only rotates the keys it just made. Keyed on what
-                # actually happened rather than on the profile flag, so a
-                # connect-time pair that fell back still gets a bond here.
+                # Keyed on what the connect actually did rather than on the
+                # profile flag, so that a connect-time pair which fell back
+                # still gets its bond here, while one that succeeded is not
+                # bonded a second time on the same link -- which would only
+                # rotate the keys it just made.
                 _LOGGER.debug(
                     "Skipping explicit OS bonding for %s: already bonded during "
                     "connect",

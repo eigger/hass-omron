@@ -111,7 +111,7 @@ def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_sessi
     )
 
     source = inspect.getsource(establish_connection_with_bond_settle)
-    assert "_bluez_device_path" in source, (
+    assert "is_local_adapter" in source, (
         "로컬 어댑터 여부를 확인하지 않는다 — 프록시에서 pair 요청이 나가면 "
         "본드를 잃는다"
     )
@@ -316,24 +316,46 @@ def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
     ).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    adopts = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
+    assert any(
+        isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "adopt"
-    ]
-    assert adopts, "프로브 링크를 adopt 하는 곳이 없다 — 테스트가 낡았다"
+        for node in ast.walk(tree)
+    ), "프로브 링크를 adopt 하는 곳이 없다 — 테스트가 낡았다"
 
-    guards = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If):
-            end = getattr(node, "end_lineno", node.lineno)
-            if any(node.lineno < call.lineno <= end for call in adopts):
-                guards.append(ast.unparse(node.test))
-    assert any("pair_on_connect" in g for g in guards) or "pair_on_connect" in source, (
-        "프로파일이 connect 시점에 본딩하는지 보지 않고 프로브 링크를 이어받는다"
+    discards = [
+        ast.unparse(node.test)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and any(
+            isinstance(call, ast.Call)
+            and getattr(call.func, "id", None) == "close_probe_session"
+            for call in ast.walk(node)
+        )
+    ]
+    assert discards, (
+        "프로브 링크를 버리는 분기가 없다 — 이어받으면 connect-time 본딩이 "
+        "조용히 건너뛰어진다"
     )
-    assert "close_probe_session" in source, (
-        "이어받지 않기로 한 프로브 링크를 닫지 않으면 링크가 떠 있는 채로 남는다"
+    guard = discards[0]
+    assert "pair_on_connect" in guard, (
+        "프로파일이 connect 시점에 본딩하는지 보지 않고 프로브 링크를 버린다"
     )
+    # 프록시에서는 pair=True 가 나가지 않는다. 그런데도 프로브를 버리면 본드가
+    # 만들어지던 링크만 끊고 똑같은 연결로 갈아타는 셈이라, 순수한 손해다.
+    assert "is_local_adapter" in guard, (
+        "로컬 어댑터인지 보지 않는다 — 프록시에서 프로브 링크만 잃는다"
+    )
+
+
+def test_both_gates_use_the_same_local_adapter_predicate():
+    """설정 플로우와 연결 경로가 갈라지면 프록시에서 링크만 잃는다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import (
+        establish_connection_with_bond_settle,
+    )
+
+    assert "is_local_adapter" in inspect.getsource(
+        establish_connection_with_bond_settle
+    ), "연결 경로가 공용 술어를 쓰지 않는다"
