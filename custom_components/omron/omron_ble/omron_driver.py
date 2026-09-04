@@ -403,6 +403,18 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
         bus.disconnect()
 
 
+def is_local_adapter(client: BleakClient | BLEDevice) -> bool:
+    """Whether this link runs on a local BlueZ adapter rather than a proxy.
+
+    BlueZ routes carry a ``/org/bluez/...`` object path; ESPHome proxy routes do
+    not. Callers that gate connect-time bonding share this so the connect path
+    and the config flow cannot drift apart -- closing the probe link on a proxy,
+    where no pair request follows, would drop the link the bond was being made
+    over and put nothing in its place.
+    """
+    return bool(_bluez_device_path(client))
+
+
 async def _bluez_agent_pair(client: BleakClient) -> bool:
     """Pair via BlueZ DBus with a registered KeyboardDisplay agent.
 
@@ -499,18 +511,6 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
         return False
     finally:
         bus.disconnect()
-
-
-def is_local_adapter(client: BleakClient | BLEDevice) -> bool:
-    """Whether this link runs on a local BlueZ adapter rather than a proxy.
-
-    BlueZ routes carry a ``/org/bluez/...`` object path; ESPHome proxy routes do
-    not. Callers that gate connect-time bonding share this so the connect path
-    and the config flow cannot drift apart -- closing the probe link on a proxy,
-    where no pair request follows, would drop the link the bond was being made
-    over and put nothing in its place.
-    """
-    return bool(_bluez_device_path(client))
 
 
 async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
@@ -2189,12 +2189,11 @@ class OmronDeviceSession:
             # would take over pairing confirmation for unrelated local devices.
             await self._pair_custom_key(pair_key)
             return
-        # Nothing has put an agent up for this link: connect-time bonding is
-        # for OS_BONDING profiles over a local adapter, not this path
-        # and _pair_os_bonding is the OS_BONDING path, not this one. Cuffs that
-        # raise an SMP security request when RX notifications
-        # are enabled (HEM-7155T) then drop the link because BlueZ leaves the
-        # Just Works confirmation unanswered.
+        # Nothing has put an agent up for this link: connect-time bonding and
+        # _pair_os_bonding both belong to OS_BONDING profiles, and this is the
+        # custom-key path. Cuffs that raise an SMP security request when RX
+        # notifications are enabled (HEM-7155T) then drop the link, because
+        # BlueZ leaves the Just Works confirmation unanswered without one.
         async with _bluez_pairing_agent():
             await self._pair_custom_key(pair_key)
 
