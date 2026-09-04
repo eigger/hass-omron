@@ -126,15 +126,28 @@ async def establish_connection_with_bond_settle(
     *,
     model: str = "",
     max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
+    pair_on_connect: bool = False,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
     Retries if the device drops during the settle (common on multi-proxy setups).
 
-    Nothing here asks to bond: the cuff raises its own SMP Security Request and
-    both host stacks answer it. Ours only cost the stored bond on an ESP32
-    proxy (#142). A bond is made by ``pair()`` after discovery.
+    ``pair_on_connect`` bonds before service discovery, which is what the one
+    run with a working retained-bond reconnect did (2.7.8-beta.15, local
+    BlueZ). It is honoured only over a local adapter: on an ESP32 proxy a pair
+    request that does not complete is read as an authentication failure and
+    ESP-IDF drops the stored bond from flash (#142), and the same flag brought
+    no benefit there when 2.8.3 carried it. Ordinary reconnects never set it --
+    the cuff raises its own Security Request and both stacks answer it.
     """
+    # A bare BLEDevice is enough: BlueZ routes carry a /org/bluez/... path,
+    # proxy routes do not.
+    bond_at_connect = pair_on_connect and bool(_bluez_device_path(ble_device))
+    if pair_on_connect and not bond_at_connect:
+        _LOGGER.debug(
+            "%s: not a local adapter, leaving the bond to pair() after discovery",
+            name,
+        )
     last_source = "unknown"
     for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
@@ -143,7 +156,23 @@ async def establish_connection_with_bond_settle(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
             name, model or "?", source, attempt, max_attempts,
         )
-        client = await establish_connection(BleakClient, ble_device, name)
+        if bond_at_connect:
+            try:
+                client = await establish_connection(
+                    BleakClient, ble_device, name, pair=True
+                )
+            except BleakError as pair_exc:
+                # Falling back rather than failing: a refused connect-time pair
+                # still leaves pair() after discovery, which is where every
+                # build since #142 has made the bond.
+                _LOGGER.debug(
+                    "Connect-time bonding for %s failed (%s); connecting without it",
+                    name,
+                    pair_exc,
+                )
+                client = await establish_connection(BleakClient, ble_device, name)
+        else:
+            client = await establish_connection(BleakClient, ble_device, name)
         # Only the radio that paired holds the bond, so report both paths.
         connected_via = _connected_path(client, ble_device)
         _LOGGER.debug(
@@ -678,6 +707,9 @@ class OmronDeviceSession:
             self.address,
             model=self._config.model,
             max_attempts=self._config.connect_settle_attempts,
+            # Only the connection that creates the bond; a reconnect that sends
+            # a pair request is what cost the bond on a proxy (#142).
+            pair_on_connect=self._pairing_session and self._config.pair_on_connect,
         )
         return self
 

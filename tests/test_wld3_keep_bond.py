@@ -90,16 +90,19 @@ def test_driver_module_has_no_undefined_names():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_nothing_asks_to_bond_at_connect_time():
-    """연결 시점 pair 요청은 사라졌다 — 커프가 Security Request 로 몰고 간다.
+def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_session():
+    """연결 시점 본딩은 돌아왔지만, #142 가 막으려던 것은 그대로 막아야 한다.
 
-    보내서 얻는 게 없고 잃을 게 있었다. ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt``
-    는 SMP_CONN_TOUT(102) 을 default 분기로 흘려 ``btc_dm_remove_ble_bonding_keys()``
-    를 부른다. 이슈 #91 의 프록시 로그에서 페어링 직후 ``bonded=YES`` 였던 본드가
-    몇 분 뒤 사라진 게 그것이고, ``pair_only_when_pairing`` 은 그 손실을 줄이려고
-    있던 플래그였다. 요청 자체를 없애면 둘 다 필요 없다.
+    ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt`` 는 SMP_CONN_TOUT(102) 을 default
+    분기로 흘려 ``btc_dm_remove_ble_bonding_keys()`` 를 부른다. 프록시에서
+    완료되지 않은 pair 요청 하나가 저장된 본드를 영구히 날린다. 그리고 2.8.3 이
+    이 플래그를 달고도 ESP 에서 실패했으니, 거기서는 얻는 것도 없었다.
 
-    본드를 만들어야 하는 프로필은 디스커버리 뒤 ``pair()`` 에서 만든다.
+    반대로 재접속 본드가 유지된 유일한 실행(2.7.8-beta.15, 로컬 BlueZ)은 연결
+    시점에, 디스커버리보다 먼저 본딩했다.
+
+    그래서 세 가지 울타리를 친다: 로컬 어댑터일 때만, 본드를 만드는 세션에서만,
+    그리고 실패하면 평범한 연결로 물러난다.
     """
     import inspect
 
@@ -108,13 +111,32 @@ def test_nothing_asks_to_bond_at_connect_time():
     )
 
     source = inspect.getsource(establish_connection_with_bond_settle)
-    assert "pair=" not in source, "연결 경로가 다시 본딩을 요청하면 안 된다"
+    assert "_bluez_device_path" in source, (
+        "로컬 어댑터 여부를 확인하지 않는다 — 프록시에서 pair 요청이 나가면 "
+        "본드를 잃는다"
+    )
+    assert "pair=True" in source, "연결 시점 본딩 경로가 없다"
+    assert source.count("establish_connection(BleakClient") >= 2, (
+        "연결 시점 본딩이 실패했을 때 물러날 경로가 없다"
+    )
 
-    config = get_device_config("HEM-7386T1")
-    assert not hasattr(config, "pair_on_connect")
-    assert not hasattr(config, "pair_on_connect_for")
-    assert not hasattr(config, "pair_only_when_pairing")
-    assert not hasattr(config, "os_bond_once")
+
+def test_only_the_pairing_session_bonds_at_connect():
+    """재접속이 pair 요청을 보내면 안 된다 — 그게 프록시에서 본드를 날린 경로다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession.connect)
+    assert "self._pairing_session and self._config.pair_on_connect" in source, (
+        "페어링 세션 여부로 걸러내지 않는다"
+    )
+
+
+def test_only_os_bonding_profiles_bond_at_connect():
+    """커스텀 키 프로파일은 OS 본드를 만들지 않는다."""
+    assert get_device_config("HEM-7386T1").pair_on_connect is True
+    assert get_device_config("HEM-7155T").pair_on_connect is False
 
 
 def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
