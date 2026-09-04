@@ -293,3 +293,47 @@ def test_the_bonding_result_is_scoped_to_the_connection_it_describes():
     assert stashed not in _assigned(before_loop), (
         f"{stashed} 를 루프 밖에서도 대입한다 — 시도별 결과가 아니게 된다"
     )
+
+
+def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
+    """프로브 링크를 이어받으면 connect-time 본딩이 조용히 건너뛰어진다 (#24, #92).
+
+    프로브는 모델을 모르는 상태에서 링크를 열었으니 본딩할 수 없었고, 이미
+    디스커버리를 끝낸 링크는 "디스커버리보다 먼저" 본딩할 수 없다. 그대로
+    adopt 하면 connect() 가 즉시 반환해 pair=True 가 나가지 않는다 — 이 경로를
+    검증하려는 제보자들에게 아무 동작도 하지 않게 된다.
+
+    재접속 본드가 유지된 유일한 실행(2.7.8-beta.15)도 프로브 링크가 아니라 새
+    연결이었다.
+    """
+    import ast
+    from pathlib import Path
+
+    # conftest 가 voluptuous 를 채우지 않으므로 import 하지 않고 파일로 읽는다.
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "custom_components" / "omron" / "config_flow.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    adopts = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "adopt"
+    ]
+    assert adopts, "프로브 링크를 adopt 하는 곳이 없다 — 테스트가 낡았다"
+
+    guards = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If):
+            end = getattr(node, "end_lineno", node.lineno)
+            if any(node.lineno < call.lineno <= end for call in adopts):
+                guards.append(ast.unparse(node.test))
+    assert any("pair_on_connect" in g for g in guards) or "pair_on_connect" in source, (
+        "프로파일이 connect 시점에 본딩하는지 보지 않고 프로브 링크를 이어받는다"
+    )
+    assert "close_probe_session" in source, (
+        "이어받지 않기로 한 프로브 링크를 닫지 않으면 링크가 떠 있는 채로 남는다"
+    )

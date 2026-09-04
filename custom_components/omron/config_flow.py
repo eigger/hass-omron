@@ -40,6 +40,7 @@ from homeassistant.data_entry_flow import AbortFlow
 
 from .ble_session import (
     stash_handoff_session,
+    close_probe_session,
     stash_probe_session,
     take_probe_session,
 )
@@ -497,7 +498,24 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Continue on the probe's link when it is still up: it is the one the
         # cuff bonded over, and reconnecting is what leaves the bond half made.
+        #
+        # Except when the profile bonds at connect. The probe opened its link
+        # before the model was known, so it could not, and a link that has
+        # already run discovery cannot be made to bond before it. Adopting it
+        # would silently skip the connect-time bonding this profile asks for.
+        # The one run whose retained-bond reconnect worked (2.7.8-beta.15) did
+        # exactly this: a fresh connection with pair=True rather than the
+        # probe's. The half-made bond the handoff avoids does not survive here
+        # either, because the reconnect bonds again straight away.
         session = take_probe_session(self.hass, address)
+        if session is not None and config.pair_on_connect:
+            _LOGGER.debug(
+                "Reconnecting to %s to bond before service discovery, which the "
+                "model-number link could not do",
+                address,
+            )
+            await close_probe_session(session, address)
+            session = None
         if session is not None:
             session = OmronDeviceSession.adopt(
                 session.release_client(), config, pairing_session=True
