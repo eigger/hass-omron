@@ -90,16 +90,19 @@ def test_driver_module_has_no_undefined_names():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_nothing_asks_to_bond_at_connect_time():
-    """연결 시점 pair 요청은 사라졌다 — 커프가 Security Request 로 몰고 간다.
+def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_session():
+    """연결 시점 본딩은 돌아왔지만, #142 가 막으려던 것은 그대로 막아야 한다.
 
-    보내서 얻는 게 없고 잃을 게 있었다. ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt``
-    는 SMP_CONN_TOUT(102) 을 default 분기로 흘려 ``btc_dm_remove_ble_bonding_keys()``
-    를 부른다. 이슈 #91 의 프록시 로그에서 페어링 직후 ``bonded=YES`` 였던 본드가
-    몇 분 뒤 사라진 게 그것이고, ``pair_only_when_pairing`` 은 그 손실을 줄이려고
-    있던 플래그였다. 요청 자체를 없애면 둘 다 필요 없다.
+    ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt`` 는 SMP_CONN_TOUT(102) 을 default
+    분기로 흘려 ``btc_dm_remove_ble_bonding_keys()`` 를 부른다. 프록시에서
+    완료되지 않은 pair 요청 하나가 저장된 본드를 영구히 날린다. 그리고 2.8.3 이
+    이 플래그를 달고도 ESP 에서 실패했으니, 거기서는 얻는 것도 없었다.
 
-    본드를 만들어야 하는 프로필은 디스커버리 뒤 ``pair()`` 에서 만든다.
+    반대로 재접속 본드가 유지된 유일한 실행(2.7.8-beta.15, 로컬 BlueZ)은 연결
+    시점에, 디스커버리보다 먼저 본딩했다.
+
+    그래서 세 가지 울타리를 친다: 로컬 어댑터일 때만, 본드를 만드는 세션에서만,
+    그리고 실패하면 평범한 연결로 물러난다.
     """
     import inspect
 
@@ -108,13 +111,59 @@ def test_nothing_asks_to_bond_at_connect_time():
     )
 
     source = inspect.getsource(establish_connection_with_bond_settle)
-    assert "pair=" not in source, "연결 경로가 다시 본딩을 요청하면 안 된다"
+    assert "is_local_adapter" in source, (
+        "로컬 어댑터 여부를 확인하지 않는다 — 프록시에서 pair 요청이 나가면 "
+        "본드를 잃는다"
+    )
+    assert "pair=True" in source, "연결 시점 본딩 경로가 없다"
+    assert source.count("establish_connection(BleakClient") >= 2, (
+        "연결 시점 본딩이 실패했을 때 물러날 경로가 없다"
+    )
+    assert "_bluez_pairing_agent" in source, (
+        "agent 없이 Device1.Pair() 를 부르면 BlueZ 5.72+ 는 Just Works 확인을 "
+        "응답하지 않고 AuthenticationFailed 로 떨어진다 — 그러면 폴백이 타서 "
+        "디스커버리 뒤 pair() 와 구분되지 않는다"
+    )
+    assert "TimeoutError" in source, (
+        "bleak_retry_connector 가 소진 후 던지는 TimeoutError 에 폴백이 없다"
+    )
+    assert "pair_this_attempt = False" in source, (
+        "거절이 매 시도마다 반복된다 — 한 번 거절되면 남은 시도는 평범한 연결이어야 한다"
+    )
 
-    config = get_device_config("HEM-7386T1")
-    assert not hasattr(config, "pair_on_connect")
-    assert not hasattr(config, "pair_on_connect_for")
-    assert not hasattr(config, "pair_only_when_pairing")
-    assert not hasattr(config, "os_bond_once")
+
+def test_a_second_bonding_is_skipped_only_when_the_connect_actually_bonded():
+    """플래그가 아니라 결과로 판단해야 한다 — 폴백이 탄 뒤에도 본드는 만들어져야."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession.pair)
+    assert "_omron_bonded_at_connect" in source, (
+        "connect 가 실제로 본딩했는지 보지 않는다 — 같은 링크에서 두 번 본딩하면 "
+        "방금 만든 키를 돌린다"
+    )
+    assert "pair_on_connect" not in source, (
+        "프로파일 플래그로 건너뛰면 폴백이 탄 뒤에도 건너뛰어 본드가 없이 끝난다"
+    )
+
+
+def test_only_the_pairing_session_bonds_at_connect():
+    """재접속이 pair 요청을 보내면 안 된다 — 그게 프록시에서 본드를 날린 경로다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+
+    source = inspect.getsource(OmronDeviceSession.connect)
+    assert "self._pairing_session and self._config.pair_on_connect" in source, (
+        "페어링 세션 여부로 걸러내지 않는다"
+    )
+
+
+def test_only_os_bonding_profiles_bond_at_connect():
+    """커스텀 키 프로파일은 OS 본드를 만들지 않는다."""
+    assert get_device_config("HEM-7386T1").pair_on_connect is True
+    assert get_device_config("HEM-7155T").pair_on_connect is False
 
 
 def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
@@ -203,3 +252,110 @@ def test_the_two_profiles_under_test_stay_comparable():
     b = get_device_config("HEM-7380T1")
     for field in ("connect_settle_attempts", "keep_notify_subscriptions"):
         assert getattr(a, field) == getattr(b, field), field
+
+
+def test_the_bonding_result_is_scoped_to_the_connection_it_describes():
+    """settle 중 끊기고 재시도하면, 앞 시도의 결과가 남아 있으면 안 된다.
+
+    1차에서 pair=True 가 성공하고 settle 중 링크가 끊긴 뒤 2차가 폴백하면,
+    이번 연결은 본딩하지 않았는데 pair() 가 건너뛴다 — 본드 없이 끝난다.
+    connect_settle_attempts 가 1 인 프로파일은 해당 없지만, 3 인 OS 본딩
+    프로파일에서는 실재한다.
+    """
+    import ast
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import (
+        establish_connection_with_bond_settle,
+    )
+
+    tree = ast.parse(inspect.getsource(establish_connection_with_bond_settle).lstrip())
+    fn = tree.body[0]
+    loop = next(node for node in ast.walk(fn) if isinstance(node, ast.For))
+
+    def _assigned(scope) -> set[str]:
+        names = set()
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+        return names
+
+    stashed = "bonded_this_client"
+    assert stashed in _assigned(loop), (
+        f"{stashed} 가 루프 안에서 초기화되지 않는다 — 앞 시도의 결과가 "
+        "다음 연결에 딸려간다"
+    )
+    before_loop = ast.Module(
+        body=[node for node in fn.body if node is not loop], type_ignores=[]
+    )
+    assert stashed not in _assigned(before_loop), (
+        f"{stashed} 를 루프 밖에서도 대입한다 — 시도별 결과가 아니게 된다"
+    )
+
+
+def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
+    """프로브 링크를 이어받으면 connect-time 본딩이 조용히 건너뛰어진다 (#24, #92).
+
+    프로브는 모델을 모르는 상태에서 링크를 열었으니 본딩할 수 없었고, 이미
+    디스커버리를 끝낸 링크는 "디스커버리보다 먼저" 본딩할 수 없다. 그대로
+    adopt 하면 connect() 가 즉시 반환해 pair=True 가 나가지 않는다 — 이 경로를
+    검증하려는 제보자들에게 아무 동작도 하지 않게 된다.
+
+    재접속 본드가 유지된 유일한 실행(2.7.8-beta.15)도 프로브 링크가 아니라 새
+    연결이었다.
+    """
+    import ast
+    from pathlib import Path
+
+    # conftest 가 voluptuous 를 채우지 않으므로 import 하지 않고 파일로 읽는다.
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "custom_components" / "omron" / "config_flow.py"
+    ).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "adopt"
+        for node in ast.walk(tree)
+    ), "프로브 링크를 adopt 하는 곳이 없다 — 테스트가 낡았다"
+
+    discards = [
+        ast.unparse(node.test)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.If)
+        and any(
+            isinstance(call, ast.Call)
+            and getattr(call.func, "id", None) == "close_probe_session"
+            for call in ast.walk(node)
+        )
+    ]
+    assert discards, (
+        "프로브 링크를 버리는 분기가 없다 — 이어받으면 connect-time 본딩이 "
+        "조용히 건너뛰어진다"
+    )
+    guard = discards[0]
+    assert "pair_on_connect" in guard, (
+        "프로파일이 connect 시점에 본딩하는지 보지 않고 프로브 링크를 버린다"
+    )
+    # 프록시에서는 pair=True 가 나가지 않는다. 그런데도 프로브를 버리면 본드가
+    # 만들어지던 링크만 끊고 똑같은 연결로 갈아타는 셈이라, 순수한 손해다.
+    assert "is_local_adapter" in guard, (
+        "로컬 어댑터인지 보지 않는다 — 프록시에서 프로브 링크만 잃는다"
+    )
+
+
+def test_both_gates_use_the_same_local_adapter_predicate():
+    """설정 플로우와 연결 경로가 갈라지면 프록시에서 링크만 잃는다."""
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import (
+        establish_connection_with_bond_settle,
+    )
+
+    assert "is_local_adapter" in inspect.getsource(
+        establish_connection_with_bond_settle
+    ), "연결 경로가 공용 술어를 쓰지 않는다"

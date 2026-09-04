@@ -40,12 +40,13 @@ from homeassistant.data_entry_flow import AbortFlow
 
 from .ble_session import (
     stash_handoff_session,
+    close_probe_session,
     stash_probe_session,
     take_probe_session,
 )
 from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
-from .omron_ble.omron_driver import OmronDeviceSession
+from .omron_ble.omron_driver import OmronDeviceSession, is_local_adapter
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
@@ -497,7 +498,32 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         # Continue on the probe's link when it is still up: it is the one the
         # cuff bonded over, and reconnecting is what leaves the bond half made.
+        #
+        # Except when the profile bonds at connect. The probe opened its link
+        # before the model was known, so it could not, and a link that has
+        # already run discovery cannot be made to bond before it. Adopting it
+        # would silently skip the connect-time bonding this profile asks for.
+        # The one run whose retained-bond reconnect worked (2.7.8-beta.15) did
+        # exactly this: a fresh connection with pair=True rather than the
+        # probe's. The half-made bond the handoff avoids does not survive here
+        # either, because the reconnect bonds again straight away.
+        #
+        # Local adapters only, matching the connect path: on a proxy no pair
+        # request follows, so dropping the probe link would discard the one the
+        # bond was being made over and replace it with an identical connect.
         session = take_probe_session(self.hass, address)
+        if (
+            session is not None
+            and config.pair_on_connect
+            and is_local_adapter(ble_device)
+        ):
+            _LOGGER.debug(
+                "Reconnecting to %s to bond before service discovery, which the "
+                "model-number link could not do",
+                address,
+            )
+            await close_probe_session(session, address)
+            session = None
         if session is not None:
             session = OmronDeviceSession.adopt(
                 session.release_client(), config, pairing_session=True

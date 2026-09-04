@@ -95,6 +95,15 @@ async def discard_probe_session(hass: HomeAssistant, address: str) -> None:
         await _close_session(session, address)
 
 
+async def close_probe_session(session: OmronDeviceSession, address: str) -> None:
+    """Close a probe link the caller already took, never raising into the flow.
+
+    ``discard_probe_session`` looks the session up in the bucket; this is for a
+    caller holding one that ``take_probe_session`` has already removed.
+    """
+    await _close_session(session, address)
+
+
 async def _close_session(session: OmronDeviceSession, address: str) -> None:
     """Close a session that no caller adopted, never raising into the flow."""
     try:

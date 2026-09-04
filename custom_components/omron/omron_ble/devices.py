@@ -151,6 +151,23 @@ class DeviceConfig:
     keep_notify_subscriptions: bool = False
 
     @property
+    def pair_on_connect(self) -> bool:
+        """Whether to bond before service discovery on the pairing connection.
+
+        The only run whose retained-bond reconnect has ever worked -- the
+        2.7.8-beta.15 A/B on a local BlueZ adapter -- bonded at connect time,
+        before discovery. Every build since has bonded after it, and none has
+        reproduced that result.
+
+        Says nothing about ordinary reconnects: those must not send a pair
+        request. The caller pairs only on the session that creates the bond,
+        and only over a local adapter -- an incomplete request on an ESP32
+        proxy is read as an authentication failure and ESP-IDF drops the
+        stored bond from flash (#142).
+        """
+        return self.host_pairing_mode == HostPairingMode.OS_BONDING
+
+    @property
     def subscribe_service_changed(self) -> bool:
         """Whether to subscribe to Service Changed while pairing, as the app does.
 
