@@ -143,20 +143,22 @@ async def establish_connection_with_bond_settle(
     # A bare BLEDevice is enough: BlueZ routes carry a /org/bluez/... path,
     # proxy routes do not.
     pair_this_attempt = pair_on_connect and bool(_bluez_device_path(ble_device))
-    bonded_at_connect = False
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
             name,
         )
     last_source = "unknown"
-    for attempt in range(1, max_attempts + 1):  # noqa: B007
+    for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
         last_source = source
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
             name, model or "?", source, attempt, max_attempts,
         )
+        # Per attempt: a connect that bonded and then dropped during the
+        # settle says nothing about the one that replaces it.
+        bonded_this_client = False
         if pair_this_attempt:
             try:
                 # BlueZ 5.72+ leaves the Just Works confirmation unanswered
@@ -167,7 +169,7 @@ async def establish_connection_with_bond_settle(
                     client = await establish_connection(
                         BleakClient, ble_device, name, pair=True
                     )
-                bonded_at_connect = True
+                bonded_this_client = True
                 _LOGGER.info(
                     "%s bonded before service discovery via %s", name, source
                 )
@@ -189,10 +191,11 @@ async def establish_connection_with_bond_settle(
             client = await establish_connection(BleakClient, ble_device, name)
         # Only the radio that paired holds the bond, so report both paths.
         connected_via = _connected_path(client, ble_device)
-        # Read back by pair(): bonding again on the same link only rotates the
-        # keys the connect just made, and skipping on the config flag alone
-        # would also skip after the fallback, leaving no bond at all.
-        client._omron_bonded_at_connect = bonded_at_connect  # type: ignore[attr-defined]
+        # Read back by pair(), which skips its own bonding only when this
+        # connect made the bond: doing it again on the same link rotates the
+        # keys just made, and skipping on the profile flag instead would also
+        # skip after a fallback and leave no bond at all.
+        client._omron_bonded_at_connect = bonded_this_client  # type: ignore[attr-defined]
         _LOGGER.debug(
             "BLE link established to %s (advertised by source=%s, connected via "
             "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
@@ -200,7 +203,7 @@ async def establish_connection_with_bond_settle(
             name,
             source,
             connected_via,
-            bonded_at_connect,
+            bonded_this_client,
             getattr(client, "is_connected", "?"),
             _POST_CONNECT_BOND_SETTLE_SEC,
         )

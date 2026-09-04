@@ -252,3 +252,44 @@ def test_the_two_profiles_under_test_stay_comparable():
     b = get_device_config("HEM-7380T1")
     for field in ("connect_settle_attempts", "keep_notify_subscriptions"):
         assert getattr(a, field) == getattr(b, field), field
+
+
+def test_the_bonding_result_is_scoped_to_the_connection_it_describes():
+    """settle 중 끊기고 재시도하면, 앞 시도의 결과가 남아 있으면 안 된다.
+
+    1차에서 pair=True 가 성공하고 settle 중 링크가 끊긴 뒤 2차가 폴백하면,
+    이번 연결은 본딩하지 않았는데 pair() 가 건너뛴다 — 본드 없이 끝난다.
+    connect_settle_attempts 가 1 인 프로파일은 해당 없지만, 3 인 OS 본딩
+    프로파일에서는 실재한다.
+    """
+    import ast
+    import inspect
+
+    from custom_components.omron.omron_ble.omron_driver import (
+        establish_connection_with_bond_settle,
+    )
+
+    tree = ast.parse(inspect.getsource(establish_connection_with_bond_settle).lstrip())
+    fn = tree.body[0]
+    loop = next(node for node in ast.walk(fn) if isinstance(node, ast.For))
+
+    def _assigned(scope) -> set[str]:
+        names = set()
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+        return names
+
+    stashed = "bonded_this_client"
+    assert stashed in _assigned(loop), (
+        f"{stashed} 가 루프 안에서 초기화되지 않는다 — 앞 시도의 결과가 "
+        "다음 연결에 딸려간다"
+    )
+    before_loop = ast.Module(
+        body=[node for node in fn.body if node is not loop], type_ignores=[]
+    )
+    assert stashed not in _assigned(before_loop), (
+        f"{stashed} 를 루프 밖에서도 대입한다 — 시도별 결과가 아니게 된다"
+    )
