@@ -159,36 +159,57 @@ async def establish_connection_with_bond_settle(
         # Per attempt: a connect that bonded and then dropped during the
         # settle says nothing about the one that replaces it.
         bonded_this_client = False
-        if pair_this_attempt:
-            try:
-                # BlueZ 5.72+ leaves the Just Works confirmation unanswered
-                # without a registered agent and fails the pair with
-                # AuthenticationFailed, so the agent is what makes this path
-                # actually bond rather than quietly fall back.
-                async with _bluez_pairing_agent():
-                    client = await establish_connection(
-                        BleakClient, ble_device, name, pair=True
+        try:
+            if pair_this_attempt:
+                try:
+                    # BlueZ 5.72+ leaves the Just Works confirmation unanswered
+                    # without a registered agent and fails the pair with
+                    # AuthenticationFailed, so the agent is what makes this path
+                    # actually bond rather than quietly fall back.
+                    async with _bluez_pairing_agent():
+                        client = await establish_connection(
+                            BleakClient, ble_device, name, pair=True
+                        )
+                    bonded_this_client = True
+                    _LOGGER.info(
+                        "%s bonded before service discovery via %s", name, source
                     )
-                bonded_this_client = True
-                _LOGGER.info(
-                    "%s bonded before service discovery via %s", name, source
-                )
-            except (BleakError, TimeoutError, asyncio.TimeoutError) as pair_exc:
-                # Fall back rather than fail: pair() after discovery still makes
-                # the bond, as it does on every build since #142. One shot only
-                # -- retrying the request on each attempt turns one refusal into
-                # several.
-                pair_this_attempt = False
-                _LOGGER.warning(
-                    "Connect-time bonding for %s failed (%s: %s); connecting "
-                    "without it and leaving the bond to pair()",
-                    name,
-                    type(pair_exc).__name__,
-                    pair_exc,
-                )
+                except (BleakError, TimeoutError, asyncio.TimeoutError) as pair_exc:
+                    # Fall back rather than fail: pair() after discovery still
+                    # makes the bond, as it does on every build since #142. One
+                    # shot only -- retrying the request on each attempt turns
+                    # one refusal into several.
+                    pair_this_attempt = False
+                    _LOGGER.warning(
+                        "Connect-time bonding for %s failed (%s: %s); connecting "
+                        "without it and leaving the bond to pair()",
+                        name,
+                        type(pair_exc).__name__,
+                        pair_exc,
+                    )
+                    client = await establish_connection(BleakClient, ble_device, name)
+            else:
                 client = await establish_connection(BleakClient, ble_device, name)
-        else:
-            client = await establish_connection(BleakClient, ble_device, name)
+        except (BleakError, TimeoutError, asyncio.TimeoutError) as connect_exc:
+            # An ordinary reconnect (pair_this_attempt False, so nothing above
+            # catches this) used to let a transient failure here -- e.g.
+            # "failed to discover services, device disconnected" -- escape the
+            # loop on the first iteration, spending none of max_attempts's
+            # retry budget; that budget only ever covered a settle-drop below.
+            # Retry like one instead.
+            if attempt == max_attempts:
+                raise
+            _LOGGER.warning(
+                "Connecting to %s via source=%s failed (attempt %d/%d): %s: %s "
+                "— retrying",
+                name,
+                source,
+                attempt,
+                max_attempts,
+                type(connect_exc).__name__,
+                connect_exc,
+            )
+            continue
         # Only the radio that paired holds the bond, so report both paths.
         connected_via = _connected_path(client, ble_device)
         # Read back by pair(), which skips its own bonding only when this
