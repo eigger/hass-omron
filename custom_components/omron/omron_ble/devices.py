@@ -149,6 +149,11 @@ class DeviceConfig:
     # avoided the churn, its comment recording that this family rejects a
     # pairing request (0xff 0x26) when the unlock CCCD is dropped and re-added.
     keep_notify_subscriptions: bool = False
+    # Hold an auto-confirming BlueZ agent registered across the connect
+    # without calling Pair() ourselves. For profiles where the cuff drives
+    # security with its own Security Request: BlueZ 5.72+ leaves the Just
+    # Works confirmation unanswered when no agent is registered.
+    register_pairing_agent: bool = False
 
     @property
     def pair_on_connect(self) -> bool:
@@ -201,17 +206,25 @@ class DeviceConfig:
 
     def __post_init__(self) -> None:
         """Validate unlock/pairing strategy combinations."""
-        if (
-            self.unlock_mode == UnlockMode.SECURE_SESSION
-            and self.host_pairing_mode != HostPairingMode.OS_BONDING
+        if self.unlock_mode == UnlockMode.SECURE_SESSION and not (
+            self.host_pairing_mode == HostPairingMode.OS_BONDING
+            or (
+                self.host_pairing_mode == HostPairingMode.NONE
+                and self.register_pairing_agent
+            )
         ):
+            # A secure session still runs over an encrypted link, so the bond
+            # has to come from somewhere: either we ask for it (OS_BONDING) or
+            # the cuff asks and a registered agent answers.
             raise ValueError(
                 "Invalid profile config for %s: secure-session unlock requires "
-                "host_pairing_mode=OS_BONDING (unlock_mode=%s host_pairing_mode=%s)"
+                "host_pairing_mode=OS_BONDING, or NONE with register_pairing_agent "
+                "(unlock_mode=%s host_pairing_mode=%s register_pairing_agent=%s)"
                 % (
                     self.model,
                     self.unlock_mode,
                     self.host_pairing_mode,
+                    self.register_pairing_agent,
                 )
             )
         if (
@@ -230,6 +243,12 @@ class DeviceConfig:
         if (
             self.host_pairing_mode == HostPairingMode.NONE
             and self.unlock_mode != UnlockMode.NONE
+            # A secure session carries its own credential and lets the cuff
+            # drive link security, so it has an unlock step without us pairing.
+            and not (
+                self.unlock_mode == UnlockMode.SECURE_SESSION
+                and self.register_pairing_agent
+            )
         ):
             raise ValueError(
                 "Invalid profile config for %s: host_pairing_mode=NONE requires unlock_mode=NONE "

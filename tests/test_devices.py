@@ -15,15 +15,22 @@ class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
     def test_hem7188t1_leo_resolves_to_own_profile(self):
-        # HEM-7188T1-LEO ("X2+ Connect") keeps its own dedicated profile
-        # (distinct connect_type WLD4.0 vs HEM-7142T2's WLD1.0) with corrected
-        # memory map layout.
-        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1"
+        # HEM-7188T1-LEO ("X2+ Connect") has its own profile on the secure
+        # session transport (#24): the token-key path reads values inside the
+        # -P- window but every reconnect after it is refused. The HEM-7183T1
+        # variants share the hardware but not the testing, so they stay on the
+        # token-key profile.
+        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1-LEO"
         assert resolve_profile_model_id("HEM-7183T1-AP") == "HEM-7188T1"
         assert resolve_profile_model_id("HEM-7183T1_FLIN") == "HEM-7188T1"
+        assert get_device_config("HEM-7183T1-AP").unlock_mode.value == "token_key"
         cfg = get_device_config("HEM-7188T1-LEO")
         assert cfg.model == "HEM-7188T1-LEO"
-        assert cfg.unlock_mode.value == "token_key"
+        assert cfg.unlock_mode.value == "secure_session"
+        # No explicit Pair(); the cuff drives security and an agent answers it.
+        assert cfg.host_pairing_mode.value == "none"
+        assert cfg.register_pairing_agent is True
+        assert cfg.pair_on_connect is False
         assert cfg.connect_type == ConnectType.WLD4_0
         assert cfg.user_start_addresses == [0x01C4]
         assert cfg.per_user_records_count == [30]

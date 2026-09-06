@@ -75,6 +75,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
         self._last_readout_at: dt.datetime | None = None
+        # Application-layer credential for SECURE_SESSION profiles: loaded from
+        # the config entry at setup, and replaced here when a session
+        # establishes a new one so the entry can be updated after the poll.
+        self.transport_credential: bytes | None = None
+        self.pending_credential: bytes | None = None
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -96,6 +101,28 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.result_identifier_num: int = 0
 
         self._seed_measurement_entities()
+
+    def _open_session(
+        self, ble_device: BLEDevice, *, pairing_session: bool = False
+    ) -> OmronDeviceSession:
+        """Build a session carrying the stored transport credential."""
+        return OmronDeviceSession(
+            ble_device,
+            self._device_config,
+            pairing_session=pairing_session,
+            credential=self.transport_credential,
+        )
+
+    def _collect_credential(self, session: OmronDeviceSession) -> None:
+        """Take a credential the session established, for the entry to store.
+
+        Kept in memory as well: a poll that follows before the entry is written
+        back still has to authenticate with it.
+        """
+        new = session.new_credential
+        if new is not None and new != self.transport_credential:
+            self.transport_credential = new
+            self.pending_credential = new
 
     @property
     def device_model(self) -> str:
@@ -1070,7 +1097,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                         preconnected_session.reclaim_ownership()
                         await preconnected_session.aclose()
-                    session = OmronDeviceSession(ble_device, self._device_config)
+                    session = self._open_session(ble_device)
                 async with session:
                     client = session.client
 
@@ -1223,6 +1250,8 @@ class OmronBluetoothDeviceData(BluetoothData):
                             ble_device,
                             memory_session_active=False,
                         )
+                    # An adopted setup session may have established one.
+                    self._collect_credential(session)
 
             except ConnectionError as exc:
                 # Expected when the cuff is off, out of range, or the link drops mid-poll.
@@ -1258,9 +1287,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         ``async_poll`` adopts this link instead of opening a new one; a caller
         that does not park it still owns the link and must close it.
         """
-        session = OmronDeviceSession(
-            ble_device, self._device_config, pairing_session=True
-        )
+        session = self._open_session(ble_device, pairing_session=True)
         try:
             await session.connect()
             if not await session.verify_parent_service():
@@ -1284,11 +1311,14 @@ class OmronBluetoothDeviceData(BluetoothData):
             # aclose() swallows its own errors, so it cannot mask this one.
             await session.aclose()
             raise
+        # Only after the whole pairing path succeeded: a credential kept from a
+        # half-finished initialization would not authenticate later.
+        self._collect_credential(session)
         return session
 
     async def async_sync_time(self, ble_device: BLEDevice) -> None:
         """Connect to the device and synchronize time only."""
-        async with OmronDeviceSession(ble_device, self._device_config) as session:
+        async with self._open_session(ble_device) as session:
             await self._async_sync_current_time_with_client(
                 session.client, ble_device.address, session
             )

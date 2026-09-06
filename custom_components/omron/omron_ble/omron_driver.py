@@ -127,6 +127,7 @@ async def establish_connection_with_bond_settle(
     model: str = "",
     max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
     pair_on_connect: bool = False,
+    hold_pairing_agent: bool = False,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
@@ -143,6 +144,12 @@ async def establish_connection_with_bond_settle(
     # A bare BLEDevice is enough: BlueZ routes carry a /org/bluez/... path,
     # proxy routes do not.
     pair_this_attempt = pair_on_connect and is_local_adapter(ble_device)
+    # Profiles that never call Pair() still need someone to answer the Just
+    # Works confirmation the cuff's own Security Request triggers, which lands
+    # inside establish_connection -- a few tens of milliseconds after connect,
+    # before service discovery. Local adapters only: a proxy has no BlueZ agent
+    # to register.
+    agent_this_attempt = hold_pairing_agent and is_local_adapter(ble_device)
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
@@ -187,6 +194,9 @@ async def establish_connection_with_bond_settle(
                         type(pair_exc).__name__,
                         pair_exc,
                     )
+                    client = await establish_connection(BleakClient, ble_device, name)
+            elif agent_this_attempt:
+                async with _bluez_pairing_agent():
                     client = await establish_connection(BleakClient, ble_device, name)
             else:
                 client = await establish_connection(BleakClient, ble_device, name)
@@ -668,9 +678,13 @@ class OmronDeviceSession:
         device_config: DeviceConfig,
         *,
         pairing_session: bool = False,
+        credential: bytes | None = None,
     ) -> None:
         self._ble_device = ble_device
         self._config = device_config
+        # Application-layer credential for SECURE_SESSION profiles: None on the
+        # session that establishes one, the stored value on every later poll.
+        self._credential = credential
         # Only a session that exists to create a bond sends the connect-time
         # pair request on profiles that opt out of it for polls.
         self._pairing_session = pairing_session
@@ -680,6 +694,8 @@ class OmronDeviceSession:
         self, *, client: BleakClient | None, owns_connection: bool
     ) -> None:
         self._client = client
+        # Set only when this session established a credential worth storing.
+        self._new_credential: bytes | None = None
         self._owns_connection = owns_connection
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
@@ -709,6 +725,7 @@ class OmronDeviceSession:
         device_config: DeviceConfig,
         *,
         pairing_session: bool = False,
+        credential: bytes | None = None,
     ) -> "OmronDeviceSession":
         """Wrap an already-open client to run ops over a connection owned elsewhere.
 
@@ -719,6 +736,7 @@ class OmronDeviceSession:
         session._config = device_config
         # __init__ is bypassed, so this has to be set by hand.
         session._pairing_session = pairing_session
+        session._credential = credential
         session._init_session_state(client=client, owns_connection=False)
         return session
 
@@ -728,6 +746,16 @@ class OmronDeviceSession:
         if self._client is None:
             raise ConnectionError("OmronDeviceSession is not connected")
         return self._client
+
+    @property
+    def new_credential(self) -> bytes | None:
+        """A credential this session established that the caller should store.
+
+        ``None`` unless a SECURE_SESSION profile completed an initialization the
+        device accepted. Callers persist it against this entry; losing it costs
+        the user another pass through the cuff's pairing mode.
+        """
+        return self._new_credential
 
     @property
     def config(self) -> DeviceConfig:
@@ -765,6 +793,7 @@ class OmronDeviceSession:
             # Only the connection that creates the bond; a reconnect that sends
             # a pair request is what cost the bond on a proxy (#142).
             pair_on_connect=self._pairing_session and self._config.pair_on_connect,
+            hold_pairing_agent=self._config.register_pairing_agent,
         )
         return self
 
@@ -1121,7 +1150,12 @@ class OmronDeviceSession:
         if self._config.is_single_channel:
             frame_bytes = bytearray(self._channel_fragments[0])
             self._channel_fragments = [None] * 4
-            declared = frame_bytes[0] if frame_bytes else 0
+            # C0 is an encrypted envelope marker, not a 192-byte length.
+            secure_envelope = (
+                self._config.unlock_mode == UnlockMode.SECURE_SESSION
+                and self._secure_session is not None
+            )
+            declared = frame_bytes[0] if frame_bytes and not secure_envelope else 0
             if declared and len(frame_bytes) < declared:
                 _LOGGER.warning(
                     "Truncated BLE frame: declared %d bytes, received %d: %s",
@@ -1164,16 +1198,19 @@ class OmronDeviceSession:
             except Exception as exc:
                 _LOGGER.error("Secure session decryption failed: %s", exc)
                 return
-        else:
-            # Verify XOR CRC
-            xor_crc = 0
-            for byte in frame_bytes:
-                xor_crc ^= byte
-            if xor_crc:
-                _LOGGER.error(
-                    "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
-                )
+            if not frame_bytes or frame_bytes[0] != len(frame_bytes):
+                _LOGGER.error("Invalid decrypted memory-frame length")
                 return
+
+        # The inner memory protocol retains its XOR checksum under CCM.
+        xor_crc = 0
+        for byte in frame_bytes:
+            xor_crc ^= byte
+        if xor_crc:
+            _LOGGER.error(
+                "CRC error in rx data: crc=%d, buffer=%s", xor_crc, _hex(frame_bytes)
+            )
+            return
 
         # Check minimum valid frame length (len(1) + type(2) + addr(2) + datalen(1) + rescode(1) + crc(1) = 8)
         if len(frame_bytes) < 8:
@@ -1539,6 +1576,33 @@ class OmronDeviceSession:
         else:
             await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
 
+    async def _secure_unlock(self) -> None:
+        """Authenticate the application session, establishing or resuming it.
+
+        A pairing session runs the full initialization and keeps the credential
+        the device leaves behind only once it accepts the close; every later
+        session replays that credential and writes nothing. Losing the
+        credential costs the user another pass through the cuff's -P- window,
+        so it is only ever replaced by a completed initialization.
+        """
+        from .secure_flow import establish_secure_session
+
+        if not self._pairing_session and self._credential is None:
+            raise ConnectionError(
+                f"No stored transport credential for {self._config.model}; "
+                "re-add the device while it is in pairing mode"
+            )
+        credential = await establish_secure_session(
+            self,
+            # Re-pairing establishes a fresh credential rather than resuming
+            # one, which is also what the device expects in its -P- window.
+            stored_ltk=None if self._pairing_session else self._credential,
+            now=dt.datetime.now(),
+        )
+        if credential != self._credential:
+            self._credential = credential
+            self._new_credential = credential
+
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
         if self._config.unlock_mode == UnlockMode.NONE:
@@ -1747,137 +1811,6 @@ class OmronDeviceSession:
                     except Exception as exc:
                         _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
                 self._debug_ble_link("token_unlock_after_stop_notify")
-
-    async def _secure_unlock(self) -> None:
-        """Perform encrypted secure handshake to unlock the device."""
-        _LOGGER.debug("Starting secure handshake unlock for model=%s", self._config.model)
-
-        # The 0x11/0x91 token handshake has to run immediately before the ECDH
-        # pairing request, on the same CCCD subscriptions -- re-adding the
-        # unlock CCCD in between makes the device reject it with 0xff 0x26.
-        from .secure_session import SecureSession
-
-        self._secure_session = SecureSession()
-        unlock_event = asyncio.Event()
-        response_holder: list[bytes | None] = [None]
-
-        def _secure_callback(_: Any, rx_bytes: bytearray) -> None:
-            response_holder[0] = bytes(rx_bytes)
-            unlock_event.set()
-
-        try:
-            # Token handshake first, keeping its CCCD subscriptions in place.
-            # This is inside the try so the finally below still releases those
-            # subscriptions if the token step itself fails.
-            await self._token_unlock(keep_notify=True)
-            self._unlocked = False
-
-            # Re-point the (already active) unlock CCCD at the secure-stage
-            # callback by swapping the dispatcher's handler — do NOT call
-            # start_notify again, the backend rejects a second subscribe on an
-            # already-enabled CCCD.
-            self._unlock_notify_handler = _secure_callback
-
-            # Step 1: Send Pairing Request
-            pair_req = self._secure_session.build_pair_req()
-            _LOGGER.debug("Sending Pairing Request (len=%d): %s", len(pair_req), pair_req.hex())
-            unlock_event.clear()
-            response_holder[0] = None
-            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, pair_req, response=True)
-            
-            # Wait for Pairing Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
-            pair_resp = response_holder[0]
-            _LOGGER.debug("Received Pairing Response (len=%d): %s", len(pair_resp) if pair_resp else 0, pair_resp.hex() if pair_resp else "None")
-            if not pair_resp:
-                raise ConnectionError("Empty pairing response")
-            err = _secure_error_frame_code(pair_resp)
-            if err is not None:
-                # Device rejected the ECDH pairing request with an error frame
-                # (e.g. 0xff26). The request itself is well-formed (structure and
-                # SECP256R1 little-endian pubkey are valid), so this is a
-                # device-state rejection: the cuff is likely already bonded to
-                # another host or is not currently accepting a fresh pairing.
-                raise ConnectionError(
-                    f"Device rejected secure pairing (error frame 0x{pair_resp[0]:02x}, "
-                    f"code 0x{err:02x}); the cuff may already be bonded to another "
-                    f"host or is not in pairing mode. Fully unpair/factory-reset "
-                    f"the cuff and try again."
-                )
-            if len(pair_resp) < 2:
-                raise ConnectionError("Invalid or empty pairing response")
-
-            # Process Pairing Response and derive LTK
-            self._secure_session.process_pair_resp(pair_resp)
-            _LOGGER.debug("Key exchange complete")
-
-            # Step 2: Send Encryption Start Request
-            start_enc_req = self._secure_session.build_start_enc_req()
-            _LOGGER.debug("Sending Encryption Start Request (len=%d): %s", len(start_enc_req), start_enc_req.hex())
-            unlock_event.clear()
-            response_holder[0] = None
-            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, start_enc_req, response=True)
-
-            # Wait for Encryption Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
-            enc_resp = response_holder[0]
-            _LOGGER.debug("Received Encryption Response (len=%d): %s", len(enc_resp) if enc_resp else 0, enc_resp.hex() if enc_resp else "None")
-            if not enc_resp:
-                raise ConnectionError("Empty encryption response")
-            err = _secure_error_frame_code(enc_resp)
-            if err is not None:
-                raise ConnectionError(
-                    f"Device rejected encryption start (error frame 0x{enc_resp[0]:02x}, "
-                    f"code 0x{err:02x})"
-                )
-            if len(enc_resp) < 2:
-                raise ConnectionError("Invalid or empty encryption response")
-
-            # Step 3: Challenge-Response mutual authentication
-            challenge_req = self._secure_session.build_challenge_req(enc_resp)
-            _LOGGER.debug("Sending Challenge Request (len=%d): %s", len(challenge_req), challenge_req.hex())
-            unlock_event.clear()
-            response_holder[0] = None
-            await self._client.write_gatt_char(UNLOCK_CHARACTERISTIC_UUID, challenge_req, response=True)
-
-            # Wait for Challenge Response
-            await asyncio.wait_for(unlock_event.wait(), timeout=_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC)
-            challenge_resp = response_holder[0]
-            _LOGGER.debug("Received Challenge Response (len=%d): %s", len(challenge_resp) if challenge_resp else 0, challenge_resp.hex() if challenge_resp else "None")
-            if not challenge_resp:
-                raise ConnectionError("Empty challenge response")
-            err = _secure_error_frame_code(challenge_resp)
-            if err is not None:
-                raise ConnectionError(
-                    f"Device rejected challenge (error frame 0x{challenge_resp[0]:02x}, "
-                    f"code 0x{err:02x})"
-                )
-            if len(challenge_resp) < 2:
-                raise ConnectionError("Invalid or empty challenge response")
-
-            # Finalize: verify peer's challenge response
-            self._secure_session.process_challenge_resp(challenge_resp)
-            _LOGGER.info("Secure handshake succeeded. Session unlocked.")
-            self._unlocked = True
-
-        except asyncio.TimeoutError as exc:
-            _LOGGER.error("Secure handshake timed out during negotiation")
-            raise ConnectionError("Secure unlock timeout") from exc
-        except Exception as exc:
-            _LOGGER.error("Secure handshake failed: %s", exc)
-            raise ConnectionError(f"Secure unlock failed: {exc}") from exc
-        finally:
-            self._unlock_notify_handler = None
-            try:
-                await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
-            except Exception as exc:
-                _LOGGER.debug("secure unlock stop_notify skipped: %s", exc)
-            # _token_unlock(keep_notify=True) left the RX-channel CCCD enabled
-            # for us; release it here so it doesn't outlive the handshake.
-            try:
-                await self._client.stop_notify(self._config.rx_channel_uuids[0])
-            except Exception as exc:
-                _LOGGER.debug("secure unlock RX notify stop skipped: %s", exc)
 
     async def _pair_os_bonding(self) -> None:
         """Best-effort OS-level BLE bond establishment for modern profiles."""
@@ -2201,7 +2134,16 @@ class OmronDeviceSession:
             await self._pair_os_bonding()
             return
         if self._config.host_pairing_mode == HostPairingMode.NONE:
-            raise ConnectionError("Pairing is disabled for this device profile")
+            # Nothing for us to program. The cuff raises its own Security
+            # Request and the agent held across the connect answers it; any
+            # application-layer credential is established by unlock() instead.
+            # A no-op rather than an error so the ordinary setup and retry
+            # paths need no special case for these profiles.
+            _LOGGER.debug(
+                "Skipping host pairing for %s: the device drives security itself",
+                self._config.model,
+            )
+            return
         if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
             raise ConnectionError("Pairing is not supported for this device")
         if _bluez_device_path(self._bluez_target()) is None:
