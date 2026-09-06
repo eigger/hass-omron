@@ -265,7 +265,14 @@ async def establish_connection_with_bond_settle(
         except Exception as exc:
             _LOGGER.debug("disconnect after settle-drop ignored: %s", exc)
 
-    raise BleakError(
+    # ConnectionError, not BleakError: a cuff that is off, out of range, or
+    # drops the link mid-settle is the ordinary case, and async_poll sorts the
+    # ordinary case from the unexpected one by exactly this type. BleakError
+    # inherits straight from Exception, so this landed in the branch that logs
+    # at ERROR with a traceback -- which Home Assistant renders as "This error
+    # originated from a custom integration" for what is a cuff sitting in a
+    # drawer (#133). Nothing catches BleakError on this path.
+    raise ConnectionError(
         f"{name} dropped during the post-connect settle on all "
         f"{max_attempts} attempt(s) (last source={last_source})"
     )
