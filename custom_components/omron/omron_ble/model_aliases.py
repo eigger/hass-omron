@@ -18,7 +18,14 @@ The app ships HEM-7155T_ESL and HEM-7155T_K4-ESL with all three names identical
 them apart by a group id the device never transmits. It knows which is which
 only because the user picked the model, and so must we.
 
-Resolvable in principle: the two stacks expose different parent service UUIDs,
+A third X4 Smart exists that the app's list does not separate either: the
+modern-fe4a firmware, WLD3.0 with a token handshake, which this catalog carries
+as HEM-7155T_ESL1 (#67, confirmed by HCI btsnoop). It has to be offered
+alongside the other two -- it is the one that reads records on that firmware,
+and a candidate list without it sends its owners to a profile that either
+cannot connect or connects and transfers nothing.
+
+Resolvable in principle: the stacks expose different parent service UUIDs,
 visible on connect. That needs the device in hand, so it is left for later.
 
 Resolution aliases only: get_supported_models does not offer them in the
@@ -188,6 +195,9 @@ AMBIGUOUS_MODEL_NAMES: dict[str, tuple[str, ...]] = {
         "HEM-7155T_K4-EBK",
     ),
     "HEM-7155T_ESL": (
+        # Modern-fe4a firmware first: it is the one with reports behind it, and
+        # the only one that reads records on that firmware (#67).
+        "HEM-7155T_ESL1",
         "HEM-7155T_ESL",
         "HEM-7155T_K4-ESL",
     ),
@@ -208,6 +218,7 @@ AMBIGUOUS_MODEL_NAMES: dict[str, tuple[str, ...]] = {
         "HEM-716BT2-ZAZ",
     ),
     "X4 Smart": (
+        "HEM-7155T_ESL1",
         "HEM-7155T_ESL",
         "HEM-7155T_K4-ESL",
     ),
