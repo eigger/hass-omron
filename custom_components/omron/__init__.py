@@ -385,6 +385,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         if entry.data.get(CONF_TRANSPORT_CREDENTIAL) == encoded:
             return
         _LOGGER.debug("Storing a new transport credential for %s", entry.entry_id)
+        # An entry update fires update_listener, which reloads the integration.
+        # This one runs inside the coordinator's own update method, so a reload
+        # here would tear down the coordinator mid-refresh. Nothing the reload
+        # exists for has changed -- the credential is internal, and the parser
+        # already holds it -- so mark it and let the listener skip.
+        hass.data[DOMAIN][entry.entry_id]["credential_write"] = True
         hass.config_entries.async_update_entry(
             entry, data={**entry.data, CONF_TRANSPORT_CREDENTIAL: encoded}
         )
@@ -507,6 +513,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
 
 async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     """Handle options update."""
+    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if entry_data is not None and entry_data.pop("credential_write", False):
+        # A credential a poll just stored. Reloading for it would drop the
+        # coordinator that is still running the poll that produced it.
+        _LOGGER.debug(
+            "Skipping reload for %s: only the transport credential changed",
+            entry.entry_id,
+        )
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

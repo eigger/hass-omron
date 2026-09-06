@@ -221,6 +221,34 @@ class TestCredentialRoundTrip:
         assert "session.new_credential" in source
         assert "CONF_TRANSPORT_CREDENTIAL" in source
 
+    def test_storing_it_does_not_reload_the_integration(self):
+        """엔트리 갱신은 update_listener 를 통해 통합을 리로드한다. 자격증명 쓰기는
+        코디네이터의 업데이트 메서드 안에서 일어나므로, 리로드하면 그 폴을 돌리고
+        있는 코디네이터를 스스로 무너뜨린다."""
+        source = (_COMPONENT / "__init__.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        listener = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "update_listener":
+                listener = node
+        assert listener is not None, "update_listener 를 찾지 못했다"
+        body = ast.unparse(listener)
+        assert "credential_write" in body, (
+            "리스너가 자격증명 전용 변경을 구분하지 않는다 — 폴 도중 리로드가 걸린다"
+        )
+        # 건너뛰는 경로는 리로드에 도달하기 전에 반환해야 한다.
+        assert body.index("credential_write") < body.index("async_reload")
+
+        persist = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_persist_transport_credential":
+                persist = node
+        assert persist is not None
+        marked = ast.unparse(persist)
+        assert marked.index("credential_write") < marked.index("async_update_entry"), (
+            "표시를 엔트리 갱신 뒤에 하면 리스너가 이미 지나간 뒤다"
+        )
+
     def test_setup_loads_it_and_a_poll_writes_it_back(self):
         source = (_COMPONENT / "__init__.py").read_text(encoding="utf-8")
         assert "data.transport_credential = bytes.fromhex" in source, (
