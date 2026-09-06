@@ -95,10 +95,36 @@ def test_names_covering_several_stacks_are_not_guessed() -> None:
         assert infer_model_id_from_local_name(name) is None, name
         assert len(ambiguous_model_candidates(name)) > 1, name
 
+    # Three stacks, not two: the modern-fe4a firmware is a third X4 Smart and
+    # the only one that reads records on that firmware. Leaving it out of the
+    # candidates sent its owners to a profile that either cannot connect or
+    # connects and transfers nothing (#67). It goes first because it is the one
+    # with reports behind it.
     assert ambiguous_model_candidates("X4 Smart") == (
+        "HEM-7155T_ESL1",
         "HEM-7155T_ESL",
         "HEM-7155T_K4-ESL",
     )
+    assert ambiguous_model_candidates("HEM-7155T_ESL")[0] == "HEM-7155T_ESL1"
+
+
+def test_the_x4_smart_candidates_are_three_different_profiles() -> None:
+    """세 후보가 같은 프로파일로 모이면 고를 이유가 없다."""
+    from custom_components.omron.omron_ble.devices import (
+        get_device_config,
+        resolve_profile_model_id,
+    )
+
+    profiles = {
+        candidate: resolve_profile_model_id(candidate)
+        for candidate in ambiguous_model_candidates("X4 Smart")
+    }
+    assert len(set(profiles.values())) == 3, profiles
+    modern = get_device_config("HEM-7155T_ESL1")
+    # 이 펌웨어는 -P- 창 밖에서 메모리를 읽으려면 토큰 핸드셰이크가 필요하다.
+    # 나머지 두 후보에는 그것이 없어서 연결은 되고 데이터는 오지 않는다.
+    assert modern.unlock_mode.value == "token_key"
+    assert modern.settings_read_address == 0x0260
 
 
 def test_a_resolvable_name_is_not_called_ambiguous() -> None:
