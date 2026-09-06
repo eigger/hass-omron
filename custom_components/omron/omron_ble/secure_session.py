@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     pass
 
 # Protocol constants
-PACKET_HEADER_SIZE = 13
+PACKET_HEADER_SIZE = 5
 MAX_DATA_SIZE = 231
 PROTOCOL_SALT = bytes.fromhex("6c888391aaf5a53860370bdb5a6083be")
 
@@ -75,7 +75,7 @@ class SecureSession:
         # Encryption-stage buffers
         self.enc_own_challenge = None  # 16 bytes
         self.enc_own_salt = None  # 28 bytes
-        self.enc_peer_salt_nonce = None  # 4 bytes from peer Encryption Response
+        self.enc_peer_salt_nonce = None  # peer and host 4-byte nonce contributions
 
         # Temp cache for bonding flow step splitting
         self._cached_start_enc_req = None
@@ -234,8 +234,9 @@ class SecureSession:
         # Extract peer's encryption challenge and salt
         peer_enc_challenge = start_enc_resp[2:18]
         peer_enc_salt = start_enc_resp[18:46]
-        # 8-byte device value embedded in every CCM nonce (bytes 5..13).
-        self.enc_peer_salt_nonce = peer_enc_salt[8:16]
+        # X2+ nonce tail: peer contribution followed by host contribution.
+        # Salt bytes 12 onward are padding, not the host contribution.
+        self.enc_peer_salt_nonce = peer_enc_salt[8:12] + self.enc_own_salt[8:12]
 
         # Session key = AES-CMAC(LTK, peer_salt[:8] || own_salt[:8])
         session_kdf_msg = peer_enc_salt[0:8] + self.enc_own_salt[0:8]
@@ -296,7 +297,7 @@ class SecureSession:
         """Encrypt a data-plane command packet.
 
         Returns:
-            ``0xC0 || counter(4 LE) || zero(8) || ciphertext || tag(8)`` (13-byte header)
+            ``0xC0 || counter(4 LE) || ciphertext || tag(8)`` (5-byte header)
         """
         _require_cryptography()
         from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -316,8 +317,8 @@ class SecureSession:
         aesccm = AESCCM(self.session_key, tag_length=8)
         ciphertext = aesccm.encrypt(nonce, plaintext, aad)
 
-        # 13-byte transport header: 0xC0 || counter(4 LE) || zero(8)
-        header = b"\xc0" + counter_bytes + b"\x00" * (PACKET_HEADER_SIZE - 5)
+        # The negotiated nonce tail is not repeated in the transport header.
+        header = b"\xc0" + counter_bytes
         return header + ciphertext
 
     def decrypt(self, packet: bytes) -> bytes:

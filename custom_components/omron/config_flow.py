@@ -44,7 +44,13 @@ from .ble_session import (
     stash_probe_session,
     take_probe_session,
 )
-from .const import CONF_BINDKEY, CONF_DEVICE_MODEL, CONF_USER_ALIASES, DOMAIN
+from .const import (
+    CONF_BINDKEY,
+    CONF_DEVICE_MODEL,
+    CONF_TRANSPORT_CREDENTIAL,
+    CONF_USER_ALIASES,
+    DOMAIN,
+)
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.omron_driver import OmronDeviceSession, is_local_adapter
 from .omron_ble.setup import (
@@ -549,6 +555,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             # with the memory readout session left open so setup does not
             # close-then-immediately-reopen on the same link (which breaks
             # GATT on some stacks). The poll path closes it when finished.
+            # Profiles whose transport keeps its own credential hand one back
+            # here. Losing it costs the user another pass through the cuff's
+            # pairing mode, so it goes into the entry with everything else.
+            if session.new_credential is not None:
+                self._transport_credential = session.new_credential.hex()
             await stash_handoff_session(self.hass, address, session)
 
     async def async_step_bluetooth_confirm(
@@ -638,6 +649,15 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             getattr(self, "_scan_interval", 300)
         )
         data[CONF_USER_ALIASES] = dict(getattr(self, "_user_aliases", {}))
+        credential = getattr(self, "_transport_credential", None)
+        if credential:
+            data[CONF_TRANSPORT_CREDENTIAL] = credential
+        elif self.source == SOURCE_REAUTH:
+            # Re-auth rebuilds data from scratch; a pairing that established no
+            # new credential must not drop the stored one.
+            existing = self._get_reauth_entry().data.get(CONF_TRANSPORT_CREDENTIAL)
+            if existing:
+                data[CONF_TRANSPORT_CREDENTIAL] = existing
 
         if self.source == SOURCE_REAUTH:
             return self.async_update_reload_and_abort(
