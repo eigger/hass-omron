@@ -56,6 +56,9 @@ _PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
 _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
 _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
 # Polling step while waiting for the device to end a session itself.
+# Waiting out RemoveDevice before an explicit pairing attempt.
+_PRE_PAIR_BOND_CLEAR_TIMEOUT_SEC: float = 2.0
+_PRE_PAIR_BOND_CLEAR_POLL_SEC: float = 0.25
 _OS_BOND_REFRESH_DELAY_SEC: float = 0.3
 _OS_BOND_RETRY_DELAY_SEC: float = 0.5
 _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
@@ -148,6 +151,11 @@ async def establish_connection_with_bond_settle(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
             name,
         )
+    if pair_this_attempt:
+        # The user opened this window on purpose (-P- is lit), so there is no
+        # working bond to protect here -- and a stale one would keep the stack
+        # off the SMP path entirely.
+        await _clear_bond_before_pairing(ble_device, name)
     last_source = "unknown"
     for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
@@ -577,6 +585,51 @@ async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
         return None
     finally:
         bus.disconnect()
+
+
+async def _clear_bond_before_pairing(ble_device: BLEDevice, name: str) -> None:
+    """Drop any host-side bond before an explicit pairing attempt.
+
+    While the host holds a bond the stack restarts encryption with the stored
+    LTK instead of running SMP -- and on BlueZ ``Pair()`` returns at once
+    rather than exchanging anything. If the cuff no longer holds the matching
+    key (re-registered elsewhere, reset, or evicted from its bond slot) it
+    answers "PIN or Key Missing" and drops the link, so pressing -P- cannot
+    help: no pairing request is ever sent (#24, #67, #91, #92). Clearing the
+    bond first is what puts the SMP path back on the table.
+
+    Pairing flow only. On an ordinary reconnect a bond that still matches is
+    exactly what we want to keep.
+    """
+    if await _bluez_is_paired(ble_device) is not True:
+        return
+    _LOGGER.info(
+        "%s: clearing the existing host bond before pairing so the stack runs "
+        "SMP instead of restarting encryption with a key the cuff may no "
+        "longer hold",
+        name,
+    )
+    if not await _bluez_remove_device(ble_device):
+        _LOGGER.warning(
+            "%s: could not clear the existing host bond; pairing may still be "
+            "refused if the cuff no longer holds the matching key",
+            name,
+        )
+        return
+    # RemoveDevice is not synchronous with the daemon's view of the bond, so
+    # connecting straight away can still take the encryption-restart path.
+    waited = 0.0
+    while waited < _PRE_PAIR_BOND_CLEAR_TIMEOUT_SEC:
+        if await _bluez_is_paired(ble_device) is not True:
+            return
+        await asyncio.sleep(_PRE_PAIR_BOND_CLEAR_POLL_SEC)
+        waited += _PRE_PAIR_BOND_CLEAR_POLL_SEC
+    _LOGGER.warning(
+        "%s: the host bond is still present %.1fs after RemoveDevice; "
+        "pairing anyway",
+        name,
+        _PRE_PAIR_BOND_CLEAR_TIMEOUT_SEC,
+    )
 
 
 def _is_non_fatal_os_pairing_error(exc: BaseException) -> bool:
