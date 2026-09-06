@@ -14,18 +14,24 @@ from custom_components.omron.omron_ble.devices import (
 class TestCatalogResolution:
     """카탈로그 변이(equivalent_model_ids) -> 캐노니컬 프로파일 매핑."""
 
-    def test_hem7188t1_leo_resolves_to_own_profile(self):
-        # HEM-7188T1-LEO ("X2+ Connect") has its own profile on the secure
-        # session transport (#24): the token-key path reads values inside the
-        # -P- window but every reconnect after it is refused. The HEM-7183T1
-        # variants share the hardware but not the testing, so they stay on the
-        # token-key profile.
-        assert resolve_profile_model_id("HEM-7188T1-LEO") == "HEM-7188T1-LEO"
-        assert resolve_profile_model_id("HEM-7183T1-AP") == "HEM-7188T1"
-        assert resolve_profile_model_id("HEM-7183T1_FLIN") == "HEM-7188T1"
-        assert get_device_config("HEM-7183T1-AP").unlock_mode.value == "token_key"
-        cfg = get_device_config("HEM-7188T1-LEO")
-        assert cfg.model == "HEM-7188T1-LEO"
+    def test_the_whole_7188t1_family_shares_the_secure_session_profile(self):
+        """7188T1 계열은 프로파일 하나로 묶여 secure session을 탄다.
+
+        토큰키는 -P- 창 안에서만 읽히고 이후 재접속이 거부된다 (#24,
+        discussions#119). 메모리 레이아웃은 원래부터 같았다.
+        """
+        for variant in (
+            "HEM-7188T1-LE",
+            "HEM-7188T1-LEO",
+            "HEM-7183T1-AP",
+            "HEM-7183T1_FLIN",
+        ):
+            assert resolve_profile_model_id(variant) == "HEM-7188T1", variant
+
+        # Config entries created before the merge still name the LEO.
+        assert "HEM-7188T1-LEO" in get_supported_models()
+
+        cfg = get_device_config("HEM-7188T1")
         assert cfg.unlock_mode.value == "secure_session"
         # No explicit Pair(); the cuff drives security and an agent answers it.
         assert cfg.host_pairing_mode.value == "none"
