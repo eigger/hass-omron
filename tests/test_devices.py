@@ -352,6 +352,27 @@ def test_the_cccd_switch_carries_the_two_settings_that_shipped_with_it():
     assert off.peer_closes_session_sec == 0.0
 
 
+def test_every_two_user_profile_reads_user2_from_the_same_offset():
+    """2인 프로파일의 user2 커서는 예외 없이 0x02다.
+
+    인덱스 필드는 2바이트이므로 user1이 0x00이면 user2는 0x02다. HEM-7155T-MW3만
+    0x08을 쓰고 있었는데, 그 자리는 #67 캡처에서 user1이 측정할 때마다 올라간다.
+    """
+    from custom_components.omron.omron_ble.device_catalog import (
+        CANONICAL_DEVICE_PROFILES,
+    )
+
+    for name, config in CANONICAL_DEVICE_PROFILES.items():
+        layout = config.index_pointer_layout or {}
+        users = layout.get("users") or []
+        if len(users) < 2:
+            continue
+        assert users[0]["write_cursor_offset"] == 0x00, name
+        assert users[1]["write_cursor_offset"] == 0x02, name
+        assert users[0]["unread_counter_offset"] == 0x04, name
+        assert users[1]["unread_counter_offset"] == 0x06, name
+
+
 def test_the_peer_close_window_covers_the_captured_delay():
     """폰 캡처에서 커프는 마지막 읽기 약 3초 뒤에 끊는다 — 여유가 있어야 한다."""
     assert get_device_config("HEM-7386T1").peer_closes_session_sec >= 3.0

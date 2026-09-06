@@ -21,7 +21,7 @@ class TestEmptyUserClearValue:
                 "endianness": "little",
                 "users": [
                     {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
-                    {"write_cursor_offset": 0x08, "unread_counter_offset": 0x0C, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
+                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
                 ],
             },
         )
@@ -32,10 +32,10 @@ class TestEmptyUserClearValue:
         # User 1: cursor = 0x0004 (slot 3), User 2: cursor = 0x8000 (clear_value, no records)
         # In little-endian:
         # offset 0x00: 04 00 ... (cursor 4)
-        # offset 0x08: 00 80 ... (cursor 0x8000)
+        # offset 0x02: 00 80 ... (cursor 0x8000)
         index_bytes = bytearray(16)
         index_bytes[0:2] = b"\x04\x00"
-        index_bytes[8:10] = b"\x00\x80"
+        index_bytes[2:4] = b"\x00\x80"
 
         read_calls = []
 
