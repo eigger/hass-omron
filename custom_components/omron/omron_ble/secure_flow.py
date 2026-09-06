@@ -17,7 +17,11 @@ import logging
 import secrets
 
 from .devices import DeviceConfig, UnlockMode
-from .omron_driver import UNLOCK_CHARACTERISTIC_UUID
+from .omron_driver import (
+    _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC,
+    UNLOCK_CHARACTERISTIC_UUID,
+    _secure_error_frame_code,
+)
 from .secure_session import SecureSession
 
 _LOGGER = logging.getLogger(__name__)
@@ -73,8 +77,11 @@ class SecureInitLayout:
         self.head_write_address = write_addr
         self.head_write_size = index_size
         self.clock_read_address = read_addr + time_range[0]
-        # Read past the clock record so the trailing bytes are preserved.
-        self.clock_read_size = index_size
+        # Never shorter than what gets written back, or the record cannot be
+        # built at all -- and the head write has already landed by then. The
+        # reference reads past the record on the one profile where the index
+        # region is the larger of the two, so keep that read length.
+        self.clock_read_size = max(clock_size, index_size)
         self.clock_write_address = write_addr + time_range[0]
         self.clock_write_size = clock_size
 
@@ -105,13 +112,19 @@ async def prepare_secure_token(session, timeout: float) -> None:
         _LOGGER.debug("Secure session: async notification bytes=%d", len(data))
 
     session._unlock_notify_handler = token_reply
-    await session._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, control_dispatch)
+    # Through the recovery path, not raw start_notify: on a profile that keeps
+    # its subscriptions, BlueZ can still hold the CCCD from the previous
+    # connection, and a retry re-enters here with them enabled (#92).
+    await session._ensure_services_cache()
+    await session._start_notify_with_recovery(
+        UNLOCK_CHARACTERISTIC_UUID, control_dispatch
+    )
     session._rebuild_notify_handle_index_map()
-    await session._client.start_notify(
+    await session._start_notify_with_recovery(
         session._config.rx_channel_uuids[0], session._on_notify_channel_data
     )
     session._notify_subscribed = True
-    await session._client.start_notify(ASYNC_NOTICE_UUID, async_notice)
+    await session._start_notify_with_recovery(ASYNC_NOTICE_UUID, async_notice)
     _LOGGER.debug("Secure session: subscribed control, rx and async channels")
     await asyncio.sleep(0.75)
     await session._client.write_gatt_char(
@@ -124,22 +137,33 @@ async def prepare_secure_token(session, timeout: float) -> None:
 def clock_block(tail: bytes, now: datetime, size: int) -> bytes:
     """Stamp the clock record: set its flag, write the time, fix the checksum.
 
-    ``tail`` is read longer than the record so the trailing device-owned bytes
-    are not disturbed; only the first ``size`` bytes are written back.
+    ``tail`` may be read longer than the record; only the first ``size`` bytes
+    are written back. The checksum is the additive sum of everything ahead of
+    it and sits in the second-to-last byte, so it moves with ``size`` rather
+    than living at a fixed offset -- verified on every 16-byte sample in the
+    #67 and #91 captures, where byte 14 holds the sum of bytes 0..13.
     """
-    if len(tail) < size or size < 15 or not 2000 <= now.year <= 2255:
-        raise ValueError("Invalid secure initialization clock record or year")
+    if len(tail) < size or size < 16 or not 2000 <= now.year <= 2255:
+        raise ValueError(
+            f"Invalid secure initialization clock record (size={size}, "
+            f"available={len(tail)}) or year {now.year}"
+        )
     block = bytearray(tail[:size])
+    checksum_at = size - 2
     block[4] |= 1
     block[8:14] = bytes(
         (now.year - 2000, now.month, now.day, now.hour, now.minute, now.second)
     )
-    block[14] = sum(block[:14]) & 0xFF
+    block[checksum_at] = sum(block[:checksum_at]) & 0xFF
     return bytes(block)
 
 
 async def establish_secure_session(
-    session, *, stored_ltk: bytes | None, now: datetime, timeout: float = 7.0
+    session,
+    *,
+    stored_ltk: bytes | None,
+    now: datetime,
+    timeout: float = _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC,
 ) -> bytes:
     """Authenticate and, for a pairing session, initialize the device.
 
@@ -176,6 +200,18 @@ async def establish_secure_session(
         )
         response = await asyncio.wait_for(replies.get(), timeout)
         if not response.startswith(prefix):
+            error = _secure_error_frame_code(response)
+            if error is not None:
+                # A refusal, not a malformed reply: the request itself is
+                # well-formed, so this is device state. Say what to do about it.
+                raise ConnectionError(
+                    f"Device rejected the secure session (error frame "
+                    f"0x{response[0]:02x}, code 0x{error:02x}) at stage "
+                    f"{prefix.hex()}; the cuff may already be registered to "
+                    f"another host, or is not in pairing mode. Put it in "
+                    f"pairing mode, or fully unpair/factory-reset it, and "
+                    f"try again."
+                )
             # Only a protocol discriminator, never the challenge or key payload.
             raise ConnectionError(
                 f"Unexpected secure-session response: expected={prefix.hex()} "

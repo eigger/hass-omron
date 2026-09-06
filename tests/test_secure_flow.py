@@ -174,14 +174,28 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token():
         assert len(value) == 20 and value[0] == 0x11
         events.append(("token", uuid.lower()))
         handlers[control](None, b"\x91\x00" + value[1:5])
+    async def raw_start_notify(uuid, handler):
+        raise AssertionError(
+            "raw start_notify bypasses the recovery path: a kept CCCD from the "
+            "previous connection makes the retry fail outright (#92)"
+        )
+
+    async def ensure_cache():
+        events.append(("cache", ""))
+
     session = SimpleNamespace(
-        _client=SimpleNamespace(read_gatt_char=read, start_notify=subscribe, write_gatt_char=write),
+        _client=SimpleNamespace(
+            read_gatt_char=read, start_notify=raw_start_notify, write_gatt_char=write
+        ),
         _config=SimpleNamespace(rx_channel_uuids=["rx"]),
         _rebuild_notify_handle_index_map=lambda: None,
         _on_notify_channel_data=lambda *_: None,
+        _ensure_services_cache=ensure_cache,
+        _start_notify_with_recovery=subscribe,
     )
     asyncio.run(prepare_secure_token(session, 1))
     assert events == [("read", "00002a26"), ("read", "00002a28"),
+                      ("cache", ""),
                       ("notify", control), ("notify", "rx"),
                       ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
                       ("token", control)]

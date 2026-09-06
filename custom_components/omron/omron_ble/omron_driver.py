@@ -5,7 +5,7 @@ import datetime as dt
 import logging
 import secrets
 import traceback
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, AsyncIterator
 
 from bleak import BleakClient
@@ -145,10 +145,9 @@ async def establish_connection_with_bond_settle(
     # proxy routes do not.
     pair_this_attempt = pair_on_connect and is_local_adapter(ble_device)
     # Profiles that never call Pair() still need someone to answer the Just
-    # Works confirmation the cuff's own Security Request triggers, which lands
-    # inside establish_connection -- a few tens of milliseconds after connect,
-    # before service discovery. Local adapters only: a proxy has no BlueZ agent
-    # to register.
+    # Works confirmation the cuff's own Security Request triggers. The caller
+    # holds an agent for the whole session (see OmronDeviceSession.connect);
+    # this one only covers the connect itself for callers that do not.
     agent_this_attempt = hold_pairing_agent and is_local_adapter(ble_device)
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
@@ -696,6 +695,9 @@ class OmronDeviceSession:
         self._client = client
         # Set only when this session established a credential worth storing.
         self._new_credential: bytes | None = None
+        # Pairing agent held for the lifetime of the session, for profiles
+        # where the device drives security itself.
+        self._pairing_agent: AsyncExitStack | None = None
         self._owns_connection = owns_connection
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
@@ -785,6 +787,27 @@ class OmronDeviceSession:
             raise ConnectionError(
                 "OmronDeviceSession.adopt() sessions cannot connect; open the client first"
             )
+        if (
+            self._config.register_pairing_agent
+            and self._pairing_agent is None
+            and is_local_adapter(self._ble_device)
+        ):
+            # For the whole session, not just the connect: on these profiles the
+            # device raises its Security Request on its own schedule, and the
+            # hardware-verified sequence had an agent registered throughout.
+            # Released in aclose().
+            stack = AsyncExitStack()
+            try:
+                await stack.enter_async_context(_bluez_pairing_agent())
+            except Exception as exc:
+                await stack.aclose()
+                _LOGGER.debug(
+                    "Could not hold a pairing agent for %s: %s",
+                    self._config.model,
+                    exc,
+                )
+            else:
+                self._pairing_agent = stack
         self._client = await establish_connection_with_bond_settle(
             self._ble_device,
             self.address,
@@ -909,6 +932,12 @@ class OmronDeviceSession:
             pass
         finally:
             self._client = None
+            if self._pairing_agent is not None:
+                agent, self._pairing_agent = self._pairing_agent, None
+                try:
+                    await agent.aclose()
+                except Exception as exc:
+                    _LOGGER.debug("Releasing the pairing agent failed: %s", exc)
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
 
@@ -1110,6 +1139,15 @@ class OmronDeviceSession:
             await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
         except Exception as exc:
             _LOGGER.debug("unlock stop_notify during reset ignored: %s", exc)
+        # Same for the secure session's async-notice channel: a retry
+        # re-subscribes it, and BlueZ refuses a second subscribe on a CCCD it
+        # still holds.
+        try:
+            from .secure_flow import ASYNC_NOTICE_UUID
+
+            await self._client.stop_notify(ASYNC_NOTICE_UUID)
+        except Exception as exc:
+            _LOGGER.debug("async-notice stop_notify during reset ignored: %s", exc)
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
@@ -1291,17 +1329,32 @@ class OmronDeviceSession:
         else:
             self._expected_reply_memory_address = None
 
-        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
-            try:
-                command = bytearray(self._secure_session.encrypt(bytes(command)))
-            except Exception as exc:
-                _LOGGER.error("Secure session encryption failed for command: %s", exc)
-                raise
-
+        plaintext = bytearray(command)
         max_retries = _MEMORY_PROTOCOL_TX_MAX_RETRIES
         try:
             for retry in range(max_retries):
                 self._reply_ready.clear()
+
+                if (
+                    self._config.unlock_mode == UnlockMode.SECURE_SESSION
+                    and self._secure_session is not None
+                ):
+                    # Encrypt per transmission: every CCM frame carries a
+                    # counter the device will not accept twice, so a retry that
+                    # replayed the first attempt's ciphertext would be refused
+                    # and burn the whole retry budget without ever reaching the
+                    # device's command handler.
+                    try:
+                        command = bytearray(
+                            self._secure_session.encrypt(bytes(plaintext))
+                        )
+                    except Exception as exc:
+                        _LOGGER.error(
+                            "Secure session encryption failed for command: %s", exc
+                        )
+                        raise
+                else:
+                    command = plaintext
 
                 # Split command across TX channels
                 remaining_cmd = command

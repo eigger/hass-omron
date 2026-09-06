@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+from custom_components.omron.omron_ble.secure_flow import ASYNC_NOTICE_UUID
 
 
 class _FakeSession:
@@ -148,9 +149,12 @@ def test_reset_releases_the_subscription_on_the_profile_under_test():
     # The unlock characteristic is released too. It is not an RX channel, so the
     # loop over rx_channel_uuids never covered it -- and on BlueZ it is the one
     # left holding a notify session from the previous connection (#92).
+    # The async-notice channel goes with them: the secure session subscribes
+    # it and a retry re-subscribes, which BlueZ refuses while it still holds
+    # the CCCD.
     assert target._client.stopped == list(
         get_device_config("HEM-7386T1").rx_channel_uuids
-    ) + [UNLOCK_CHARACTERISTIC_UUID]
+    ) + [UNLOCK_CHARACTERISTIC_UUID, ASYNC_NOTICE_UUID]
     assert target._unlocked is False
 
 

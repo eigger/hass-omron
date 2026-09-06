@@ -10,6 +10,7 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 통합 계층은
 """
 import ast
 from pathlib import Path
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
@@ -19,7 +20,10 @@ from custom_components.omron.omron_ble.devices import (
     UnlockMode,
     get_device_config,
 )
-from custom_components.omron.omron_ble.secure_flow import SecureInitLayout
+from custom_components.omron.omron_ble.secure_flow import (
+    SecureInitLayout,
+    clock_block,
+)
 
 _ROOT = Path(__file__).resolve().parent.parent
 _COMPONENT = _ROOT / "custom_components" / "omron"
@@ -60,6 +64,43 @@ class TestSecureInitLayout:
         assert layout.clock_read_address == 0x0110
         assert layout.clock_write_address == 0x0210
         assert layout.clock_write_size == 0x10
+
+    def test_the_clock_read_always_covers_what_is_written_back(self):
+        """짧게 읽으면 head 쓰기가 끝난 뒤에 ValueError 로 죽는다.
+
+        시계 레코드 크기는 time-sync 범위에서 오고 읽기 길이는 인덱스 영역
+        크기에서 왔는데, 후자가 더 작은 배치에서는 되쓸 레코드를 만들 수조차
+        없다 — 그것도 기기 메모리를 이미 한 번 쓴 뒤에.
+        """
+        for index_size, time_sync in (
+            (0x08, [0x10, 0x20]),   # 인덱스 영역이 레코드보다 작은 배치
+            (0x18, [0x2C, 0x3C]),   # HEM-7188T1-LEO
+            (0x40, [0x2C, 0x3C]),   # 인덱스 영역이 훨씬 큰 배치
+        ):
+            cfg = SimpleNamespace(
+                model="synthetic",
+                settings_read_address=0x0100,
+                settings_write_address=0x0200,
+                settings_time_sync_bytes=time_sync,
+                index_pointer_layout={"index_region_byte_size": index_size},
+            )
+            layout = SecureInitLayout(cfg)
+            assert layout.clock_read_size >= layout.clock_write_size
+            # 실제로 만들어봐야 의미가 있다: 주소만 검사하면 이 버그를 놓친다.
+            block = clock_block(
+                bytes(layout.clock_read_size), datetime(2026, 9, 6, 12, 30, 45),
+                layout.clock_write_size,
+            )
+            assert len(block) == layout.clock_write_size
+
+    def test_the_checksum_sits_at_the_end_of_the_record(self):
+        """체크섬 위치를 14 로 박아두면 16바이트 레코드에서만 우연히 맞는다."""
+        for size in (16, 20, 24):
+            block = clock_block(bytes(range(size)), datetime(2026, 9, 6, 12, 30, 45), size)
+            assert block[size - 2] == sum(block[: size - 2]) & 0xFF
+        # #67 캡처의 실제 레코드로 규칙 자체를 고정한다.
+        captured = bytes.fromhex("c8a80000010000001a06110f1806cf00")
+        assert captured[14] == sum(captured[:14]) & 0xFF
 
     def test_an_incomplete_profile_is_rejected(self):
         bare = SimpleNamespace(
@@ -106,6 +147,28 @@ class TestPairingIsOptional:
         assert cfg.unlock_mode is UnlockMode.SECURE_SESSION
         # 에이전트가 없으면 BlueZ 5.72+ 는 Just Works 확인을 방치한다.
         assert cfg.register_pairing_agent is True
+
+    def test_the_agent_is_held_for_the_session_not_just_the_connect(self):
+        """핸드셰이크 시점에 커프가 Security Request 를 올리면 답할 주체가 있어야
+        한다. 하드웨어로 검증된 순서도 세션 내내 에이전트를 붙잡고 있었다."""
+        fn = None
+        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "connect":
+                fn = node
+        assert fn is not None, "connect() 를 찾지 못했다"
+        body = ast.unparse(fn)
+        assert "_bluez_pairing_agent()" in body, (
+            "connect() 가 에이전트를 잡지 않는다 — establish_connection 안에서만 "
+            "유지되면 이후 핸드셰이크의 보안 요청에 답할 주체가 없다"
+        )
+        assert "register_pairing_agent" in body
+
+        released = None
+        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "aclose":
+                released = ast.unparse(node)
+        assert released is not None, "aclose() 를 찾지 못했다"
+        assert "_pairing_agent" in released, "세션이 끝나도 에이전트를 놓지 않는다"
 
     def test_pair_is_a_no_op_rather_than_an_error(self):
         """예외를 던지면 평범한 setup/재시도 경로가 전부 특수 분기를 져야 한다."""
