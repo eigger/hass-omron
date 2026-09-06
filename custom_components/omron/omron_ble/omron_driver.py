@@ -2716,6 +2716,25 @@ class OmronDeviceDriver:
                 ptr_endian,
                 bytes(index_bytes).hex(),
             )
+            # Diagnostic only. The app clears this counter at session end and we
+            # never write it, so a drop between polls means the phone app synced
+            # (#69, #132). The offsets themselves are unvalidated (#133).
+            unread = []
+            for idx, user_cfg in enumerate(user_layouts):
+                offset = int(user_cfg.get("unread_counter_offset", -1))
+                if offset < 0 or offset + 2 > len(index_bytes):
+                    continue
+                raw_unread = int.from_bytes(
+                    index_bytes[offset:offset + 2], ptr_endian, signed=False
+                )
+                unread.append(
+                    f"user{idx + 1}@0x{offset:02X}=0x{raw_unread:04X}"
+                    f"({raw_unread & 0xFF})"
+                )
+            if unread:
+                _LOGGER.debug(
+                    "Index unread [%s]: %s", self._config.model, " ".join(unread)
+                )
             for idx, user_cfg in enumerate(user_layouts):
                 if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
                     continue
