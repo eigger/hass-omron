@@ -35,7 +35,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7600T** |	BP7000/EVOLV	| Upper Arm	| ✅ |
 
 > [!NOTE]
-> Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, an [Android Bluetooth stack log (HCI snoop)](#capturing-bluetooth-stack-logs-android).
+> Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
 
 ## ⚠️ Warning: Conflict with Official App
 **Omron blood pressure monitors only support one paired device at a time.**
@@ -147,39 +147,16 @@ The **Blood Pressure Category** sensor classifies readings according to the **AC
 - **Sensor values not updating**: The device turns off its Bluetooth radio to save battery. It turns on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
 - **Data doesn't show up after changing batteries**: Changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
 
-## Capturing Bluetooth stack logs (Android)
+<a id="capturing-bluetooth-stack-logs-android"></a>
 
-To help add support for a new model, capture a Bluetooth log from your phone while using **Omron Connect** (not Home Assistant—the cuff can only pair to one device at a time).
+## Capturing Bluetooth logs
 
-1. **Enable Developer options**: **Settings** → **About phone** → tap **Build number** seven times.
-2. **Developer options** → enable **USB debugging**.
-3. **Developer options** → **Bluetooth stack log** (or **Bluetooth HCI snoop log** / **블루투스 스택 로그**) → choose **Detailed** (**Enabled** / **상세**). Do **not** use filtered mode (**필터링됨**).
-4. Turn Bluetooth **off**, then **on**.
-5. Pair and sync the cuff in **Omron Connect** (pairing + at least one reading sync is ideal).
-6. Set **Bluetooth stack log** back to **Disabled**, then toggle Bluetooth off/on again.
-7. On a PC with [platform-tools](https://developer.android.com/tools/releases/platform-tools) installed, connect the phone via USB and run:
+To help add support for a new model, or to debug one that pairs but will not sync, a
+Bluetooth stack log from your phone is the most useful thing you can provide.
 
-   ```bash
-   adb devices
-   ```
-
-   The first time, the phone may show as `unauthorized`—unlock it and tap **Allow USB debugging**, then run `adb devices` again until it shows `device`.
-
-   ```bash
-   adb bugreport
-   ```
-
-   This saves a zip in the current directory (for example `dumpstate-2026-06-17-19-37-02.zip`). With more than one device attached, add `-s <serial>` (from `adb devices`).
-
-   Unzip the bug report and find `btsnoop_hci.log` at:
-
-   ```
-   FS/data/log/bt/btsnoop_hci.log
-   ```
-
-   (After unzip, for example: `dumpstate-2026-06-17-19-37-02/FS/data/log/bt/btsnoop_hci.log`)
-
-8. Attach the log to a [GitHub Issue](https://github.com/eigger/hass-omron/issues) with your cuff model code, phone model, and Android version.
+**[Capturing Bluetooth logs](docs/capturing-bluetooth-logs.md)** covers Android and
+iPhone, and explains what a capture contains before you share one - it holds your
+measurements and your BLE bond keys, and you do not have to post it raw.
 
 ## References
 
