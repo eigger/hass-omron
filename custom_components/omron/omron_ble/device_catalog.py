@@ -1210,20 +1210,27 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7388T1-AJF3",
         ),
     ),
-    # HEM-7188T1 / HEM-7183T1 family ("X2+ Connect" / "M2+" etc.) — dedicated single-user profile
-    # with WLD4.0 transport (ConnectType.WLD4_0) and 30-slot 16-byte record
-    # layout at 0x01C4 with index pointer layout at 0x0010.
-    # Operationally uses token-key transport (UnlockMode.TOKEN_KEY): an
-    # application-layer ECDH secure session (0x70 0x01) was tried, but real
-    # devices reject the pairing request with error frame 0xff26, while the
-    # plaintext token-key path reads real measurement values. Revisit
-    # unlock_mode=SECURE_SESSION once the ECDH rejection is understood.
+    # HEM-7188T1 / HEM-7183T1 family ("M2+" / "X2+") — single-user WLD4.0,
+    # 30 slots of 16 bytes at 0x01C4, index block at 0x0010.
+    #
+    # One profile on the secure session. Token-key reads inside the -P- window
+    # and every reconnect after it is refused (#24, discussions#119). The ECDH
+    # path is verified end-to-end on the LEO: pairing, records over a resumed
+    # credential, 9/9 unattended polls across two proxies (#92). The LE and the
+    # HEM-7183T1 variants are untested on it.
+    #
+    # No explicit Pair(): the cuff raises its own Security Request and a
+    # registered agent answers it.
     "HEM-7188T1": DeviceConfig(
-        **_MODERN_OS_BONDING_BASE,
+        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
+        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
+        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
+        host_pairing_mode=HostPairingMode.NONE,
+        register_pairing_agent=True,
         model="HEM-7188T1",
         connect_type=ConnectType.WLD4_0,
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
-        unlock_mode=UnlockMode.TOKEN_KEY,
+        unlock_mode=UnlockMode.SECURE_SESSION,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4],
         per_user_records_count=[30],
@@ -1248,55 +1255,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7183T1_FLIN",
             "HEM-7183T1_LAP",
             "HEM-7188T1-LE",
+            "HEM-7188T1-LEO",
         ),
-    ),
-    # HEM-7188T1-LEO ("X2+ Connect") — the same hardware as the HEM-7188T1
-    # profile above, on the experimental secure-session transport.
-    #
-    # The token-key profile reads real values inside the -P- window but every
-    # ordinary reconnect afterwards is refused (#24). What works on this model
-    # is the application-layer ECDH session: authenticate, initialize with a
-    # close the device accepts, keep the credential it leaves behind, and
-    # resume with that credential on later connections. That path was blocked
-    # by error frame 0xff26 until the secure envelope was corrected (5-byte
-    # transport header, CCM nonce tail = peer contribution + host
-    # contribution); hardware-verified on Linux/BlueZ and macOS by the #24
-    # reporter, through pairing plus a saved-credential reconnect from a
-    # separate process after the display had turned off.
-    #
-    # Verified there for authentication and a metadata read, not yet for
-    # measurement records over a resumed session.
-    #
-    # No explicit Pair(): the cuff raises its own Security Request and a
-    # registered agent answers it. Only this model id -- the HEM-7183T1
-    # variants stay on the token-key profile until someone tests them.
-    "HEM-7188T1-LEO": DeviceConfig(
-        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
-        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
-        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
-        host_pairing_mode=HostPairingMode.NONE,
-        register_pairing_agent=True,
-        model="HEM-7188T1-LEO",
-        connect_type=ConnectType.WLD4_0,
-        keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
-        unlock_mode=UnlockMode.SECURE_SESSION,
-        endianness=Endianness.LITTLE,
-        user_start_addresses=[0x01C4],
-        per_user_records_count=[30],
-        record_byte_size=0x10,
-        transmission_block_size=0x38,
-        settings_read_address=0x0010,
-        settings_write_address=0x0054,
-        settings_time_sync_bytes=[0x2C, 0x3C],
-        time_sync_layout=TimeSyncLayout.AT_8,
-        index_pointer_layout={
-            "index_region_byte_size": 0x18,
-            "endianness": "little",
-            "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
-            ],
-        },
-        record_parser=RecordParser.CLASSIC_VITAL_14,
     ),
     # HEM-716BT2 family (30-slot variant of HEM-7142T2 / WLD1.0 stack)
     "HEM-716BT2": DeviceConfig(
