@@ -86,12 +86,19 @@ class TestCatalogResolution:
         assert cfg.settings_time_sync_bytes == [0x30, 0x40]
 
     def test_hem7377t1_resolves_to_own_profile(self):
+        """user2는 user1 뱅크 뒤에서 시작한다 — 0x01CC + 100*0x10 = 0x080C.
+
+        이전 값 [0x080C, 0x0D0C] / 80슬롯은 user2 창이 user1 안에 겹쳤다.
+        """
         assert resolve_profile_model_id("HEM-7377T1-ZAZ") == "HEM-7377T1"
         cfg = get_device_config("HEM-7377T1-ZAZ")
-        assert cfg.user_start_addresses == [0x080C, 0x0D0C]
-        assert cfg.per_user_records_count == [80, 80]
+        assert cfg.user_start_addresses == [0x01CC, 0x080C]
+        assert cfg.per_user_records_count == [100, 100]
         assert cfg.settings_write_address == 0x0058
-        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 79
+        assert cfg.index_pointer_layout["users"][0]["slot_index_max"] == 99
+        # 두 뱅크가 겹치지 않는다.
+        start1, start2 = cfg.user_start_addresses
+        assert start1 + cfg.per_user_records_count[0] * cfg.record_byte_size == start2
 
     def test_hem7386t1_resolves_to_own_profile(self):
         assert resolve_profile_model_id("HEM-7382T1") == "HEM-7386T1"
