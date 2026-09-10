@@ -1042,6 +1042,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     # HEM-7196T1 / HEM-7194T1 family ("M4 Connect AFib" / "X4 Connect AFib" etc.) —
     # 2-user, 60 records per user (data_1=0x01C4, data_2=0x0584) on WLD4.0
     # transport with token-key unlock.
+    #
+    # Consider SECURE_SESSION: the FLE variant's GATT carries 8858eb40, the
+    # async-notice characteristic only the secure session uses, and #45 reports
+    # reads inside the -P- window with nothing on any reconnect after.
     "HEM-7196T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7196T1",
@@ -1144,8 +1148,15 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7389T1-JM3",
         ),
     ),
-    # HEM-7377T1 family (7 Series Upper Arm / BP5360) — 2-user, 80 records per user (data_1=0x080C,
-    # data_2=0x0D0C), write address 0x0058, +4 time offset ([0x30, 0x40]).
+    # HEM-7377T1 family (7 Series Upper Arm / BP5360) — 2-user, 100 records per
+    # user (data_1=0x01CC, data_2=0x080C), write address 0x0058, +4 time offset.
+    #
+    # The bank is 100 slots, so user 2 starts where user 1 ends. The previous
+    # 80-slot count put user 2 at 0x0D0C, inside user 1's own range.
+    #
+    # This cuff writes both users' records into the 0x080C bank and tells them
+    # apart by a byte inside the record, leaving 0x01CC empty, so user 1 can
+    # read as empty here.
     "HEM-7377T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7377T1",
@@ -1153,8 +1164,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
         endianness=Endianness.LITTLE,
-        user_start_addresses=[0x080C, 0x0D0C],
-        per_user_records_count=[80, 80],
+        user_start_addresses=[0x01CC, 0x080C],
+        per_user_records_count=[100, 100],
         record_byte_size=0x10,
         transmission_block_size=0x38,
         settings_read_address=0x0010,
@@ -1165,8 +1176,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x1C,
             "endianness": "little",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 79, "slot_index_bias": -1},
-                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 79, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
