@@ -18,7 +18,12 @@ from .const import (
     SERVICE_CHANGED_UUID,
     UNLOCK_CHARACTERISTIC_UUID,
 )
-from .devices import DeviceConfig, HostPairingMode, UnlockMode
+from .devices import (
+    DeviceConfig,
+    HostPairingMode,
+    UnlockMode,
+    resolve_profile_model_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -716,6 +721,10 @@ class OmronDeviceSession:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
+        # The HEM-7386T1 family needs one pairing-only registration commit
+        # before the first bonded session closes. Keep this per-session guard
+        # so the operation cannot run more than once on the pairing link.
+        self._hem_7386t1_pairing_registration_done = False
         self._unlocked = False
         self._secure_session = None
         # Swappable handler for the unlock characteristic notifications. The
@@ -1524,12 +1533,85 @@ class OmronDeviceSession:
             await self._unsubscribe_notify_channels(force=True)
             raise
 
+    async def _finalize_hem_7386t1_pairing_registration(self) -> None:
+        """Commit HEM-7386T1 pairing registration before the first close.
+
+        OMRON Connect performs two pairing-only EEPROM writes on the BP5465
+        (HEM-7382T1-AZAZ) before ending the initial bonded session: a 38-byte
+        registration block at 0x0058 followed by a 16-byte clock/state block
+        at 0x0088. Without this pairing finalization, the cuff can reject the
+        stored bond on the next connection with HCI status 0x06 (PIN or Key
+        Missing). Ordinary retained-bond sessions must not repeat these writes.
+        """
+        if self._hem_7386t1_pairing_registration_done or not self._pairing_session:
+            return
+        if resolve_profile_model_id(self._config.model) != "HEM-7386T1":
+            return
+
+        self._require_connected("finalize_hem_7386t1_pairing_registration")
+        if not self._memory_session_active:
+            raise ConnectionError(
+                "HEM-7386T1 pairing finalization requires an open memory session"
+            )
+
+        if (
+            self._config.settings_read_address != 0x0010
+            or self._config.settings_write_address != 0x0058
+        ):
+            raise ConnectionError(
+                "Unexpected HEM-7386T1 settings layout during pairing finalization: "
+                f"read={self._config.settings_read_address!r} "
+                f"write={self._config.settings_write_address!r}"
+            )
+
+        # Pairing registration block. OMRON Connect reads 48 bytes from 0x0010,
+        # transforms the first 38 bytes, then writes them as one block to 0x0058.
+        head_read = await self.read_memory_range(
+            0x0010, 0x30, self._config.transmission_block_size
+        )
+        if len(head_read) != 0x30:
+            raise ConnectionError(
+                "HEM-7386T1 pairing finalization expected 48 settings bytes, "
+                f"got {len(head_read)}"
+            )
+        head_write = bytearray(head_read[:0x26])
+        head_write[4] = 0x00
+        head_write[5] = 0x80
+        head_write[17] = 0x80
+        head_write[32] = (head_write[32] + 1) & 0xFF
+        head_write[36] = (head_write[36] + 1) & 0xFF
+        await self.write_memory_range(0x0058, head_write, block_size=len(head_write))
+
+        # Pairing clock/state block. OMRON Connect reads 24 bytes from 0x0040,
+        # updates the first 16 bytes, then writes them as one block to 0x0088.
+        clock_read = await self.read_memory_range(
+            0x0040, 0x18, self._config.transmission_block_size
+        )
+        if len(clock_read) != 0x18:
+            raise ConnectionError(
+                "HEM-7386T1 pairing finalization expected 24 clock/state bytes, "
+                f"got {len(clock_read)}"
+            )
+        clock_write = bytearray(clock_read[:0x10])
+        now = dt.datetime.now().astimezone()
+        clock_write[4] |= 0x01
+        clock_write[8:14] = bytes(
+            (now.year - 2000, now.month, now.day, now.hour, now.minute, now.second)
+        )
+        clock_write[14] = sum(clock_write[:14]) & 0xFF
+        await self.write_memory_range(0x0088, clock_write, block_size=len(clock_write))
+
+        self._hem_7386t1_pairing_registration_done = True
+
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
         if not self._memory_session_active:
             return
 
         try:
+            # HEM-7386T1-family cuffs commit pairing registration before the
+            # first 0x080f close; retained-bond sessions skip this operation.
+            await self._finalize_hem_7386t1_pairing_registration()
             stop_cmd = bytearray.fromhex("080f000000000007")
             await self._write_command_and_wait_reply(stop_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8f00"):
