@@ -26,7 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 # The per-transfer slot that follows the index region in the settings mirror
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
 _REGISTRATION_SLOT_SIZE: int = 10
-_REGISTRATION_SLOT_COUNTER_OFFSETS: tuple[int, ...] = (4, 8)
+_REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
+_REGISTRATION_SLOT_CHECKSUM_OFFSET: int = 8   # additive, over the 8 bytes before it
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
@@ -1537,20 +1538,18 @@ class OmronDeviceSession:
         A WLD3.0 cuff on the token-key transport accepts the bond it just made
         and then refuses to resume it on the next connection -- HCI 0x06, PIN
         or Key Missing -- unless the pairing session also wrote its mirror:
-        the index region with the unread counter cleared plus one 10-byte
-        transfer slot, and the clock record stamped with the current time.
-        The official app does both before its 080f close; hardware-verified
-        on a BP5465 / HEM-7382T1-AZAZ over local BlueZ, through a power cycle
-        (#175). The same slot structure -- two counters at +4 and +8 that step
-        once per transfer -- is what the #67 phone capture of an HEM-7155T-MW3
-        shows, so the layout is read off the profile rather than pinned to a
-        model.
+        the index region with every unread counter reset, the user's profile
+        slot with its transfer count stepped and checksum redone, and the
+        clock record stamped with the current time. The official app does all
+        of it before its 080f close; hardware-verified on a BP5465 over local
+        BlueZ, through a power cycle (#175). Which bytes are counters, where
+        the slot sits and where the clock lives all come off the profile.
 
         Pairing sessions only, once per link, and after the records have been
-        read: the unread counter is cleared here. Returns whether it wrote.
-        Never raises -- the close that follows matters more than this write,
-        and a retained-bond session that ends without it is still a working
-        session. The caller logs.
+        read: the unread counters are reset here. Returns whether it wrote.
+        Never raises past a layout problem -- the close that follows matters
+        more than this write, and a retained-bond session that ends without it
+        is still a working session. The caller logs.
         """
         cfg = self._config
         registration = cfg.pairing_registration
@@ -1565,23 +1564,16 @@ class OmronDeviceSession:
             raise ConnectionError(
                 "Pairing registration needs an open memory session"
             )
-        from .settings_mirror import SettingsMirrorLayout, clock_block
+        from .settings_mirror import SettingsMirrorLayout, clock_block, slot_checksum
 
         layout = SettingsMirrorLayout(cfg)
-        slot = (
-            registration.slot_offset
-            if registration.slot_offset is not None
-            else layout.head_write_size
-        )
+        slot = registration.slot_offset
         head_size = slot + _REGISTRATION_SLOT_SIZE
         if layout.head_read_size < head_size:
             raise ConnectionError(
                 f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
                 f"the registration block needs {head_size}"
             )
-        users = (cfg.index_pointer_layout or {}).get("users") or ()
-        if not users:
-            raise ConnectionError(f"{cfg.model} has no index layout to clear")
 
         head = await self.read_memory_range(
             layout.head_read_address, layout.head_read_size, cfg.transmission_block_size
@@ -1592,19 +1584,38 @@ class OmronDeviceSession:
                 f"{layout.head_read_size}"
             )
         block = bytearray(head[:head_size])
-        # User 1's unread counter, cleared to the 0x8000 "nothing pending"
-        # marker the cuff itself uses (the phone does the same every transfer).
-        unread = int(users[0]["unread_counter_offset"])
-        block[unread : unread + 2] = (0x8000).to_bytes(2, "little")
-        # As captured, meaning unknown: one byte of the index region the app's
-        # write sets to 0x80 on the profiles where it was seen. Reproduced
-        # rather than reasoned about, and only where the profile says so.
-        if registration.index_flag_offset is not None:
-            block[registration.index_flag_offset] = 0x80
-        # The transfer slot's two counters step once per transfer.
-        for offset in _REGISTRATION_SLOT_COUNTER_OFFSETS:
-            at = slot + offset
-            block[at] = (block[at] + 1) & 0xFF
+
+        # Every stream's unread counter back to its idle marker: the records
+        # have been read. Two-byte markers land little-endian.
+        for offset, idle in registration.unread_clears:
+            width = 2 if idle > 0xFF else 1
+            if offset + width > slot:
+                raise ConnectionError(
+                    f"Unread counter at {offset} lies outside the index region "
+                    f"of {cfg.model} ({slot} bytes)"
+                )
+            block[offset : offset + width] = idle.to_bytes(width, "little")
+
+        if block[slot : slot + 2] == b"\xff\xff":
+            # Never written: the cuff treats a slot that starts 0xFFFF as empty
+            # and skips its checksum. Stepping it would only make it look
+            # populated without being one, so it goes back as it came.
+            _LOGGER.warning(
+                "%s: the user profile slot at +0x%02X is empty; the index is "
+                "reset but the slot is left untouched, and the cuff may not "
+                "resume this bond",
+                cfg.model,
+                slot,
+            )
+        else:
+            count_at = slot + _REGISTRATION_SLOT_COUNT_OFFSET
+            count = int.from_bytes(block[count_at : count_at + 4], "little")
+            block[count_at : count_at + 4] = ((count + 1) & 0xFFFFFFFF).to_bytes(
+                4, "little"
+            )
+            block[slot + _REGISTRATION_SLOT_CHECKSUM_OFFSET] = slot_checksum(
+                block[slot : slot + _REGISTRATION_SLOT_SIZE]
+            )
         await self.write_memory_range(
             layout.head_write_address, block, block_size=len(block)
         )

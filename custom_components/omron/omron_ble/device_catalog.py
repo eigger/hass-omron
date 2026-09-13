@@ -1092,12 +1092,15 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # Its settings geometry is the HEM-7155T-MW3's, not the HEM-7386T1's:
         # 0x44 between region and mirror, clock at [0x2C, 0x3C], and the #67
         # MW3 capture puts the transfer slot at 0x18 -- which is also this
-        # profile's index region size. The index byte the BP5465 write sets is
-        # left alone: the MW3 capture does not touch it and no 7380 capture
-        # exists to say otherwise. Everything written is the mirror region's
-        # own bytes read back; records start at 0x01C4 and are not involved.
+        # profile's index region size. Six unread counters in a 0x18 index
+        # region. Everything written is the mirror region's own bytes read
+        # back; records start at 0x01C4 and are not involved.
         pairing_registration=PairingRegistration(
-            slot_offset=0x18, index_flag_offset=None
+            slot_offset=0x18,
+            unread_clears=(
+                (0x04, 0x8000), (0x06, 0x8000),
+                (0x11, 0x80), (0x13, 0x80), (0x15, 0x80), (0x17, 0x80),
+            ),
         ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
@@ -1138,7 +1141,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # bytes at the same addresses as the one #175 verified there. Not yet
         # confirmed on this model itself.
         pairing_registration=PairingRegistration(
-            slot_offset=0x1C, index_flag_offset=0x11
+            slot_offset=0x1C,
+            unread_clears=(
+                (0x04, 0x8000), (0x06, 0x8000),
+                (0x11, 0x80), (0x13, 0x80), (0x19, 0x80), (0x1B, 0x80),
+            ),
         ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0BCC],
@@ -1186,7 +1193,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # bytes at the same addresses as the one #175 verified there. Not yet
         # confirmed on this model itself.
         pairing_registration=PairingRegistration(
-            slot_offset=0x1C, index_flag_offset=0x11
+            slot_offset=0x1C,
+            unread_clears=(
+                (0x04, 0x8000), (0x06, 0x8000),
+                (0x11, 0x80), (0x13, 0x80), (0x19, 0x80), (0x1B, 0x80),
+            ),
         ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01CC, 0x080C],
@@ -1224,9 +1235,15 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # resume it (HCI 0x06) unless that session also wrote the settings
         # mirror the app writes before closing. Verified on a BP5465 over local
         # BlueZ, through a power cycle (#175): slot right after the 0x1C index
-        # region, and byte 0x11 set to 0x80 as the capture showed.
+        # region, and every stream's unread counter reset -- the byte 0x11 the
+        # capture showed going to 0x80 is one of the one-byte ones.
         pairing_registration=PairingRegistration(
-            slot_offset=0x1C, index_flag_offset=0x11
+            slot_offset=0x1C,
+            unread_clears=(
+                (0x04, 0x8000), (0x06, 0x8000),
+                (0x11, 0x80), (0x13, 0x80), (0x16, 0x80), (0x18, 0x80),
+                (0x19, 0x80), (0x1B, 0x80),
+            ),
         ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],

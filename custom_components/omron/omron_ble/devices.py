@@ -102,24 +102,33 @@ _PEER_CLOSES_SESSION_SEC: float = 5.0
 
 @dataclass(frozen=True)
 class PairingRegistration:
-    """Where the pairing session's registration write lands in the settings mirror.
+    """What the pairing session writes back to the settings mirror.
 
-    The app ends a fresh pairing by writing the index region plus one 10-byte
-    transfer slot back to the mirror, with the unread counter cleared and the
-    slot's two counters (+4, +8) stepped. WLD3.0 token-key cuffs refuse to
-    resume the bond on the next connection without it (#175, #91). The slot
-    does not always sit right after the index region -- an HEM-7155T-MW3 has
-    eight bytes between them (#67) -- so its offset is spelled out per profile
-    rather than derived. ``index_flag_offset`` is one byte the BP5465 capture
-    sets to 0x80 and the HEM-7155T-MW3 capture does not touch; its meaning is
-    not understood, so it is only written where it was seen.
+    The app ends a fresh pairing by writing the index region plus the user's
+    10-byte profile slot back to the mirror, and WLD3.0 token-key cuffs refuse
+    to resume the bond on the next connection without it (#175, #91).
+
+    The index region carries one unread counter per data stream: two-byte
+    counters for the two blood-pressure streams, whose idle marker is 0x8000,
+    and one-byte counters for the rest, idle at 0x80. A session that has read
+    the records resets every one of them -- the byte the #175 capture showed
+    going to 0x80 is one of the one-byte counters, not a flag. Which bytes
+    those are is a property of the index layout, so they are listed per
+    profile as (offset, idle value); the value is written little-endian in as
+    many bytes as it needs.
+
+    The slot holds a 32-bit little-endian value at +4 that steps once per
+    transfer and an additive checksum at +8 over the eight bytes before it --
+    the same rule the clock record follows, verified on every sample in the
+    #67 and #175 captures. A slot that starts 0xFFFF has never been written
+    and is left alone.
     """
 
-    # Offset of the transfer slot within the settings region. None means it
-    # follows the index region directly.
-    slot_offset: int | None = None
-    # Byte of the index region set to 0x80 in the write, or None to leave it.
-    index_flag_offset: int | None = None
+    # Offset of the user's profile slot within the settings region. It does
+    # not always follow the index region directly (#67 shows padding).
+    slot_offset: int
+    # (offset, idle value) for every unread counter in the index region.
+    unread_clears: tuple[tuple[int, int], ...]
 
 
 @dataclass

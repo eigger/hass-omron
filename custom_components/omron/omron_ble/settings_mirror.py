@@ -91,3 +91,15 @@ def clock_block(tail: bytes, now: datetime, size: int) -> bytes:
     )
     block[checksum_at] = sum(block[:checksum_at]) & 0xFF
     return bytes(block)
+
+
+def slot_checksum(slot: bytes) -> int:
+    """Additive checksum of a 10-byte profile slot: sum of the first eight bytes.
+
+    The same rule as the clock record's -- checksum in the second-to-last
+    byte over everything before it -- which is what every populated slot in
+    the #67 and #175 captures carries.
+    """
+    if len(slot) < 10:
+        raise ValueError(f"A profile slot is 10 bytes, got {len(slot)}")
+    return sum(slot[:8]) & 0xFF
