@@ -436,6 +436,12 @@ class TestItNeverBlocksTheClose:
             for node in ast.walk(fn)
         )
         assert looped, "등록 호출이 한 번뿐이다 — 실패한 시계 쓰기를 다시 쓸 경로가 없다"
+        # 루프가 있다는 것만으로는 부족하다: 한 번만 도는 루프도 루프다.
+        from custom_components.omron.omron_ble.parser import _REGISTRATION_ATTEMPTS
+
+        assert _REGISTRATION_ATTEMPTS >= 2, (
+            "시도가 한 번뿐이면 head/clock 분리가 아무 일도 하지 않는다"
+        )
 
     def test_the_call_site_swallows_failures(self):
         fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
