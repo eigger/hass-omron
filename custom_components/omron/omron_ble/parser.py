@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from bleak import BleakClient
@@ -68,11 +69,13 @@ class OmronBluetoothDeviceData(BluetoothData):
         self,
         device_model: str = DEFAULT_DEVICE_MODEL,
         user_aliases: dict[int, str] | None = None,
-        tz: dt.tzinfo | None = None,
+        get_tz: Callable[[], dt.tzinfo] | None = None,
     ) -> None:
         super().__init__()
-        # Zone for naive measurement timestamps; the system zone when unset.
-        self._tz = tz
+        # Zone for naive measurement timestamps, read at conversion time so a
+        # caller whose zone can change is not pinned to the one at setup; the
+        # system zone when unset.
+        self._get_tz = get_tz
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
         self._device_model = device_model
@@ -709,7 +712,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not isinstance(value, dt.datetime):
             return value
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            tz = self._tz or dt.datetime.now().astimezone().tzinfo
+            tz = (self._get_tz() if self._get_tz else None) or dt.datetime.now().astimezone().tzinfo
             return value.replace(tzinfo=tz)
         return value
 
