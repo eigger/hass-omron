@@ -7,6 +7,7 @@ from .devices import (
     DeviceConfig,
     Endianness,
     HostPairingMode,
+    PairingRegistration,
     RecordParser,
     TimeSyncLayout,
     UnlockMode,
@@ -1122,6 +1123,13 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         connect_type=ConnectType.WLD3_0,
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
+        # Same settings geometry as HEM-7386T1 -- 0x0010 -> 0x0058, [0x30, 0x40],
+        # 0x1C index region -- so the registration write lands on the same
+        # bytes at the same addresses as the one #175 verified there. Not yet
+        # confirmed on this model itself.
+        pairing_registration=PairingRegistration(
+            slot_offset=0x1C, index_flag_offset=0x11
+        ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0BCC],
         per_user_records_count=[60, 60],
@@ -1163,6 +1171,13 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         connect_type=ConnectType.WLD3_0,
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
+        # Same settings geometry as HEM-7386T1 -- 0x0010 -> 0x0058, [0x30, 0x40],
+        # 0x1C index region -- so the registration write lands on the same
+        # bytes at the same addresses as the one #175 verified there. Not yet
+        # confirmed on this model itself.
+        pairing_registration=PairingRegistration(
+            slot_offset=0x1C, index_flag_offset=0x11
+        ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01CC, 0x080C],
         per_user_records_count=[100, 100],
@@ -1198,8 +1213,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # The cuff accepts the bond a fresh pairing makes and then refuses to
         # resume it (HCI 0x06) unless that session also wrote the settings
         # mirror the app writes before closing. Verified on a BP5465 over local
-        # BlueZ, through a power cycle (#175).
-        pairing_registration_write=True,
+        # BlueZ, through a power cycle (#175): slot right after the 0x1C index
+        # region, and byte 0x11 set to 0x80 as the capture showed.
+        pairing_registration=PairingRegistration(
+            slot_offset=0x1C, index_flag_offset=0x11
+        ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],
