@@ -328,6 +328,12 @@ class TestWhenItRuns:
             "끊긴 핸드오프의 pairing_session 을 교체 세션에 물려주지 않는다"
         )
         assert "_open_session(ble_device, pairing_session=pairing_session)" in body
+        # 등록을 쓰는 프로파일에서만. secure-session 프로파일에서 페어링 세션은
+        # 저장된 자격증명을 버리고 새로 페어링하므로, 창 밖에서는 멀쩡한
+        # 자격증명을 두고 실패한다.
+        assert "pairing_registration is not None" in body, (
+            "상속이 프로파일로 게이트되지 않는다 — secure-session 계열이 자격증명을 잃는다"
+        )
 
     def test_a_failed_close_after_registering_is_logged(self):
         """이 경로엔 재시도가 없다 — 최소한 나중의 0x06 에 원인이 남아야 한다."""

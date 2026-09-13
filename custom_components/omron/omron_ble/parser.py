@@ -1113,11 +1113,18 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                         preconnected_session.reclaim_ownership()
                         await preconnected_session.aclose()
-                        # The replacement inherits what the dropped link was:
-                        # a pairing session's registration write only ever
-                        # runs on a pairing session, and the cuff may well
-                        # still be in its pairing window.
-                        pairing_session = preconnected_session._pairing_session
+                        # On the profiles that write a pairing registration,
+                        # the replacement inherits the dropped link's pairing
+                        # nature: that write only ever runs on a pairing
+                        # session, and the cuff may well still be in its
+                        # window. Nowhere else -- on a secure-session profile a
+                        # pairing session discards the stored credential and
+                        # pairs afresh, which outside the window fails a cuff
+                        # whose credential still works.
+                        pairing_session = (
+                            preconnected_session._pairing_session
+                            and self._device_config.pairing_registration is not None
+                        )
                         if pairing_session:
                             _LOGGER.info(
                                 "Reconnecting to %s as a pairing session so the "

@@ -1596,16 +1596,15 @@ class OmronDeviceSession:
                 f"the registration block needs {head_size}"
             )
 
+        written: list[str] = []
         if not self._pairing_registration_head_done:
             await self._write_registration_head(layout, registration)
+            written.append(f"settings mirror 0x{layout.head_write_address:04X}")
         if not self._pairing_registration_clock_done:
             await self._write_registration_clock(layout)
+            written.append(f"clock 0x{layout.clock_write_address:04X}")
         _LOGGER.info(
-            "%s: pairing registration written (settings mirror 0x%04X, clock "
-            "0x%04X)",
-            cfg.model,
-            layout.head_write_address,
-            layout.clock_write_address,
+            "%s: pairing registration written (%s)", cfg.model, ", ".join(written)
         )
         return True
 
