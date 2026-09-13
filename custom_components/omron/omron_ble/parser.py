@@ -880,9 +880,19 @@ class OmronBluetoothDeviceData(BluetoothData):
         memory_session_active: bool,
     ) -> None:
         """Time sync, record fetch, and device info reads for one poll cycle."""
+        # The registration's clock write is the time sync's, plus the flag bit
+        # and an unconditional stamp, to the same address. Running both sends
+        # the block twice for one session.
+        registration_writes_clock = (
+            session._pairing_session
+            and self._device_config.pairing_registration is not None
+        )
         try:
             if memory_session_active:
-                if self._device_config.supports_eeprom_time_sync:
+                if (
+                    self._device_config.supports_eeprom_time_sync
+                    and not registration_writes_clock
+                ):
                     await async_sync_eeprom_time(
                         client,
                         self._device_model,

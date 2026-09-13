@@ -326,6 +326,30 @@ class DeviceConfig:
                 "Profile %s uses custom-key pairing with unlock_mode=NONE; verify catalog settings",
                 self.model,
             )
+        if self.pairing_registration is not None:
+            # Whether the registration block fits is fixed by the catalog, so
+            # a profile that cannot describe one has to fail here rather than
+            # mid-pairing on someone's cuff.
+            needed = (
+                self.pairing_registration.slot_offset
+                + self.pairing_registration.slot_size
+            )
+            region = (self.settings_time_sync_bytes or [0])[0]
+            if region < needed:
+                raise ValueError(
+                    "Invalid profile config for %s: the settings region is %d bytes "
+                    "but its pairing registration needs %d"
+                    % (self.model, region, needed)
+                )
+            index_size = int(
+                (self.index_pointer_layout or {}).get("index_region_byte_size", 0)
+            )
+            if self.pairing_registration.slot_offset < index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the profile slot at %d overlaps "
+                    "the %d-byte index region"
+                    % (self.model, self.pairing_registration.slot_offset, index_size)
+                )
 
     @property
     def display_model(self) -> str:

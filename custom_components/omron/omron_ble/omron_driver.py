@@ -6,7 +6,7 @@ import logging
 import secrets
 import traceback
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -19,6 +19,10 @@ from .const import (
     UNLOCK_CHARACTERISTIC_UUID,
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
+
+if TYPE_CHECKING:
+    from .devices import PairingRegistration
+    from .settings_mirror import SettingsMirrorLayout
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1608,7 +1612,9 @@ class OmronDeviceSession:
         )
         return True
 
-    async def _write_registration_head(self, layout: Any, registration: Any) -> None:
+    async def _write_registration_head(
+        self, layout: SettingsMirrorLayout, registration: PairingRegistration
+    ) -> None:
         """Index region with every unread counter reset, plus the stepped slot."""
         cfg = self._config
         slot = registration.slot_offset
@@ -1659,7 +1665,7 @@ class OmronDeviceSession:
         # cuff's transfer count and must not run twice on this link.
         self._pairing_registration_head_done = True
 
-    async def _write_registration_clock(self, layout: Any) -> None:
+    async def _write_registration_clock(self, layout: SettingsMirrorLayout) -> None:
         """The clock record stamped with the current time, flag bit set.
 
         Tracked apart from the head so a failure here is retried on its own:

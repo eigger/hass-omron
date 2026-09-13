@@ -268,6 +268,55 @@ class TestDerivedFromTheProfile:
             assert {(w, v) for o, w, v in reg.unread_clears if o not in (4, 6)} == {(1, 0x80)}
             assert reg.slot_size == 10
 
+    def test_a_profile_that_cannot_hold_its_registration_is_refused(self):
+        """맞는지 여부는 카탈로그가 정하는 값이다 — 사용자 커프에서 터질 일이 아니다."""
+        from custom_components.omron.omron_ble.devices import DeviceConfig
+
+        def _profile(**over):
+            base = dict(
+                model="synthetic",
+                settings_read_address=0x0010,
+                settings_write_address=0x0054,
+                settings_time_sync_bytes=[0x30, 0x40],
+                index_pointer_layout={
+                    "index_region_byte_size": 0x1C,
+                    "users": [{"write_cursor_offset": 0, "unread_counter_offset": 4}],
+                },
+                pairing_registration=PairingRegistration(
+                    slot_offset=0x1C, unread_clears=((0x04, 2, 0x8000),)
+                ),
+            )
+            base.update(over)
+            return DeviceConfig(**base)
+
+        _profile()                                          # 정상 조합은 통과
+        with pytest.raises(ValueError, match="settings region is"):
+            _profile(settings_time_sync_bytes=[0x10, 0x20])  # 영역 16 < 필요 38
+        with pytest.raises(ValueError, match="overlaps"):
+            _profile(
+                pairing_registration=PairingRegistration(
+                    slot_offset=0x10, unread_clears=((0x04, 2, 0x8000),)
+                )
+            )
+
+    def test_the_clock_is_not_written_twice_in_a_pairing_session(self):
+        """등록의 시계 쓰기가 시간 동기화의 상위집합이다 — 둘 다 돌면 왕복 한 번 낭비."""
+        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
+        body = ast.unparse(fn)
+        assert "registration_writes_clock" in body
+        assert "not registration_writes_clock" in body, (
+            "페어링 세션에서 시간 동기화와 등록이 같은 주소를 두 번 쓴다"
+        )
+
+    def test_the_write_helpers_are_typed(self):
+        """둘 다 Any 면 인자를 바꿔 넘겨도 런타임까지 안 걸린다."""
+        source = (_COMPONENT / "omron_ble" / "omron_driver.py").read_text(encoding="utf-8")
+        for sig in (
+            "layout: SettingsMirrorLayout, registration: PairingRegistration",
+            "_write_registration_clock(self, layout: SettingsMirrorLayout)",
+        ):
+            assert sig in source, sig
+
     def test_profiles_without_evidence_stay_off(self):
         for other in ("HEM-7155T-MW3", "HEM-7188T1-LEO", "HEM-7142T2", "HEM-7196T1"):
             assert get_device_config(other).pairing_registration is None, other
