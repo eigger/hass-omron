@@ -1089,6 +1089,16 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # Same protocol family as HEM-7386T1 and the same reported symptom
         # (issue #20), so it runs the same experiment rather than a variant.
         connect_settle_attempts=_WLD3_SINGLE_CONNECT_ATTEMPT,
+        # Its settings geometry is the HEM-7155T-MW3's, not the HEM-7386T1's:
+        # 0x44 between region and mirror, clock at [0x2C, 0x3C], and the #67
+        # MW3 capture puts the transfer slot at 0x18 -- which is also this
+        # profile's index region size. The index byte the BP5465 write sets is
+        # left alone: the MW3 capture does not touch it and no 7380 capture
+        # exists to say otherwise. Everything written is the mirror region's
+        # own bytes read back; records start at 0x01C4 and are not involved.
+        pairing_registration=PairingRegistration(
+            slot_offset=0x18, index_flag_offset=None
+        ),
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0804],
         per_user_records_count=[100, 100],
