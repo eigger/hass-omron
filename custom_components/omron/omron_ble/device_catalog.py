@@ -1098,8 +1098,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         pairing_registration=PairingRegistration(
             slot_offset=0x18,
             unread_clears=(
-                (0x04, 0x8000), (0x06, 0x8000),
-                (0x11, 0x80), (0x13, 0x80), (0x15, 0x80), (0x17, 0x80),
+                (0x04, 2, 0x8000), (0x06, 2, 0x8000),
+                (0x11, 1, 0x80), (0x13, 1, 0x80), (0x15, 1, 0x80), (0x17, 1, 0x80),
             ),
         ),
         endianness=Endianness.LITTLE,
@@ -1143,8 +1143,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         pairing_registration=PairingRegistration(
             slot_offset=0x1C,
             unread_clears=(
-                (0x04, 0x8000), (0x06, 0x8000),
-                (0x11, 0x80), (0x13, 0x80), (0x19, 0x80), (0x1B, 0x80),
+                (0x04, 2, 0x8000), (0x06, 2, 0x8000),
+                (0x11, 1, 0x80), (0x13, 1, 0x80), (0x19, 1, 0x80), (0x1B, 1, 0x80),
             ),
         ),
         endianness=Endianness.LITTLE,
@@ -1195,8 +1195,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         pairing_registration=PairingRegistration(
             slot_offset=0x1C,
             unread_clears=(
-                (0x04, 0x8000), (0x06, 0x8000),
-                (0x11, 0x80), (0x13, 0x80), (0x19, 0x80), (0x1B, 0x80),
+                (0x04, 2, 0x8000), (0x06, 2, 0x8000),
+                (0x11, 1, 0x80), (0x13, 1, 0x80), (0x19, 1, 0x80), (0x1B, 1, 0x80),
             ),
         ),
         endianness=Endianness.LITTLE,
@@ -1240,9 +1240,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         pairing_registration=PairingRegistration(
             slot_offset=0x1C,
             unread_clears=(
-                (0x04, 0x8000), (0x06, 0x8000),
-                (0x11, 0x80), (0x13, 0x80), (0x16, 0x80), (0x18, 0x80),
-                (0x19, 0x80), (0x1B, 0x80),
+                (0x04, 2, 0x8000), (0x06, 2, 0x8000),
+                (0x11, 1, 0x80), (0x13, 1, 0x80), (0x16, 1, 0x80), (0x18, 1, 0x80),
+                (0x19, 1, 0x80), (0x1B, 1, 0x80),
             ),
         ),
         endianness=Endianness.LITTLE,

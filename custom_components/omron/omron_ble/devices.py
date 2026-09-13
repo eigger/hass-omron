@@ -114,21 +114,45 @@ class PairingRegistration:
     the records resets every one of them -- the byte the #175 capture showed
     going to 0x80 is one of the one-byte counters, not a flag. Which bytes
     those are is a property of the index layout, so they are listed per
-    profile as (offset, idle value); the value is written little-endian in as
-    many bytes as it needs.
+    profile as (offset, width, idle value), little-endian.
 
     The slot holds a 32-bit little-endian value at +4 that steps once per
-    transfer and an additive checksum at +8 over the eight bytes before it --
-    the same rule the clock record follows, verified on every sample in the
-    #67 and #175 captures. A slot that starts 0xFFFF has never been written
-    and is left alone.
+    transfer and an additive checksum in its second-to-last byte over
+    everything before it -- the same rule the clock record follows, verified
+    on every sample in the #67 and #175 captures. Slots are 10 bytes on the
+    profiles verified so far; the family also has 14-byte ones, which is why
+    the size is spelled out rather than assumed. A slot that starts 0xFFFF
+    has never been written and is left alone.
     """
 
     # Offset of the user's profile slot within the settings region. It does
     # not always follow the index region directly (#67 shows padding).
     slot_offset: int
-    # (offset, idle value) for every unread counter in the index region.
-    unread_clears: tuple[tuple[int, int], ...]
+    # (offset, width in bytes, idle value) for every unread counter in the
+    # index region.
+    unread_clears: tuple[tuple[int, int, int], ...]
+    # Size of the profile slot: count at +4, checksum at size - 2.
+    slot_size: int = 10
+
+    def __post_init__(self) -> None:
+        if self.slot_size < 10:
+            raise ValueError(
+                f"A profile slot needs at least 10 bytes (count at +4, "
+                f"checksum at size-2), got {self.slot_size}"
+            )
+        for offset, width, idle in self.unread_clears:
+            if width not in (1, 2):
+                raise ValueError(f"Unread counter at {offset}: width {width} is not 1 or 2")
+            if idle >= 1 << (8 * width):
+                raise ValueError(
+                    f"Unread counter at {offset}: idle value 0x{idle:X} does not fit "
+                    f"{width} byte(s)"
+                )
+            if offset + width > self.slot_offset:
+                raise ValueError(
+                    f"Unread counter at {offset} lies outside the index region "
+                    f"({self.slot_offset} bytes)"
+                )
 
 
 @dataclass

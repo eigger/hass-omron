@@ -25,9 +25,7 @@ _LOGGER = logging.getLogger(__name__)
 # BLE memory-protocol pacing (extra margin for weak RF / busy stacks).
 # The per-transfer slot that follows the index region in the settings mirror
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
-_REGISTRATION_SLOT_SIZE: int = 10
 _REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
-_REGISTRATION_SLOT_CHECKSUM_OFFSET: int = 8   # additive, over the 8 bytes before it
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
@@ -1166,6 +1164,12 @@ class OmronDeviceSession:
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
+        # A reset means the session that may have written the registration did
+        # not close cleanly, and whether the cuff commits the mirror on the
+        # write or on the close is not established. Re-arm so the retried
+        # session writes it again; the cost is a transfer count stepped twice,
+        # the alternative a registration silently lost.
+        self._pairing_registration_done = False
         self._channel_fragments = [None] * 4
         self._expected_reply_packet_type = None
         self._expected_reply_memory_address = None
@@ -1568,7 +1572,8 @@ class OmronDeviceSession:
 
         layout = SettingsMirrorLayout(cfg)
         slot = registration.slot_offset
-        head_size = slot + _REGISTRATION_SLOT_SIZE
+        slot_size = registration.slot_size
+        head_size = slot + slot_size
         if layout.head_read_size < head_size:
             raise ConnectionError(
                 f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
@@ -1586,14 +1591,9 @@ class OmronDeviceSession:
         block = bytearray(head[:head_size])
 
         # Every stream's unread counter back to its idle marker: the records
-        # have been read. Two-byte markers land little-endian.
-        for offset, idle in registration.unread_clears:
-            width = 2 if idle > 0xFF else 1
-            if offset + width > slot:
-                raise ConnectionError(
-                    f"Unread counter at {offset} lies outside the index region "
-                    f"of {cfg.model} ({slot} bytes)"
-                )
+        # have been read. Widths and bounds were validated when the profile
+        # was built.
+        for offset, width, idle in registration.unread_clears:
             block[offset : offset + width] = idle.to_bytes(width, "little")
 
         if block[slot : slot + 2] == b"\xff\xff":
@@ -1613,12 +1613,17 @@ class OmronDeviceSession:
             block[count_at : count_at + 4] = ((count + 1) & 0xFFFFFFFF).to_bytes(
                 4, "little"
             )
-            block[slot + _REGISTRATION_SLOT_CHECKSUM_OFFSET] = slot_checksum(
-                block[slot : slot + _REGISTRATION_SLOT_SIZE]
+            block[slot + slot_size - 2] = slot_checksum(
+                block[slot : slot + slot_size], slot_size
             )
         await self.write_memory_range(
             layout.head_write_address, block, block_size=len(block)
         )
+        # Armed here, not after the clock: the head write is the part that
+        # must not run twice on this link (it steps the count). A clock write
+        # that fails after this stands as the caller's warning; the next poll's
+        # EEPROM time sync covers the clock anyway.
+        self._pairing_registration_done = True
 
         tail = await self.read_memory_range(
             layout.clock_read_address, layout.clock_read_size, cfg.transmission_block_size
@@ -1634,7 +1639,6 @@ class OmronDeviceSession:
         await self.write_memory_range(
             layout.clock_write_address, bytearray(stamped), block_size=len(stamped)
         )
-        self._pairing_registration_done = True
         _LOGGER.info(
             "%s: pairing registration written (settings mirror 0x%04X, clock "
             "0x%04X)",

@@ -101,8 +101,7 @@ class TestTheWrite:
         assert clock_addr == 0x0088 and len(clock) == 16
 
         expected = bytearray(_settings(0x1C, _populated_slot(1))[: 0x1C + 10])
-        for offset, idle in cfg.pairing_registration.unread_clears:
-            width = 2 if idle > 0xFF else 1
+        for offset, width, idle in cfg.pairing_registration.unread_clears:
             expected[offset : offset + width] = idle.to_bytes(width, "little")
         expected[0x1C : 0x1C + 10] = _populated_slot(2)
         assert head == bytes(expected)
@@ -170,7 +169,7 @@ class TestDerivedFromTheProfile:
         cfg = SimpleNamespace(
             model="synthetic",
             pairing_registration=PairingRegistration(
-                slot_offset=0x1C, unread_clears=((0x04, 0x8000),)
+                slot_offset=0x1C, unread_clears=((0x04, 2, 0x8000),)
             ),
             settings_read_address=0x0100,
             settings_write_address=0x0200,
@@ -182,22 +181,59 @@ class TestDerivedFromTheProfile:
         _commit(target)
         assert [addr for addr, _ in target.writes] == [0x0200, 0x0230]
 
-    def test_a_counter_outside_the_index_region_is_refused(self):
+    def test_a_bad_layout_fails_when_the_profile_is_built(self):
+        """기기에 닿기 전, 임포트 시점에 걸려야 한다."""
+        with pytest.raises(ValueError, match="outside the index region"):
+            PairingRegistration(slot_offset=0x18, unread_clears=((0x17, 2, 0x8000),))
+        with pytest.raises(ValueError, match="does not fit"):
+            PairingRegistration(slot_offset=0x18, unread_clears=((0x04, 1, 0x8000),))
+        with pytest.raises(ValueError, match="width"):
+            PairingRegistration(slot_offset=0x18, unread_clears=((0x04, 3, 0x00),))
+        with pytest.raises(ValueError, match="at least 10"):
+            PairingRegistration(slot_offset=0x18, unread_clears=(), slot_size=8)
+
+    def test_the_width_is_explicit_not_inferred(self):
+        """유휴값이 한 바이트에 들어가도 2바이트 카운터는 2바이트를 쓴다."""
         cfg = SimpleNamespace(
-            model="broken",
+            model="two-byte-zero",
             pairing_registration=PairingRegistration(
-                slot_offset=0x18, unread_clears=((0x17, 0x8000),)   # 2B 가 슬롯을 침범
+                slot_offset=0x1C, unread_clears=((0x04, 2, 0x0000),)
+            ),
+            settings_read_address=0x0010,
+            settings_write_address=0x0058,
+            settings_time_sync_bytes=[0x30, 0x40],
+            transmission_block_size=0x38,
+            index_pointer_layout={"index_region_byte_size": 0x1C},
+        )
+        target = _session(cfg)
+        _commit(target)
+        _, head = target.writes[0]
+        assert head[4:6] == b"\x00\x00"
+
+    def test_a_larger_slot_puts_the_checksum_at_its_end(self):
+        """14바이트 슬롯: 카운트는 그대로 +4, 체크섬은 +12."""
+        cfg = SimpleNamespace(
+            model="wide-slot",
+            pairing_registration=PairingRegistration(
+                slot_offset=0x10, unread_clears=(), slot_size=14
             ),
             settings_read_address=0x0010,
             settings_write_address=0x0054,
             settings_time_sync_bytes=[0x2C, 0x3C],
             transmission_block_size=0x38,
-            index_pointer_layout={"index_region_byte_size": 0x18},
+            index_pointer_layout={"index_region_byte_size": 0x10},
         )
-        target = _session(cfg)
-        with pytest.raises(ConnectionError, match="outside the index region"):
-            _commit(target)
-        assert target.writes == []
+        slot = bytes(range(1, 13)) + b"\x00\x00"         # 12 data bytes, checksum, pad
+        memory = bytearray(0x400)
+        memory[0x0010 : 0x0010 + 0x2C] = bytes(range(0x10)) + slot + bytes(0x2C - 0x10 - 14)
+        target = _session(cfg, memory=bytes(memory))
+        _commit(target)
+        _, head = target.writes[0]
+        assert len(head) == 0x10 + 14
+        written = head[0x10 : 0x10 + 14]
+        assert int.from_bytes(written[4:8], "little") == int.from_bytes(slot[4:8], "little") + 1
+        assert written[12] == sum(written[:12]) & 0xFF
+        assert written[8:12] == slot[8:12]                  # +8 은 이제 데이터, 손대지 않음
 
     def test_the_driver_names_no_model(self):
         source = (_COMPONENT / "omron_ble" / "omron_driver.py").read_text(encoding="utf-8")
@@ -208,19 +244,20 @@ class TestDerivedFromTheProfile:
         """같은 지오메트리라도 스트림 수는 다르다 — 7386T1 여덟, 7376T1 여섯."""
         seven = get_device_config("HEM-7386T1").pairing_registration
         assert seven.slot_offset == 0x1C
-        assert [o for o, _ in seven.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x16, 0x18, 0x19, 0x1B]
+        assert [o for o, _, _ in seven.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x16, 0x18, 0x19, 0x1B]
         assert get_device_config("HEM-7382T1-AZAZ").pairing_registration == seven
         for sibling in ("HEM-7376T1", "HEM-7377T1"):
             reg = get_device_config(sibling).pairing_registration
             assert reg.slot_offset == 0x1C
-            assert [o for o, _ in reg.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x19, 0x1B]
+            assert [o for o, _, _ in reg.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x19, 0x1B]
         eighty = get_device_config("HEM-7380T1").pairing_registration
         assert eighty.slot_offset == 0x18
-        assert [o for o, _ in eighty.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x15, 0x17]
+        assert [o for o, _, _ in eighty.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x15, 0x17]
         # 두 혈압 스트림만 2바이트, 나머지는 1바이트 유휴값.
         for reg in (seven, eighty):
-            assert {v for o, v in reg.unread_clears if o in (4, 6)} == {0x8000}
-            assert {v for o, v in reg.unread_clears if o not in (4, 6)} == {0x80}
+            assert {(w, v) for o, w, v in reg.unread_clears if o in (4, 6)} == {(2, 0x8000)}
+            assert {(w, v) for o, w, v in reg.unread_clears if o not in (4, 6)} == {(1, 0x80)}
+            assert reg.slot_size == 10
 
     def test_profiles_without_evidence_stay_off(self):
         for other in ("HEM-7155T-MW3", "HEM-7188T1-LEO", "HEM-7142T2", "HEM-7196T1"):
@@ -241,6 +278,33 @@ class TestDerivedFromTheProfile:
 
 
 class TestWhenItRuns:
+    def test_a_failed_clock_write_does_not_rerun_the_head_write(self):
+        """head 쓰기가 카운트를 올리므로, 같은 링크에서 두 번 돌면 안 된다."""
+        cfg = get_device_config("HEM-7386T1")
+        target = _session(cfg)
+        calls = {"n": 0}
+        real_write = target.write_memory_range
+
+        async def flaky(address, data, block_size):
+            calls["n"] += 1
+            if calls["n"] == 2:                              # 시계 쓰기만 실패
+                raise TimeoutError("clock write")
+            await real_write(address, data, block_size)
+
+        target.write_memory_range = flaky
+        with pytest.raises(TimeoutError):
+            _commit(target)
+        assert target._pairing_registration_done is True     # head 는 나갔다
+        assert _commit(target) is False                     # 재실행하지 않는다
+
+    def test_a_session_reset_rearms_it(self):
+        """close 가 실패하면 파서가 reset 후 재시도한다 — 등록도 다시 써야 한다."""
+        fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "reset_session_state")
+        assert "_pairing_registration_done = False" in ast.unparse(fn), (
+            "reset 이 등록 플래그를 되돌리지 않는다 — close 가 실패한 세션의 등록이 "
+            "조용히 유실된다"
+        )
+
     def test_not_on_an_ordinary_session(self):
         target = _session(get_device_config("HEM-7386T1"), pairing=False)
         assert _commit(target) is False and target.writes == []
