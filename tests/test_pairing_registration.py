@@ -184,6 +184,29 @@ class TestDerivedFromTheProfile:
         for other in ("HEM-7155T-MW3", "HEM-7188T1-LEO", "HEM-7142T2", "HEM-7196T1"):
             assert get_device_config(other).pairing_registration is None, other
 
+    def test_hem_7380t1_uses_the_mw3_shaped_layout_without_the_flag(self):
+        """7380T1 은 7386T1 이 아니라 MW3 지오메트리다 — #67 캡처의 34바이트, 슬롯 0x18."""
+        cfg = get_device_config("HEM-7380T1")
+        assert cfg.pairing_registration == PairingRegistration(
+            slot_offset=0x18, index_flag_offset=None
+        )
+        memory = bytearray(0x400)
+        memory[0x0010 : 0x0010 + 0x2C] = bytes(range(0x2C))
+        target = _session(cfg, memory=bytes(memory))
+        _commit(target)
+        (head_addr, head), (clock_addr, clock) = target.writes
+        assert head_addr == 0x0054 and len(head) == 34
+        assert clock_addr == 0x0080 and len(clock) == 16
+        # 미러 영역 안에서만 쓴다: 레코드(0x01C4~)에는 닿지 않는다.
+        assert head_addr + len(head) <= 0x01C4 and clock_addr + len(clock) <= 0x01C4
+        # 읽은 그대로, 세 군데만 바뀐다.
+        expected = bytearray(range(0x2C))[:34]
+        expected[4:6] = (0x8000).to_bytes(2, "little")
+        expected[0x18 + 4] += 1
+        expected[0x18 + 8] += 1
+        assert head == bytes(expected)
+        assert head[0x11] == 0x11                          # 플래그 없음
+
     def test_the_slot_offset_is_not_assumed_from_the_index_size(self):
         """MW3 처럼 인덱스와 슬롯 사이에 패딩이 있는 배치를 위한 명시 오프셋."""
         cfg = SimpleNamespace(
