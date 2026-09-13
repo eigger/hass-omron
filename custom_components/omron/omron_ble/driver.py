@@ -7,8 +7,9 @@ import logging
 from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
-from .session import OmronDeviceSession, _hex
+from .session import OmronDeviceSession
 from .settings_mirror import SettingsMirrorLayout
+from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
 

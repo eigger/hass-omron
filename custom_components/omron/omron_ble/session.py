@@ -36,6 +36,7 @@ from .const import (
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 from .secure_flow import ASYNC_NOTICE_UUID, establish_secure_session
 from .settings_mirror import SettingsMirrorLayout, clock_block, slot_checksum
+from .util import _hex
 
 if TYPE_CHECKING:
     from .devices import PairingRegistration
@@ -70,11 +71,6 @@ _REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
 END_OF_TRANSMISSION_PACKET_TYPE = bytes([0x8F, 0x00])
 
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
-
-
-def _hex(data: bytes | bytearray) -> str:
-    """Convert byte array to hex string."""
-    return bytes(data).hex()
 
 
 def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
