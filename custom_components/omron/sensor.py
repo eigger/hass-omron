@@ -6,7 +6,13 @@ from datetime import datetime
 
 import datetime as dt
 from typing import Any
-from .omron_ble import SensorDeviceClass as OmronSensorDeviceClass, SensorUpdate, Units
+from sensor_state_data import (
+    DeviceKey,
+    SensorDeviceClass as OmronSensorDeviceClass,
+    SensorUpdate,
+    Units,
+)
+
 from .omron_ble.const import (
     ExtendedSensorDeviceClass as OmronExtendedSensorDeviceClass,
 )
@@ -36,7 +42,6 @@ from .entity_helpers import (
     device_key_entity_id_suffix,
     hass_device_info_with_ble_connection,
 )
-from .omron_ble import DeviceKey
 from .types import OmronConfigEntry
 
 SENSOR_DESCRIPTIONS = {
@@ -327,7 +332,7 @@ class OmronBluetoothSensorEntity(
         # Reverse search using aliases (dynamic, works when names change)
         aliases = getattr(self._omron_device_data, '_user_aliases', {})
         if aliases:
-            from .util import slugify_for_entity_key
+            from .omron_ble.util import slugify_for_entity_key
             for u_idx, label in aliases.items():
                 slug = slugify_for_entity_key(label)
                 if slug and key.endswith(f"_{slug}"):

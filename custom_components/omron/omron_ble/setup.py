@@ -14,7 +14,7 @@ from .setup_time_sync import (
 )
 
 if TYPE_CHECKING:
-    from homeassistant.components.bluetooth import BLEDevice
+    from bleak.backends.device import BLEDevice
 
 _LOGGER = logging.getLogger(__name__)
 

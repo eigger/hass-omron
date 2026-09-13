@@ -2,21 +2,10 @@
 
 from __future__ import annotations
 
-import re
-
 from homeassistant.config_entries import ConfigEntry
 
 from .const import CONF_USER_ALIASES
 
-
-def slugify_for_entity_key(raw: str) -> str:
-    """Normalize a display label into a stable entity-key fragment (lowercase, a-z0-9_)."""
-    s = str(raw).strip().lower()
-    if not s:
-        return ""
-    s = re.sub(r"[^a-z0-9_]+", "_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
-    return s[:48]
 
 
 def aliases_dict_from_entry(entry: ConfigEntry) -> dict[int, str]:

@@ -6,7 +6,9 @@ from collections.abc import Callable
 from logging import Logger
 from typing import TYPE_CHECKING
 
-from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
+from sensor_state_data import SensorUpdate
+
+from .omron_ble import OmronBluetoothDeviceData
 
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,

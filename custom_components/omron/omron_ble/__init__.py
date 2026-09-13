@@ -1,28 +1,7 @@
-from __future__ import annotations
+"""Omron BLE blood pressure monitor protocol and parser."""
 
-from sensor_state_data import (
-    BinarySensorDeviceClass,
-    DeviceClass,
-    DeviceKey,
-    SensorDescription,
-    SensorDeviceClass,
-    SensorDeviceInfo,
-    SensorUpdate,
-    SensorValue,
-    Units,
-)
+from __future__ import annotations
 
 from .parser import OmronBluetoothDeviceData
 
-__all__ = [
-    "BinarySensorDeviceClass",
-    "OmronBluetoothDeviceData",
-    "SensorDescription",
-    "SensorDeviceClass",
-    "SensorDeviceInfo",
-    "DeviceClass",
-    "DeviceKey",
-    "SensorUpdate",
-    "SensorValue",
-    "Units",
-]
+__all__ = ["OmronBluetoothDeviceData"]
