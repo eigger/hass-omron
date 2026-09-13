@@ -1195,6 +1195,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
         connect_settle_attempts=_WLD3_SINGLE_CONNECT_ATTEMPT,
+        # The cuff accepts the bond a fresh pairing makes and then refuses to
+        # resume it (HCI 0x06) unless that session also wrote the settings
+        # mirror the app writes before closing. Verified on a BP5465 over local
+        # BlueZ, through a power cycle (#175).
+        pairing_registration_write=True,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x080C, 0x0E4C],
         per_user_records_count=[100, 100],

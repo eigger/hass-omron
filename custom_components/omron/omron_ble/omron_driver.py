@@ -23,6 +23,11 @@ from .devices import DeviceConfig, HostPairingMode, UnlockMode
 _LOGGER = logging.getLogger(__name__)
 
 # BLE memory-protocol pacing (extra margin for weak RF / busy stacks).
+# The per-transfer slot that follows the index region in the settings mirror
+# (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
+_REGISTRATION_SLOT_SIZE: int = 10
+_REGISTRATION_SLOT_COUNTER_OFFSETS: tuple[int, ...] = (4, 8)
+_REGISTRATION_INDEX_FLAG_OFFSET: int = 0x11
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
@@ -716,6 +721,9 @@ class OmronDeviceSession:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
+        # A pairing session commits its registration once; a retried readout on
+        # the same link must not bump the cuff's transfer counters twice.
+        self._pairing_registration_done = False
         self._unlocked = False
         self._secure_session = None
         # Swappable handler for the unlock characteristic notifications. The
@@ -1523,6 +1531,101 @@ class OmronDeviceSession:
             self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels(force=True)
             raise
+
+    async def commit_pairing_registration(self) -> bool:
+        """Write the settings mirror the app writes at the end of a pairing.
+
+        A WLD3.0 cuff on the token-key transport accepts the bond it just made
+        and then refuses to resume it on the next connection -- HCI 0x06, PIN
+        or Key Missing -- unless the pairing session also wrote its mirror:
+        the index region with the unread counter cleared plus one 10-byte
+        transfer slot, and the clock record stamped with the current time.
+        The official app does both before its 080f close; hardware-verified
+        on a BP5465 / HEM-7382T1-AZAZ over local BlueZ, through a power cycle
+        (#175). The same slot structure -- two counters at +4 and +8 that step
+        once per transfer -- is what the #67 phone capture of an HEM-7155T-MW3
+        shows, so the layout is read off the profile rather than pinned to a
+        model.
+
+        Pairing sessions only, once per link, and after the records have been
+        read: the unread counter is cleared here. Returns whether it wrote.
+        Never raises -- the close that follows matters more than this write,
+        and a retained-bond session that ends without it is still a working
+        session. The caller logs.
+        """
+        cfg = self._config
+        if (
+            not cfg.pairing_registration_write
+            or not self._pairing_session
+            or self._pairing_registration_done
+        ):
+            return False
+        self._require_connected("commit_pairing_registration")
+        if not self._memory_session_active:
+            raise ConnectionError(
+                "Pairing registration needs an open memory session"
+            )
+        from .settings_mirror import SettingsMirrorLayout, clock_block
+
+        layout = SettingsMirrorLayout(cfg)
+        index_size = layout.head_write_size
+        head_size = index_size + _REGISTRATION_SLOT_SIZE
+        if layout.head_read_size < head_size:
+            raise ConnectionError(
+                f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
+                f"the registration block needs {head_size}"
+            )
+        users = (cfg.index_pointer_layout or {}).get("users") or ()
+        if not users:
+            raise ConnectionError(f"{cfg.model} has no index layout to clear")
+
+        head = await self.read_memory_range(
+            layout.head_read_address, layout.head_read_size, cfg.transmission_block_size
+        )
+        if len(head) != layout.head_read_size:
+            raise ConnectionError(
+                f"Short settings read for registration: {len(head)} of "
+                f"{layout.head_read_size}"
+            )
+        block = bytearray(head[:head_size])
+        # User 1's unread counter, cleared to the 0x8000 "nothing pending"
+        # marker the cuff itself uses (the phone does the same every transfer).
+        unread = int(users[0]["unread_counter_offset"])
+        block[unread : unread + 2] = (0x8000).to_bytes(2, "little")
+        # As captured, meaning unknown: byte 0x11 of the index region is set
+        # to 0x80 in the app's write. Reproduced rather than reasoned about.
+        block[_REGISTRATION_INDEX_FLAG_OFFSET] = 0x80
+        # The transfer slot's two counters step once per transfer.
+        for offset in _REGISTRATION_SLOT_COUNTER_OFFSETS:
+            at = index_size + offset
+            block[at] = (block[at] + 1) & 0xFF
+        await self.write_memory_range(
+            layout.head_write_address, block, block_size=len(block)
+        )
+
+        tail = await self.read_memory_range(
+            layout.clock_read_address, layout.clock_read_size, cfg.transmission_block_size
+        )
+        if len(tail) < layout.clock_write_size:
+            raise ConnectionError(
+                f"Short clock read for registration: {len(tail)} of "
+                f"{layout.clock_write_size}"
+            )
+        stamped = clock_block(
+            tail, dt.datetime.now().astimezone(), layout.clock_write_size
+        )
+        await self.write_memory_range(
+            layout.clock_write_address, bytearray(stamped), block_size=len(stamped)
+        )
+        self._pairing_registration_done = True
+        _LOGGER.info(
+            "%s: pairing registration written (settings mirror 0x%04X, clock "
+            "0x%04X)",
+            cfg.model,
+            layout.head_write_address,
+            layout.clock_write_address,
+        )
+        return True
 
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""

@@ -154,6 +154,10 @@ class DeviceConfig:
     # security with its own Security Request: BlueZ 5.72+ leaves the Just
     # Works confirmation unanswered when no agent is registered.
     register_pairing_agent: bool = False
+    # Write the app's end-of-pairing settings mirror (index with the unread
+    # counter cleared, one transfer slot, stamped clock) on the pairing session.
+    # WLD3.0 token-key cuffs refuse to resume the bond without it (#175).
+    pairing_registration_write: bool = False
 
     @property
     def pair_on_connect(self) -> bool:
