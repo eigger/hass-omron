@@ -27,7 +27,6 @@ _LOGGER = logging.getLogger(__name__)
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
 _REGISTRATION_SLOT_SIZE: int = 10
 _REGISTRATION_SLOT_COUNTER_OFFSETS: tuple[int, ...] = (4, 8)
-_REGISTRATION_INDEX_FLAG_OFFSET: int = 0x11
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
@@ -1554,8 +1553,9 @@ class OmronDeviceSession:
         session. The caller logs.
         """
         cfg = self._config
+        registration = cfg.pairing_registration
         if (
-            not cfg.pairing_registration_write
+            registration is None
             or not self._pairing_session
             or self._pairing_registration_done
         ):
@@ -1568,8 +1568,12 @@ class OmronDeviceSession:
         from .settings_mirror import SettingsMirrorLayout, clock_block
 
         layout = SettingsMirrorLayout(cfg)
-        index_size = layout.head_write_size
-        head_size = index_size + _REGISTRATION_SLOT_SIZE
+        slot = (
+            registration.slot_offset
+            if registration.slot_offset is not None
+            else layout.head_write_size
+        )
+        head_size = slot + _REGISTRATION_SLOT_SIZE
         if layout.head_read_size < head_size:
             raise ConnectionError(
                 f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
@@ -1592,12 +1596,14 @@ class OmronDeviceSession:
         # marker the cuff itself uses (the phone does the same every transfer).
         unread = int(users[0]["unread_counter_offset"])
         block[unread : unread + 2] = (0x8000).to_bytes(2, "little")
-        # As captured, meaning unknown: byte 0x11 of the index region is set
-        # to 0x80 in the app's write. Reproduced rather than reasoned about.
-        block[_REGISTRATION_INDEX_FLAG_OFFSET] = 0x80
+        # As captured, meaning unknown: one byte of the index region the app's
+        # write sets to 0x80 on the profiles where it was seen. Reproduced
+        # rather than reasoned about, and only where the profile says so.
+        if registration.index_flag_offset is not None:
+            block[registration.index_flag_offset] = 0x80
         # The transfer slot's two counters step once per transfer.
         for offset in _REGISTRATION_SLOT_COUNTER_OFFSETS:
-            at = index_size + offset
+            at = slot + offset
             block[at] = (block[at] + 1) & 0xFF
         await self.write_memory_range(
             layout.head_write_address, block, block_size=len(block)

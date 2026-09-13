@@ -100,6 +100,28 @@ class TimeSyncLayout(StrEnum):
 _PEER_CLOSES_SESSION_SEC: float = 5.0
 
 
+@dataclass(frozen=True)
+class PairingRegistration:
+    """Where the pairing session's registration write lands in the settings mirror.
+
+    The app ends a fresh pairing by writing the index region plus one 10-byte
+    transfer slot back to the mirror, with the unread counter cleared and the
+    slot's two counters (+4, +8) stepped. WLD3.0 token-key cuffs refuse to
+    resume the bond on the next connection without it (#175, #91). The slot
+    does not always sit right after the index region -- an HEM-7155T-MW3 has
+    eight bytes between them (#67) -- so its offset is spelled out per profile
+    rather than derived. ``index_flag_offset`` is one byte the BP5465 capture
+    sets to 0x80 and the HEM-7155T-MW3 capture does not touch; its meaning is
+    not understood, so it is only written where it was seen.
+    """
+
+    # Offset of the transfer slot within the settings region. None means it
+    # follows the index region directly.
+    slot_offset: int | None = None
+    # Byte of the index region set to 0x80 in the write, or None to leave it.
+    index_flag_offset: int | None = None
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -157,7 +179,7 @@ class DeviceConfig:
     # Write the app's end-of-pairing settings mirror (index with the unread
     # counter cleared, one transfer slot, stamped clock) on the pairing session.
     # WLD3.0 token-key cuffs refuse to resume the bond without it (#175).
-    pairing_registration_write: bool = False
+    pairing_registration: PairingRegistration | None = None
 
     @property
     def pair_on_connect(self) -> bool:

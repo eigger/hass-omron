@@ -24,7 +24,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.omron.omron_ble.devices import get_device_config
+from custom_components.omron.omron_ble.devices import (
+    PairingRegistration,
+    get_device_config,
+)
 from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
 from custom_components.omron.omron_ble.settings_mirror import (
     SettingsMirrorLayout,
@@ -137,7 +140,7 @@ class TestDerivedFromTheProfile:
     def test_a_shifted_profile_moves_the_writes_with_it(self):
         cfg = SimpleNamespace(
             model="synthetic",
-            pairing_registration_write=True,
+            pairing_registration=PairingRegistration(slot_offset=0x1C, index_flag_offset=0x11),
             settings_read_address=0x0100,
             settings_write_address=0x0200,
             settings_time_sync_bytes=[0x30, 0x40],
@@ -158,11 +161,53 @@ class TestDerivedFromTheProfile:
         )
         assert "resolve_profile_model_id" not in source
 
-    def test_the_flag_is_set_on_the_verified_family_only(self):
-        assert get_device_config("HEM-7386T1").pairing_registration_write is True
-        assert get_device_config("HEM-7382T1-AZAZ").pairing_registration_write is True
-        for other in ("HEM-7155T-MW3", "HEM-7380T1", "HEM-7188T1-LEO", "HEM-7142T2"):
-            assert get_device_config(other).pairing_registration_write is False, other
+    def test_the_verified_layout_is_shared_by_the_identical_profiles(self):
+        """7376T1/7377T1 은 7386T1 과 설정 지오메트리가 같으므로 같은 바이트가 간다."""
+        verified = get_device_config("HEM-7386T1")
+        assert verified.pairing_registration == PairingRegistration(
+            slot_offset=0x1C, index_flag_offset=0x11
+        )
+        assert get_device_config("HEM-7382T1-AZAZ").pairing_registration == verified.pairing_registration
+        for sibling in ("HEM-7376T1", "HEM-7377T1"):
+            cfg = get_device_config(sibling)
+            assert cfg.pairing_registration == verified.pairing_registration, sibling
+            # 같은 레이아웃이 같은 주소·크기로 이어져야 "동일"이 성립한다.
+            for attr in (
+                "settings_read_address",
+                "settings_write_address",
+                "settings_time_sync_bytes",
+            ):
+                assert getattr(cfg, attr) == getattr(verified, attr), (sibling, attr)
+            assert cfg.index_pointer_layout["index_region_byte_size"] == 0x1C
+
+    def test_profiles_without_evidence_stay_off(self):
+        for other in ("HEM-7155T-MW3", "HEM-7188T1-LEO", "HEM-7142T2", "HEM-7196T1"):
+            assert get_device_config(other).pairing_registration is None, other
+
+    def test_the_slot_offset_is_not_assumed_from_the_index_size(self):
+        """MW3 처럼 인덱스와 슬롯 사이에 패딩이 있는 배치를 위한 명시 오프셋."""
+        cfg = SimpleNamespace(
+            model="padded",
+            pairing_registration=PairingRegistration(slot_offset=0x18, index_flag_offset=None),
+            settings_read_address=0x0260,
+            settings_write_address=0x02A4,
+            settings_time_sync_bytes=[0x2C, 0x3C],
+            transmission_block_size=0x38,
+            index_pointer_layout={
+                "index_region_byte_size": 0x10,
+                "users": [{"unread_counter_offset": 0x04}],
+            },
+        )
+        memory = bytearray(0x400)
+        memory[0x0260 : 0x0260 + 0x2C] = bytes(range(0x2C))
+        target = _session(cfg, memory=bytes(memory))
+        _commit(target)
+        addr, written = target.writes[0]
+        assert addr == 0x02A4
+        assert len(written) == 0x18 + 10 == 34          # #67 캡처의 쓰기 길이
+        assert written[0x18 + 4] == 0x18 + 4 + 1         # 슬롯 +4 증가
+        assert written[0x18 + 8] == 0x18 + 8 + 1         # 슬롯 +8 증가
+        assert written[0x11] == 0x11                     # 플래그 없음: 읽은 그대로
 
 
 class TestWhenItRuns:
