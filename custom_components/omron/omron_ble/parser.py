@@ -19,7 +19,6 @@ from sensor_state_data import (
     SensorUpdate,
     SensorDeviceClass,
 )
-from homeassistant.util import dt as dt_util
 
 from .const import (
     FIRMWARE_REVISION_UUID,
@@ -39,7 +38,7 @@ from .omron_driver import (
     OmronDeviceSession,
     OmronDeviceDriver,
 )
-from ..util import slugify_for_entity_key
+from .util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -69,8 +68,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         self,
         device_model: str = DEFAULT_DEVICE_MODEL,
         user_aliases: dict[int, str] | None = None,
+        tz: dt.tzinfo | None = None,
     ) -> None:
         super().__init__()
+        # Zone for naive measurement timestamps; the system zone when unset.
+        self._tz = tz
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
         self._device_model = device_model
@@ -707,7 +709,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not isinstance(value, dt.datetime):
             return value
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            return value.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+            tz = self._tz or dt.datetime.now().astimezone().tzinfo
+            return value.replace(tzinfo=tz)
         return value
 
     @staticmethod

@@ -6,7 +6,7 @@ from homeassistant.const import ATTR_HW_VERSION, ATTR_SW_VERSION
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 
-from .omron_ble import DeviceKey
+from sensor_state_data import DeviceKey
 
 
 def device_key_entity_id_suffix(device_key: DeviceKey) -> str:

@@ -17,7 +17,9 @@ from .ble_session import (
     poll_parked_session,
     run_post_pairing_poll,
 )
-from .omron_ble import OmronBluetoothDeviceData, SensorUpdate
+from sensor_state_data import SensorUpdate
+
+from .omron_ble import OmronBluetoothDeviceData
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.devices import get_device_config
 from homeassistant.components.bluetooth import (
@@ -29,6 +31,7 @@ from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.util import dt as dt_util
 from datetime import datetime, timedelta
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -433,6 +436,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     data = OmronBluetoothDeviceData(
         device_model=device_model,
         user_aliases=slot_aliases,
+        tz=dt_util.DEFAULT_TIME_ZONE,
     )
     # Transport credential for profiles whose unlock keeps its own key. Stored
     # hex; a malformed value is dropped rather than failing setup, which would

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from .omron_ble import (
+from sensor_state_data import (
     BinarySensorDeviceClass as OmronBinarySensorDeviceClass,
+    DeviceKey,
     SensorUpdate,
 )
+
 from .omron_ble.const import ExtendedBinarySensorDeviceClass as OmronExtendedBinarySensorDeviceClass
 
 from homeassistant.components.binary_sensor import (
@@ -29,7 +31,6 @@ from .entity_helpers import (
     device_key_entity_id_suffix,
     hass_device_info_with_ble_connection,
 )
-from .omron_ble import DeviceKey
 from .types import OmronConfigEntry
 
 BINARY_SENSOR_DESCRIPTIONS = {
