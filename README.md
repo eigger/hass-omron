@@ -33,6 +33,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7343T** | BP5450/Platinum Series | Upper Arm | ✅ |
 | **HEM-7530T** | BP7900/Complete | Upper Arm | ✅ |
 | **HEM-7600T** |	BP7000/EVOLV	| Upper Arm	| ✅ |
+| **HEM-7386T1** | BP5465 | Upper Arm | ✅ |
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
