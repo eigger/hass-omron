@@ -102,24 +102,57 @@ _PEER_CLOSES_SESSION_SEC: float = 5.0
 
 @dataclass(frozen=True)
 class PairingRegistration:
-    """Where the pairing session's registration write lands in the settings mirror.
+    """What the pairing session writes back to the settings mirror.
 
-    The app ends a fresh pairing by writing the index region plus one 10-byte
-    transfer slot back to the mirror, with the unread counter cleared and the
-    slot's two counters (+4, +8) stepped. WLD3.0 token-key cuffs refuse to
-    resume the bond on the next connection without it (#175, #91). The slot
-    does not always sit right after the index region -- an HEM-7155T-MW3 has
-    eight bytes between them (#67) -- so its offset is spelled out per profile
-    rather than derived. ``index_flag_offset`` is one byte the BP5465 capture
-    sets to 0x80 and the HEM-7155T-MW3 capture does not touch; its meaning is
-    not understood, so it is only written where it was seen.
+    The app ends a fresh pairing by writing the index region plus the user's
+    10-byte profile slot back to the mirror, and WLD3.0 token-key cuffs refuse
+    to resume the bond on the next connection without it (#175, #91).
+
+    The index region carries one unread counter per data stream: two-byte
+    counters for the two blood-pressure streams, whose idle marker is 0x8000,
+    and one-byte counters for the rest, idle at 0x80. A session that has read
+    the records resets every one of them -- the byte the #175 capture showed
+    going to 0x80 is one of the one-byte counters, not a flag. Which bytes
+    those are is a property of the index layout, so they are listed per
+    profile as (offset, width, idle value), little-endian.
+
+    The slot holds a 32-bit little-endian value at +4 that steps once per
+    transfer and an additive checksum in its second-to-last byte over
+    everything before it -- the same rule the clock record follows, verified
+    on every sample in the #67 and #175 captures. Slots are 10 bytes on the
+    profiles verified so far; the family also has 14-byte ones, which is why
+    the size is spelled out rather than assumed. A slot that starts 0xFFFF
+    has never been written and is left alone.
     """
 
-    # Offset of the transfer slot within the settings region. None means it
-    # follows the index region directly.
-    slot_offset: int | None = None
-    # Byte of the index region set to 0x80 in the write, or None to leave it.
-    index_flag_offset: int | None = None
+    # Offset of the user's profile slot within the settings region. It does
+    # not always follow the index region directly (#67 shows padding).
+    slot_offset: int
+    # (offset, width in bytes, idle value) for every unread counter in the
+    # index region.
+    unread_clears: tuple[tuple[int, int, int], ...]
+    # Size of the profile slot: count at +4, checksum at size - 2.
+    slot_size: int = 10
+
+    def __post_init__(self) -> None:
+        if self.slot_size < 10:
+            raise ValueError(
+                f"A profile slot needs at least 10 bytes (count at +4, "
+                f"checksum at size-2), got {self.slot_size}"
+            )
+        for offset, width, idle in self.unread_clears:
+            if width not in (1, 2):
+                raise ValueError(f"Unread counter at {offset}: width {width} is not 1 or 2")
+            if idle >= 1 << (8 * width):
+                raise ValueError(
+                    f"Unread counter at {offset}: idle value 0x{idle:X} does not fit "
+                    f"{width} byte(s)"
+                )
+            if offset + width > self.slot_offset:
+                raise ValueError(
+                    f"Unread counter at {offset} lies outside the index region "
+                    f"({self.slot_offset} bytes)"
+                )
 
 
 @dataclass
@@ -293,6 +326,30 @@ class DeviceConfig:
                 "Profile %s uses custom-key pairing with unlock_mode=NONE; verify catalog settings",
                 self.model,
             )
+        if self.pairing_registration is not None:
+            # Whether the registration block fits is fixed by the catalog, so
+            # a profile that cannot describe one has to fail here rather than
+            # mid-pairing on someone's cuff.
+            needed = (
+                self.pairing_registration.slot_offset
+                + self.pairing_registration.slot_size
+            )
+            region = (self.settings_time_sync_bytes or [0])[0]
+            if region < needed:
+                raise ValueError(
+                    "Invalid profile config for %s: the settings region is %d bytes "
+                    "but its pairing registration needs %d"
+                    % (self.model, region, needed)
+                )
+            index_size = int(
+                (self.index_pointer_layout or {}).get("index_region_byte_size", 0)
+            )
+            if self.pairing_registration.slot_offset < index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the profile slot at %d overlaps "
+                    "the %d-byte index region"
+                    % (self.model, self.pairing_registration.slot_offset, index_size)
+                )
 
     @property
     def display_model(self) -> str:

@@ -43,6 +43,10 @@ from ..util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
 
+# The pairing registration is two writes and only the second may be repeated;
+# one retry lets a failed clock write land without redoing the head.
+_REGISTRATION_ATTEMPTS: int = 2
+
 
 def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, str]:
     """Build 1-based user index -> display label; empty strings become user{n}."""
@@ -882,6 +886,12 @@ class OmronBluetoothDeviceData(BluetoothData):
         """Time sync, record fetch, and device info reads for one poll cycle."""
         try:
             if memory_session_active:
+                # The registration writes this same clock record again at the
+                # end of the readout, so a pairing session sends the block
+                # twice. Deliberate: skipping it here would leave a session
+                # whose registration then failed with no clock write at all,
+                # and a failed registration is exactly the case where there is
+                # no next poll to catch up.
                 if self._device_config.supports_eeprom_time_sync:
                     await async_sync_eeprom_time(
                         client,
@@ -1066,20 +1076,40 @@ class OmronBluetoothDeviceData(BluetoothData):
         except Exception as exc:
             _LOGGER.debug("Failed to read Model Number: %s", exc)
 
-        # After the records, before the close: the pairing session's one
-        # registration write, on the profiles that need it. A failure here is
-        # logged and the session still closes normally -- the close is what
-        # keeps the cuff usable, and the user can pair again.
+        # After the records, before the close: the pairing session's
+        # registration write, on the profiles that need it.
+        #
+        # Two attempts, because the write has two halves and only the second
+        # is safe to repeat. A second call skips the half that already landed
+        # and redoes only what failed -- worth one retry, since nothing else
+        # in a session ever writes the clock record's flag bit and this is the
+        # session that owes it.
+        #
+        # A failure that survives both is logged and the session still closes
+        # normally: the close is what keeps the cuff usable, and the user can
+        # pair again.
         if memory_session_active:
-            try:
-                await session.commit_pairing_registration()
-            except Exception as exc:
-                _LOGGER.warning(
-                    "Pairing registration for %s failed; the next reconnect may "
-                    "be refused and need another pairing: %s",
-                    ble_device.address,
-                    exc,
-                )
+            for attempt in range(_REGISTRATION_ATTEMPTS):
+                try:
+                    await session.commit_pairing_registration()
+                    break
+                except Exception as exc:
+                    if attempt + 1 < _REGISTRATION_ATTEMPTS:
+                        _LOGGER.debug(
+                            "Pairing registration for %s failed (attempt %d/%d), "
+                            "retrying the part that did not land: %s",
+                            ble_device.address,
+                            attempt + 1,
+                            _REGISTRATION_ATTEMPTS,
+                            exc,
+                        )
+                        continue
+                    _LOGGER.warning(
+                        "Pairing registration for %s failed; the next reconnect "
+                        "may be refused and need another pairing: %s",
+                        ble_device.address,
+                        exc,
+                    )
 
     async def async_poll(
         self, ble_device: BLEDevice, preconnected_session: OmronDeviceSession | None = None
@@ -1101,6 +1131,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     session = preconnected_session
                     session.reclaim_ownership()
                 else:
+                    pairing_session = False
                     if preconnected_session is not None:
                         # Handed a link that dropped before we got here. Take
                         # ownership back and close it, or it stays half-open
@@ -1112,7 +1143,28 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                         preconnected_session.reclaim_ownership()
                         await preconnected_session.aclose()
-                    session = self._open_session(ble_device)
+                        # On the profiles that write a pairing registration,
+                        # the replacement inherits the dropped link's pairing
+                        # nature: that write only ever runs on a pairing
+                        # session, and the cuff may well still be in its
+                        # window. Nowhere else -- on a secure-session profile a
+                        # pairing session discards the stored credential and
+                        # pairs afresh, which outside the window fails a cuff
+                        # whose credential still works.
+                        pairing_session = (
+                            preconnected_session._pairing_session
+                            and self._device_config.pairing_registration is not None
+                        )
+                        if pairing_session:
+                            _LOGGER.info(
+                                "Reconnecting to %s as a pairing session so the "
+                                "registration the dropped link owed still gets "
+                                "written",
+                                ble_device.address,
+                            )
+                    session = self._open_session(
+                        ble_device, pairing_session=pairing_session
+                    )
                 async with session:
                     client = session.client
 

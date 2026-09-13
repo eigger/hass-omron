@@ -6,7 +6,7 @@ import logging
 import secrets
 import traceback
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -20,13 +20,16 @@ from .const import (
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 
+if TYPE_CHECKING:
+    from .devices import PairingRegistration
+    from .settings_mirror import SettingsMirrorLayout
+
 _LOGGER = logging.getLogger(__name__)
 
 # BLE memory-protocol pacing (extra margin for weak RF / busy stacks).
 # The per-transfer slot that follows the index region in the settings mirror
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
-_REGISTRATION_SLOT_SIZE: int = 10
-_REGISTRATION_SLOT_COUNTER_OFFSETS: tuple[int, ...] = (4, 8)
+_REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
@@ -720,9 +723,11 @@ class OmronDeviceSession:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
-        # A pairing session commits its registration once; a retried readout on
-        # the same link must not bump the cuff's transfer counters twice.
-        self._pairing_registration_done = False
+        # A pairing session commits its registration once per link. The two
+        # writes are tracked apart: the head write steps the cuff's transfer
+        # count and must never repeat, the clock write can be redone.
+        self._pairing_registration_head_done = False
+        self._pairing_registration_clock_done = False
         self._unlocked = False
         self._secure_session = None
         # Swappable handler for the unlock characteristic notifications. The
@@ -935,8 +940,19 @@ class OmronDeviceSession:
             if self._memory_session_active:
                 try:
                     await self.close_memory_session()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if self._pairing_registration_head_done:
+                        # Whether the cuff commits the mirror on the write or
+                        # on the close is not established, and this path has
+                        # no retry: say so, so a refused reconnect later has a
+                        # cause in the log.
+                        _LOGGER.warning(
+                            "%s: the session that wrote the pairing "
+                            "registration did not close cleanly (%s); if the "
+                            "next reconnect is refused, pair again",
+                            addr,
+                            exc,
+                        )
             if self._owns_connection and client.is_connected:
                 await self._await_peer_close(client, addr)
                 if client.is_connected:
@@ -1165,6 +1181,14 @@ class OmronDeviceSession:
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
+        # Only the fresh-session retry loop in async_poll resets between
+        # attempts; the handed-off pairing session has no retry and its close
+        # failure is reported from aclose() instead. Where a retry does happen
+        # the registration is written again, since whether the cuff commits
+        # the mirror on the write or on the close is not established -- a
+        # transfer count stepped twice beats a registration silently lost.
+        self._pairing_registration_head_done = False
+        self._pairing_registration_clock_done = False
         self._channel_fragments = [None] * 4
         self._expected_reply_packet_type = None
         self._expected_reply_memory_address = None
@@ -1537,27 +1561,28 @@ class OmronDeviceSession:
         A WLD3.0 cuff on the token-key transport accepts the bond it just made
         and then refuses to resume it on the next connection -- HCI 0x06, PIN
         or Key Missing -- unless the pairing session also wrote its mirror:
-        the index region with the unread counter cleared plus one 10-byte
-        transfer slot, and the clock record stamped with the current time.
-        The official app does both before its 080f close; hardware-verified
-        on a BP5465 / HEM-7382T1-AZAZ over local BlueZ, through a power cycle
-        (#175). The same slot structure -- two counters at +4 and +8 that step
-        once per transfer -- is what the #67 phone capture of an HEM-7155T-MW3
-        shows, so the layout is read off the profile rather than pinned to a
-        model.
+        the index region with every unread counter reset, the user's profile
+        slot with its transfer count stepped and checksum redone, and the
+        clock record stamped with the current time. The official app does all
+        of it before its 080f close; hardware-verified on a BP5465 over local
+        BlueZ, through a power cycle (#175). Which bytes are counters, where
+        the slot sits and where the clock lives all come off the profile.
 
         Pairing sessions only, once per link, and after the records have been
-        read: the unread counter is cleared here. Returns whether it wrote.
-        Never raises -- the close that follows matters more than this write,
-        and a retained-bond session that ends without it is still a working
-        session. The caller logs.
+        read: the unread counters are reset here. Returns whether it wrote.
+        Never raises past a layout problem -- the close that follows matters
+        more than this write, and a retained-bond session that ends without it
+        is still a working session. The caller logs.
         """
         cfg = self._config
         registration = cfg.pairing_registration
         if (
             registration is None
             or not self._pairing_session
-            or self._pairing_registration_done
+            or (
+                self._pairing_registration_head_done
+                and self._pairing_registration_clock_done
+            )
         ):
             return False
         self._require_connected("commit_pairing_registration")
@@ -1565,23 +1590,37 @@ class OmronDeviceSession:
             raise ConnectionError(
                 "Pairing registration needs an open memory session"
             )
-        from .settings_mirror import SettingsMirrorLayout, clock_block
+        from .settings_mirror import SettingsMirrorLayout
 
         layout = SettingsMirrorLayout(cfg)
-        slot = (
-            registration.slot_offset
-            if registration.slot_offset is not None
-            else layout.head_write_size
-        )
-        head_size = slot + _REGISTRATION_SLOT_SIZE
+        head_size = registration.slot_offset + registration.slot_size
         if layout.head_read_size < head_size:
             raise ConnectionError(
                 f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
                 f"the registration block needs {head_size}"
             )
-        users = (cfg.index_pointer_layout or {}).get("users") or ()
-        if not users:
-            raise ConnectionError(f"{cfg.model} has no index layout to clear")
+
+        written: list[str] = []
+        if not self._pairing_registration_head_done:
+            await self._write_registration_head(layout, registration)
+            written.append(f"settings mirror 0x{layout.head_write_address:04X}")
+        if not self._pairing_registration_clock_done:
+            await self._write_registration_clock(layout)
+            written.append(f"clock 0x{layout.clock_write_address:04X}")
+        _LOGGER.info(
+            "%s: pairing registration written (%s)", cfg.model, ", ".join(written)
+        )
+        return True
+
+    async def _write_registration_head(
+        self, layout: SettingsMirrorLayout, registration: PairingRegistration
+    ) -> None:
+        """Index region with every unread counter reset, plus the stepped slot."""
+        cfg = self._config
+        slot = registration.slot_offset
+        slot_size = registration.slot_size
+        head_size = slot + slot_size
+        from .settings_mirror import slot_checksum
 
         head = await self.read_memory_range(
             layout.head_read_address, layout.head_read_size, cfg.transmission_block_size
@@ -1592,22 +1631,49 @@ class OmronDeviceSession:
                 f"{layout.head_read_size}"
             )
         block = bytearray(head[:head_size])
-        # User 1's unread counter, cleared to the 0x8000 "nothing pending"
-        # marker the cuff itself uses (the phone does the same every transfer).
-        unread = int(users[0]["unread_counter_offset"])
-        block[unread : unread + 2] = (0x8000).to_bytes(2, "little")
-        # As captured, meaning unknown: one byte of the index region the app's
-        # write sets to 0x80 on the profiles where it was seen. Reproduced
-        # rather than reasoned about, and only where the profile says so.
-        if registration.index_flag_offset is not None:
-            block[registration.index_flag_offset] = 0x80
-        # The transfer slot's two counters step once per transfer.
-        for offset in _REGISTRATION_SLOT_COUNTER_OFFSETS:
-            at = slot + offset
-            block[at] = (block[at] + 1) & 0xFF
+
+        # Every stream's unread counter back to its idle marker: the records
+        # have been read. Widths and bounds were validated when the profile
+        # was built.
+        for offset, width, idle in registration.unread_clears:
+            block[offset : offset + width] = idle.to_bytes(width, "little")
+
+        if block[slot : slot + 2] == b"\xff\xff":
+            # Never written: the cuff treats a slot that starts 0xFFFF as empty
+            # and skips its checksum. Stepping it would only make it look
+            # populated without being one, so it goes back as it came.
+            _LOGGER.warning(
+                "%s: the user profile slot at +0x%02X is empty; the index is "
+                "reset but the slot is left untouched, and the cuff may not "
+                "resume this bond",
+                cfg.model,
+                slot,
+            )
+        else:
+            count_at = slot + _REGISTRATION_SLOT_COUNT_OFFSET
+            count = int.from_bytes(block[count_at : count_at + 4], "little")
+            block[count_at : count_at + 4] = ((count + 1) & 0xFFFFFFFF).to_bytes(
+                4, "little"
+            )
+            block[slot + slot_size - 2] = slot_checksum(
+                block[slot : slot + slot_size], slot_size
+            )
         await self.write_memory_range(
             layout.head_write_address, block, block_size=len(block)
         )
+        # Armed as soon as the write is out: this is the half that steps the
+        # cuff's transfer count and must not run twice on this link.
+        self._pairing_registration_head_done = True
+
+    async def _write_registration_clock(self, layout: SettingsMirrorLayout) -> None:
+        """The clock record stamped with the current time, flag bit set.
+
+        Tracked apart from the head so a failure here is retried on its own:
+        nothing else ever sets that flag bit -- the EEPROM time sync keeps the
+        record's leading bytes as read and only runs on drift.
+        """
+        cfg = self._config
+        from .settings_mirror import clock_block
 
         tail = await self.read_memory_range(
             layout.clock_read_address, layout.clock_read_size, cfg.transmission_block_size
@@ -1623,15 +1689,7 @@ class OmronDeviceSession:
         await self.write_memory_range(
             layout.clock_write_address, bytearray(stamped), block_size=len(stamped)
         )
-        self._pairing_registration_done = True
-        _LOGGER.info(
-            "%s: pairing registration written (settings mirror 0x%04X, clock "
-            "0x%04X)",
-            cfg.model,
-            layout.head_write_address,
-            layout.clock_write_address,
-        )
-        return True
+        self._pairing_registration_clock_done = True
 
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
