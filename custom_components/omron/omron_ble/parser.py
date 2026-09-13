@@ -1066,6 +1066,21 @@ class OmronBluetoothDeviceData(BluetoothData):
         except Exception as exc:
             _LOGGER.debug("Failed to read Model Number: %s", exc)
 
+        # After the records, before the close: the pairing session's one
+        # registration write, on the profiles that need it. A failure here is
+        # logged and the session still closes normally -- the close is what
+        # keeps the cuff usable, and the user can pair again.
+        if memory_session_active:
+            try:
+                await session.commit_pairing_registration()
+            except Exception as exc:
+                _LOGGER.warning(
+                    "Pairing registration for %s failed; the next reconnect may "
+                    "be refused and need another pairing: %s",
+                    ble_device.address,
+                    exc,
+                )
+
     async def async_poll(
         self, ble_device: BLEDevice, preconnected_session: OmronDeviceSession | None = None
     ) -> SensorUpdate:
