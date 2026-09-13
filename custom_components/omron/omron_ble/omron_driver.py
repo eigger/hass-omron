@@ -719,9 +719,11 @@ class OmronDeviceSession:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
-        # A pairing session commits its registration once; a retried readout on
-        # the same link must not bump the cuff's transfer counters twice.
-        self._pairing_registration_done = False
+        # A pairing session commits its registration once per link. The two
+        # writes are tracked apart: the head write steps the cuff's transfer
+        # count and must never repeat, the clock write can be redone.
+        self._pairing_registration_head_done = False
+        self._pairing_registration_clock_done = False
         self._unlocked = False
         self._secure_session = None
         # Swappable handler for the unlock characteristic notifications. The
@@ -934,8 +936,19 @@ class OmronDeviceSession:
             if self._memory_session_active:
                 try:
                     await self.close_memory_session()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    if self._pairing_registration_head_done:
+                        # Whether the cuff commits the mirror on the write or
+                        # on the close is not established, and this path has
+                        # no retry: say so, so a refused reconnect later has a
+                        # cause in the log.
+                        _LOGGER.warning(
+                            "%s: the session that wrote the pairing "
+                            "registration did not close cleanly (%s); if the "
+                            "next reconnect is refused, pair again",
+                            addr,
+                            exc,
+                        )
             if self._owns_connection and client.is_connected:
                 await self._await_peer_close(client, addr)
                 if client.is_connected:
@@ -1164,12 +1177,14 @@ class OmronDeviceSession:
         self._unlocked = False
         self._secure_session = None
         self._memory_session_active = False
-        # A reset means the session that may have written the registration did
-        # not close cleanly, and whether the cuff commits the mirror on the
-        # write or on the close is not established. Re-arm so the retried
-        # session writes it again; the cost is a transfer count stepped twice,
-        # the alternative a registration silently lost.
-        self._pairing_registration_done = False
+        # Only the fresh-session retry loop in async_poll resets between
+        # attempts; the handed-off pairing session has no retry and its close
+        # failure is reported from aclose() instead. Where a retry does happen
+        # the registration is written again, since whether the cuff commits
+        # the mirror on the write or on the close is not established -- a
+        # transfer count stepped twice beats a registration silently lost.
+        self._pairing_registration_head_done = False
+        self._pairing_registration_clock_done = False
         self._channel_fragments = [None] * 4
         self._expected_reply_packet_type = None
         self._expected_reply_memory_address = None
@@ -1560,7 +1575,10 @@ class OmronDeviceSession:
         if (
             registration is None
             or not self._pairing_session
-            or self._pairing_registration_done
+            or (
+                self._pairing_registration_head_done
+                and self._pairing_registration_clock_done
+            )
         ):
             return False
         self._require_connected("commit_pairing_registration")
@@ -1568,17 +1586,36 @@ class OmronDeviceSession:
             raise ConnectionError(
                 "Pairing registration needs an open memory session"
             )
-        from .settings_mirror import SettingsMirrorLayout, clock_block, slot_checksum
+        from .settings_mirror import SettingsMirrorLayout
 
         layout = SettingsMirrorLayout(cfg)
-        slot = registration.slot_offset
-        slot_size = registration.slot_size
-        head_size = slot + slot_size
+        head_size = registration.slot_offset + registration.slot_size
         if layout.head_read_size < head_size:
             raise ConnectionError(
                 f"Settings region of {cfg.model} is {layout.head_read_size} bytes; "
                 f"the registration block needs {head_size}"
             )
+
+        if not self._pairing_registration_head_done:
+            await self._write_registration_head(layout, registration)
+        if not self._pairing_registration_clock_done:
+            await self._write_registration_clock(layout)
+        _LOGGER.info(
+            "%s: pairing registration written (settings mirror 0x%04X, clock "
+            "0x%04X)",
+            cfg.model,
+            layout.head_write_address,
+            layout.clock_write_address,
+        )
+        return True
+
+    async def _write_registration_head(self, layout: Any, registration: Any) -> None:
+        """Index region with every unread counter reset, plus the stepped slot."""
+        cfg = self._config
+        slot = registration.slot_offset
+        slot_size = registration.slot_size
+        head_size = slot + slot_size
+        from .settings_mirror import slot_checksum
 
         head = await self.read_memory_range(
             layout.head_read_address, layout.head_read_size, cfg.transmission_block_size
@@ -1619,11 +1656,19 @@ class OmronDeviceSession:
         await self.write_memory_range(
             layout.head_write_address, block, block_size=len(block)
         )
-        # Armed here, not after the clock: the head write is the part that
-        # must not run twice on this link (it steps the count). A clock write
-        # that fails after this stands as the caller's warning; the next poll's
-        # EEPROM time sync covers the clock anyway.
-        self._pairing_registration_done = True
+        # Armed as soon as the write is out: this is the half that steps the
+        # cuff's transfer count and must not run twice on this link.
+        self._pairing_registration_head_done = True
+
+    async def _write_registration_clock(self, layout: Any) -> None:
+        """The clock record stamped with the current time, flag bit set.
+
+        Tracked apart from the head so a failure here is retried on its own:
+        nothing else ever sets that flag bit -- the EEPROM time sync keeps the
+        record's leading bytes as read and only runs on drift.
+        """
+        cfg = self._config
+        from .settings_mirror import clock_block
 
         tail = await self.read_memory_range(
             layout.clock_read_address, layout.clock_read_size, cfg.transmission_block_size
@@ -1639,14 +1684,7 @@ class OmronDeviceSession:
         await self.write_memory_range(
             layout.clock_write_address, bytearray(stamped), block_size=len(stamped)
         )
-        _LOGGER.info(
-            "%s: pairing registration written (settings mirror 0x%04X, clock "
-            "0x%04X)",
-            cfg.model,
-            layout.head_write_address,
-            layout.clock_write_address,
-        )
-        return True
+        self._pairing_registration_clock_done = True
 
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""

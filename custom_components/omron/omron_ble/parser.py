@@ -1101,6 +1101,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     session = preconnected_session
                     session.reclaim_ownership()
                 else:
+                    pairing_session = False
                     if preconnected_session is not None:
                         # Handed a link that dropped before we got here. Take
                         # ownership back and close it, or it stays half-open
@@ -1112,7 +1113,21 @@ class OmronBluetoothDeviceData(BluetoothData):
                         )
                         preconnected_session.reclaim_ownership()
                         await preconnected_session.aclose()
-                    session = self._open_session(ble_device)
+                        # The replacement inherits what the dropped link was:
+                        # a pairing session's registration write only ever
+                        # runs on a pairing session, and the cuff may well
+                        # still be in its pairing window.
+                        pairing_session = preconnected_session._pairing_session
+                        if pairing_session:
+                            _LOGGER.info(
+                                "Reconnecting to %s as a pairing session so the "
+                                "registration the dropped link owed still gets "
+                                "written",
+                                ble_device.address,
+                            )
+                    session = self._open_session(
+                        ble_device, pairing_session=pairing_session
+                    )
                 async with session:
                     client = session.client
 

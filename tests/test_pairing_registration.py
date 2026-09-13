@@ -60,16 +60,25 @@ def _session(config, *, pairing=True, memory_active=True, memory=None):
     async def write_memory_range(address, data, block_size):
         writes.append((address, bytes(data)))
 
-    return SimpleNamespace(
+    target = SimpleNamespace(
         _config=config,
         _pairing_session=pairing,
-        _pairing_registration_done=False,
+        _pairing_registration_head_done=False,
+        _pairing_registration_clock_done=False,
         _memory_session_active=memory_active,
         _require_connected=lambda _what: None,
         read_memory_range=read_memory_range,
         write_memory_range=write_memory_range,
         writes=writes,
     )
+    # The two halves are methods of the real class; bind them onto the fake.
+    target._write_registration_head = (
+        lambda layout, reg: OmronDeviceSession._write_registration_head(target, layout, reg)
+    )
+    target._write_registration_clock = (
+        lambda layout: OmronDeviceSession._write_registration_clock(target, layout)
+    )
+    return target
 
 
 def _commit(target):
@@ -278,8 +287,9 @@ class TestDerivedFromTheProfile:
 
 
 class TestWhenItRuns:
-    def test_a_failed_clock_write_does_not_rerun_the_head_write(self):
-        """head 쓰기가 카운트를 올리므로, 같은 링크에서 두 번 돌면 안 된다."""
+    def test_a_failed_clock_write_is_retried_without_the_head(self):
+        """head 는 카운트를 올리니 두 번 돌면 안 되고, 시계는 다시 써야 한다 —
+        그 플래그 비트를 세우는 다른 경로가 없다."""
         cfg = get_device_config("HEM-7386T1")
         target = _session(cfg)
         calls = {"n": 0}
@@ -287,23 +297,44 @@ class TestWhenItRuns:
 
         async def flaky(address, data, block_size):
             calls["n"] += 1
-            if calls["n"] == 2:                              # 시계 쓰기만 실패
+            if calls["n"] == 2:                              # 첫 시계 쓰기만 실패
                 raise TimeoutError("clock write")
             await real_write(address, data, block_size)
 
         target.write_memory_range = flaky
         with pytest.raises(TimeoutError):
             _commit(target)
-        assert target._pairing_registration_done is True     # head 는 나갔다
-        assert _commit(target) is False                     # 재실행하지 않는다
+        assert target._pairing_registration_head_done is True
+        assert target._pairing_registration_clock_done is False
+        assert [a for a, _ in target.writes] == [0x0058]
 
-    def test_a_session_reset_rearms_it(self):
-        """close 가 실패하면 파서가 reset 후 재시도한다 — 등록도 다시 써야 한다."""
+        assert _commit(target) is True                      # 시계만 다시
+        assert [a for a, _ in target.writes] == [0x0058, 0x0088]
+        assert _commit(target) is False                     # 이제 둘 다 끝
+
+    def test_a_session_reset_rearms_both_halves(self):
+        """새 세션의 3회 재시도 루프는 reset 후 다시 돈다 — 등록도 다시 써야 한다."""
         fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "reset_session_state")
-        assert "_pairing_registration_done = False" in ast.unparse(fn), (
-            "reset 이 등록 플래그를 되돌리지 않는다 — close 가 실패한 세션의 등록이 "
-            "조용히 유실된다"
+        body = ast.unparse(fn)
+        assert "_pairing_registration_head_done = False" in body
+        assert "_pairing_registration_clock_done = False" in body
+
+    def test_a_dropped_pairing_handoff_is_replaced_by_a_pairing_session(self):
+        """등록은 페어링 세션에서만 돈다. 핸드오프 링크가 끊겨 새로 열 때 그 성격을
+        잃으면, 커프가 -P- 창 안에 있어도 등록 없이 닫히고 이후 재연결은 전부 거부된다."""
+        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "async_poll")
+        body = ast.unparse(fn)
+        assert "preconnected_session._pairing_session" in body, (
+            "끊긴 핸드오프의 pairing_session 을 교체 세션에 물려주지 않는다"
         )
+        assert "_open_session(ble_device, pairing_session=pairing_session)" in body
+
+    def test_a_failed_close_after_registering_is_logged(self):
+        """이 경로엔 재시도가 없다 — 최소한 나중의 0x06 에 원인이 남아야 한다."""
+        fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "aclose")
+        body = ast.unparse(fn)
+        assert "_pairing_registration_head_done" in body
+        assert "_LOGGER.warning" in body
 
     def test_not_on_an_ordinary_session(self):
         target = _session(get_device_config("HEM-7386T1"), pairing=False)
