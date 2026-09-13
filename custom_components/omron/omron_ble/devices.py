@@ -174,6 +174,7 @@ class MeasurementCompletion:
             if not 0 <= value <= 0xFF:
                 raise ValueError(f"{name} must fit in one byte")
 
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -372,6 +373,37 @@ class DeviceConfig:
                     "Invalid profile config for %s: the profile slot at %d overlaps "
                     "the %d-byte index region"
                     % (self.model, self.pairing_registration.slot_offset, index_size)
+                )
+        if self.measurement_completion is not None:
+            # Same reasoning as the registration above: where the completion
+            # byte lands is fixed by the catalog, so a profile that puts it
+            # outside its own index region has to fail here rather than
+            # mid-poll on someone's cuff, after the records were read.
+            index_size = int(
+                (self.index_pointer_layout or {}).get("index_region_byte_size", 0)
+            )
+            if self.measurement_completion.index_flag_offset >= index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the measurement completion byte "
+                    "at %d lies outside the %d-byte index region"
+                    % (
+                        self.model,
+                        self.measurement_completion.index_flag_offset,
+                        index_size,
+                    )
+                )
+            clock_size = (self.settings_time_sync_bytes or [0, 0])[1] - (
+                self.settings_time_sync_bytes or [0, 0]
+            )[0]
+            if self.measurement_completion.clock_flag_offset >= max(clock_size - 2, 0):
+                raise ValueError(
+                    "Invalid profile config for %s: the measurement completion clock "
+                    "flag at %d overlaps the checksum of a %d-byte record"
+                    % (
+                        self.model,
+                        self.measurement_completion.clock_flag_offset,
+                        clock_size,
+                    )
                 )
 
     @property

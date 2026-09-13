@@ -43,6 +43,13 @@ sys.modules["homeassistant.components.bluetooth.passive_update_processor"] = _ha
 _ha_update_coordinator = MagicMock()
 _ha_update_coordinator.DataUpdateCoordinator = MockBase
 _ha_update_coordinator.CoordinatorEntity = MockBase
+
+
+class UpdateFailed(Exception):
+    """HA 의 것과 동작이 같아야 raise 가 되는 실제 예외 클래스로 둔다."""
+
+
+_ha_update_coordinator.UpdateFailed = UpdateFailed
 sys.modules["homeassistant.helpers.update_coordinator"] = _ha_update_coordinator
 
 # ── Mock bleak (BLE hardware I/O — 실제 설치 없이 타입 참조만 필요) ──────────

@@ -208,10 +208,17 @@ def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
         "await self._driver.complete_measurement_readout(session)"
     ) == 1
 
-    assert (
-        "if memory_session_active and eeprom_record_decoded:"
-        in poll
-    )
+    # 조건은 두 가지를 함께 요구한다: 메모리 세션이 열려 있고, 실제로 EEPROM
+    # 레코드가 디코드됐을 것. 여기에 페어링 세션 제외가 더해진다 — 그 세션은
+    # 끝에서 등록 쓰기가 같은 두 주소에 상위집합을 쓰므로 둘 다 돌면 쓰기가
+    # 네 번 나가고 앞의 두 번은 덮인다.
+    for required in (
+        "memory_session_active",
+        "eeprom_record_decoded",
+        "session._pairing_session",
+        "self._device_config.pairing_registration is not None",
+    ):
+        assert required in poll, required
 
     completion_at = poll.index(
         "await self._driver.complete_measurement_readout(session)"

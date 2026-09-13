@@ -30,7 +30,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
 from datetime import datetime, timedelta
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 from .const import (
     CONF_DEVICE_MODEL,
     CONF_TRANSPORT_CREDENTIAL,
@@ -232,7 +235,15 @@ def process_service_info(
                             service_info.address,
                         )
 
-                        await poll_coordinator.async_request_refresh()
+                        # async_refresh, not async_request_refresh: the latter
+                        # is debounced, so the refresh that consumed the flag
+                        # would not have to be the one that set it -- and a
+                        # scheduled poll picking it up would wait on the
+                        # session lock instead of skipping, which is the
+                        # queuing this device family answers with SMP auth
+                        # failures. The lock is already free by here, so there
+                        # is nothing left to debounce.
+                        await poll_coordinator.async_refresh()
 
                         if not poll_coordinator.last_update_success:
                             entry_data["pending_forced_transfer"] = True
@@ -257,6 +268,10 @@ def process_service_info(
                         entry_data["pending_forced_transfer_task"] = None
                         entry_data.pop("force_poll_after_lock", None)
 
+                # Tracked on entry_data so async_unload_entry can cancel it:
+                # this task blocks on the session lock, so a reload while a
+                # poll is in flight would otherwise leave it to wake up and
+                # drive a coordinator that no longer exists.
                 entry_data["pending_forced_transfer_task"] = (
                     coordinator.hass.async_create_task(
                         _drain_pending_forced_transfer()
@@ -298,7 +313,9 @@ def process_service_info(
             )
 
             try:
-                await coordinator.poll_coordinator.async_request_refresh()
+                # Undebounced for the same reason as the latched path above:
+                # force_poll_after_lock has to reach this refresh and no other.
+                await coordinator.poll_coordinator.async_refresh()
 
                 if not coordinator.poll_coordinator.last_update_success:
                     entry_data["pending_forced_transfer"] = True
@@ -608,11 +625,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             # Preserve the previous coordinator data by letting HA do what the
             # DataUpdateCoordinator is designed to do on update failure. Returning
             # the cached SensorUpdate here incorrectly sets last_update_success=True.
+            #
+            # UpdateFailed rather than the raw error: a cuff that is asleep, out
+            # of range, or refusing a connection outside its window is an
+            # expected BLE failure, and the coordinator logs UpdateFailed once
+            # and stays quiet afterwards. A bare exception reaches its generic
+            # branch instead, which logs a traceback on every refresh and Home
+            # Assistant renders as "this error originated from a custom
+            # integration" -- for a device that is simply off (#133).
             _LOGGER.debug(
                 "polling error; coordinator will retain last successful data: %s",
                 err,
             )
-            raise
+            raise UpdateFailed(str(err) or type(err).__name__) from err
         finally:
             if not handed_off and preconnected_session is not None:
                 try:
@@ -675,7 +700,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bo
     """Unload a config entry."""
     # A pairing session parked for a poll that never came would otherwise keep
     # its BLE link past the unload, with nothing left to adopt or close it.
-    address = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("address")
+    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    # Blocked on the session lock, so it can wake long after the unload and
+    # drive a coordinator that is gone.
+    pending_task = entry_data.get("pending_forced_transfer_task")
+    if pending_task is not None and not pending_task.done():
+        pending_task.cancel()
+    address = entry_data.get("address")
     if address:
         await discard_handoff_session(hass, address)
         # Same for a model-number probe whose flow never reached pairing.

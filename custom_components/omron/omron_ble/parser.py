@@ -1038,8 +1038,21 @@ class OmronBluetoothDeviceData(BluetoothData):
         # Only a decoded EEPROM record owns the application-level
         # completion mirrors. Time-sync-only and cleanup closes must
         # never acknowledge a measurement transfer that did not finish.
+        #
+        # Skipped on a pairing session: the registration write at the end of
+        # this readout covers the same two addresses with a superset -- the
+        # whole index region including this completion byte, plus the profile
+        # slot -- so running both would send four writes where two do, and the
+        # first pair would be overwritten by the second.
         if latest_by_user or record:
-            if memory_session_active and eeprom_record_decoded:
+            if (
+                memory_session_active
+                and eeprom_record_decoded
+                and not (
+                    session._pairing_session
+                    and self._device_config.pairing_registration is not None
+                )
+            ):
                 await self._driver.complete_measurement_readout(session)
             self._last_readout_at = dt.datetime.now(dt.timezone.utc)
 

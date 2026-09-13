@@ -25,6 +25,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 import custom_components.omron as omron_init
 import custom_components.omron.omron_ble.parser as parser_module
 
@@ -105,6 +107,12 @@ class FakePollCoordinator:
         self.data = cached_data
 
     async def async_request_refresh(self):
+        raise AssertionError(
+            "디바운스되는 async_request_refresh 는 force_poll_after_lock 을 세운 "
+            "refresh 와 실제로 도는 refresh 를 다르게 만든다 — async_refresh 를 쓸 것"
+        )
+
+    async def async_refresh(self):
         self.refresh_calls += 1
 
 
@@ -380,14 +388,18 @@ def test_explicit_forced_transfer_missing_device_fails_and_consumes_marker():
             ),
         )
 
+        # UpdateFailed: 예상된 BLE 실패는 통합 버그가 아니라 갱신 실패다.
+        # HA 는 UpdateFailed 만 한 번 error 로 찍고 이후 조용하며, 맨몸 예외에는
+        # 매 refresh 마다 트레이스백을 남긴다. 원인은 __cause__ 로 남는다.
         with pytest.raises(
-            ConnectionError,
+            UpdateFailed,
             match="disappeared before forced-transfer poll",
-        ):
+        ) as raised:
             await async_poll_data(
                 hass,
                 entry,
             )
+        assert isinstance(raised.value.__cause__, ConnectionError)
 
         # Marker must be consumed before discovery; callers re-latch the
         # measurement request rather than leaving a stale force flag behind.
@@ -475,13 +487,15 @@ def test_hard_poll_error_escapes_even_when_cached_data_exists():
         )
 
         with pytest.raises(
-            RuntimeError,
+            UpdateFailed,
             match="synthetic hard BLE poll failure",
-        ):
+        ) as raised:
             await async_poll_data(
                 hass,
                 entry,
             )
+        # 원인이 보존돼야 로그에서 진짜 실패를 추적할 수 있다.
+        assert isinstance(raised.value.__cause__, RuntimeError)
 
         # Most important regression check:
         # cached coordinator data must NOT convert a real BLE failure into a
@@ -554,3 +568,48 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
         assert not target._poll_guard.locked()
 
     asyncio.run(scenario())
+
+def test_unload_cancels_a_latched_drain_task():
+    """drain 태스크는 세션 락을 기다리며 블록된다. 언로드가 취소하지 않으면
+    락이 풀린 뒤 깨어나 이미 철거된 코디네이터를 건드린다. 리로드는 옵션 변경이나
+    자격증명 저장으로도 일어난다."""
+    source = INIT_PATH.read_text(encoding="utf-8")
+    start = source.index("async def async_unload_entry(")
+    body = source[start : source.index("\n\nasync def ", start + 1) if "\n\nasync def " in source[start + 1 :] else len(source)]
+    assert "pending_forced_transfer_task" in body, (
+        "언로드가 drain 태스크를 놓아준다 — 철거된 엔트리를 건드릴 수 있다"
+    )
+    assert ".cancel()" in body
+
+
+def test_the_completion_offset_is_validated_when_the_profile_is_built():
+    """커프에 닿기 전, 임포트 시점에 걸려야 한다."""
+    from custom_components.omron.omron_ble.devices import (
+        DeviceConfig,
+        MeasurementCompletion,
+    )
+
+    def _profile(**over):
+        base = dict(
+            model="synthetic",
+            settings_read_address=0x0010,
+            settings_write_address=0x0058,
+            settings_time_sync_bytes=[0x30, 0x40],
+            index_pointer_layout={
+                "index_region_byte_size": 0x1C,
+                "users": [{"write_cursor_offset": 0, "unread_counter_offset": 4}],
+            },
+            measurement_completion=MeasurementCompletion(index_flag_offset=0x1B),
+        )
+        base.update(over)
+        return DeviceConfig(**base)
+
+    _profile()  # 정상 조합은 통과해야 의미가 있다
+    with pytest.raises(ValueError, match="outside the .* index region"):
+        _profile(measurement_completion=MeasurementCompletion(index_flag_offset=0x1C))
+    with pytest.raises(ValueError, match="overlaps the checksum"):
+        _profile(
+            measurement_completion=MeasurementCompletion(
+                index_flag_offset=0x1B, clock_flag_offset=0x0E
+            )
+        )
