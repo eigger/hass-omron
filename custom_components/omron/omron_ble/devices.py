@@ -155,6 +155,26 @@ class PairingRegistration:
                 )
 
 
+@dataclass(frozen=True)
+class MeasurementCompletion:
+    """Byte edits that acknowledge a successful measurement readout."""
+
+    index_flag_offset: int
+    index_flag_value: int = 0x80
+    clock_flag_offset: int = 0x04
+    clock_flag_value: int = 0x01
+
+    def __post_init__(self) -> None:
+        if self.index_flag_offset < 0 or self.clock_flag_offset < 0:
+            raise ValueError("Measurement completion offsets must be non-negative")
+        for name, value in (
+            ("index_flag_value", self.index_flag_value),
+            ("clock_flag_value", self.clock_flag_value),
+        ):
+            if not 0 <= value <= 0xFF:
+                raise ValueError(f"{name} must fit in one byte")
+
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -213,6 +233,10 @@ class DeviceConfig:
     # counter cleared, one transfer slot, stamped clock) on the pairing session.
     # WLD3.0 token-key cuffs refuse to resume the bond without it (#175).
     pairing_registration: PairingRegistration | None = None
+    # Successful measurement transfer acknowledgement. Kept separate
+    # from pairing registration: it runs only after a real record was
+    # decoded and published, never during generic cleanup or time sync.
+    measurement_completion: MeasurementCompletion | None = None
 
     @property
     def pair_on_connect(self) -> bool:
@@ -349,6 +373,37 @@ class DeviceConfig:
                     "Invalid profile config for %s: the profile slot at %d overlaps "
                     "the %d-byte index region"
                     % (self.model, self.pairing_registration.slot_offset, index_size)
+                )
+        if self.measurement_completion is not None:
+            # Same reasoning as the registration above: where the completion
+            # byte lands is fixed by the catalog, so a profile that puts it
+            # outside its own index region has to fail here rather than
+            # mid-poll on someone's cuff, after the records were read.
+            index_size = int(
+                (self.index_pointer_layout or {}).get("index_region_byte_size", 0)
+            )
+            if self.measurement_completion.index_flag_offset >= index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the measurement completion byte "
+                    "at %d lies outside the %d-byte index region"
+                    % (
+                        self.model,
+                        self.measurement_completion.index_flag_offset,
+                        index_size,
+                    )
+                )
+            clock_size = (self.settings_time_sync_bytes or [0, 0])[1] - (
+                self.settings_time_sync_bytes or [0, 0]
+            )[0]
+            if self.measurement_completion.clock_flag_offset >= max(clock_size - 2, 0):
+                raise ValueError(
+                    "Invalid profile config for %s: the measurement completion clock "
+                    "flag at %d overlaps the checksum of a %d-byte record"
+                    % (
+                        self.model,
+                        self.measurement_completion.clock_flag_offset,
+                        clock_size,
+                    )
                 )
 
     @property
