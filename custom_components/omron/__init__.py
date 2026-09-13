@@ -158,17 +158,116 @@ def process_service_info(
         is_forced_transfer,
     )
 
-    # 2. Fail fast if a GATT session is already running — try-acquire only, no queueing.
-    # The device rejects a second concurrent BLE connection with SMP auth fail
-    # (reasons 97/102 on ESP32 proxies), so we drop the trigger and rely on the
-    # next advertisement (devices keep emitting the flag bits for several seconds)
-    # to retry once the session lock is free.
+    # 2. Never start a second BLE session. A forced-transfer advertisement is
+    # different from ordinary pairing/time-sync chatter, though: it represents
+    # measurement data the cuff is explicitly asking us to collect. Coalesce one
+    # pending forced-transfer while the active session owns the lock and drain it
+    # after that session completes.
     session_lock: asyncio.Lock = entry_data["session_lock"]
     if session_lock.locked():
-        _LOGGER.debug(
-            "BLE session lock held; skipping advertisement trigger for %s",
-            service_info.address,
-        )
+        if is_forced_transfer:
+            if not entry_data.get("pending_forced_transfer", False):
+                entry_data["pending_forced_transfer_baseline"] = data.last_readout_at
+
+            entry_data["pending_forced_transfer"] = True
+            _LOGGER.debug(
+                "BLE session lock held; latched forced-transfer trigger for %s",
+                service_info.address,
+            )
+
+            pending_task = entry_data.get("pending_forced_transfer_task")
+            if pending_task is None or pending_task.done():
+
+                async def _drain_pending_forced_transfer() -> None:
+                    try:
+                        # Wait for exactly the one active BLE owner. Acquire and
+                        # immediately release so a later explicit refresh cannot
+                        # race the tail of the current session.
+                        async with session_lock:
+                            pass
+
+                        if not entry_data.get("pending_forced_transfer", False):
+                            return
+
+                        baseline = entry_data.get(
+                            "pending_forced_transfer_baseline"
+                        )
+
+                        # If the in-flight poll itself published a measurement
+                        # after this trigger was latched, that poll consumed the
+                        # pending transfer. Do not create a duplicate connection.
+                        if (
+                            data.last_readout_at is not None
+                            and data.last_readout_at != baseline
+                        ):
+                            entry_data["pending_forced_transfer"] = False
+                            entry_data.pop(
+                                "pending_forced_transfer_baseline", None
+                            )
+                            _LOGGER.debug(
+                                "Latched forced-transfer for %s was consumed by "
+                                "the in-flight poll",
+                                service_info.address,
+                            )
+                            return
+
+                        poll_coordinator = coordinator.poll_coordinator
+                        if poll_coordinator is None:
+                            _LOGGER.debug(
+                                "Forced-transfer remains latched for %s; "
+                                "poll coordinator is not ready yet",
+                                service_info.address,
+                            )
+                            return
+
+                        entry_data["pending_forced_transfer"] = False
+                        entry_data.pop(
+                            "pending_forced_transfer_baseline", None
+                        )
+                        entry_data["force_poll_after_lock"] = True
+                        entry_data["last_attempt_time"] = time.time()
+
+                        _LOGGER.debug(
+                            "Draining latched forced-transfer trigger for %s",
+                            service_info.address,
+                        )
+
+                        await poll_coordinator.async_request_refresh()
+
+                        if not poll_coordinator.last_update_success:
+                            entry_data["pending_forced_transfer"] = True
+                            entry_data[
+                                "pending_forced_transfer_baseline"
+                            ] = data.last_readout_at
+                            _LOGGER.warning(
+                                "Latched forced-transfer poll failed for %s; "
+                                "keeping the transfer pending for retry: %s",
+                                service_info.address,
+                                poll_coordinator.last_exception,
+                            )
+
+                    except Exception as err:
+                        entry_data["pending_forced_transfer"] = True
+                        _LOGGER.error(
+                            "Failed to drain latched forced-transfer for %s: %s",
+                            service_info.address,
+                            err,
+                        )
+                    finally:
+                        entry_data["pending_forced_transfer_task"] = None
+                        entry_data.pop("force_poll_after_lock", None)
+
+                entry_data["pending_forced_transfer_task"] = (
+                    coordinator.hass.async_create_task(
+                        _drain_pending_forced_transfer()
+                    )
+                )
+        else:
+            _LOGGER.debug(
+                "BLE session lock held; skipping advertisement trigger for %s",
+                service_info.address,
+            )
+
         return update
 
     # 3. Enforce a shared cooldown between GATT session attempts
@@ -188,15 +287,39 @@ def process_service_info(
         # its own lock acquisition. Don't hold the lock during request_refresh,
         # otherwise the child poll would see lock locked and return cached data.
         if is_forced_transfer and not is_pairing and not is_invalid_time:
+            entry_data["pending_forced_transfer"] = False
+            entry_data.pop("pending_forced_transfer_baseline", None)
+            entry_data["force_poll_after_lock"] = True
             entry_data["last_attempt_time"] = time.time()
+
             _LOGGER.debug(
                 "Triggering scheduled poll via forced-transfer flag for %s",
                 service_info.address,
             )
+
             try:
                 await coordinator.poll_coordinator.async_request_refresh()
+
+                if not coordinator.poll_coordinator.last_update_success:
+                    entry_data["pending_forced_transfer"] = True
+                    entry_data[
+                        "pending_forced_transfer_baseline"
+                    ] = data.last_readout_at
+                    _LOGGER.warning(
+                        "Forced-transfer poll failed for %s; "
+                        "keeping the transfer pending for retry: %s",
+                        service_info.address,
+                        coordinator.poll_coordinator.last_exception,
+                    )
             except Exception as err:
+                entry_data["pending_forced_transfer"] = True
+                entry_data[
+                    "pending_forced_transfer_baseline"
+                ] = data.last_readout_at
                 _LOGGER.error("Auto polling failed: %s", err)
+            finally:
+                entry_data.pop("force_poll_after_lock", None)
+
             return
 
         # Pair / time-sync paths own a direct BLE op — hold the lock for that.
@@ -401,8 +524,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         preconnected_session = None
         handed_off = False
         try:
+            # Consume the explicit forced-transfer marker before BLE discovery.
+            # If the device disappears between its advertisement and this refresh,
+            # the request must fail and be re-latched by the caller rather than
+            # returning cached data as a successful poll or leaving a stale flag.
+            force_poll_after_lock = bool(
+                entry_data.pop("force_poll_after_lock", False)
+            )
+
             device = async_ble_device_from_address(hass, address)
             if not device:
+                if force_poll_after_lock:
+                    raise ConnectionError(
+                        f"BLE device {address} disappeared before forced-transfer poll"
+                    )
+
                 _LOGGER.debug("BLE device not found; keeping last successful poll data")
                 if poll_coordinator.data is not None:
                     return poll_coordinator.data
@@ -411,20 +547,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                     "returning empty update until device is discovered again"
                 )
                 return entry.runtime_data.device_data._finish_update()
+
             coordinator = entry.runtime_data
             session_lock: asyncio.Lock = entry_data["session_lock"]
 
-            # Try-acquire only — if another BLE session is in flight (e.g. an
-            # advertisement-triggered auto-pairing started moments ago), skip
-            # this scheduled poll and serve cached data. The next interval (or
-            # a request_refresh from the active session) will retry once the
-            # lock frees. Two concurrent connections to the same Omron device
-            # provoke SMP auth failures, so we never queue here.
+            # Ordinary scheduled polls remain try-acquire-only. An explicit
+            # forced-transfer refresh is different: a measurement is pending,
+            # so it may wait behind exactly one active BLE owner. This still
+            # guarantees only one cuff connection at a time.
             if session_lock.locked():
-                _LOGGER.debug("Skipping scheduled poll: BLE session lock held for %s", address)
-                if poll_coordinator.data is not None:
-                    return poll_coordinator.data
-                return entry.runtime_data.device_data._finish_update()
+                if force_poll_after_lock:
+                    _LOGGER.debug(
+                        "Forced-transfer poll waiting for active BLE session "
+                        "to release lock for %s",
+                        address,
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Skipping scheduled poll: BLE session lock held for %s",
+                        address,
+                    )
+                    if poll_coordinator.data is not None:
+                        return poll_coordinator.data
+                    return entry.runtime_data.device_data._finish_update()
 
             async with session_lock:
                 # Adopt a parked pairing/setup session (memory readout still
@@ -448,25 +593,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                     result = _merge_poll_sensor_update(prev_data, result)
                 return result
         except TimeoutError:
-            # Only our own deadline surfaces here: async_poll handles every
-            # Exception internally, so nothing else escapes it as a timeout.
-            # Warn rather than debug — this is the one symptom a user sees when
-            # the BLE stack stops responding, and it used to be invisible.
+            # DataUpdateCoordinator retains the previous data when its update
+            # method raises. Propagate the timeout so HA records this refresh as
+            # failed instead of reporting stale cached data as a successful poll.
             _LOGGER.warning(
                 "Poll for %s exceeded %d s and was cancelled; the BLE stack "
-                "stopped responding mid-poll. Serving cached data — the session "
-                "lock is released, so the next poll can retry",
+                "stopped responding mid-poll. The coordinator will retain the "
+                "last data and mark this refresh failed",
                 address,
                 POLL_TIMEOUT_SECONDS,
             )
-            if poll_coordinator.data is not None:
-                return poll_coordinator.data
-            return entry.runtime_data.device_data._finish_update()
+            raise
         except Exception as err:
-            _LOGGER.debug("polling error; keeping last successful poll data: %s", err)
-            if poll_coordinator.data is not None:
-                return poll_coordinator.data
-            return entry.runtime_data.device_data._finish_update()
+            # Preserve the previous coordinator data by letting HA do what the
+            # DataUpdateCoordinator is designed to do on update failure. Returning
+            # the cached SensorUpdate here incorrectly sets last_update_success=True.
+            _LOGGER.debug(
+                "polling error; coordinator will retain last successful data: %s",
+                err,
+            )
+            raise
         finally:
             if not handed_off and preconnected_session is not None:
                 try:

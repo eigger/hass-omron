@@ -7,6 +7,7 @@ from .devices import (
     DeviceConfig,
     Endianness,
     HostPairingMode,
+    MeasurementCompletion,
     PairingRegistration,
     RecordParser,
     TimeSyncLayout,
@@ -1231,6 +1232,12 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
         unlock_mode=UnlockMode.TOKEN_KEY,
         connect_settle_attempts=_WLD3_SINGLE_CONNECT_ATTEMPT,
+        # Hardware-validated BP5465/HEM-7382T1-AZAZ readout completion:
+        # after a decoded measurement is published, mirror the index
+        # completion byte and clock-record completion byte before close.
+        measurement_completion=MeasurementCompletion(
+            index_flag_offset=0x1B,
+        ),
         # The cuff accepts the bond a fresh pairing makes and then refuses to
         # resume it (HCI 0x06) unless that session also wrote the settings
         # mirror the app writes before closing. Verified on a BP5465 over local

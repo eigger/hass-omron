@@ -155,6 +155,25 @@ class PairingRegistration:
                 )
 
 
+@dataclass(frozen=True)
+class MeasurementCompletion:
+    """Byte edits that acknowledge a successful measurement readout."""
+
+    index_flag_offset: int
+    index_flag_value: int = 0x80
+    clock_flag_offset: int = 0x04
+    clock_flag_value: int = 0x01
+
+    def __post_init__(self) -> None:
+        if self.index_flag_offset < 0 or self.clock_flag_offset < 0:
+            raise ValueError("Measurement completion offsets must be non-negative")
+        for name, value in (
+            ("index_flag_value", self.index_flag_value),
+            ("clock_flag_value", self.clock_flag_value),
+        ):
+            if not 0 <= value <= 0xFF:
+                raise ValueError(f"{name} must fit in one byte")
+
 @dataclass
 class DeviceConfig:
     """Configuration for a specific Omron device model."""
@@ -213,6 +232,10 @@ class DeviceConfig:
     # counter cleared, one transfer slot, stamped clock) on the pairing session.
     # WLD3.0 token-key cuffs refuse to resume the bond without it (#175).
     pairing_registration: PairingRegistration | None = None
+    # Successful measurement transfer acknowledgement. Kept separate
+    # from pairing registration: it runs only after a real record was
+    # decoded and published, never during generic cleanup or time sync.
+    measurement_completion: MeasurementCompletion | None = None
 
     @property
     def pair_on_connect(self) -> bool:

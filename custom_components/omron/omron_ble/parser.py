@@ -916,8 +916,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         multi_user_mode = self._device_config.num_users > 1
         record: dict[str, Any] | None = None
         latest_by_user: dict[int, dict[str, Any]] = {}
+        eeprom_record_decoded = False
         if multi_user_mode:
             latest_by_user = await self._driver.get_latest_records_per_user(session)
+            eeprom_record_decoded = bool(latest_by_user)
             if not latest_by_user:
                 # Diagnostic only: the classic EEPROM index/full-scan path found
                 # nothing usable. Probe the standard BLE Blood Pressure Service
@@ -940,6 +942,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     )
         else:
             record = await self._driver.get_latest_record(session)
+            eeprom_record_decoded = record is not None
             live_record: dict[str, Any] | None = None
             live_record = await self._read_latest_via_bls_racp(client)
             if not self._bp_char_unavailable:
@@ -996,13 +999,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         merged["user"] = 1
                     record = merged
 
-        # Reached only once a record has been decoded, so it separates "the
-        # cuff had nothing new" from "nothing got through". The poll swallows
-        # its own failures by design -- an asleep cuff must not flip every
-        # entity to unavailable -- which leaves a run where the memory session
-        # never opened looking exactly like a quiet one (issue #91).
-        if latest_by_user or record:
-            self._last_readout_at = dt.datetime.now(dt.timezone.utc)
 
         if multi_user_mode:
             if latest_by_user:
@@ -1038,6 +1034,14 @@ class OmronBluetoothDeviceData(BluetoothData):
             if signature != self._last_record_signature:
                 self._last_record_signature = signature
 
+
+        # Only a decoded EEPROM record owns the application-level
+        # completion mirrors. Time-sync-only and cleanup closes must
+        # never acknowledge a measurement transfer that did not finish.
+        if latest_by_user or record:
+            if memory_session_active and eeprom_record_decoded:
+                await self._driver.complete_measurement_readout(session)
+            self._last_readout_at = dt.datetime.now(dt.timezone.utc)
 
         try:
             char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
@@ -1181,7 +1185,10 @@ class OmronBluetoothDeviceData(BluetoothData):
                             prof,
                             stack_label,
                         )
-                        return self._finish_update()
+                        raise ConnectionError(
+                            f"Required service {self._device_config.parent_service_uuid} "
+                            f"not found on device {ble_device.address}"
+                        )
 
                     if self.last_service_info and not self._device_config.is_advertisement_compatible(
                         self.last_service_info.service_uuids
@@ -1310,6 +1317,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                                         "Fallback memory session readout failed: %s",
                                         fallback_exc,
                                     )
+                                    raise
                     else:
                         await self._poll_device_readout(
                             session,
@@ -1330,6 +1338,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     ble_device.address,
                     exc,
                 )
+                raise
             except Exception as exc:
                 prof = resolve_profile_model_id(self._device_model)
                 _LOGGER.error(
@@ -1340,6 +1349,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     exc,
                     exc_info=exc,
                 )
+                raise
 
             return self._finish_update()
 
