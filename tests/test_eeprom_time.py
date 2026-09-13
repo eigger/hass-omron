@@ -12,9 +12,7 @@ import datetime
 
 import pytest
 
-from custom_components.omron.omron_ble.omron_driver import (
-    _decode_eeprom_time_payload,
-)
+from custom_components.omron.omron_ble.driver import _decode_eeprom_time_payload
 
 
 class TestAt8:

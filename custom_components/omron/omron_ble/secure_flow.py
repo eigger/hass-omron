@@ -16,12 +16,8 @@ from datetime import datetime
 import logging
 import secrets
 
+from .const import UNLOCK_CHARACTERISTIC_UUID
 from .devices import UnlockMode
-from .omron_driver import (
-    _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC,
-    UNLOCK_CHARACTERISTIC_UUID,
-    _secure_error_frame_code,
-)
 from .secure_session import SecureSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
 
@@ -30,6 +26,8 @@ from .settings_mirror import SettingsMirrorLayout, clock_block
 SecureInitLayout = SettingsMirrorLayout
 
 _LOGGER = logging.getLogger(__name__)
+
+_SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
 
 # Vendor characteristic that carries unsolicited device notices. Subscribed
 # alongside the control and data channels because the working reference does.
@@ -42,6 +40,21 @@ _PRE_HANDSHAKE_DIS_UUIDS = (
 # System authentication, sent encrypted once the session key exists.
 _SYSTEM_AUTH_REQUEST = b"\x20\x01\x00" + bytes(17)
 
+
+def _secure_error_frame_code(resp: bytes | bytearray | None) -> int | None:
+    """Return the error code if ``resp`` is a secure-session error frame.
+
+    Valid secure-session responses use frame headers 0xF0 (pair/enc/challenge
+    responses: 0xF081/0xF085/0xF086) or 0xC0 (encrypted data). Any other short
+    reply is the device rejecting the request; the observed form is 0xFF
+    followed by a one-byte error code (e.g. ``ff26``). Returns the code byte,
+    or None if this isn't recognisably an error frame.
+    """
+    if resp is None or len(resp) < 2:
+        return None
+    if resp[0] == 0xFF:
+        return resp[1]
+    return None
 
 async def prepare_secure_token(session, timeout: float) -> None:
     """Run the pre-handshake reads, subscriptions and 0x11/0x91 token exchange.

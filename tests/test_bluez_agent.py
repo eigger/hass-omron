@@ -62,7 +62,7 @@ def test_bluez_agent_no_future_annotations():
 
 def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, caplog):
     """새 except Exception(임포트 실패) 경로를 검증한다 — 기존 '시스템 버스 없음' 경로와 구분."""
-    from custom_components.omron.omron_ble import omron_driver
+    from custom_components.omron.omron_ble import bluez
 
     # sys.modules 에 None 을 넣으면 from .bluez_agent import ... 가 ImportError 를 낸다
     monkeypatch.setitem(
@@ -70,8 +70,8 @@ def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, ca
     )
 
     async def _run():
-        with caplog.at_level(logging.DEBUG, logger=omron_driver.__name__):
-            async with omron_driver._bluez_pairing_agent() as bus:
+        with caplog.at_level(logging.DEBUG, logger=bluez.__name__):
+            async with bluez._bluez_pairing_agent() as bus:
                 assert bus is None
         assert "BlueZ agent unavailable" in caplog.text
 
@@ -81,7 +81,7 @@ def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, ca
 def test_bluez_pairing_agent_falls_back_on_system_bus_failure(monkeypatch, caplog):
     """시스템 버스 연결 실패 시 기존의 'cannot connect to system bus' 경로를 검증한다."""
     pytest.importorskip("dbus_fast")
-    from custom_components.omron.omron_ble import omron_driver
+    from custom_components.omron.omron_ble import bluez
     from dbus_fast.aio.message_bus import MessageBus
 
     async def _failing_connect(*args, **kwargs):
@@ -90,8 +90,8 @@ def test_bluez_pairing_agent_falls_back_on_system_bus_failure(monkeypatch, caplo
     monkeypatch.setattr(MessageBus, "connect", _failing_connect)
 
     async def _run():
-        with caplog.at_level(logging.DEBUG, logger=omron_driver.__name__):
-            async with omron_driver._bluez_pairing_agent() as bus:
+        with caplog.at_level(logging.DEBUG, logger=bluez.__name__):
+            async with bluez._bluez_pairing_agent() as bus:
                 assert bus is None
         assert "cannot connect to system bus" in caplog.text
 
@@ -106,7 +106,7 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
     원인이 뒤바뀌었다. establish_connection_with_bond_settle 의 BleakError 폴백은
     이 RuntimeError 를 잡지 못해 pair=False 재시도가 동작하지 않았다."""
     pytest.importorskip("dbus_fast")
-    from custom_components.omron.omron_ble import omron_driver
+    from custom_components.omron.omron_ble import bluez
     from dbus_fast.aio.message_bus import MessageBus
 
     class FakeBus:
@@ -136,7 +136,7 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
 
     async def _run():
         with pytest.raises(SimulatedConnectTimeout):
-            async with omron_driver._bluez_pairing_agent() as bus:
+            async with bluez._bluez_pairing_agent() as bus:
                 assert bus is fake_bus
                 raise SimulatedConnectTimeout("simulated establish_connection failure")
 

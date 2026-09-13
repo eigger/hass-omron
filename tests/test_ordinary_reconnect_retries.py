@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from custom_components.omron.omron_ble import omron_driver
+from custom_components.omron.omron_ble import connection
 
 
 class _FakeClient:
@@ -41,9 +41,9 @@ def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(monkeypatch):
     class _BlueZError(Exception):
         pass
 
-    monkeypatch.setattr(omron_driver, "BleakError", _BlueZError)
-    monkeypatch.setattr(omron_driver, "_POST_CONNECT_BOND_SETTLE_SEC", 0)
-    monkeypatch.setattr(omron_driver, "_SETTLE_POLL_STEP_SEC", 0)
+    monkeypatch.setattr(connection, "BleakError", _BlueZError)
+    monkeypatch.setattr(connection, "_POST_CONNECT_BOND_SETTLE_SEC", 0)
+    monkeypatch.setattr(connection, "_SETTLE_POLL_STEP_SEC", 0)
 
     calls = 0
 
@@ -57,11 +57,11 @@ def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(monkeypatch):
             )
         return _FakeClient()
 
-    monkeypatch.setattr(omron_driver, "establish_connection", fake_establish_connection)
+    monkeypatch.setattr(connection, "establish_connection", fake_establish_connection)
 
     async def _run():
         ble_device = SimpleNamespace(details={})
-        return await omron_driver.establish_connection_with_bond_settle(
+        return await connection.establish_connection_with_bond_settle(
             ble_device, "test-device", model="HEM-TEST", max_attempts=3
         )
 
@@ -75,9 +75,9 @@ def test_the_retry_budget_is_not_unlimited(monkeypatch):
     class _BlueZError(Exception):
         pass
 
-    monkeypatch.setattr(omron_driver, "BleakError", _BlueZError)
-    monkeypatch.setattr(omron_driver, "_POST_CONNECT_BOND_SETTLE_SEC", 0)
-    monkeypatch.setattr(omron_driver, "_SETTLE_POLL_STEP_SEC", 0)
+    monkeypatch.setattr(connection, "BleakError", _BlueZError)
+    monkeypatch.setattr(connection, "_POST_CONNECT_BOND_SETTLE_SEC", 0)
+    monkeypatch.setattr(connection, "_SETTLE_POLL_STEP_SEC", 0)
 
     calls = 0
 
@@ -86,11 +86,11 @@ def test_the_retry_budget_is_not_unlimited(monkeypatch):
         calls += 1
         raise _BlueZError("failed to discover services, device disconnected")
 
-    monkeypatch.setattr(omron_driver, "establish_connection", always_fails)
+    monkeypatch.setattr(connection, "establish_connection", always_fails)
 
     async def _run():
         ble_device = SimpleNamespace(details={})
-        await omron_driver.establish_connection_with_bond_settle(
+        await connection.establish_connection_with_bond_settle(
             ble_device, "test-device", model="HEM-TEST", max_attempts=3
         )
 

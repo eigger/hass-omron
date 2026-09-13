@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
 from custom_components.omron.omron_ble.devices import DeviceConfig, HostPairingMode, UnlockMode
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble.secure_session import SecureSession
 
 

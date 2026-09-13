@@ -17,10 +17,9 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴
 import ast
 from pathlib import Path
 
-_DRIVER = (
-    Path(__file__).resolve().parent.parent
-    / "custom_components" / "omron" / "omron_ble" / "omron_driver.py"
-)
+_OMRON_BLE = Path(__file__).resolve().parent.parent / "custom_components" / "omron" / "omron_ble"
+_SESSION = _OMRON_BLE / "session.py"
+_BLUEZ = _OMRON_BLE / "bluez.py"
 
 
 def _find_function(tree: ast.AST, name: str):
@@ -42,7 +41,7 @@ def _enclosing_ifs(fn: ast.AST, target_lineno: int) -> list[ast.If]:
 
 
 def test_the_bond_is_only_removed_when_one_exists():
-    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(_SESSION.read_text(encoding="utf-8"))
     fn = _find_function(tree, "_pair_os_bonding")
 
     removals = [
@@ -62,7 +61,7 @@ def test_the_bond_is_only_removed_when_one_exists():
 
 
 def test_the_bond_state_is_read_before_removing():
-    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(_SESSION.read_text(encoding="utf-8"))
     fn = _find_function(tree, "_pair_os_bonding")
 
     def _first_lineno(name: str) -> int:
@@ -81,7 +80,7 @@ def test_the_bond_state_is_read_before_removing():
 
 def test_a_refused_first_pairing_retries_inside_the_window():
     """거절이 곧 포기가 되면 -P- 창을 한 번밖에 못 쓴다."""
-    source = _DRIVER.read_text(encoding="utf-8")
+    source = _SESSION.read_text(encoding="utf-8")
     tree = ast.parse(source)
     fn = _find_function(tree, "_pair_os_bonding")
     assert any(isinstance(node, ast.Continue) for node in ast.walk(fn)), (
@@ -92,7 +91,7 @@ def test_a_refused_first_pairing_retries_inside_the_window():
 
 def test_the_probe_answers_none_when_it_cannot_tell():
     """모르면 모른다고 해야 예전 동작으로 안전하게 떨어진다."""
-    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(_BLUEZ.read_text(encoding="utf-8"))
     fn = _find_function(tree, "_bluez_is_paired")
     returns = {
         ast.unparse(node.value) if node.value is not None else "None"
@@ -109,7 +108,7 @@ def test_the_bluez_calls_ask_the_target_not_the_client():
     ``_device_path`` 문자열을 든다. ``_bluez_target()`` 이 클라이언트와
     BLEDevice 중 경로가 있는 쪽을 고른다.
     """
-    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(_SESSION.read_text(encoding="utf-8"))
     fn = _find_function(tree, "_pair_os_bonding")
 
     watched = {"_bluez_is_paired", "_bluez_remove_device", "_bluez_agent_pair"}
@@ -128,7 +127,7 @@ def test_the_bluez_calls_ask_the_target_not_the_client():
 
 def test_the_path_probe_reads_the_backend_string():
     """bleak 3 백엔드는 ``_device`` 객체가 아니라 ``_device_path`` 문자열을 든다."""
-    tree = ast.parse(_DRIVER.read_text(encoding="utf-8"))
+    tree = ast.parse(_BLUEZ.read_text(encoding="utf-8"))
     fn = _find_function(tree, "_bluez_device_path")
     attrs = {
         node.args[1].value

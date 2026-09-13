@@ -52,7 +52,8 @@ from .const import (
     DOMAIN,
 )
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
-from .omron_ble.omron_driver import OmronDeviceSession, is_local_adapter
+from .omron_ble.bluez import is_local_adapter
+from .omron_ble.session import OmronDeviceSession
 from .omron_ble.setup import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,

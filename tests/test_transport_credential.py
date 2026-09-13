@@ -118,14 +118,17 @@ class TestOneSecurePath:
     """SECURE_SESSION 은 하나의 경로여야 한다 — 기종별 분기를 두지 않는다."""
 
     def test_the_driver_has_no_model_whitelist(self):
-        source = (_COMPONENT / "omron_ble" / "omron_driver.py").read_text(encoding="utf-8")
+        source = "".join(
+            (_COMPONENT / "omron_ble" / name).read_text(encoding="utf-8")
+            for name in ("session.py", "driver.py")
+        )
         assert "HEM-7188T1-LEO" not in source, (
             "드라이버가 특정 기종 이름으로 분기한다 — 프로파일 필드로 표현할 것"
         )
 
     def test_the_secure_flow_dispatches_on_the_unlock_mode_alone(self):
         fn = None
-        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+        for node in ast.walk(_tree("omron_ble/session.py")):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "unlock":
                 fn = node
         assert fn is not None, "unlock() 을 찾지 못했다"
@@ -152,7 +155,7 @@ class TestPairingIsOptional:
         """핸드셰이크 시점에 커프가 Security Request 를 올리면 답할 주체가 있어야
         한다. 하드웨어로 검증된 순서도 세션 내내 에이전트를 붙잡고 있었다."""
         fn = None
-        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+        for node in ast.walk(_tree("omron_ble/session.py")):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "connect":
                 fn = node
         assert fn is not None, "connect() 를 찾지 못했다"
@@ -164,7 +167,7 @@ class TestPairingIsOptional:
         assert "register_pairing_agent" in body
 
         released = None
-        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+        for node in ast.walk(_tree("omron_ble/session.py")):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "aclose":
                 released = ast.unparse(node)
         assert released is not None, "aclose() 를 찾지 못했다"
@@ -173,7 +176,7 @@ class TestPairingIsOptional:
     def test_pair_is_a_no_op_rather_than_an_error(self):
         """예외를 던지면 평범한 setup/재시도 경로가 전부 특수 분기를 져야 한다."""
         fn = None
-        for node in ast.walk(_tree("omron_ble/omron_driver.py")):
+        for node in ast.walk(_tree("omron_ble/session.py")):
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "pair":
                 fn = node
         assert fn is not None, "pair() 를 찾지 못했다"

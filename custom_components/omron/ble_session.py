@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-    from .omron_ble.omron_driver import OmronDeviceSession
+    from .omron_ble.session import OmronDeviceSession
 
 _LOGGER = logging.getLogger(__name__)
 
