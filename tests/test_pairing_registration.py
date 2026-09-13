@@ -299,13 +299,14 @@ class TestDerivedFromTheProfile:
                 )
             )
 
-    def test_the_clock_is_not_written_twice_in_a_pairing_session(self):
-        """등록의 시계 쓰기가 시간 동기화의 상위집합이다 — 둘 다 돌면 왕복 한 번 낭비."""
+    def test_the_time_sync_is_not_skipped_for_the_registration(self):
+        """등록이 같은 주소를 다시 쓰지만, 등록은 readout 끝에서 실패할 수 있고 그
+        실패는 삼켜진다. 시간 동기화를 미리 건너뛰면 그 세션은 시계를 아예 못 쓰고,
+        등록 실패는 곧 재연결 거부라 만회할 다음 폴도 없다."""
         fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
         body = ast.unparse(fn)
-        assert "registration_writes_clock" in body
-        assert "not registration_writes_clock" in body, (
-            "페어링 세션에서 시간 동기화와 등록이 같은 주소를 두 번 쓴다"
+        assert "registration" not in body.split("async_sync_eeprom_time")[0], (
+            "시간 동기화가 등록 여부로 게이트된다 — 등록이 실패하면 시계도 잃는다"
         )
 
     def test_the_write_helpers_are_typed(self):
