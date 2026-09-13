@@ -417,6 +417,26 @@ class TestItNeverBlocksTheClose:
         fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "close_memory_session")
         assert "registration" not in ast.unparse(fn).lower()
 
+    def test_the_call_site_retries_so_the_split_is_reachable(self):
+        """head/clock 플래그를 나눈 이유는 실패한 시계 쓰기를 따로 다시 쓰기 위해서다.
+        호출이 한 번뿐이고 실패를 삼키면 두 번째 호출이 영영 없어 그 분리가 죽는다."""
+        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
+        call = None
+        for node in ast.walk(fn):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "commit_pairing_registration"
+            ):
+                call = node
+        assert call is not None
+        looped = any(
+            isinstance(node, (ast.For, ast.While))
+            and node.lineno <= call.lineno <= getattr(node, "end_lineno", node.lineno)
+            for node in ast.walk(fn)
+        )
+        assert looped, "등록 호출이 한 번뿐이다 — 실패한 시계 쓰기를 다시 쓸 경로가 없다"
+
     def test_the_call_site_swallows_failures(self):
         fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
         call = None

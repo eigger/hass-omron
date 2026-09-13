@@ -43,6 +43,10 @@ from ..util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
 
+# The pairing registration is two writes and only the second may be repeated;
+# one retry lets a failed clock write land without redoing the head.
+_REGISTRATION_ATTEMPTS: int = 2
+
 
 def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, str]:
     """Build 1-based user index -> display label; empty strings become user{n}."""
@@ -1072,20 +1076,40 @@ class OmronBluetoothDeviceData(BluetoothData):
         except Exception as exc:
             _LOGGER.debug("Failed to read Model Number: %s", exc)
 
-        # After the records, before the close: the pairing session's one
-        # registration write, on the profiles that need it. A failure here is
-        # logged and the session still closes normally -- the close is what
-        # keeps the cuff usable, and the user can pair again.
+        # After the records, before the close: the pairing session's
+        # registration write, on the profiles that need it.
+        #
+        # Two attempts, because the write has two halves and only the second
+        # is safe to repeat. A second call skips the half that already landed
+        # and redoes only what failed -- worth one retry, since nothing else
+        # in a session ever writes the clock record's flag bit and this is the
+        # session that owes it.
+        #
+        # A failure that survives both is logged and the session still closes
+        # normally: the close is what keeps the cuff usable, and the user can
+        # pair again.
         if memory_session_active:
-            try:
-                await session.commit_pairing_registration()
-            except Exception as exc:
-                _LOGGER.warning(
-                    "Pairing registration for %s failed; the next reconnect may "
-                    "be refused and need another pairing: %s",
-                    ble_device.address,
-                    exc,
-                )
+            for attempt in range(_REGISTRATION_ATTEMPTS):
+                try:
+                    await session.commit_pairing_registration()
+                    break
+                except Exception as exc:
+                    if attempt + 1 < _REGISTRATION_ATTEMPTS:
+                        _LOGGER.debug(
+                            "Pairing registration for %s failed (attempt %d/%d), "
+                            "retrying the part that did not land: %s",
+                            ble_device.address,
+                            attempt + 1,
+                            _REGISTRATION_ATTEMPTS,
+                            exc,
+                        )
+                        continue
+                    _LOGGER.warning(
+                        "Pairing registration for %s failed; the next reconnect "
+                        "may be refused and need another pairing: %s",
+                        ble_device.address,
+                        exc,
+                    )
 
     async def async_poll(
         self, ble_device: BLEDevice, preconnected_session: OmronDeviceSession | None = None
