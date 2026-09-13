@@ -32,7 +32,7 @@ from custom_components.omron.omron_ble.devices import (
     PairingRegistration,
     get_device_config,
 )
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble.settings_mirror import (
     SettingsMirrorLayout,
     clock_block,
@@ -245,7 +245,10 @@ class TestDerivedFromTheProfile:
         assert written[8:12] == slot[8:12]                  # +8 은 이제 데이터, 손대지 않음
 
     def test_the_driver_names_no_model(self):
-        source = (_COMPONENT / "omron_ble" / "omron_driver.py").read_text(encoding="utf-8")
+        source = "".join(
+            (_COMPONENT / "omron_ble" / name).read_text(encoding="utf-8")
+            for name in ("session.py", "driver.py")
+        )
         assert "HEM-7386T1" not in source
         assert "resolve_profile_model_id" not in source
 
@@ -311,7 +314,7 @@ class TestDerivedFromTheProfile:
 
     def test_the_write_helpers_are_typed(self):
         """둘 다 Any 면 인자를 바꿔 넘겨도 런타임까지 안 걸린다."""
-        source = (_COMPONENT / "omron_ble" / "omron_driver.py").read_text(encoding="utf-8")
+        source = (_COMPONENT / "omron_ble" / "session.py").read_text(encoding="utf-8")
         for sig in (
             "layout: SettingsMirrorLayout, registration: PairingRegistration",
             "_write_registration_clock(self, layout: SettingsMirrorLayout)",
@@ -364,7 +367,7 @@ class TestWhenItRuns:
 
     def test_a_session_reset_rearms_both_halves(self):
         """새 세션의 3회 재시도 루프는 reset 후 다시 돈다 — 등록도 다시 써야 한다."""
-        fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "reset_session_state")
+        fn = _function(_COMPONENT / "omron_ble" / "session.py", "reset_session_state")
         body = ast.unparse(fn)
         assert "_pairing_registration_head_done = False" in body
         assert "_pairing_registration_clock_done = False" in body
@@ -387,7 +390,7 @@ class TestWhenItRuns:
 
     def test_a_failed_close_after_registering_is_logged(self):
         """이 경로엔 재시도가 없다 — 최소한 나중의 0x06 에 원인이 남아야 한다."""
-        fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "aclose")
+        fn = _function(_COMPONENT / "omron_ble" / "session.py", "aclose")
         body = ast.unparse(fn)
         assert "_pairing_registration_head_done" in body
         assert "_LOGGER.warning" in body
@@ -414,7 +417,7 @@ class TestWhenItRuns:
 
 class TestItNeverBlocksTheClose:
     def test_close_memory_session_has_no_registration_hook(self):
-        fn = _function(_COMPONENT / "omron_ble" / "omron_driver.py", "close_memory_session")
+        fn = _function(_COMPONENT / "omron_ble" / "session.py", "close_memory_session")
         assert "registration" not in ast.unparse(fn).lower()
 
     def test_the_call_site_retries_so_the_split_is_reachable(self):

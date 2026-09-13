@@ -3,7 +3,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceDriver, OmronDeviceSession
+from custom_components.omron.omron_ble.driver import OmronDeviceDriver
+from custom_components.omron.omron_ble.session import OmronDeviceSession
 
 
 class TestEmptyUserClearValue:

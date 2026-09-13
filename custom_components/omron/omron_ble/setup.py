@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from .const import DEFAULT_DEVICE_MODEL
 from .devices import get_device_config
-from .omron_driver import OmronDeviceSession
+from .session import OmronDeviceSession
 from .setup_time_sync import (
     async_sync_device_time,
     async_sync_eeprom_time,

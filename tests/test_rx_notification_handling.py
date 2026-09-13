@@ -2,7 +2,7 @@
 from unittest.mock import MagicMock
 
 from custom_components.omron.omron_ble.devices import DeviceConfig
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+from custom_components.omron.omron_ble.session import OmronDeviceSession
 
 
 def _calc_crc(frame: bytearray) -> int:

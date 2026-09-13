@@ -13,3 +13,8 @@ def slugify_for_entity_key(raw: str) -> str:
     s = re.sub(r"[^a-z0-9_]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:48]
+
+
+def _hex(data: bytes | bytearray) -> str:
+    """Convert byte array to hex string."""
+    return bytes(data).hex()

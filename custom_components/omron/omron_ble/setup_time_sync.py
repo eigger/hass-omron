@@ -11,7 +11,9 @@ from bleak import BleakClient
 
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
-from .omron_driver import OmronDeviceDriver, OmronDeviceSession, _bleak_refresh_services
+from .connection import _bleak_refresh_services
+from .driver import OmronDeviceDriver
+from .session import OmronDeviceSession
 
 if TYPE_CHECKING:
     from .devices import DeviceConfig

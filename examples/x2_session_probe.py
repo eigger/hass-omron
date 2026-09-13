@@ -31,7 +31,8 @@ sys.modules["omron_ble"] = package
 
 from bleak import BleakScanner  # noqa: E402
 from omron_ble.devices import UnlockMode, get_device_config  # noqa: E402
-from omron_ble.omron_driver import OmronDeviceSession, _bluez_pairing_agent  # noqa: E402
+from omron_ble.bluez import _bluez_pairing_agent  # noqa: E402
+from omron_ble.session import OmronDeviceSession  # noqa: E402
 from omron_ble.secure_flow import establish_secure_session  # noqa: E402
 
 

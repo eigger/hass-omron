@@ -18,8 +18,9 @@ from contextlib import asynccontextmanager
 import pytest
 
 from custom_components.omron.omron_ble.devices import DeviceConfig, HostPairingMode
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
-from custom_components.omron.omron_ble import omron_driver
+from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.omron_ble import bluez
+from custom_components.omron.omron_ble import session as session_module
 
 
 class FakeBLEDevice:
@@ -91,7 +92,7 @@ def agent_recorder(monkeypatch):
         entered.append(True)
         yield None
 
-    monkeypatch.setattr(omron_driver, "_bluez_pairing_agent", _fake_agent)
+    monkeypatch.setattr(session_module, "_bluez_pairing_agent", _fake_agent)
     return entered
 
 
@@ -147,7 +148,7 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     monkeypatch,
 ):
     """링크가 끊겼으면 첫 실패에서 중단하고 끊김을 그대로 보고한다."""
-    monkeypatch.setattr(omron_driver, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
 
     client = FakeClient(
         connected=False,
@@ -169,7 +170,7 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
 
 def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
     """연결이 살아있는 동안은 기존 재시도 동작(10회)을 유지한다."""
-    monkeypatch.setattr(omron_driver, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     client = FakeClient(connected=True, start_notify_error=Exception("not ready yet"))
@@ -180,7 +181,7 @@ def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
 
     assert "was not found" in str(excinfo.value)
     # RX notify 1회 + 언락 구독 10회(aggressive_gatt_timing).
-    assert len(client.start_notify_calls) == 1 + omron_driver._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
+    assert len(client.start_notify_calls) == 1 + session_module._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
 
 
 async def _noop_refresh(client):
@@ -200,14 +201,14 @@ def test_bluez_device_path_reads_the_client_and_the_device():
     "판단 불가"가 된다 (#92).
     """
     path = "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
-    assert omron_driver._bluez_device_path(FakeClient(device_path=path)) == path
+    assert bluez._bluez_device_path(FakeClient(device_path=path)) == path
     assert (
-        omron_driver._bluez_device_path(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS))
+        bluez._bluez_device_path(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS))
         == path
     )
     # 프록시 링크에는 어느 쪽에도 경로가 없다.
-    assert omron_driver._bluez_device_path(FakeClient()) is None
-    assert omron_driver._bluez_device_path(FakeBLEDevice(PROXY_DEVICE_DETAILS)) is None
+    assert bluez._bluez_device_path(FakeClient()) is None
+    assert bluez._bluez_device_path(FakeBLEDevice(PROXY_DEVICE_DETAILS)) is None
 
 
 def test_bluez_target_falls_back_to_the_device():
@@ -222,12 +223,12 @@ def test_bluez_target_falls_back_to_the_device():
     assert without._bluez_target() is device
 
     proxy = _custom_key_session(FakeBLEDevice(PROXY_DEVICE_DETAILS), FakeClient())
-    assert omron_driver._bluez_device_path(proxy._bluez_target()) is None
+    assert bluez._bluez_device_path(proxy._bluez_target()) is None
 
 
 def test_pairing_error_names_both_failures(monkeypatch):
     """링크가 언락 구독 도중에 죽으면 SMP 촉발 실패까지 함께 보고한다."""
-    monkeypatch.setattr(omron_driver, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     class _DiesOnUnlock(FakeClient):

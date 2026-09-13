@@ -67,7 +67,7 @@ def test_connect_logs_the_path_that_owns_the_bond():
     import pathlib
 
     source = pathlib.Path(
-        "custom_components/omron/omron_ble/omron_driver.py"
+        "custom_components/omron/omron_ble/connection.py"
     ).read_text(encoding="utf-8")
 
     assert "def _connected_path" in source
@@ -106,7 +106,7 @@ def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_sessi
     """
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import (
+    from custom_components.omron.omron_ble.connection import (
         establish_connection_with_bond_settle,
     )
 
@@ -136,7 +136,7 @@ def test_a_second_bonding_is_skipped_only_when_the_connect_actually_bonded():
     """플래그가 아니라 결과로 판단해야 한다 — 폴백이 탄 뒤에도 본드는 만들어져야."""
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+    from custom_components.omron.omron_ble.session import OmronDeviceSession
 
     source = inspect.getsource(OmronDeviceSession.pair)
     assert "_omron_bonded_at_connect" in source, (
@@ -152,7 +152,7 @@ def test_only_the_pairing_session_bonds_at_connect():
     """재접속이 pair 요청을 보내면 안 된다 — 그게 프록시에서 본드를 날린 경로다."""
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+    from custom_components.omron.omron_ble.session import OmronDeviceSession
 
     source = inspect.getsource(OmronDeviceSession.connect)
     assert "self._pairing_session and self._config.pair_on_connect" in source, (
@@ -222,7 +222,7 @@ def test_an_adopted_link_can_be_marked_as_the_pairing_session():
     """adopt() 는 __init__ 을 우회한다 — 플래그를 손으로 안 넣으면 폴처럼 붙는다."""
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+    from custom_components.omron.omron_ble.session import OmronDeviceSession
 
     sig = inspect.signature(OmronDeviceSession.adopt)
     assert sig.parameters["pairing_session"].default is False
@@ -265,7 +265,7 @@ def test_the_bonding_result_is_scoped_to_the_connection_it_describes():
     import ast
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import (
+    from custom_components.omron.omron_ble.connection import (
         establish_connection_with_bond_settle,
     )
 
@@ -352,7 +352,7 @@ def test_both_gates_use_the_same_local_adapter_predicate():
     """설정 플로우와 연결 경로가 갈라지면 프록시에서 링크만 잃는다."""
     import inspect
 
-    from custom_components.omron.omron_ble.omron_driver import (
+    from custom_components.omron.omron_ble.connection import (
         establish_connection_with_bond_settle,
     )
 

@@ -15,7 +15,7 @@ address-mismatched replies``. 재시도해도 매번 이전 응답을 소비했�
 import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
-from custom_components.omron.omron_ble.omron_driver import OmronDeviceSession
+from custom_components.omron.omron_ble.session import OmronDeviceSession
 
 
 def _crc(frame: bytearray) -> bytearray:

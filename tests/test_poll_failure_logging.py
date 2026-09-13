@@ -20,7 +20,7 @@ import ast
 from pathlib import Path
 
 _COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
-_DRIVER = _COMPONENT / "omron_ble" / "omron_driver.py"
+_CONNECTION = _COMPONENT / "omron_ble" / "connection.py"
 _PARSER = _COMPONENT / "omron_ble" / "parser.py"
 
 
@@ -32,7 +32,7 @@ def _function(path: Path, name: str):
 
 
 def test_a_settle_drop_is_a_connection_error():
-    fn = _function(_DRIVER, "establish_connection_with_bond_settle")
+    fn = _function(_CONNECTION, "establish_connection_with_bond_settle")
     raised = {
         node.exc.func.id
         for node in ast.walk(fn)
