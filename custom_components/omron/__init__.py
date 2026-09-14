@@ -9,7 +9,7 @@ import time
 
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass, SensorUpdate
 
-from .ble_session import (
+from .session_handoff import (
     adopt_handoff_session,
     discard_handoff_session,
     discard_probe_session,

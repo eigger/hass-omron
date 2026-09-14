@@ -20,8 +20,8 @@ from custom_components.omron.omron_ble.devices import (
     UnlockMode,
     get_device_config,
 )
-from custom_components.omron.omron_ble.secure_flow import (
-    SecureInitLayout,
+from custom_components.omron.omron_ble.settings_mirror import (
+    SettingsMirrorLayout,
     clock_block,
 )
 
@@ -33,12 +33,12 @@ def _tree(relative: str) -> ast.AST:
     return ast.parse((_COMPONENT / relative).read_text(encoding="utf-8"))
 
 
-class TestSecureInitLayout:
+class TestSettingsMirrorLayout:
     """초기화 주소는 프로파일에서 유도된다 — 한 기종에 박아넣지 않는다."""
 
     def test_addresses_come_from_the_profile(self):
         cfg = get_device_config("HEM-7188T1-LEO")
-        layout = SecureInitLayout(cfg)
+        layout = SettingsMirrorLayout(cfg)
         # 읽기/쓰기 영역은 카탈로그의 settings 주소 그대로,
         # 시계 레코드는 그 안의 time-sync 오프셋에 얹힌다.
         assert layout.head_read_address == cfg.settings_read_address
@@ -56,7 +56,7 @@ class TestSecureInitLayout:
             settings_time_sync_bytes=[0x10, 0x20],
             index_pointer_layout={"index_region_byte_size": 0x08},
         )
-        layout = SecureInitLayout(other)
+        layout = SettingsMirrorLayout(other)
         assert layout.head_read_address == 0x0100
         assert layout.head_read_size == 0x10
         assert layout.head_write_address == 0x0200
@@ -84,7 +84,7 @@ class TestSecureInitLayout:
                 settings_time_sync_bytes=time_sync,
                 index_pointer_layout={"index_region_byte_size": index_size},
             )
-            layout = SecureInitLayout(cfg)
+            layout = SettingsMirrorLayout(cfg)
             assert layout.clock_read_size >= layout.clock_write_size
             # 실제로 만들어봐야 의미가 있다: 주소만 검사하면 이 버그를 놓친다.
             block = clock_block(
@@ -111,7 +111,7 @@ class TestSecureInitLayout:
             index_pointer_layout=None,
         )
         with pytest.raises(ValueError, match="secure initialization"):
-            SecureInitLayout(bare)
+            SettingsMirrorLayout(bare)
 
 
 class TestOneSecurePath:

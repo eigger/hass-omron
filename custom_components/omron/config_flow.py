@@ -38,7 +38,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 from homeassistant.data_entry_flow import AbortFlow
 
-from .ble_session import (
+from .session_handoff import (
     stash_handoff_session,
     close_probe_session,
     stash_probe_session,
@@ -54,7 +54,7 @@ from .const import (
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.bluez import is_local_adapter
 from .omron_ble.session import OmronDeviceSession
-from .omron_ble.setup import (
+from .omron_ble.pairing import (
     async_fetch_device_model_number,
     async_pair_and_sync_device,
 )

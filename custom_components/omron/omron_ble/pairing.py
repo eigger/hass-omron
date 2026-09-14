@@ -1,4 +1,4 @@
-"""Setup helpers for Omron Bluetooth."""
+"""Config-flow procedures: the model-number probe and the pairing itself."""
 from __future__ import annotations
 
 import logging
@@ -7,24 +7,12 @@ from typing import TYPE_CHECKING
 from .const import DEFAULT_DEVICE_MODEL
 from .devices import get_device_config
 from .session import OmronDeviceSession
-from .setup_time_sync import (
-    async_sync_device_time,
-    async_sync_eeprom_time,
-    build_cts_payload,
-)
+from .time_sync import async_sync_device_time
 
 if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
 
 _LOGGER = logging.getLogger(__name__)
-
-__all__ = [
-    "async_fetch_device_model_number",
-    "async_pair_and_sync_device",
-    "async_sync_device_time",
-    "async_sync_eeprom_time",
-    "build_cts_payload",
-]
 
 
 async def async_fetch_device_model_number(

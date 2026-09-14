@@ -21,10 +21,6 @@ from .devices import UnlockMode
 from .secure_session import SecureSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
 
-# The secure flow's initialization is the same mirror write; kept under its
-# old name so callers and tests importing it from here keep working.
-SecureInitLayout = SettingsMirrorLayout
-
 _LOGGER = logging.getLogger(__name__)
 
 _SECURE_HANDSHAKE_WAIT_TIMEOUT_SEC: float = 5.0
@@ -127,7 +123,7 @@ async def establish_secure_session(
         )
     if stored_ltk is not None and len(stored_ltk) != 16:
         raise ValueError("A stored secure-session credential must be 16 bytes")
-    layout = SecureInitLayout(session._config) if pairing else None
+    layout = SettingsMirrorLayout(session._config) if pairing else None
 
     crypto = SecureSession(stored_ltk=stored_ltk)
     # Key generation and lazy crypto imports must not delay token -> request.
