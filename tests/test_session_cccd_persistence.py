@@ -217,9 +217,9 @@ def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch)
     빠져 있으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를 시도해
     ``Failed to initiate write`` 로 이어진다.
     """
-    from custom_components.omron.omron_ble import session as session_module
+    from custom_components.omron.omron_ble import memory_protocol
 
-    monkeypatch.setattr(session_module, "BleakError", _BlueZError)
+    monkeypatch.setattr(memory_protocol, "BleakError", _BlueZError)
     client = _NotifyHeldClient(UNLOCK_CHARACTERISTIC_UUID)
     target = SimpleNamespace(
         _client=client,

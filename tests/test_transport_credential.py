@@ -120,7 +120,7 @@ class TestOneSecurePath:
     def test_the_driver_has_no_model_whitelist(self):
         source = "".join(
             (_COMPONENT / "omron_ble" / name).read_text(encoding="utf-8")
-            for name in ("session.py", "driver.py")
+            for name in ("session.py", "memory_protocol.py", "driver.py")
         )
         assert "HEM-7188T1-LEO" not in source, (
             "드라이버가 특정 기종 이름으로 분기한다 — 프로파일 필드로 표현할 것"

@@ -247,7 +247,7 @@ class TestDerivedFromTheProfile:
     def test_the_driver_names_no_model(self):
         source = "".join(
             (_COMPONENT / "omron_ble" / name).read_text(encoding="utf-8")
-            for name in ("session.py", "driver.py")
+            for name in ("session.py", "memory_protocol.py", "driver.py")
         )
         assert "HEM-7386T1" not in source
         assert "resolve_profile_model_id" not in source
@@ -314,7 +314,7 @@ class TestDerivedFromTheProfile:
 
     def test_the_write_helpers_are_typed(self):
         """둘 다 Any 면 인자를 바꿔 넘겨도 런타임까지 안 걸린다."""
-        source = (_COMPONENT / "omron_ble" / "session.py").read_text(encoding="utf-8")
+        source = (_COMPONENT / "omron_ble" / "memory_protocol.py").read_text(encoding="utf-8")
         for sig in (
             "layout: SettingsMirrorLayout, registration: PairingRegistration",
             "_write_registration_clock(self, layout: SettingsMirrorLayout)",
@@ -417,7 +417,7 @@ class TestWhenItRuns:
 
 class TestItNeverBlocksTheClose:
     def test_close_memory_session_has_no_registration_hook(self):
-        fn = _function(_COMPONENT / "omron_ble" / "session.py", "close_memory_session")
+        fn = _function(_COMPONENT / "omron_ble" / "memory_protocol.py", "close_memory_session")
         assert "registration" not in ast.unparse(fn).lower()
 
     def test_the_call_site_retries_so_the_split_is_reachable(self):
