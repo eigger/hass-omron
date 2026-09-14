@@ -201,7 +201,7 @@ def test_the_model_probe_can_hand_its_link_to_pairing():
     import inspect
     import pathlib
 
-    from custom_components.omron.omron_ble.setup import (
+    from custom_components.omron.omron_ble.pairing import (
         async_fetch_device_model_number,
     )
 

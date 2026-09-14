@@ -1,4 +1,4 @@
-"""Shared BLE poll / pairing session telemetry (connection + duration tickers)."""
+"""Parking an open OmronDeviceSession in hass.data between the config flow and the poll, plus poll telemetry."""
 
 from __future__ import annotations
 

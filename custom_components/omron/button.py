@@ -12,7 +12,7 @@ from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceIn
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
-from .ble_session import (
+from .session_handoff import (
     omron_poll_ble_telemetry,
     poll_parked_session,
     run_post_pairing_poll,

@@ -48,7 +48,7 @@ def _find_function(tree: ast.AST, name: str):
 
 
 def test_the_bond_comes_before_the_service_changed_subscribe():
-    tree = ast.parse((_COMPONENT / "omron_ble" / "setup.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8"))
     fn = _find_function(tree, "async_pair_and_sync_device")
 
     order = _call_order(fn, {"pair", "subscribe_service_changed"})
@@ -60,7 +60,7 @@ def test_the_bond_comes_before_the_service_changed_subscribe():
 
 def test_the_subscribe_still_precedes_the_vendor_traffic():
     """앱도 벤더 CCCD 보다 먼저 쓴다 — 본딩 뒤, 벤더 앞."""
-    tree = ast.parse((_COMPONENT / "omron_ble" / "setup.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8"))
     fn = _find_function(tree, "async_pair_and_sync_device")
 
     order = _call_order(fn, {"subscribe_service_changed", "async_sync_device_time"})

@@ -82,7 +82,7 @@ class TestHandoffHelpers:
     """Ownership handling of the stash/discard helpers."""
 
     def test_stash_releases_ownership_and_parks_the_session(self):
-        from custom_components.omron.ble_session import stash_handoff_session
+        from custom_components.omron.session_handoff import stash_handoff_session
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -96,7 +96,7 @@ class TestHandoffHelpers:
     def test_discard_reclaims_before_closing(self):
         """release_for_handoff() cleared the disconnect responsibility, so
         aclose() without reclaiming first would leave the link up."""
-        from custom_components.omron.ble_session import (
+        from custom_components.omron.session_handoff import (
             discard_handoff_session,
             stash_handoff_session,
         )
@@ -116,13 +116,13 @@ class TestHandoffHelpers:
 
     def test_discard_is_a_noop_once_the_poll_adopted_the_session(self):
         """Cleanup after the poll popped the session must pass quietly."""
-        from custom_components.omron.ble_session import discard_handoff_session
+        from custom_components.omron.session_handoff import discard_handoff_session
 
         asyncio.run(discard_handoff_session(_fake_hass(), "AA:BB:CC:DD:EE:FF"))
 
     def test_discard_swallows_close_errors(self):
         """A failed cleanup must not overturn a successful pairing."""
-        from custom_components.omron.ble_session import (
+        from custom_components.omron.session_handoff import (
             discard_handoff_session,
             stash_handoff_session,
         )
@@ -146,7 +146,7 @@ class TestPostPairingPoll:
     ADDRESS = "AA:BB:CC:DD:EE:FF"
 
     def test_session_is_parked_before_the_poll_runs(self):
-        from custom_components.omron.ble_session import run_post_pairing_poll
+        from custom_components.omron.session_handoff import run_post_pairing_poll
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -171,7 +171,7 @@ class TestPostPairingPoll:
         session lock taken by an advertisement-triggered auto-session. Closing
         the link here would send the retry back to the reconnect a PER_SESSION
         cuff refuses, so it has to stay parked for the next poll."""
-        from custom_components.omron.ble_session import run_post_pairing_poll
+        from custom_components.omron.session_handoff import run_post_pairing_poll
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -191,7 +191,7 @@ class TestPostPairingPoll:
 
     def test_adopted_session_is_left_to_the_poll(self):
         """Once the poll pops the session it owns it; nothing here may close it."""
-        from custom_components.omron.ble_session import run_post_pairing_poll
+        from custom_components.omron.session_handoff import run_post_pairing_poll
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -222,7 +222,7 @@ class TestParkedSessionBlocksRepairing:
     ADDRESS = "AA:BB:CC:DD:EE:FF"
 
     def test_reports_nothing_parked_so_pairing_proceeds(self):
-        from custom_components.omron.ble_session import poll_parked_session
+        from custom_components.omron.session_handoff import poll_parked_session
 
         polled = False
 
@@ -239,7 +239,7 @@ class TestParkedSessionBlocksRepairing:
         assert not polled
 
     def test_polls_the_parked_session_instead_of_pairing(self):
-        from custom_components.omron.ble_session import (
+        from custom_components.omron.session_handoff import (
             poll_parked_session,
             stash_handoff_session,
         )
@@ -265,7 +265,7 @@ class TestParkedSessionBlocksRepairing:
     def test_replacing_a_parked_session_closes_the_old_link(self):
         """Backstop for a caller that pairs anyway: the overwritten session
         would otherwise be dropped with nothing left to close it."""
-        from custom_components.omron.ble_session import stash_handoff_session
+        from custom_components.omron.session_handoff import stash_handoff_session
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -281,7 +281,7 @@ class TestParkedSessionBlocksRepairing:
         assert hass.data[DOMAIN]["_setup_sessions"][self.ADDRESS] is second
 
     def test_restashing_the_same_session_does_not_close_it(self):
-        from custom_components.omron.ble_session import stash_handoff_session
+        from custom_components.omron.session_handoff import stash_handoff_session
         from custom_components.omron.const import DOMAIN
 
         hass = _fake_hass()
@@ -306,7 +306,7 @@ class TestParkedSessionMustStillBeConnected:
         """Polling a dead parked link only reconnects without pairing, which
         is the connect a PER_SESSION cuff refuses — and the caller pressed
         Retry Pairing precisely because it wanted to pair."""
-        from custom_components.omron.ble_session import (
+        from custom_components.omron.session_handoff import (
             poll_parked_session,
             stash_handoff_session,
         )
@@ -536,7 +536,7 @@ class TestPostPairingPollIsNotDebounced:
     """
 
     def test_helper_polls_without_the_debouncer(self):
-        fn = _find_async_function(_parse("ble_session.py"), "run_post_pairing_poll")
+        fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
         calls = _called_names(fn)
 
         assert not any(
@@ -552,7 +552,7 @@ class TestPostPairingPollIsNotDebounced:
     def test_helper_does_not_discard_the_session(self):
         """A poll that bailed out leaves the session parked for the next one;
         discarding here would close a link the retry still needs."""
-        fn = _find_async_function(_parse("ble_session.py"), "run_post_pairing_poll")
+        fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
 
         assert "discard_handoff_session" not in _called_names(fn)
 

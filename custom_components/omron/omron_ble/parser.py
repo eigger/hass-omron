@@ -33,7 +33,7 @@ from .const import (
     DEFAULT_DEVICE_MODEL,
     ExtendedBinarySensorDeviceClass,
 )
-from .setup import async_sync_device_time, async_sync_eeprom_time
+from .time_sync import async_sync_device_time, async_sync_eeprom_time
 from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
