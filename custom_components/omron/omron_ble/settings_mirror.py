@@ -45,7 +45,7 @@ class SettingsMirrorLayout:
             or index_size <= 0
         ):
             raise ValueError(
-                f"Profile {config.model} cannot describe a secure initialization: "
+                f"Profile {config.model} cannot describe a settings mirror: "
                 "settings addresses, time-sync range and index region size are all required"
             )
         clock_size = time_range[1] - time_range[0]
@@ -80,7 +80,7 @@ def clock_block(tail: bytes, now: datetime, size: int) -> bytes:
     """
     if len(tail) < size or size < 16 or not 2000 <= now.year <= 2255:
         raise ValueError(
-            f"Invalid secure initialization clock record (size={size}, "
+            f"Invalid settings mirror clock record (size={size}, "
             f"available={len(tail)}) or year {now.year}"
         )
     block = bytearray(tail[:size])
