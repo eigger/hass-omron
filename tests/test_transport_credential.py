@@ -110,7 +110,7 @@ class TestSettingsMirrorLayout:
             settings_time_sync_bytes=None,
             index_pointer_layout=None,
         )
-        with pytest.raises(ValueError, match="secure initialization"):
+        with pytest.raises(ValueError, match="settings mirror"):
             SettingsMirrorLayout(bare)
 
 
