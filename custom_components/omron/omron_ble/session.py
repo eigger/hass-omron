@@ -1,4 +1,4 @@
-"""One connected BLE session to an Omron device: GATT, notify channels, pairing, unlock, memory protocol."""
+"""One connected BLE session to an Omron device: connection lifecycle, pairing and unlock (the memory protocol is mixed in from memory_protocol)."""
 from __future__ import annotations
 
 import asyncio
