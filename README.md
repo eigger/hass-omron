@@ -159,6 +159,11 @@ Bluetooth stack log from your phone is the most useful thing you can provide.
 iPhone, and explains what a capture contains before you share one - it holds your
 measurements and your BLE bond keys, and you do not have to post it raw.
 
+## Roadmap
+
+**[Roadmap](docs/roadmap.md)** — how the code is laid out, what cleanup was
+deliberately deferred and what would trigger it, and how the open issues group.
+
 ## References
 
 - [omblepy (userx14)](https://github.com/userx14/omblepy)
