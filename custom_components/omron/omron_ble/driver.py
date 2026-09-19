@@ -274,18 +274,6 @@ class OmronDeviceDriver:
                 f"offset={completion.index_flag_offset} size={layout.head_write_size}"
             )
 
-        checksum_at = layout.clock_write_size - 2
-        if checksum_at <= 0:
-            raise ConnectionError(
-                "Measurement completion clock record is too short: "
-                f"size={layout.clock_write_size}"
-            )
-        if completion.clock_flag_offset >= checksum_at:
-            raise ConnectionError(
-                "Measurement completion clock flag overlaps checksum/padding: "
-                f"offset={completion.clock_flag_offset} checksum={checksum_at}"
-            )
-
         index_mirror = bytearray(
             await transport.read_memory_block(
                 layout.head_read_address,
@@ -314,14 +302,14 @@ class OmronDeviceDriver:
                 "Measurement completion mirror 2 short read: "
                 f"expected {layout.clock_write_size}, got {len(status_mirror)}"
             )
-        status_mirror[completion.clock_flag_offset] = completion.clock_flag_value
-        # Stamped with the current time, not the bytes just read: those hold
-        # the cuff's own clock, which is exactly what the time sync at the
-        # start of this session corrected. This is the last clock write of the
-        # session and the one carrying the flag, so it is the one the cuff
-        # keeps -- copying the read bytes back handed it the stale time again
-        # and set the clock back a little on every poll (#190). Same record
-        # the official app writes before its close (#175).
+        # Flag bit, current time and checksum, the same record the official
+        # app writes before its close (#175) and the pairing registration
+        # sends. Not the bytes just read: those hold the cuff's own clock,
+        # which is exactly what the time sync at the start of this session
+        # corrected. This is the last clock write of the session and the one
+        # carrying the flag, so it is the one the cuff keeps -- copying the
+        # read bytes back handed it the stale time again and set the clock
+        # back a little on every poll (#190).
         status_mirror = bytearray(
             clock_block(status_mirror, self._now_func(), layout.clock_write_size)
         )

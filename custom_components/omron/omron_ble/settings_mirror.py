@@ -9,10 +9,13 @@ the current time. Where and how much is entirely a property of the profile --
 ``settings_time_sync_bytes`` and the index region size already describe both
 regions -- so nothing here is written for one model.
 
-Two paths use this: the secure session (``secure_flow``), whose initialization
-is what earns its credential, and the token-key pairing commit
+Three paths use this: the secure session (``secure_flow``), whose
+initialization is what earns its credential; the token-key pairing commit
 (``OmronDeviceSession.commit_pairing_registration``), which a WLD3.0 cuff needs
-before it will resume the bond on the next connection (#175, #91).
+before it will resume the bond on the next connection (#175, #91); and the
+measurement completion (``OmronDeviceDriver.complete_measurement_readout``),
+which stamps the clock record the same way at the end of an ordinary poll on
+the profiles that acknowledge a readout (#190).
 """
 from __future__ import annotations
 

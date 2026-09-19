@@ -105,13 +105,13 @@ def test_bp5465_completion_mirrors_precede_normal_memory_close():
 
     status_payload = target.writes[1][1]
     assert len(status_payload) == 0x10
-    assert status_payload[4] == 0x01
+    assert status_payload[4] == 0x04 | 0x01  # the flag bit set, the rest kept
     assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23))
     assert status_payload[14] == (sum(status_payload[:14]) & 0xFF)
     assert status_payload[15] == 0x00
 
 
-def test_hem7382_ack2_checksum_is_recomputed_after_forcing_byte4():
+def test_hem7382_ack2_checksum_is_recomputed_after_stamping():
     target = _CompletionTransport("HEM-7382T1-AZAZ")
     driver = _driver("HEM-7382T1-AZAZ")
 
@@ -120,7 +120,8 @@ def test_hem7382_ack2_checksum_is_recomputed_after_forcing_byte4():
     assert len(target.writes) == 2
 
     status_payload = target.writes[1][1]
-    assert status_payload[4] == 0x01
+    assert status_payload[4] == 0x04 | 0x01  # the flag bit set, the rest kept
+    assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23))
     assert status_payload[14] == (sum(status_payload[:14]) & 0xFF)
     assert status_payload[15] == 0x00
 
@@ -152,6 +153,7 @@ def test_all_catalog_variants_resolving_to_hem7386_use_same_completion():
         "HEM-7381T1-AZ",
         "HEM-7386T1",
         "HEM-7386T1-AJF3",
+        "HEM-7388T1-AJF3",
     )
 
     for model in models:
@@ -169,6 +171,11 @@ def test_all_catalog_variants_resolving_to_hem7386_use_same_completion():
             0x0058,
             0x0088,
         ], model
+
+        status_payload = target.writes[1][1]
+        assert status_payload[4] == 0x04 | 0x01, model
+        assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23)), model
+        assert status_payload[14] == (sum(status_payload[:14]) & 0xFF), model
 
 
 def test_unrelated_profile_has_no_completion_mirrors():
