@@ -405,6 +405,22 @@ class DeviceConfig:
                         clock_size,
                     )
                 )
+            # The completion stamps the clock record through the settings
+            # mirror's clock_block(): a 16-byte record with the time at
+            # [8:14] in chronological order. A profile whose record is
+            # shorter or ordered differently would pass the checks above and
+            # then fail on the clock write, after the index mirror landed.
+            if clock_size < 16 or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8:
+                raise ValueError(
+                    "Invalid profile config for %s: the measurement completion needs "
+                    "a 16-byte %s clock record, not %d bytes of %s"
+                    % (
+                        self.model,
+                        TimeSyncLayout.AT_8.value,
+                        clock_size,
+                        self.resolved_time_sync_layout().value,
+                    )
+                )
 
     @property
     def display_model(self) -> str:

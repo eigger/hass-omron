@@ -587,6 +587,7 @@ def test_the_completion_offset_is_validated_when_the_profile_is_built():
     from custom_components.omron.omron_ble.devices import (
         DeviceConfig,
         MeasurementCompletion,
+        TimeSyncLayout,
     )
 
     def _profile(**over):
@@ -595,6 +596,7 @@ def test_the_completion_offset_is_validated_when_the_profile_is_built():
             settings_read_address=0x0010,
             settings_write_address=0x0058,
             settings_time_sync_bytes=[0x30, 0x40],
+            time_sync_layout=TimeSyncLayout.AT_8,
             index_pointer_layout={
                 "index_region_byte_size": 0x1C,
                 "users": [{"write_cursor_offset": 0, "unread_counter_offset": 4}],
@@ -613,3 +615,10 @@ def test_the_completion_offset_is_validated_when_the_profile_is_built():
                 index_flag_offset=0x1B, clock_flag_offset=0x0E
             )
         )
+    # 완료 clock 쓰기는 clock_block()을 거친다: 16바이트, 시각 [8:14] 순서대로.
+    # 10바이트 classic 레코드나 swapped 레이아웃은 위 검사는 통과하고 쓰기에서
+    # 터진다 — 인덱스 미러를 이미 쓴 뒤에.
+    with pytest.raises(ValueError, match="16-byte eeprom_time_at_8"):
+        _profile(settings_time_sync_bytes=[0x14, 0x1E])
+    with pytest.raises(ValueError, match="16-byte eeprom_time_at_8"):
+        _profile(time_sync_layout=TimeSyncLayout.AT_8_SWAPPED)
