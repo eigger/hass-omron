@@ -139,11 +139,12 @@ class OmronDeviceDriver:
     async def sync_eeprom_time(
         self, transport: OmronDeviceSession, now: dt.datetime | None = None
     ) -> bool:
-        """Synchronize time to legacy devices via EEPROM settings write.
+        """Synchronize time via an EEPROM settings write.
 
-        Legacy Omron devices (classic-stack with custom key pairing) do not use
-        the standard BLE CTS characteristic for time synchronization.  Instead,
-        the time is stored in a dedicated region of the EEPROM settings block.
+        Memory-protocol cuffs -- the classic custom-key ones and the WLD3
+        token-key ones alike -- do not take their time from the BLE CTS
+        characteristic. It lives in a clock record inside the settings block,
+        read from the device-owned region and written to its mirror.
 
         Layout keys (``DeviceConfig.time_sync_layout`` / ``resolved_time_sync_layout``):
 
