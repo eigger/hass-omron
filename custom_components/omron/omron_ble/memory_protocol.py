@@ -639,7 +639,8 @@ class MemoryProtocolMixin:
         """The clock record stamped with the current time, flag bit set.
 
         Tracked apart from the head so a failure here is retried on its own:
-        nothing else ever sets that flag bit -- the EEPROM time sync keeps the
+        a pairing session skips the measurement-completion mirror, so nothing
+        else on this link sets that flag bit -- the EEPROM time sync keeps the
         record's leading bytes as read and only runs on drift.
         """
         cfg = self._config

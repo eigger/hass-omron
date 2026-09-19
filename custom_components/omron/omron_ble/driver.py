@@ -8,7 +8,7 @@ from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
 from .session import OmronDeviceSession
-from .settings_mirror import SettingsMirrorLayout
+from .settings_mirror import SettingsMirrorLayout, clock_block
 from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
@@ -314,7 +314,16 @@ class OmronDeviceDriver:
                 f"expected {layout.clock_write_size}, got {len(status_mirror)}"
             )
         status_mirror[completion.clock_flag_offset] = completion.clock_flag_value
-        status_mirror[checksum_at] = sum(status_mirror[:checksum_at]) & 0xFF
+        # Stamped with the current time, not the bytes just read: those hold
+        # the cuff's own clock, which is exactly what the time sync at the
+        # start of this session corrected. This is the last clock write of the
+        # session and the one carrying the flag, so it is the one the cuff
+        # keeps -- copying the read bytes back handed it the stale time again
+        # and set the clock back a little on every poll (#190). Same record
+        # the official app writes before its close (#175).
+        status_mirror = bytearray(
+            clock_block(status_mirror, self._now_func(), layout.clock_write_size)
+        )
         status_mirror[layout.clock_write_size - 1] = 0x00
         await transport.write_memory_block(
             layout.clock_write_address,
