@@ -8,7 +8,7 @@ from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
 from .session import OmronDeviceSession
-from .settings_mirror import SettingsMirrorLayout
+from .settings_mirror import SettingsMirrorLayout, clock_block
 from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,11 +139,12 @@ class OmronDeviceDriver:
     async def sync_eeprom_time(
         self, transport: OmronDeviceSession, now: dt.datetime | None = None
     ) -> bool:
-        """Synchronize time to legacy devices via EEPROM settings write.
+        """Synchronize time via an EEPROM settings write.
 
-        Legacy Omron devices (classic-stack with custom key pairing) do not use
-        the standard BLE CTS characteristic for time synchronization.  Instead,
-        the time is stored in a dedicated region of the EEPROM settings block.
+        Memory-protocol cuffs -- the classic custom-key ones and the WLD3
+        token-key ones alike -- do not take their time from the BLE CTS
+        characteristic. It lives in a clock record inside the settings block,
+        read from the device-owned region and written to its mirror.
 
         Layout keys (``DeviceConfig.time_sync_layout`` / ``resolved_time_sync_layout``):
 
@@ -273,18 +274,6 @@ class OmronDeviceDriver:
                 f"offset={completion.index_flag_offset} size={layout.head_write_size}"
             )
 
-        checksum_at = layout.clock_write_size - 2
-        if checksum_at <= 0:
-            raise ConnectionError(
-                "Measurement completion clock record is too short: "
-                f"size={layout.clock_write_size}"
-            )
-        if completion.clock_flag_offset >= checksum_at:
-            raise ConnectionError(
-                "Measurement completion clock flag overlaps checksum/padding: "
-                f"offset={completion.clock_flag_offset} checksum={checksum_at}"
-            )
-
         index_mirror = bytearray(
             await transport.read_memory_block(
                 layout.head_read_address,
@@ -313,8 +302,17 @@ class OmronDeviceDriver:
                 "Measurement completion mirror 2 short read: "
                 f"expected {layout.clock_write_size}, got {len(status_mirror)}"
             )
-        status_mirror[completion.clock_flag_offset] = completion.clock_flag_value
-        status_mirror[checksum_at] = sum(status_mirror[:checksum_at]) & 0xFF
+        # Flag bit, current time and checksum, the same record the official
+        # app writes before its close (#175) and the pairing registration
+        # sends. Not the bytes just read: those hold the cuff's own clock,
+        # which is exactly what the time sync at the start of this session
+        # corrected. This is the last clock write of the session and the one
+        # carrying the flag, so it is the one the cuff keeps -- copying the
+        # read bytes back handed it the stale time again and set the clock
+        # back a little on every poll (#190).
+        status_mirror = bytearray(
+            clock_block(status_mirror, self._now_func(), layout.clock_write_size)
+        )
         status_mirror[layout.clock_write_size - 1] = 0x00
         await transport.write_memory_block(
             layout.clock_write_address,

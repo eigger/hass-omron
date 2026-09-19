@@ -1102,9 +1102,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         #
         # Two attempts, because the write has two halves and only the second
         # is safe to repeat. A second call skips the half that already landed
-        # and redoes only what failed -- worth one retry, since nothing else
-        # in a session ever writes the clock record's flag bit and this is the
-        # session that owes it.
+        # and redoes only what failed -- worth one retry, since a pairing
+        # session skips the completion mirror, so nothing else on this link
+        # writes the clock record's flag bit and this is the session that owes it.
         #
         # A failure that survives both is logged and the session still closes
         # normally: the close is what keeps the cuff usable, and the user can

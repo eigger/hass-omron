@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import pathlib
 
 import pytest
@@ -56,9 +57,18 @@ class _CompletionTransport:
         self.events.append("unsubscribe")
 
 
+_NOW = dt.datetime(2026, 9, 18, 21, 54, 23)
+
+
+def _driver(model: str) -> OmronDeviceDriver:
+    driver = OmronDeviceDriver(get_device_config(model))
+    driver._now_func = lambda: _NOW
+    return driver
+
+
 def _run_completion_and_close(model: str) -> _CompletionTransport:
     target = _CompletionTransport(model)
-    driver = OmronDeviceDriver(get_device_config(model))
+    driver = _driver(model)
 
     async def run() -> None:
         await driver.complete_measurement_readout(target)
@@ -95,23 +105,44 @@ def test_bp5465_completion_mirrors_precede_normal_memory_close():
 
     status_payload = target.writes[1][1]
     assert len(status_payload) == 0x10
-    assert status_payload[4] == 0x01
+    assert status_payload[4] == 0x04 | 0x01  # the flag bit set, the rest kept
+    assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23))
     assert status_payload[14] == (sum(status_payload[:14]) & 0xFF)
     assert status_payload[15] == 0x00
 
 
-def test_hem7382_ack2_checksum_is_recomputed_after_forcing_byte4():
+def test_hem7382_ack2_checksum_is_recomputed_after_stamping():
     target = _CompletionTransport("HEM-7382T1-AZAZ")
-    driver = OmronDeviceDriver(get_device_config("HEM-7382T1-AZAZ"))
+    driver = _driver("HEM-7382T1-AZAZ")
 
     asyncio.run(driver.complete_measurement_readout(target))
 
     assert len(target.writes) == 2
 
     status_payload = target.writes[1][1]
-    assert status_payload[4] == 0x01
+    assert status_payload[4] == 0x04 | 0x01  # the flag bit set, the rest kept
+    assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23))
     assert status_payload[14] == (sum(status_payload[:14]) & 0xFF)
     assert status_payload[15] == 0x00
+
+
+def test_completion_clock_carries_the_current_time_not_the_cuff_clock():
+    """#190: the completion clock write is the last one of the session and the
+    one with the flag set, so it must carry the current time. Copying the read
+    bytes back re-sent the cuff its own stale clock and undid the time sync."""
+    target = _CompletionTransport("BP5465")
+    driver = _driver("BP5465")
+
+    asyncio.run(driver.complete_measurement_readout(target))
+
+    # The read returns bytes(range(16)): a "cuff clock" of 08 09 0a 0b 0c 0d.
+    stale = bytes(range(0x10))[8:14]
+    status_payload = target.writes[1][1]
+    assert status_payload[8:14] != stale
+    assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23))
+    # Everything ahead of the time is still the cuff's own bytes, flag aside.
+    assert status_payload[:4] == bytes(range(4))
+    assert status_payload[5:8] == bytes(range(5, 8))
 
 
 def test_all_catalog_variants_resolving_to_hem7386_use_same_completion():
@@ -122,11 +153,12 @@ def test_all_catalog_variants_resolving_to_hem7386_use_same_completion():
         "HEM-7381T1-AZ",
         "HEM-7386T1",
         "HEM-7386T1-AJF3",
+        "HEM-7388T1-AJF3",
     )
 
     for model in models:
         target = _CompletionTransport(model)
-        driver = OmronDeviceDriver(get_device_config(model))
+        driver = _driver(model)
 
         asyncio.run(driver.complete_measurement_readout(target))
 
@@ -140,10 +172,15 @@ def test_all_catalog_variants_resolving_to_hem7386_use_same_completion():
             0x0088,
         ], model
 
+        status_payload = target.writes[1][1]
+        assert status_payload[4] == 0x04 | 0x01, model
+        assert status_payload[8:14] == bytes((26, 9, 18, 21, 54, 23)), model
+        assert status_payload[14] == (sum(status_payload[:14]) & 0xFF), model
+
 
 def test_unrelated_profile_has_no_completion_mirrors():
     target = _CompletionTransport("HEM-7142T2")
-    driver = OmronDeviceDriver(get_device_config("HEM-7142T2"))
+    driver = _driver("HEM-7142T2")
 
     asyncio.run(driver.complete_measurement_readout(target))
 
@@ -154,7 +191,7 @@ def test_unrelated_profile_has_no_completion_mirrors():
 
 def test_completion_requires_an_active_memory_session():
     target = _CompletionTransport("BP5465", active=False)
-    driver = OmronDeviceDriver(get_device_config("BP5465"))
+    driver = _driver("BP5465")
 
     with pytest.raises(
         ConnectionError,

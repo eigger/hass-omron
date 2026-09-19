@@ -157,22 +157,21 @@ class PairingRegistration:
 
 @dataclass(frozen=True)
 class MeasurementCompletion:
-    """Byte edits that acknowledge a successful measurement readout."""
+    """Byte edits that acknowledge a successful measurement readout.
+
+    The index byte is the profile's; the clock record that goes with it is
+    the settings mirror's ``clock_block`` -- flag bit, current time and
+    checksum -- and has no knobs here.
+    """
 
     index_flag_offset: int
     index_flag_value: int = 0x80
-    clock_flag_offset: int = 0x04
-    clock_flag_value: int = 0x01
 
     def __post_init__(self) -> None:
-        if self.index_flag_offset < 0 or self.clock_flag_offset < 0:
-            raise ValueError("Measurement completion offsets must be non-negative")
-        for name, value in (
-            ("index_flag_value", self.index_flag_value),
-            ("clock_flag_value", self.clock_flag_value),
-        ):
-            if not 0 <= value <= 0xFF:
-                raise ValueError(f"{name} must fit in one byte")
+        if self.index_flag_offset < 0:
+            raise ValueError("Measurement completion offset must be non-negative")
+        if not 0 <= self.index_flag_value <= 0xFF:
+            raise ValueError("index_flag_value must fit in one byte")
 
 
 @dataclass
@@ -395,14 +394,21 @@ class DeviceConfig:
             clock_size = (self.settings_time_sync_bytes or [0, 0])[1] - (
                 self.settings_time_sync_bytes or [0, 0]
             )[0]
-            if self.measurement_completion.clock_flag_offset >= max(clock_size - 2, 0):
+            # The completion stamps the clock record through the settings
+            # mirror's clock_block(): a 16-byte record with the flag at byte
+            # 4 and the time at [8:14] in chronological order. A profile
+            # whose record is shorter or ordered differently would pass the
+            # check above and then fail on the clock write, after the index
+            # mirror landed.
+            if clock_size < 16 or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8:
                 raise ValueError(
-                    "Invalid profile config for %s: the measurement completion clock "
-                    "flag at %d overlaps the checksum of a %d-byte record"
+                    "Invalid profile config for %s: the measurement completion needs "
+                    "a 16-byte %s clock record, not %d bytes of %s"
                     % (
                         self.model,
-                        self.measurement_completion.clock_flag_offset,
+                        TimeSyncLayout.AT_8.value,
                         clock_size,
+                        self.resolved_time_sync_layout().value,
                     )
                 )
 
