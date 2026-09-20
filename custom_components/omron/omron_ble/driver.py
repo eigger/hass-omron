@@ -595,11 +595,11 @@ class OmronDeviceDriver:
                 # Unrecorded users have their pointer set to clear_value
                 # (0x8000 on the vendor maps). The same word is also a live
                 # cursor: bit 15 is a status flag the cuff toggles between
-                # writes and the low byte wraps to 0x00 after the last slot,
-                # so a user with a full ring can read exactly 0x8000 (seen on
-                # a HEM-7380T1, #193). Read the cursor slot once to tell the
-                # two apart -- all-0xFF confirms the user empty below, a
-                # record means the pointer is live. No backtrack either way.
+                # writes and the low byte reads 0x00 for the last slot, which
+                # the HEM-7380T1 reuses routinely (#193). Read the cursor
+                # slot to tell the two apart: all-0xFF confirms the user
+                # empty below, a record means the pointer is live and the
+                # normal probe (TruRead reach-back included) carries on.
                 clear_value = user_cfg.get("clear_value", 0x8000)
                 cursor_is_clear_value = clear_value is not None and raw_pointer == clear_value
                 if cursor_is_clear_value:
@@ -653,8 +653,6 @@ class OmronDeviceDriver:
                     max(backtrack_slots, collect_limit - 1),
                     max(record_count - 1, 0),
                 )
-                if cursor_is_clear_value:
-                    max_probe = 0
                 parsed = None
                 base_addr = int(record_addresses[idx])
                 # Track whether every probed slot for this user was the
@@ -686,6 +684,10 @@ class OmronDeviceDriver:
                     # at this slot, even if our parser rejects it.
                     if any(b != 0xFF for b in raw_record):
                         user_all_probed_slots_empty = False
+                    elif cursor_is_clear_value:
+                        # One all-0xFF slot at a clear_value cursor is all
+                        # the confirmation an empty user needs.
+                        break
                     try:
                         parsed = self._config.parse_record(bytes(raw_record))
                     except Exception as parse_exc:
@@ -711,7 +713,7 @@ class OmronDeviceDriver:
                     # older slot in probe order.
                     candidates.append((idx + 1, parsed))
                     user_collected += 1
-                    if user_collected >= collect_limit or cursor_is_clear_value:
+                    if user_collected >= collect_limit:
                         break
                     # Only keep reading while this slot is still part of a
                     # TruRead sequence counting down toward the cursor

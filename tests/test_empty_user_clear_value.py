@@ -173,9 +173,11 @@ class TestEmptyUserClearValue:
 
     def test_clear_value_with_live_record_is_not_empty(self):
         # HEM-7380T1 (#193): bit 15 toggles between writes and the low byte
-        # wraps to 0x00 after slot 99, so a user with a full ring can read
-        # exactly 0x8000. The record at slot 99 must be reported, and the
-        # user must not be marked empty (that would also skip the full scan).
+        # reads 0x00 for slot 99, which this cuff reuses routinely, so a live
+        # cursor can read exactly 0x8000. The TruRead session ending at slot
+        # 99 (the pattern seen twice in the #193 log) must still come out as
+        # the average, and the user must not be marked empty (that would
+        # also skip the full scan).
         config = DeviceConfig(
             model="HEM-7380T1",
             endianness=Endianness.LITTLE,
@@ -203,14 +205,21 @@ class TestEmptyUserClearValue:
         index_bytes[0:2] = b"\x00\x80"  # User 1: live cursor that collides with clear_value
         index_bytes[2:4] = b"\x00\x80"  # User 2: genuinely unrecorded
 
-        # classic_vital_14 record at slot 99: sys=125 dia=85 bpm=70, 13:33 today, pos=3
-        when = now - dt.timedelta(minutes=27)
-        flags1 = when.hour | (when.day << 5) | (when.month << 10)
-        flags2 = when.second | (when.minute << 6) | (1 << 12) | (3 << 14)
-        rec = bytearray(b"\xff" * 16)
-        rec[0:4] = bytes([125 - 25, 85, 70, when.year - 2000])
-        rec[4:8] = bytes([flags1 & 0xFF, flags1 >> 8, flags2 & 0xFF, flags2 >> 8])
-        rec[8:12] = b"\x00\x00\x00\x00"
+        def record(sys, dia, bpm, when, pos):
+            flags1 = when.hour | (when.day << 5) | (when.month << 10)
+            flags2 = when.second | (when.minute << 6) | (1 << 12) | (pos << 14)
+            rec = bytearray(b"\xff" * 16)
+            rec[0:4] = bytes([sys - 25, dia, bpm, when.year - 2000])
+            rec[4:8] = bytes([flags1 & 0xFF, flags1 >> 8, flags2 & 0xFF, flags2 >> 8])
+            rec[8:12] = b"\x00\x00\x00\x00"
+            return rec
+
+        end = now - dt.timedelta(minutes=27)
+        slots = {
+            97: record(120, 88, 70, end - dt.timedelta(minutes=2, seconds=19), 1),
+            98: record(119, 85, 74, end - dt.timedelta(minutes=1, seconds=10), 2),
+            99: record(118, 82, 71, end, 3),
+        }
 
         read_calls = []
 
@@ -218,8 +227,8 @@ class TestEmptyUserClearValue:
             read_calls.append(addr)
             if addr == 0x0010:
                 return index_bytes
-            if addr == 0x01C4 + 99 * 16:
-                return rec
+            if 0x01C4 <= addr < 0x0804:
+                return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
             return bytearray(b"\xff" * 16)
 
         transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
@@ -229,10 +238,10 @@ class TestEmptyUserClearValue:
         )
 
         assert 1 not in empty_users
-        assert records[1]["sys"] == 125
-        assert records[1]["measurement_type"] == "Single"
-        # Exactly one read for user 1: the cursor slot, no TruRead backtrack
-        # even though the record carries pos=3.
-        assert [a for a in read_calls if 0x01C4 <= a < 0x0804] == [0x01C4 + 99 * 16]
+        assert records[1]["measurement_type"] == "TruRead Average"
+        assert (records[1]["sys"], records[1]["dia"], records[1]["bpm"]) == (119, 85, 72)
+        # The live pointer runs the normal probe: 99 → 98 → 97.
+        assert [a for a in read_calls if 0x01C4 <= a < 0x0804] == [0x01C4 + s * 16 for s in (99, 98, 97)]
+        # User 2 is confirmed empty after one 0xFF read, no reach-back.
         assert 2 in empty_users
         assert [a for a in read_calls if a >= 0x0804] == [0x0804 + 99 * 16]
