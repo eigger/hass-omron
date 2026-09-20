@@ -47,6 +47,22 @@ _REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
 END_OF_TRANSMISSION_PACKET_TYPE = bytes([0x8F, 0x00])
 
 
+class MemoryReadRefused(ConnectionError):
+    """The device answered an EEPROM read with a result code instead of data.
+
+    Distinct from a transport failure: the link is fine and the device
+    replied, it just will not serve this address. An unregistered user's
+    record region does this on the HEM-7380T1.
+    """
+
+    def __init__(self, address: int, code: int) -> None:
+        self.address = address
+        self.code = code
+        super().__init__(
+            f"Device refused the read at {address:#06x} with result code {code:#04x}"
+        )
+
+
 class MemoryProtocolMixin:
     """Notify channels, command/reply exchange and memory session over a Bleak client."""
 
@@ -79,6 +95,9 @@ class MemoryProtocolMixin:
         # count and must never repeat, the clock write can be redone.
         self._pairing_registration_head_done = False
         self._pairing_registration_clock_done = False
+        # Result code from the last 0x8100 reply. Non-zero means the device
+        # answered the read with a refusal rather than data.
+        self._last_reply_result_code = 0
 
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
@@ -322,6 +341,21 @@ class MemoryProtocolMixin:
         self._last_reply_memory_address = memory_address
         if packet_type == b"\x81\x00":
             # Memory block read: payload length in byte 5, payload at bytes 6..6+data_len
+            if expected_data_len and len(frame_bytes) == 8:
+                # A read the device will not serve comes back as the header
+                # alone with a result code in byte 6 -- the same 8-byte shape
+                # 0x8f00 and the control frames use, and the shape the length
+                # check above already accepts as valid. Treated as truncated
+                # it leaves the reply unset, and the caller then waits out its
+                # whole retry budget for data that already came back as "no".
+                self._last_reply_result_code = frame_bytes[6]
+                self._last_reply_payload = b""
+                _LOGGER.debug(
+                    "Device refused the read at %s with result code 0x%02X: %s",
+                    _hex(memory_address), frame_bytes[6], _hex(frame_bytes),
+                )
+                self._reply_ready.set()
+                return
             if len(frame_bytes) < expected_data_len + 8:
                 _LOGGER.warning(
                     "Truncated BLE read frame received (expected %d bytes payload, available %d): %s",
@@ -330,6 +364,7 @@ class MemoryProtocolMixin:
                     _hex(frame_bytes),
                 )
                 return
+            self._last_reply_result_code = 0
             self._last_reply_payload = bytes(frame_bytes[6:6 + expected_data_len])
         elif packet_type == b"\x8f\x00":
             # End-of-transmission packet: error code is in byte 6
@@ -699,6 +734,8 @@ class MemoryProtocolMixin:
             )
         if self._last_reply_packet_type != bytearray.fromhex("8100"):
             raise ConnectionError("Invalid packet type in EEPROM read")
+        if self._last_reply_result_code:
+            raise MemoryReadRefused(address, self._last_reply_result_code)
         return self._last_reply_payload
 
     async def write_memory_block(self, address: int, data: bytearray) -> None:
