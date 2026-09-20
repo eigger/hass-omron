@@ -946,6 +946,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         index_pointer_layout={
             "index_region_byte_size": 0x10,
             "endianness": "little",
+            # TruRead stores each session as three pos=1/2/3 slots and shows
+            # only their average (#58, #193).
+            "truread_sequence": True,
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
@@ -1115,6 +1118,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         index_pointer_layout={
             "index_region_byte_size": 0x18,
             "endianness": "little",
+            # TruRead stores each session as three pos=1/2/3 slots and shows
+            # only their average (#58, #193).
+            "truread_sequence": True,
             "users": [
                 {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
                 {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
