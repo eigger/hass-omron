@@ -764,6 +764,12 @@ class OmronDeviceDriver:
                 continue
             record = user_candidates[0][1]
             record["measurement_type"] = "Single"
+            if collect_limit > 1:
+                # On these models pos is the TruRead sequence index, not a
+                # posture flag; a lone pos=1..3 (session in progress, or a
+                # sequence the probe could not complete) must not surface
+                # as improper_position=True.
+                record["pos"] = 0
             selected_per_user[user] = (user, record)
 
         if return_all_users:

@@ -9,12 +9,13 @@ import asyncio
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock
 
-from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness
+from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness, get_device_config
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 
 INDEX_ADDR = 0x0010
 USER1_BASE = 0x01C4
+USER2_BASE = 0x0804
 SLOTS = 100
 RECORD_SIZE = 0x10
 NOW = dt.datetime(2026, 9, 20, 9, 0, 0)
@@ -37,30 +38,42 @@ def _record(sys: int, dia: int, bpm: int, when: dt.datetime, pos: int = 0) -> by
     return raw
 
 
-def _config(truread: bool) -> DeviceConfig:
+def _config(truread: bool, users: int = 1) -> DeviceConfig:
     layout = {
         "index_region_byte_size": 0x18,
         "endianness": "little",
         "users": [
             {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF,
              "slot_index_min": 0, "slot_index_max": SLOTS - 1, "slot_index_bias": -1},
-        ],
+            {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF,
+             "slot_index_min": 0, "slot_index_max": SLOTS - 1, "slot_index_bias": -1},
+        ][:users],
     }
     if truread:
         layout["truread_sequence"] = True
     return DeviceConfig(
         model="HEM-7380T1",
         endianness=Endianness.LITTLE,
-        user_start_addresses=[USER1_BASE],
-        per_user_records_count=[SLOTS],
+        user_start_addresses=[USER1_BASE, USER2_BASE][:users],
+        per_user_records_count=[SLOTS] * users,
         record_byte_size=RECORD_SIZE,
         settings_read_address=INDEX_ADDR,
         index_pointer_layout=layout,
     )
 
 
-def _run(config: DeviceConfig, cursor_slot: int, slots: dict[int, bytearray]):
-    """Probe with the cursor on ``cursor_slot``; return (per-user result, slots read)."""
+def _run(
+    config: DeviceConfig,
+    cursor_slot: int,
+    slots: dict[int, bytearray],
+    *,
+    user2: tuple[int, dict[int, bytearray]] | None = None,
+    return_all_users: bool = True,
+):
+    """Probe with user 1's cursor on ``cursor_slot``; return (result, user-1 slots read).
+
+    ``user2`` is an optional ``(cursor_slot, slots)`` pair for the second user.
+    """
     driver = OmronDeviceDriver(config)
     driver._now_func = lambda: NOW
     transport = OmronDeviceSession(MagicMock(), config)
@@ -69,26 +82,37 @@ def _run(config: DeviceConfig, cursor_slot: int, slots: dict[int, bytearray]):
     index_bytes = bytearray(0x18)
     # slot_index_bias=-1: the cursor holds the *next* write position.
     index_bytes[0:2] = (cursor_slot + 1).to_bytes(2, "little")
+    if user2 is not None:
+        index_bytes[2:4] = (user2[0] + 1).to_bytes(2, "little")
     probed: list[int] = []
 
     async def fake_read(addr, size, block_size=0x10):
         if addr == INDEX_ADDR:
             return index_bytes
+        if user2 is not None and addr >= USER2_BASE:
+            slot = (addr - USER2_BASE) // RECORD_SIZE
+            return user2[1].get(slot, bytearray(b"\xff" * RECORD_SIZE))
         slot = (addr - USER1_BASE) // RECORD_SIZE
         probed.append(slot)
         return slots.get(slot, bytearray(b"\xff" * RECORD_SIZE))
 
     transport.read_memory_range = AsyncMock(side_effect=fake_read)
-    result, _empty = asyncio.run(driver._get_latest_via_index(transport, return_all_users=True))
+    result = asyncio.run(
+        driver._get_latest_via_index(transport, return_all_users=return_all_users)
+    )
+    if return_all_users:
+        result, _empty = result
     return result, probed
 
 
-def _session(first_slot: int, start: dt.datetime) -> dict[int, bytearray]:
-    """Three TruRead sub-measurements one minute apart, starting at first_slot."""
+def _session(
+    first_slot: int, start: dt.datetime, span: dt.timedelta = dt.timedelta(minutes=2)
+) -> dict[int, bytearray]:
+    """Three TruRead sub-measurements starting at first_slot, the last one ``span`` after the first."""
     return {
         first_slot % SLOTS: _record(120, 88, 70, start, pos=1),
-        (first_slot + 1) % SLOTS: _record(119, 85, 74, start + dt.timedelta(minutes=1), pos=2),
-        (first_slot + 2) % SLOTS: _record(118, 82, 71, start + dt.timedelta(minutes=2), pos=3),
+        (first_slot + 1) % SLOTS: _record(119, 85, 74, start + span / 2, pos=2),
+        (first_slot + 2) % SLOTS: _record(118, 82, 71, start + span, pos=3),
     }
 
 
@@ -138,6 +162,8 @@ class TestTruReadIndexSequence:
         rec = result[1]
         assert rec["measurement_type"] == "Single"
         assert rec["sys"] == 125
+        # pos=3 is a sequence index here, not a posture flag.
+        assert rec["pos"] == 0
         assert probed == [22, 21, 20]
 
     def test_partial_sequence_falls_back_to_cursor(self):
@@ -150,6 +176,7 @@ class TestTruReadIndexSequence:
 
         assert result[1]["measurement_type"] == "Single"
         assert result[1]["sys"] == 118
+        assert result[1]["pos"] == 0
         assert probed == [22, 21, 20]
 
     def test_model_without_flag_keeps_single_read(self):
@@ -160,3 +187,47 @@ class TestTruReadIndexSequence:
         assert rec["measurement_type"] == "Single"
         assert rec["sys"] == 118
         assert probed == [22]
+
+    def test_session_window_boundary(self):
+        start = NOW - dt.timedelta(hours=1)
+        inside, _ = _run(_config(True), 22, _session(20, start, dt.timedelta(minutes=15)))
+        outside, _ = _run(
+            _config(True), 22, _session(20, start, dt.timedelta(minutes=15, seconds=1))
+        )
+
+        assert inside[1]["measurement_type"] == "TruRead Average"
+        assert outside[1]["measurement_type"] == "Single"
+
+    def test_single_record_path_reports_average(self):
+        # get_latest_record() (single-user devices) takes the
+        # return_all_users=False path and must reconstruct the average too.
+        start = NOW - dt.timedelta(hours=1)
+        record, probed = _run(_config(True), 22, _session(20, start), return_all_users=False)
+
+        assert record["measurement_type"] == "TruRead Average"
+        assert (record["sys"], record["dia"], record["bpm"]) == (119, 85, 72)
+        assert record["user"] == 1
+        assert probed == [22, 21, 20]
+
+    def test_two_users_reduced_independently(self):
+        start = NOW - dt.timedelta(hours=1)
+        user2_slots = {5: _record(135, 92, 66, NOW - dt.timedelta(minutes=30))}
+        result, probed = _run(
+            _config(True, users=2), 22, _session(20, start), user2=(5, user2_slots)
+        )
+
+        assert result[1]["measurement_type"] == "TruRead Average"
+        assert result[1]["sys"] == 119
+        assert result[2]["measurement_type"] == "Single"
+        assert result[2]["sys"] == 135
+        assert probed == [22, 21, 20]
+
+
+class TestCatalogOptIn:
+    def test_confirmed_models_opt_in(self):
+        for model in ("HEM-7342T", "HEM-7380T1"):
+            assert get_device_config(model).index_pointer_layout.get("truread_sequence") is True
+
+    def test_other_models_do_not(self):
+        for model in ("HEM-7155T-MW3", "HEM-7142T2", "HEM-7361T", "HEM-9601T"):
+            assert not get_device_config(model).index_pointer_layout.get("truread_sequence")
