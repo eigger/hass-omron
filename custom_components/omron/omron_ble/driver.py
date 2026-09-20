@@ -592,21 +592,25 @@ class OmronDeviceDriver:
                     ptr_endian,
                     signed=False,
                 )
-                # Unrecorded users have their pointer set to clear_value (0x8000 on legacy/classic profiles).
-                # Modern formatVersion 4 (WLD3/WLD4) profiles always set bit15 (e.g. 0x8006) and rely on the
-                # empty-slot (all-0xFF) backtrack heuristic instead.
+                # Unrecorded users have their pointer set to clear_value
+                # (0x8000 on the vendor maps). The same word is also a live
+                # cursor: bit 15 is a status flag the cuff toggles between
+                # writes and the low byte wraps to 0x00 after the last slot,
+                # so a user with a full ring can read exactly 0x8000 (seen on
+                # a HEM-7380T1, #193). Read the cursor slot once to tell the
+                # two apart -- all-0xFF confirms the user empty below, a
+                # record means the pointer is live. No backtrack either way.
                 clear_value = user_cfg.get("clear_value", 0x8000)
-                if clear_value is not None and raw_pointer == clear_value:
+                cursor_is_clear_value = clear_value is not None and raw_pointer == clear_value
+                if cursor_is_clear_value:
                     _LOGGER.debug(
                         "User%d [%s]: cursor raw=0x%04X matches clear_value 0x%04X "
-                        "(no recorded measurements) — skipping and marking user confirmed empty",
+                        "— verifying the cursor slot before marking the user empty",
                         idx + 1,
                         self._config.model,
                         raw_pointer,
                         clear_value,
                     )
-                    confirmed_empty_users.add(idx + 1)
-                    continue
 
                 pointer_mask = int(user_cfg.get("write_cursor_mask", 0xFF))
                 pointer_min = int(user_cfg.get("slot_index_min", 0))
@@ -649,6 +653,8 @@ class OmronDeviceDriver:
                     max(backtrack_slots, collect_limit - 1),
                     max(record_count - 1, 0),
                 )
+                if cursor_is_clear_value:
+                    max_probe = 0
                 parsed = None
                 base_addr = int(record_addresses[idx])
                 # Track whether every probed slot for this user was the
@@ -705,7 +711,7 @@ class OmronDeviceDriver:
                     # older slot in probe order.
                     candidates.append((idx + 1, parsed))
                     user_collected += 1
-                    if user_collected >= collect_limit:
+                    if user_collected >= collect_limit or cursor_is_clear_value:
                         break
                     # Only keep reading while this slot is still part of a
                     # TruRead sequence counting down toward the cursor
@@ -713,6 +719,12 @@ class OmronDeviceDriver:
                     # measurement stops here at one read, as before.
                     if parsed.get("pos") != TRUREAD_SEQUENCE_LEN - user_collected + 1:
                         break
+                if cursor_is_clear_value and user_collected:
+                    _LOGGER.debug(
+                        "User%d [%s]: cursor raw=0x%04X equals clear_value but "
+                        "slot %d holds a record — treating the pointer as live",
+                        idx + 1, self._config.model, raw_pointer, latest_slot,
+                    )
                 # After the backtrack window completes: if every read came
                 # back all-0xFF, mark this user as definitively empty.
                 if user_had_any_read and user_all_probed_slots_empty:
