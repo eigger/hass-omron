@@ -13,6 +13,9 @@ from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
 
+# Measurements in a TruRead session.
+TRUREAD_SEQUENCE_LEN = 3
+
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
     """Decode wall time from an EEPROM time-sync section (naive datetime)."""
@@ -629,7 +632,12 @@ class OmronDeviceDriver:
                     latest_slot, pointer_min, pointer_max,
                     int(record_addresses[idx]), record_step,
                 )
-                max_probe = min(max(backtrack_slots, 0), max(record_count - 1, 0))
+                # backtrack_slots only skips corrupt slots; reach back far
+                # enough for a TruRead sequence too.
+                max_probe = min(
+                    max(backtrack_slots, TRUREAD_SEQUENCE_LEN - 1, 0),
+                    max(record_count - 1, 0),
+                )
                 parsed = None
                 base_addr = int(record_addresses[idx])
                 # Track whether every probed slot for this user was the
@@ -638,6 +646,7 @@ class OmronDeviceDriver:
                 # full-scan fallback safely.
                 user_had_any_read = False
                 user_all_probed_slots_empty = True
+                user_collected = 0
                 for back in range(max_probe + 1):
                     probe_slot = latest_slot - back
                     while probe_slot < pointer_min:
@@ -682,7 +691,10 @@ class OmronDeviceDriver:
                         parsed = None
                         continue
                     candidates.append((idx + 1, parsed))
-                    break
+                    user_collected += 1
+                    # TruRead averaging needs the two older slots as well.
+                    if user_collected >= TRUREAD_SEQUENCE_LEN:
+                        break
                 # After the backtrack window completes: if every read came
                 # back all-0xFF, mark this user as definitively empty.
                 if user_had_any_read and user_all_probed_slots_empty:
