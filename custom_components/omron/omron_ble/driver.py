@@ -13,8 +13,11 @@ from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
 
-# Measurements in a TruRead session.
+# Sub-measurements in one TruRead session (pos=1, 2, 3).
 TRUREAD_SEQUENCE_LEN = 3
+# A TruRead session takes roughly 3 x (measure + 60 s rest); anything wider
+# than this is two separate sessions.
+TRUREAD_SESSION_WINDOW = dt.timedelta(minutes=15)
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
@@ -541,6 +544,14 @@ class OmronDeviceDriver:
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
         record_step = int(layout.get("record_step", record_byte_size))
         backtrack_slots = int(layout.get("backtrack_slots", 0))
+        # Models that store a TruRead session as three consecutive slots
+        # (pos=1, 2, 3) opt in with ``truread_sequence``; the probe then
+        # keeps reading past the cursor until it holds a full sequence, so
+        # the average can be reconstructed. Everything else stops at the
+        # first plausible record, as before.
+        collect_limit = (
+            TRUREAD_SEQUENCE_LEN if layout.get("truread_sequence") else 1
+        )
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
@@ -632,10 +643,10 @@ class OmronDeviceDriver:
                     latest_slot, pointer_min, pointer_max,
                     int(record_addresses[idx]), record_step,
                 )
-                # backtrack_slots only skips corrupt slots; reach back far
-                # enough for a TruRead sequence too.
+                # backtrack_slots only widens the corrupt-slot skip window;
+                # a TruRead sequence needs at least the two older slots too.
                 max_probe = min(
-                    max(backtrack_slots, TRUREAD_SEQUENCE_LEN - 1, 0),
+                    max(backtrack_slots, collect_limit - 1),
                     max(record_count - 1, 0),
                 )
                 parsed = None
@@ -690,10 +701,17 @@ class OmronDeviceDriver:
                     if not self._is_record_plausible(parsed):
                         parsed = None
                         continue
+                    # Appended newest-first: the cursor slot, then each
+                    # older slot in probe order.
                     candidates.append((idx + 1, parsed))
                     user_collected += 1
-                    # TruRead averaging needs the two older slots as well.
-                    if user_collected >= TRUREAD_SEQUENCE_LEN:
+                    if user_collected >= collect_limit:
+                        break
+                    # Only keep reading while this slot is still part of a
+                    # TruRead sequence counting down toward the cursor
+                    # (pos 3 at the cursor, then 2, then 1). A Single
+                    # measurement stops here at one read, as before.
+                    if parsed.get("pos") != TRUREAD_SEQUENCE_LEN - user_collected + 1:
                         break
                 # After the backtrack window completes: if every read came
                 # back all-0xFF, mark this user as definitively empty.
@@ -731,69 +749,33 @@ class OmronDeviceDriver:
             )
             return None if not return_all_users else ({}, confirmed_empty_users)
 
+        # Reduce each user's newest-first probe results to one record: the
+        # reconstructed TruRead average when the cursor closes a sequence,
+        # otherwise the record nearest the cursor (as before).
+        selected_per_user: dict[int, tuple[int, dict[str, Any]]] = {}
+        for user_idx in range(len(user_layouts)):
+            user = user_idx + 1
+            user_candidates = [c for c in candidates if c[0] == user]
+            if not user_candidates:
+                continue
+            avg_record = self._truread_average(user_candidates)
+            if avg_record is not None:
+                selected_per_user[user] = (user, avg_record)
+                continue
+            record = user_candidates[0][1]
+            record["measurement_type"] = "Single"
+            selected_per_user[user] = (user, record)
+
         if return_all_users:
-            result_per_user: dict[int, dict[str, Any]] = {}
-            for user_idx in range(len(user_layouts)):
-                user = user_idx + 1
-                user_candidates = [c for c in candidates if c[0] == user]
-                
-                # Check for TruRead sequence in user_candidates
-                # They are ordered newest to oldest if probed sequentially
-                truread_avg = None
-                if len(user_candidates) >= 3:
-                    # Sort candidates by slot index just to be safe, newest last
-                    sorted_cands = sorted(user_candidates, key=lambda x: x[1].get('_slot_index', -1))
-                    if len(sorted_cands) >= 3:
-                        c3, c2, c1 = sorted_cands[-1], sorted_cands[-2], sorted_cands[-3]
-                        if c3[1].get('pos') == 3 and c2[1].get('pos') == 2 and c1[1].get('pos') == 1:
-                            dt3 = c3[1].get('datetime')
-                            dt1 = c1[1].get('datetime')
-                            # Check if the whole session fits in 15 minutes
-                            import datetime as dt_mod
-                            if dt3 and dt1 and (dt3 - dt1) <= dt_mod.timedelta(minutes=15):
-                                avg_sys = round((c3[1].get('sys', 0) + c2[1].get('sys', 0) + c1[1].get('sys', 0)) / 3)
-                                avg_dia = round((c3[1].get('dia', 0) + c2[1].get('dia', 0) + c1[1].get('dia', 0)) / 3)
-                                avg_bpm = round((c3[1].get('bpm', 0) + c2[1].get('bpm', 0) + c1[1].get('bpm', 0)) / 3)
-                                
-                                # Clone c3 as the base for the virtual average record
-                                avg_record = dict(c3[1])
-                                avg_record['sys'] = avg_sys
-                                avg_record['dia'] = avg_dia
-                                avg_record['bpm'] = avg_bpm
-                                avg_record['measurement_type'] = 'TruRead Average'
-                                # c3 carries pos=3 (sequence index); overwrite with 0
-                                # so the aggregate doesn't report improper_position=True,
-                                # while still pushing a fresh value to the sensor.
-                                avg_record['pos'] = 0
-                                
-                                # Store individual records for attributes
-                                def _clean_rec(r):
-                                    return {
-                                        'sys': r.get('sys'),
-                                        'dia': r.get('dia'),
-                                        'bpm': r.get('bpm'),
-                                        'time': r.get('datetime').isoformat() if r.get('datetime') else None,
-                                        'pos': r.get('pos')
-                                    }
-                                avg_record['truread_details'] = [
-                                    _clean_rec(c1[1]),
-                                    _clean_rec(c2[1]),
-                                    _clean_rec(c3[1])
-                                ]
-                                truread_avg = (user, avg_record)
+            return (
+                {
+                    user: self._finalize_public_latest_record(item[1], user)
+                    for user, item in selected_per_user.items()
+                },
+                confirmed_empty_users,
+            )
 
-                if truread_avg:
-                    selected = truread_avg
-                else:
-                    selected = self._select_latest_candidate(user_candidates)
-                    if selected:
-                        selected[1]['measurement_type'] = 'Single'
-
-                if selected:
-                    result_per_user[user] = self._finalize_public_latest_record(selected[1], user)
-            return result_per_user, confirmed_empty_users
-
-        selected = self._select_latest_candidate(candidates)
+        selected = self._select_latest_candidate(list(selected_per_user.values()))
         if selected is None:
             return None
         user, record = selected
@@ -804,6 +786,56 @@ class OmronDeviceDriver:
             record.get("datetime"),
         )
         return self._finalize_public_latest_record(record, user)
+
+    def _truread_average(
+        self, user_candidates: list[tuple[int, dict[str, Any]]]
+    ) -> dict[str, Any] | None:
+        """Rebuild the TruRead average from a user's newest-first probe results.
+
+        The monitor stores a TruRead session as three consecutive slots
+        tagged pos=1, 2, 3 and only displays their average. ``user_candidates``
+        must be in probe order (cursor slot first), which keeps the sequence
+        intact across the ring-buffer wrap where slot numbers restart at 0.
+        Returns ``None`` unless the three newest records form a complete
+        session within ``TRUREAD_SESSION_WINDOW``.
+        """
+        if len(user_candidates) < TRUREAD_SEQUENCE_LEN:
+            return None
+        newest = [c[1] for c in user_candidates[:TRUREAD_SEQUENCE_LEN]]
+        c3, c2, c1 = newest
+        if [r.get("pos") for r in newest] != [3, 2, 1]:
+            return None
+        dt3 = c3.get("datetime")
+        dt1 = c1.get("datetime")
+        if not (isinstance(dt3, dt.datetime) and isinstance(dt1, dt.datetime)):
+            return None
+        if not (dt.timedelta(0) <= dt3 - dt1 <= TRUREAD_SESSION_WINDOW):
+            return None
+
+        avg_record = dict(c3)
+        for key in ("sys", "dia", "bpm"):
+            avg_record[key] = round(sum(r[key] for r in newest) / TRUREAD_SEQUENCE_LEN)
+        avg_record["measurement_type"] = "TruRead Average"
+        # c3 carries pos=3 (sequence index); clear it so the aggregate does
+        # not surface as improper_position=True.
+        avg_record["pos"] = 0
+        avg_record["truread_details"] = [
+            {
+                "sys": r.get("sys"),
+                "dia": r.get("dia"),
+                "bpm": r.get("bpm"),
+                "time": r["datetime"].isoformat() if r.get("datetime") else None,
+                "pos": r.get("pos"),
+            }
+            for r in (c1, c2, c3)
+        ]
+        _LOGGER.debug(
+            "TruRead [%s] user=%d slots=%s → avg sys=%d dia=%d bpm=%d",
+            self._config.model, user_candidates[0][0],
+            [r.get("_slot_index") for r in (c1, c2, c3)],
+            avg_record["sys"], avg_record["dia"], avg_record["bpm"],
+        )
+        return avg_record
 
 
     def _parse_user_records(
