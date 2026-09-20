@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
+from custom_components.omron.omron_ble.memory_protocol import MemoryReadRefused
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 
 
@@ -304,3 +305,165 @@ class TestEmptyUserClearValue:
         assert empty_users == set()
         assert records[1]["sys"] == 125
         assert [a for a in read_calls if a >= 0x01C4] == [0x01C4 + s * 16 for s in (99, 98, 97)]
+
+
+class TestUnreadableUserRegion:
+    """A user region that refuses reads (HEM-7380T1 user 2 answers 0xE3).
+
+    The verification read added for the live-cursor case cannot succeed
+    there, and one user's refusal must not discard the users already read.
+    """
+
+    @staticmethod
+    def _config():
+        return DeviceConfig(
+            model="HEM-7380T1",
+            endianness=Endianness.LITTLE,
+            user_start_addresses=[0x01C4, 0x0804],
+            per_user_records_count=[100, 100],
+            record_byte_size=0x10,
+            settings_read_address=0x0010,
+            index_pointer_layout={
+                "index_region_byte_size": 0x18,
+                "endianness": "little",
+                "truread_sequence": True,
+                "users": [
+                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                ],
+            },
+        )
+
+    @staticmethod
+    def _run(config, *, user2_raises_on_read: bool):
+        driver = OmronDeviceDriver(config)
+        driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
+        transport = OmronDeviceSession(MagicMock(), config)
+        transport.unlock = AsyncMock()
+
+        # User 1 cursor 0x4000: bit 14 flag, low byte 0x00 -> slot 99.
+        # User 2 cursor 0x8000: equals clear_value.
+        index_bytes = bytearray(0x18)
+        index_bytes[0:2] = b"\x00\x40"
+        index_bytes[2:4] = b"\x00\x80"
+
+        def _record(when, sys_val, pos):
+            flags1 = when.hour | (when.day << 5) | (when.month << 10)
+            flags2 = when.second | (when.minute << 6) | (pos << 14)
+            raw = bytearray(b"\xff" * 0x10)
+            raw[0] = sys_val - 25
+            raw[1] = 80
+            raw[2] = 70
+            raw[3] = when.year - 2000
+            raw[4], raw[5] = flags1 & 0xFF, flags1 >> 8
+            raw[6], raw[7] = flags2 & 0xFF, flags2 >> 8
+            raw[8:12] = b"\x00\x00\x00\x00"
+            return raw
+
+        base = dt.datetime(2026, 9, 20, 13, 30, 0)
+        user1 = {
+            99: _record(base + dt.timedelta(minutes=3), 118, 3),
+            98: _record(base + dt.timedelta(minutes=2), 119, 2),
+            97: _record(base + dt.timedelta(minutes=1), 120, 1),
+        }
+        reads = []
+
+        async def fake_read(addr, size, block_size=0x10):
+            reads.append(addr)
+            if addr == 0x0010:
+                return index_bytes
+            if addr >= 0x0804:
+                if user2_raises_on_read:
+                    raise MemoryReadRefused(addr, 0xE3)
+                return bytearray(b"\xff" * 0x10)
+            slot = (addr - 0x01C4) // 0x10
+            return user1.get(slot, bytearray(b"\xff" * 0x10))
+
+        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        result = asyncio.run(
+            driver._get_latest_via_index(transport, return_all_users=True)
+        )
+        return result, reads
+
+    def test_refusal_keeps_the_other_user_and_confirms_empty(self):
+        (records, empty_users), reads = self._run(
+            self._config(), user2_raises_on_read=True
+        )
+
+        # User 1 survives: its candidates were collected before user 2 failed.
+        assert 1 in records
+        assert records[1]["measurement_type"] == "TruRead Average"
+        # The cursor said empty and the region refuses reads — that is the
+        # confirmation, so no full scan is asked for.
+        assert empty_users == {2}
+        # One attempt only; no backtrack into a region that will not answer.
+        assert [a for a in reads if a >= 0x0804] == [0x0804 + 99 * 0x10]
+
+    def test_readable_empty_region_still_confirmed(self):
+        (records, empty_users), _ = self._run(
+            self._config(), user2_raises_on_read=False
+        )
+
+        assert records[1]["measurement_type"] == "TruRead Average"
+        assert empty_users == {2}
+
+    def test_refusal_after_a_successful_read_does_not_confirm_empty(self):
+        # The region answered once, so a later refusal is a transport
+        # problem rather than proof the user has no records.
+        config = self._config()
+        driver = OmronDeviceDriver(config)
+        driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
+        transport = OmronDeviceSession(MagicMock(), config)
+        transport.unlock = AsyncMock()
+
+        index_bytes = bytearray(0x18)
+        index_bytes[0:2] = b"\x00\x80"   # user 1 cursor == clear_value
+        index_bytes[2:4] = b"\x00\x80"
+
+        state = {"user1_reads": 0}
+
+        async def fake_read(addr, size, block_size=0x10):
+            if addr == 0x0010:
+                return index_bytes
+            if addr >= 0x0804:
+                return bytearray(b"\xff" * 0x10)
+            state["user1_reads"] += 1
+            if state["user1_reads"] == 1:
+                # Answers, but with a slot that is not the empty marker, so
+                # the probe keeps going rather than confirming empty.
+                rec = bytearray(b"\xff" * 0x10)
+                rec[0] = 0x00
+                return rec
+            raise ConnectionError("Failed to receive response after 4 retries")
+
+        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        _records, empty_users = asyncio.run(
+            driver._get_latest_via_index(transport, return_all_users=True)
+        )
+        assert 1 not in empty_users
+
+    def test_a_timeout_is_not_treated_as_empty(self):
+        # No answer is not the same as "will not serve": a link that dropped
+        # says nothing about whether the user has records.
+        config = self._config()
+        driver = OmronDeviceDriver(config)
+        driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
+        transport = OmronDeviceSession(MagicMock(), config)
+        transport.unlock = AsyncMock()
+
+        index_bytes = bytearray(0x18)
+        index_bytes[0:2] = b"\x00\x40"
+        index_bytes[2:4] = b"\x00\x80"
+
+        async def fake_read(addr, size, block_size=0x10):
+            if addr == 0x0010:
+                return index_bytes
+            if addr >= 0x0804:
+                raise ConnectionError("Failed to receive response after 4 retries")
+            return bytearray(b"\xff" * 0x10)
+
+        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        _records, empty_users = asyncio.run(
+            driver._get_latest_via_index(transport, return_all_users=True)
+        )
+        assert 2 not in empty_users
