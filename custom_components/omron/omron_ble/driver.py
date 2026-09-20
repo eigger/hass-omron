@@ -662,6 +662,7 @@ class OmronDeviceDriver:
                 user_had_any_read = False
                 user_all_probed_slots_empty = True
                 user_collected = 0
+                user_slots_read = 0
                 for back in range(max_probe + 1):
                     probe_slot = latest_slot - back
                     while probe_slot < pointer_min:
@@ -679,14 +680,16 @@ class OmronDeviceDriver:
                         probe_addr, bytes(raw_record).hex(),
                     )
                     user_had_any_read = True
+                    user_slots_read += 1
                     # The device leaves un-written slots as all-0xFF.  A
                     # single byte that differs means *something* was stored
                     # at this slot, even if our parser rejects it.
                     if any(b != 0xFF for b in raw_record):
                         user_all_probed_slots_empty = False
-                    elif cursor_is_clear_value:
-                        # One all-0xFF slot at a clear_value cursor is all
-                        # the confirmation an empty user needs.
+                    if cursor_is_clear_value and user_all_probed_slots_empty:
+                        # An all-0xFF cursor slot at a clear_value cursor is
+                        # all the confirmation an empty user needs. A live
+                        # cursor keeps its normal backtrack past later gaps.
                         break
                     try:
                         parsed = self._config.parse_record(bytes(raw_record))
@@ -735,7 +738,7 @@ class OmronDeviceDriver:
                         "User%d [%s] confirmed empty: cursor slot and %d "
                         "backtrack slot(s) all 0xFF — full-scan fallback "
                         "will be skipped for this user",
-                        idx + 1, self._config.model, max_probe,
+                        idx + 1, self._config.model, user_slots_read - 1,
                     )
         except Exception as exc:
             if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:

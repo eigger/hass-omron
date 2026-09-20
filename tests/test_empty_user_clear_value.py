@@ -245,3 +245,62 @@ class TestEmptyUserClearValue:
         # User 2 is confirmed empty after one 0xFF read, no reach-back.
         assert 2 in empty_users
         assert [a for a in read_calls if a >= 0x0804] == [0x0804 + 99 * 16]
+
+    def test_live_clear_value_cursor_backtracks_past_gap(self):
+        # A live 0x8000 cursor on a backtrack_slots=5 profile: the cursor
+        # slot holds garbage, the slot behind it is 0xFF, and a valid record
+        # sits two back. The empty early-exit must only fire when *every*
+        # slot so far was 0xFF, so the gap must not stop the backtrack.
+        config = DeviceConfig(
+            model="HEM-9601T",
+            endianness=Endianness.LITTLE,
+            user_start_addresses=[0x01C4],
+            per_user_records_count=[100],
+            record_byte_size=0x10,
+            settings_read_address=0x0010,
+            index_pointer_layout={
+                "index_region_byte_size": 0x18,
+                "endianness": "little",
+                "backtrack_slots": 5,
+                "users": [
+                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                ],
+            },
+        )
+        driver = OmronDeviceDriver(config)
+        now = dt.datetime(2026, 9, 20, 14, 0, 0)
+        driver._now_func = lambda: now
+        transport = OmronDeviceSession(MagicMock(), config)
+        transport.unlock = AsyncMock()
+
+        index_bytes = bytearray(0x18)
+        index_bytes[0:2] = b"\x00\x80"
+
+        when = now - dt.timedelta(hours=1)
+        flags1 = when.hour | (when.day << 5) | (when.month << 10)
+        flags2 = when.second | (when.minute << 6) | (1 << 12)
+        valid = bytearray(b"\xff" * 16)
+        valid[0:4] = bytes([125 - 25, 85, 70, when.year - 2000])
+        valid[4:8] = bytes([flags1 & 0xFF, flags1 >> 8, flags2 & 0xFF, flags2 >> 8])
+        valid[8:12] = b"\x00\x00\x00\x00"
+        garbage = bytearray(16)
+        garbage[0] = 0x01  # non-0xFF, but rejected by the parser as a placeholder
+
+        slots = {99: garbage, 97: valid}
+        read_calls = []
+
+        async def fake_read_memory_range(addr, size, block_size=0x10):
+            read_calls.append(addr)
+            if addr == 0x0010:
+                return index_bytes
+            return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
+
+        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+
+        records, empty_users = asyncio.run(
+            driver._get_latest_via_index(transport, return_all_users=True)
+        )
+
+        assert empty_users == set()
+        assert records[1]["sys"] == 125
+        assert [a for a in read_calls if a >= 0x01C4] == [0x01C4 + s * 16 for s in (99, 98, 97)]
