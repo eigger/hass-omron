@@ -662,6 +662,7 @@ class OmronDeviceDriver:
                 # full-scan fallback safely.
                 user_had_any_read = False
                 user_all_probed_slots_empty = True
+                user_read_failed = False
                 user_collected = 0
                 user_slots_read = 0
                 for back in range(max_probe + 1):
@@ -676,31 +677,40 @@ class OmronDeviceDriver:
                             record_byte_size,
                             self._config.transmission_block_size,
                         )
-                    except MemoryReadRefused as refused:
-                        # The device answered: it will not serve this region.
-                        # With a cursor that already reads clear_value, a
-                        # refusal on the *first* slot is the confirmation the
-                        # check was after -- the pointer says empty and the
-                        # region backs it up. Later in the backtrack the
-                        # region has already answered once, so it stays
-                        # unconfirmed and the caller decides.
-                        _LOGGER.debug(
-                            "User%d [%s] slot=%d %s",
-                            idx + 1, self._config.model, probe_slot, refused,
-                        )
-                        if cursor_is_clear_value and not user_had_any_read:
-                            confirmed_empty_users.add(idx + 1)
-                        break
                     except Exception as read_exc:
-                        # No answer at all -- link trouble rather than a
-                        # verdict on this region. Keep what was already
-                        # collected for the users that did read, but do not
-                        # call anyone empty on the strength of a failed read.
-                        _LOGGER.debug(
-                            "User%d [%s] slot=%d addr=0x%04X read failed: %s",
-                            idx + 1, self._config.model, probe_slot,
-                            probe_addr, read_exc,
-                        )
+                        user_read_failed = True
+                        if isinstance(read_exc, MemoryReadRefused):
+                            # The device answered: it will not serve this
+                            # region.
+                            _LOGGER.debug(
+                                "User%d [%s] slot=%d %s",
+                                idx + 1, self._config.model, probe_slot, read_exc,
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "User%d [%s] slot=%d addr=0x%04X read failed: %s",
+                                idx + 1, self._config.model, probe_slot,
+                                probe_addr, read_exc,
+                            )
+                        if cursor_is_clear_value and not user_had_any_read:
+                            # The pointer already says empty and the very
+                            # first slot of the region did not read, refused
+                            # or silent. Confirm it either way: a region the
+                            # cuff will not serve fails the full scan the
+                            # same way and takes user 1's records with it,
+                            # which is worse than the zero-read confirmation
+                            # 2.10.2 shipped. If the link is really gone the
+                            # scan dies regardless, so nothing is lost.
+                            confirmed_empty_users.add(idx + 1)
+                            _LOGGER.debug(
+                                "User%d [%s] confirmed empty: cursor is "
+                                "clear_value and the cursor slot did not read",
+                                idx + 1, self._config.model,
+                            )
+                        # Later in the backtrack the region has answered at
+                        # least once, so keep what was collected and let the
+                        # post-loop check below decide, with the failure
+                        # noted so it never confirms empty on a failed read.
                         break
                     _LOGGER.debug(
                         "User%d [%s] slot=%d addr=0x%04X raw=%s",
@@ -759,8 +769,10 @@ class OmronDeviceDriver:
                         idx + 1, self._config.model, raw_pointer, latest_slot,
                     )
                 # After the backtrack window completes: if every read came
-                # back all-0xFF, mark this user as definitively empty.
-                if user_had_any_read and user_all_probed_slots_empty:
+                # back all-0xFF, mark this user as definitively empty. A
+                # backtrack cut short by a failed read proves nothing about
+                # the slots it never reached.
+                if user_had_any_read and user_all_probed_slots_empty and not user_read_failed:
                     confirmed_empty_users.add(idx + 1)
                     _LOGGER.debug(
                         "User%d [%s] confirmed empty: cursor slot and %d "

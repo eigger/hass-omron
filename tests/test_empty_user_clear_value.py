@@ -442,9 +442,11 @@ class TestUnreadableUserRegion:
         )
         assert 1 not in empty_users
 
-    def test_a_timeout_is_not_treated_as_empty(self):
-        # No answer is not the same as "will not serve": a link that dropped
-        # says nothing about whether the user has records.
+    def test_a_silent_first_slot_at_clear_value_confirms_empty(self):
+        # The pointer says empty and the cursor slot did not answer at all.
+        # Confirm anyway: a region the cuff will not serve fails the full
+        # scan the same way and drops user 1 with it (#198), so leaving it
+        # unconfirmed is worse than the zero-read confirmation 2.10.2 made.
         config = self._config()
         driver = OmronDeviceDriver(config)
         driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
@@ -466,4 +468,36 @@ class TestUnreadableUserRegion:
         _records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
         )
-        assert 2 not in empty_users
+        assert 2 in empty_users
+
+    def test_a_failed_read_after_an_empty_slot_does_not_confirm_empty(self):
+        # Live cursor, cursor slot all-0xFF, then the next read fails. The
+        # backtrack never reached the older slots, so nothing is known about
+        # them: the user must stay unconfirmed and the full scan must run.
+        config = self._config()
+        driver = OmronDeviceDriver(config)
+        driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
+        transport = OmronDeviceSession(MagicMock(), config)
+        transport.unlock = AsyncMock()
+
+        index_bytes = bytearray(0x18)
+        index_bytes[0:2] = b"\x00\x40"   # live cursors for both users
+        index_bytes[2:4] = b"\x00\x40"
+
+        reads_per_region = {0x01C4: 0, 0x0804: 0}
+
+        async def fake_read(addr, size, block_size=0x10):
+            if addr == 0x0010:
+                return index_bytes
+            region = 0x0804 if addr >= 0x0804 else 0x01C4
+            reads_per_region[region] += 1
+            if reads_per_region[region] == 1:
+                return bytearray(b"\xff" * 0x10)
+            raise ConnectionError("Failed to receive response after 4 retries")
+
+        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        records, empty_users = asyncio.run(
+            driver._get_latest_via_index(transport, return_all_users=True)
+        )
+        assert records == {}
+        assert empty_users == set()
