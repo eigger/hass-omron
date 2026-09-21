@@ -188,6 +188,16 @@ async def establish_connection_with_bond_settle(
         # keys just made, and skipping on the profile flag instead would also
         # skip after a fallback and leave no bond at all.
         client._omron_bonded_at_connect = bonded_this_client  # type: ignore[attr-defined]
+        # For the session trace: which radio advertised, which one the link
+        # took, and how many connects it cost. ``source`` and ``via`` are the
+        # scanner ids habluetooth uses; the integration layer maps them to
+        # scanner names.
+        client._omron_link_info = {  # type: ignore[attr-defined]
+            "connect_attempts": attempt,
+            "source": source,
+            "via": connected_via,
+            "bonded_at_connect": bonded_this_client,
+        }
         _LOGGER.debug(
             "BLE link established to %s (advertised by source=%s, connected via "
             "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "

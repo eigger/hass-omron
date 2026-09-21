@@ -459,7 +459,7 @@ def test_hard_poll_error_escapes_even_when_cached_data_exists():
         )
 
         @asynccontextmanager
-        async def noop_telemetry(entry_data):
+        async def noop_telemetry(hass, entry_data, operation="poll"):
             yield
 
         namespace["omron_poll_ble_telemetry"] = noop_telemetry
@@ -546,6 +546,9 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
                 raise AssertionError(
                     "_finish_update must not run after hard connection failure"
                 )
+
+            def _record_session_trace(self, session, trace):
+                self.last_session_trace = trace.as_dict()
 
         target = FakeParserSelf()
 

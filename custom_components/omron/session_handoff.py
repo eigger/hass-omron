@@ -9,7 +9,10 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.util import dt as dt_util
+
 from .const import DOMAIN
+from .session_report import build_session_report
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -203,12 +206,26 @@ async def run_post_pairing_poll(
 
 
 @asynccontextmanager
-async def omron_poll_ble_telemetry(entry_data: dict) -> AsyncIterator[None]:
-    """Mark BLE session active, tick duration each second, finalize elapsed time on exit."""
+async def omron_poll_ble_telemetry(
+    hass: HomeAssistant, entry_data: dict, operation: str = "poll"
+) -> AsyncIterator[None]:
+    """Mark BLE session active, tick duration each second, finalize elapsed time on exit.
+
+    On exit the session's breakdown (see ``build_session_report``) is stored as
+    ``last_session_timing`` for the Duration sensor's attributes, and a failed
+    session is also stamped on the Last Failure sensor with its own copy, kept
+    until the next failure so a later success does not erase it.
+    """
     connection_coordinator = entry_data["connection_coordinator"]
     duration_coordinator = entry_data["duration_coordinator"]
+    failure_coordinator = entry_data["failure_coordinator"]
+    device_data = entry_data["data"]
+    # Cleared so a session that dies before the parser records anything does
+    # not publish the previous session's stages as its own.
+    device_data.last_session_trace = None
     started = perf_counter()
     ticker_task: asyncio.Task[None] | None = None
+    outcome: BaseException | None = None
 
     async def _duration_ticker() -> None:
         while True:
@@ -221,6 +238,9 @@ async def omron_poll_ble_telemetry(entry_data: dict) -> AsyncIterator[None]:
     ticker_task = asyncio.create_task(_duration_ticker())
     try:
         yield
+    except BaseException as exc:
+        outcome = exc
+        raise
     finally:
         if ticker_task is not None:
             ticker_task.cancel()
@@ -229,5 +249,31 @@ async def omron_poll_ble_telemetry(entry_data: dict) -> AsyncIterator[None]:
             except asyncio.CancelledError:
                 pass
         elapsed = round(perf_counter() - started, 3)
+        # An outer cancellation (unload, shutdown) is not the session's
+        # failure. The poll deadline is: asyncio.timeout turns its own
+        # cancellation into TimeoutError before it gets here.
+        if not isinstance(outcome, asyncio.CancelledError):
+            try:
+                report = build_session_report(
+                    hass,
+                    entry_data["address"],
+                    operation=operation,
+                    trace=device_data.last_session_trace,
+                    exc=outcome,
+                )
+            except Exception as report_exc:  # noqa: BLE001
+                # Diagnostics must not mask the session's own outcome.
+                _LOGGER.debug("Building the session report failed: %s", report_exc)
+                report = {
+                    "operation": operation,
+                    "success": outcome is None,
+                    **({"error": str(outcome) or type(outcome).__name__} if outcome else {}),
+                }
+            # Before the duration update: that update is what writes the
+            # entity state, attributes included.
+            entry_data["last_session_timing"] = report
+            if outcome is not None:
+                entry_data["last_failure_timing"] = dict(report)
+                failure_coordinator.async_set_updated_data(dt_util.utcnow())
         duration_coordinator.async_set_updated_data(elapsed)
         connection_coordinator.async_set_updated_data(False)
