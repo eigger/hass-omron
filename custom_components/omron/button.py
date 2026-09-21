@@ -139,7 +139,7 @@ class OmronRetryPairingButtonEntity(ButtonEntity):
         data = entry_data["data"]
         try:
             async with session_lock:
-                async with omron_poll_ble_telemetry(entry_data):
+                async with omron_poll_ble_telemetry(self.hass, entry_data, "pairing"):
                     paired_session = await data.async_retry_pairing(ble_device)
                 # Seed the advertisement-trigger cooldown the way setup does:
                 # a pairing-mode advert arriving now would otherwise start an

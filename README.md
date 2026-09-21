@@ -110,7 +110,10 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Blood Pressure Category** (ACC/AHA)
   - **Measurement Timestamp**
   - **RSSI / Signal Strength (diagnostic)**
-  - **Last Poll Duration (diagnostic)**
+  - **Duration (diagnostic)**: seconds of the last BLE session; its attributes are that session's breakdown (stage timings, the radio used, and on a failure the stage and a likely cause)
+  - **Last Failure (diagnostic)**: when a BLE session last failed, with that session's breakdown as attributes — kept until the next failure
+  - **Failure Count (diagnostic)**: failed BLE sessions since the integration was (re)loaded
+  - **Last Readout (diagnostic)**: when a poll last decoded a record
 - **Binary & Diagnostic Sensors** (Status from the last measurement):
   - **Cuff Fit**: `On` indicates the cuff was **not wrapped correctly** (improper fit).
   - **Body Movement**: `On` indicates that movement was detected during the measurement.
@@ -142,6 +145,10 @@ The **Blood Pressure Category** sensor classifies readings according to the **AC
 - **Last value after restart**: non-diagnostic measurement sensors restore their last recorded state from Home Assistant so they can show the previous reading when the cuff is off or not yet polled. The **Connection** binary sensor still reflects whether a poll connection is active. Stale readings are possible if the device has not synced—use the connection sensor and timestamps as context.
 
 ## Troubleshooting
+
+**[Troubleshooting](docs/troubleshooting.md)** — how to read the **Last Failure** and
+**Duration** sensors' attributes (`failed_stage`, `likely_cause`, the radio, the
+per-stage timings), what each failed stage means, and what to attach to an issue.
 
 - **`Pairing failed: Could not enter key programming mode`**: Make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
 - **`Connection terminated by peer`**: BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter or use a USB extension cable for your BLE dongle.

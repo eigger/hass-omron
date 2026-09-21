@@ -36,6 +36,7 @@ from .const import (
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
 from .memory_protocol import _NOTIFY_SUBSCRIBE_SETTLE_SEC, MemoryProtocolMixin
 from .secure_flow import ASYNC_NOTICE_UUID, establish_secure_session
+from .session_trace import SessionTrace, traced
 from .util import _hex
 
 _LOGGER = logging.getLogger(__name__)
@@ -126,6 +127,11 @@ class OmronDeviceSession(MemoryProtocolMixin):
         # where the device drives security itself.
         self._pairing_agent: AsyncExitStack | None = None
         self._owns_connection = owns_connection
+        # Stage timings and the failure point, for the diagnostic sensors. A
+        # poll that adopts this session swaps in its own so the breakdown it
+        # publishes matches its own duration; the link facts stay here.
+        self.trace = SessionTrace()
+        self.link_info: dict[str, Any] = {}
         self._init_memory_protocol_state()
         self._unlocked = False
         self._secure_session = None
@@ -226,22 +232,28 @@ class OmronDeviceSession(MemoryProtocolMixin):
                 )
             else:
                 self._pairing_agent = stack
-        self._client = await establish_connection_with_bond_settle(
-            self._ble_device,
-            self.address,
-            model=self._config.model,
-            max_attempts=self._config.connect_settle_attempts,
-            # Only the connection that creates the bond; a reconnect that sends
-            # a pair request is what cost the bond on a proxy (#142).
-            pair_on_connect=self._pairing_session and self._config.pair_on_connect,
-            hold_pairing_agent=self._config.register_pairing_agent,
-        )
+        # Filled in by the connect as it goes, so a connect that fails on
+        # every attempt still tells the trace which radio it tried.
+        self.link_info = {}
+        with self.trace.timed("connect"):
+            self._client = await establish_connection_with_bond_settle(
+                self._ble_device,
+                self.address,
+                model=self._config.model,
+                max_attempts=self._config.connect_settle_attempts,
+                # Only the connection that creates the bond; a reconnect that sends
+                # a pair request is what cost the bond on a proxy (#142).
+                pair_on_connect=self._pairing_session and self._config.pair_on_connect,
+                hold_pairing_agent=self._config.register_pairing_agent,
+                link_info=self.link_info,
+            )
         return self
 
     async def refresh_services(self) -> None:
         """Re-run GATT discovery so characteristics appear after connection."""
         await _bleak_refresh_services(self.client)
 
+    @traced("services")
     async def verify_parent_service(self) -> bool:
         """Ensure the parent service is present: check, refresh once, then
         clear_cache + re-discover (the only step that beats a stale cache)."""
@@ -353,10 +365,11 @@ class OmronDeviceSession(MemoryProtocolMixin):
                             exc,
                         )
             if self._owns_connection and client.is_connected:
-                await self._await_peer_close(client, addr)
-                if client.is_connected:
-                    await client.disconnect()
-                    disconnected = True
+                with self.trace.timed("disconnect"):
+                    await self._await_peer_close(client, addr)
+                    if client.is_connected:
+                        await client.disconnect()
+                        disconnected = True
         except Exception:
             pass
         finally:
@@ -496,6 +509,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
             try:
                 await self.pair()
             except Exception as exc:
+                self.trace.forgive("pair")
                 _LOGGER.debug(
                     "Poll pair step failed (continuing to unlock): %s", exc
                 )
@@ -554,6 +568,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
             self._credential = credential
             self._new_credential = credential
 
+    @traced("unlock")
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
         if self._config.unlock_mode == UnlockMode.NONE:
@@ -1066,6 +1081,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
         _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
         return True
 
+    @traced("pair")
     async def pair(self, key: bytearray | None = None) -> None:
         """Program pairing credentials according to ``host_pairing_mode``."""
         pair_key = key or PAIRING_KEY

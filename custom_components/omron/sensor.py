@@ -217,11 +217,23 @@ async def async_setup_entry(
     readout_coordinator = (
         hass.data[DOMAIN][entry.entry_id].get("readout_coordinator")
     )
+    failure_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("failure_coordinator")
+    )
+    failure_count_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("failure_count_coordinator")
+    )
     extra_entities: list[SensorEntity] = []
     if duration_coordinator is not None:
         extra_entities.append(OmronPollDurationSensorEntity(hass, entry, duration_coordinator))
     if readout_coordinator is not None:
         extra_entities.append(OmronLastReadoutSensorEntity(hass, entry, readout_coordinator))
+    if failure_coordinator is not None:
+        extra_entities.append(OmronLastFailureSensorEntity(hass, entry, failure_coordinator))
+    if failure_count_coordinator is not None:
+        extra_entities.append(
+            OmronFailureCountSensorEntity(hass, entry, failure_count_coordinator)
+        )
     if extra_entities:
         async_add_entities(extra_entities)
 
@@ -396,7 +408,13 @@ class OmronPollDurationSensorEntity(
     CoordinatorEntity[DataUpdateCoordinator[float | None]],
     SensorEntity,
 ):
-    """Diagnostic sensor for latest poll duration."""
+    """Diagnostic sensor for latest poll duration.
+
+    Its attributes are the last BLE session's breakdown -- outcome, the radio
+    it went over, and per-stage timings (``connect_s``, ``unlock_s``,
+    ``readout_s`` ...) -- so the session can be read from the entity instead
+    of debug logs. See ``session_report.build_session_report``.
+    """
 
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
@@ -417,10 +435,109 @@ class OmronPollDurationSensorEntity(
         model_slug = model.lower().replace("-", "_")
         self._attr_name = f"{model} {identifier.upper()} Duration"
         self._attr_unique_id = f"{model_slug}_{identifier}_duration"
+        self._entry_data = hass.data[DOMAIN][entry.entry_id]
 
     @property
     def native_value(self) -> float | None:
         """Return wall-clock seconds for the last poll attempt (success or failure)."""
+        return self.coordinator.data
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """The last session's breakdown; each session's final duration update publishes it."""
+        return self._entry_data.get("last_session_timing")
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
+
+
+class OmronLastFailureSensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator["datetime | None"]],
+    SensorEntity,
+):
+    """Diagnostic sensor for when a BLE session last failed.
+
+    Its attributes are that session's breakdown (the same keys as Duration's),
+    kept until the next failure so a poll that succeeded since does not erase
+    it. A connect failure right after a reading is the cuff going back to
+    sleep -- the ``likely_cause`` attribute says so -- but a stage further in,
+    or one that repeats, is where to start when a cuff will not sync.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:clock-alert-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator["datetime | None"],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Last Failure"
+        self._attr_unique_id = f"{model_slug}_{identifier}_last_failure"
+        self._entry_data = hass.data[DOMAIN][entry.entry_id]
+
+    @property
+    def native_value(self) -> "datetime | None":
+        """Return when a session last failed, or None if none has since setup."""
+        return self.coordinator.data
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """The breakdown of the session that failed at this time."""
+        return self._entry_data.get("last_failure_timing")
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
+
+
+class OmronFailureCountSensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator[int]],
+    SensorEntity,
+):
+    """Diagnostic sensor counting failed BLE sessions since the entry was (re)loaded.
+
+    Rising while the measurements look fine means sessions are failing where
+    nobody is watching -- the cuff going back to sleep before a scheduled poll
+    is the usual reason, and Last Failure says which.
+    """
+
+    # No state class: the count starts over on every reload, and a
+    # long-term statistic built from that would only mislead.
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[int],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Failure Count"
+        self._attr_unique_id = f"{model_slug}_{identifier}_failure_count"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of failed sessions since setup."""
         return self.coordinator.data
 
     @property

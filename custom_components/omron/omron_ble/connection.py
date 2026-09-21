@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
@@ -90,10 +91,17 @@ async def establish_connection_with_bond_settle(
     max_attempts: int = _CONNECT_SETTLE_ATTEMPTS,
     pair_on_connect: bool = False,
     hold_pairing_agent: bool = False,
+    link_info: dict[str, Any] | None = None,
 ) -> BleakClient:
     """Connect, let bonding/encryption settle, then refresh the GATT cache.
 
     Retries if the device drops during the settle (common on multi-proxy setups).
+
+    ``link_info``, when given, is filled in as the connect goes -- the scanner
+    that advertised the device, the attempt count, and on success the path the
+    link took and whether it bonded -- so a connect that fails on every
+    attempt still leaves the session trace with which radio it tried and how
+    often.
 
     ``pair_on_connect`` bonds before service discovery, which is what the one
     run with a working retained-bond reconnect did (2.7.8-beta.15, local
@@ -116,10 +124,14 @@ async def establish_connection_with_bond_settle(
             "%s: not a local adapter, leaving the bond to pair() after discovery",
             name,
         )
+    if link_info is None:
+        link_info = {}
     last_source = "unknown"
     for attempt in range(1, max_attempts + 1):
         source = _connection_source(ble_device)
         last_source = source
+        link_info["source"] = source
+        link_info["connect_attempts"] = attempt
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
             name, model or "?", source, attempt, max_attempts,
@@ -212,6 +224,11 @@ async def establish_connection_with_bond_settle(
                 name, source,
             )
             await _bleak_refresh_services(client)
+            # Only a link that survived the settle: ``source`` and ``via`` are
+            # the scanner ids habluetooth uses; the integration layer maps
+            # them to scanner names.
+            link_info["via"] = connected_via
+            link_info["bonded_at_connect"] = bonded_this_client
             return client
 
         # Dropped during settle; retry — re-establishing lets habluetooth

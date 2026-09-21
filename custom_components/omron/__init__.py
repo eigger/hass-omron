@@ -380,10 +380,14 @@ def process_service_info(
                 await asyncio.sleep(SETTLE_DELAY_SECONDS)
                 ble_device = service_info.device
                 if is_pairing:
-                    async with omron_poll_ble_telemetry(entry_data):
+                    async with omron_poll_ble_telemetry(
+                        coordinator.hass, entry_data, "pairing"
+                    ):
                         paired_session = await data.async_retry_pairing(ble_device)
                 else:  # is_invalid_time and not is_forced_transfer
-                    async with omron_poll_ble_telemetry(entry_data):
+                    async with omron_poll_ble_telemetry(
+                        coordinator.hass, entry_data, "time_sync"
+                    ):
                         await data.async_sync_time(ble_device)
         except Exception as err:
             if is_pairing:
@@ -503,12 +507,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         _LOGGER,
         name=f"{DOMAIN}_readout_{address}",
     )
+    failure_coordinator = DataUpdateCoordinator[datetime | None](
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_failure_{address}",
+    )
+    failure_count_coordinator = DataUpdateCoordinator[int](
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_failure_count_{address}",
+    )
     connection_coordinator.async_set_updated_data(False)
     duration_coordinator.async_set_updated_data(None)
     readout_coordinator.async_set_updated_data(None)
+    failure_coordinator.async_set_updated_data(None)
+    failure_count_coordinator.async_set_updated_data(0)
     hass.data[DOMAIN][entry.entry_id]["connection_coordinator"] = connection_coordinator
     hass.data[DOMAIN][entry.entry_id]["duration_coordinator"] = duration_coordinator
     hass.data[DOMAIN][entry.entry_id]["readout_coordinator"] = readout_coordinator
+    hass.data[DOMAIN][entry.entry_id]["failure_coordinator"] = failure_coordinator
+    hass.data[DOMAIN][entry.entry_id]["failure_count_coordinator"] = failure_count_coordinator
 
     def _persist_transport_credential(
         hass: HomeAssistant, entry: OmronConfigEntry, device_data
@@ -597,7 +615,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 # function so the skip paths above leave it parked for the
                 # retry instead of closing a link they never used.
                 preconnected_session = adopt_handoff_session(hass, address)
-                async with omron_poll_ble_telemetry(entry_data):
+                async with omron_poll_ble_telemetry(hass, entry_data, "poll"):
                     handed_off = True
                     async with asyncio.timeout(POLL_TIMEOUT_SECONDS):
                         result = await coordinator.device_data.async_poll(

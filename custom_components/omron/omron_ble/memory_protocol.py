@@ -20,6 +20,7 @@ from bleak.exc import BleakError
 
 from .connection import _bleak_refresh_services
 from .devices import UnlockMode
+from .session_trace import traced
 from .settings_mirror import SettingsMirrorLayout, clock_block, slot_checksum
 from .util import _hex
 
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 
     from .devices import DeviceConfig, PairingRegistration
     from .secure_session import SecureSession
+    from .session_trace import SessionTrace
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ class MemoryProtocolMixin:
         _unlocked: bool
         _pairing_session: bool
         address: str
+        trace: SessionTrace
 
         def _require_connected(self, context: str) -> None: ...
         async def _ensure_services_cache(self) -> None: ...
@@ -501,6 +504,7 @@ class MemoryProtocolMixin:
         finally:
             await self.close_memory_session()
 
+    @traced("memory_open")
     async def open_memory_session(self) -> None:
         """Start a data readout session (no-op if already open)."""
         if self._memory_session_active:
@@ -529,6 +533,7 @@ class MemoryProtocolMixin:
             await self._unsubscribe_notify_channels(force=True)
             raise
 
+    @traced("registration")
     async def commit_pairing_registration(self) -> bool:
         """Write the settings mirror the app writes at the end of a pairing.
 
@@ -660,6 +665,7 @@ class MemoryProtocolMixin:
         )
         self._pairing_registration_clock_done = True
 
+    @traced("memory_close")
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
         if not self._memory_session_active:
