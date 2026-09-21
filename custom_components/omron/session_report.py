@@ -37,25 +37,38 @@ def radio_facts(
     setup (#91), so the two are reported apart when they differ.
     """
     facts: dict[str, str | int] = {}
-    scanner = None
-    for key in ("via", "source"):
-        value = link_info.get(key)
-        if value and (scanner := async_scanner_by_source(hass, str(value))) is not None:
-            break
-    if scanner is not None:
-        facts["via"] = scanner.name
-        facts["via_type"] = "proxy" if isinstance(scanner, BaseHaRemoteScanner) else "adapter"
+    advertised = _scanner(hass, link_info.get("source"))
+    # A BlueZ link reports a D-Bus path rather than a scanner id, which is
+    # the local adapter that advertised it.
+    connected = _scanner(hass, link_info.get("via")) or advertised
+    if connected is not None:
+        facts["via"] = connected.name
+        facts["via_type"] = "proxy" if isinstance(connected, BaseHaRemoteScanner) else "adapter"
+    elif link_info.get("via"):
+        facts["via"] = str(link_info["via"])
+    # Only when they differ: the link took another radio than the one whose
+    # advertisement was strongest -- a failover, or on a multi-proxy setup
+    # the one that holds the bond (#91).
+    if advertised is not None and advertised is not connected:
+        facts["advertised_via"] = advertised.name
+    rssi_scanner = connected or advertised
+    if rssi_scanner is not None:
         try:
-            seen = scanner.get_discovered_device_advertisement_data(address)
+            seen = rssi_scanner.get_discovered_device_advertisement_data(address)
         except Exception:  # noqa: BLE001 - a scanner without the method
             seen = None
         if seen is not None:
             facts["rssi"] = seen[1].rssi
-    elif link_info.get("via"):
-        facts["via"] = str(link_info["via"])
     # How many connectable radios currently see the cuff: 1 means no failover.
     facts["paths"] = len(async_scanner_devices_by_address(hass, address, connectable=True))
     return facts
+
+
+def _scanner(hass: HomeAssistant, source: Any) -> Any:
+    """The scanner behind a habluetooth source id, or None."""
+    if not source:
+        return None
+    return async_scanner_by_source(hass, str(source))
 
 
 def likely_cause(

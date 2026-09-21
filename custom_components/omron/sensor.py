@@ -516,7 +516,8 @@ class OmronFailureCountSensorEntity(
     is the usual reason, and Last Failure says which.
     """
 
-    _attr_state_class = SensorStateClass.TOTAL
+    # No state class: the count starts over on every reload, and a
+    # long-term statistic built from that would only mislead.
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:alert-circle-outline"
 

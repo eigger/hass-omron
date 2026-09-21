@@ -9,14 +9,14 @@ Open the cuff's device page (**Settings → Devices & services → Omron → the
 | Entity | What it tells you |
 |---|---|
 | **Last Failure** | When a BLE session last **failed**. Its *attributes* are the breakdown of that session — `failed_stage`, `likely_cause`, `error`, the radio (`via`, `rssi`, `paths`) and the per-stage timings. They stay until the next failure, so a failure from last night is still readable after this morning's poll succeeded. |
-| **Duration** | Seconds of the **most recent** BLE session, success or not. Its *attributes* are the same breakdown for that session. Use it when the session you are debugging is the last one. |
-| **Failure Count** | How many sessions have failed since the integration was (re)loaded. A count that rises a little every day is the cuff going back to sleep before a scheduled poll (see `connect` below); one that rises on every poll, or with the measurements not arriving, is what to look into. |
+| **Duration** | Seconds of the **most recent** BLE session, success or not. Its *attributes* are the same breakdown for that session, attached when the session ends (while one runs — Connection on — it has none). Use it when the session you are debugging is the last one. |
+| **Failure Count** | How many sessions have failed since the integration was (re)loaded. It counts `connect` failures too, and a cuff that has just gone back to sleep fails there — so a count that creeps up a little every day is normal; one that rises on every poll, or while measurements are not arriving, is what to look into. Read Last Failure's `failed_stage` before reading anything into the number. |
 | **Last Readout** | When a poll last **decoded a record**. A poll that connected but came back with no record does not move it — so "Duration updates, Last Readout does not" means the cuff is reachable but the readout is coming back empty, or failing before it. |
 | **Connection** (binary) | On **while a session is in progress**. It is not "the cuff is nearby": a cuff keeps its radio off between readings. |
 
 To see the attributes: click the entity → ⋮ → **Attributes**, or in **Developer tools → States** search for the entity. In a template: `{{ state_attr('sensor.hem_7155t_a1b2_last_failure', 'likely_cause') }}` (the id is the model plus the last four hex digits of the cuff's MAC).
 
-Home Assistant also records the Duration attributes with each state change, so the history of that sensor has the breakdown of every session, not only the last failed one.
+Home Assistant also records the Duration attributes with each state change, so the history of that sensor has the breakdown of every session, not only the last failed one. Both sensors start empty on a restart or reload; the history is where a failure from before it lives.
 
 ## Reading the attributes
 
@@ -27,8 +27,9 @@ The attributes are, in order:
 | `operation` | `poll` (a scheduled or triggered readout), `pairing` (the *Retry Pairing* button or an auto-pairing advertisement) or `time_sync`. |
 | `success` | Whether the session completed. |
 | `error`, `failed_stage`, `likely_cause` | Only on a failure: the exact message, the stage it escaped from, and one sentence on what that usually means. |
-| `via`, `via_type`, `rssi`, `paths` | The radio the link went over (a proxy or a local adapter), the cuff's signal as that radio last saw it, and how many connectable radios currently see the cuff. `paths: 1` means there is no other radio to fall back to. |
-| `connect_attempts`, `bonded_at_connect` | How many connects the link cost (up to 3; a link that drops during the post-connect settle is retried), and whether this connect made the bond (a pairing session over a local adapter). |
+| `via`, `via_type`, `rssi`, `paths` | The radio the link went over (a proxy or a local adapter), the cuff's signal as that radio last saw it, and how many connectable radios currently see the cuff. `paths: 1` means there is no other radio to fall back to. On a `connect` failure `via` is the radio that was tried. |
+| `advertised_via` | Only when it differs from `via`: the radio whose advertisement was strongest, which is the one Home Assistant tries first. The link ending up elsewhere is a failover — or, on a multi-proxy setup, the proxy that holds the bond. |
+| `connect_attempts`, `bonded_at_connect` | How many connects were tried (up to 3; a link that drops during the post-connect settle is retried), and whether the connect made the bond (a pairing session over a local adapter). |
 | `adopted_link` | The poll ran over the link a pairing session had just opened, instead of connecting itself. |
 | `memory_session_attempts` | How many tries the unlock + readout-session open took (up to 3). |
 | `records` | How many latest records the readout came back with — one per user with data. `0` is a cuff with nothing stored: not a failure, and why the measurement entities did not move. |
@@ -44,7 +45,7 @@ Start with `failed_stage` on Last Failure: it says how far the session got. `lik
 The link never came up.
 - *This is the cuff's normal state between readings.* It turns its radio off to save battery and wakes for a short window after a measurement (and while it shows the Bluetooth symbol). A poll that runs while the cuff has just gone back to sleep fails here; the next one after a measurement succeeds. Look further only when a sync **never** succeeds.
 - *Check:* `rssi` and `paths`. `error` with *settle* = the cuff accepted the link and dropped it before encryption settled. `error` with *slot* = the proxy's connection slots are all in use.
-- *Do:* Weak `rssi` (below about −85 dBm): move the cuff or add a proxy near it. *settle* on a multi-proxy setup: only the radio that paired holds the bond — check `via` against the proxy the cuff was paired through, and pair again through the one it now uses. *slot*: fewer BLE devices per proxy, or another proxy.
+- *Do:* Weak `rssi` (below about −85 dBm): move the cuff or add a proxy near it. *settle* on a multi-proxy setup: only the radio that paired holds the bond — check `via` (and `advertised_via`, when present) against the proxy the cuff was paired through, and pair again through the one it now uses. *slot*: fewer BLE devices per proxy, or another proxy.
 
 ### `services`
 

@@ -1223,6 +1223,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     client = session.client
 
                     if not await session.verify_parent_service():
+                        trace.fail("services")
                         prof = resolve_profile_model_id(self._device_model)
                         stack_label = (
                             "modern" if self._device_config.is_modern_stack else "classic"
@@ -1429,6 +1430,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         try:
             await session.connect()
             if not await session.verify_parent_service():
+                trace.fail("services")
                 raise ConnectionError(
                     f"Required service {self._device_config.parent_service_uuid} "
                     f"not found on device {ble_device.address}"

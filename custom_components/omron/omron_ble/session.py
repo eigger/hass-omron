@@ -232,6 +232,9 @@ class OmronDeviceSession(MemoryProtocolMixin):
                 )
             else:
                 self._pairing_agent = stack
+        # Filled in by the connect as it goes, so a connect that fails on
+        # every attempt still tells the trace which radio it tried.
+        self.link_info = {}
         with self.trace.timed("connect"):
             self._client = await establish_connection_with_bond_settle(
                 self._ble_device,
@@ -242,8 +245,8 @@ class OmronDeviceSession(MemoryProtocolMixin):
                 # a pair request is what cost the bond on a proxy (#142).
                 pair_on_connect=self._pairing_session and self._config.pair_on_connect,
                 hold_pairing_agent=self._config.register_pairing_agent,
+                link_info=self.link_info,
             )
-        self.link_info = dict(getattr(self._client, "_omron_link_info", None) or {})
         return self
 
     async def refresh_services(self) -> None:

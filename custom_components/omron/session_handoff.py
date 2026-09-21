@@ -212,7 +212,8 @@ async def omron_poll_ble_telemetry(
     """Mark BLE session active, tick duration each second, finalize elapsed time on exit.
 
     On exit the session's breakdown (see ``build_session_report``) is stored as
-    ``last_session_timing`` for the Duration sensor's attributes, and a failed
+    ``last_session_timing`` for the Duration sensor's attributes (cleared while
+    the session runs), and a failed
     session is also stamped on the Last Failure sensor with its own copy, kept
     until the next failure so a later success does not erase it, and counted
     on Failure Count.
@@ -235,6 +236,10 @@ async def omron_poll_ble_telemetry(
             duration_coordinator.async_set_updated_data(elapsed_tick)
             await asyncio.sleep(1)
 
+    # No attributes while the session runs: the ticker writes the state every
+    # second, and each write would otherwise record the previous session's
+    # breakdown against this one's running time.
+    entry_data["last_session_timing"] = None
     connection_coordinator.async_set_updated_data(True)
     duration_coordinator.async_set_updated_data(0.0)
     ticker_task = asyncio.create_task(_duration_ticker())

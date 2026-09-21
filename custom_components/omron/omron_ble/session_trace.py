@@ -57,6 +57,16 @@ class SessionTrace:
                 self._timings.get(name, 0.0) + perf_counter() - started, 3
             )
 
+    def fail(self, name: str) -> None:
+        """Record a failure in a stage that reported it by return value.
+
+        ``timed`` only sees exceptions; a check that returns False and leaves
+        the raise to its caller (``verify_parent_service``) has to say so
+        itself, or the failure is attributed to no stage at all.
+        """
+        if self.failed_stage is None:
+            self.failed_stage = name
+
     def forgive(self, name: str | None = None) -> None:
         """Un-record a failure the caller went on to swallow.
 
