@@ -360,14 +360,22 @@ class OmronDeviceDriver:
         entry per configured user. ``users`` restricts the scan to those
         1-based users; the others come back as ``[]`` without a read, so the
         index-path caller never sends the scan into a region it already knows
-        is empty. A region the device refuses to serve (an unregistered user
-        on the HEM-7380T1, #197) also comes back as ``[]``: the device
-        answered, so the scan carries on with the users that do read instead
-        of dropping them all. A silent link still raises as before.
+        is empty.
+
+        One region's failure does not sink the others. A region the device
+        refuses to serve (an unregistered user on the HEM-7380T1, #197) comes
+        back as ``[]`` and the scan carries on. A region that goes silent
+        does the same as long as some other scanned user did read: the caller
+        keeps its sensors for the silent user as they were, and the users
+        that answered are not thrown away with it. Only when every scanned
+        user failed to answer is the first failure raised, so a dead link
+        still fails the poll rather than reporting an empty device.
         """
         await transport.unlock()
 
         all_user_records: list[list[dict[str, Any]]] = []
+        any_user_read = False
+        first_link_error: Exception | None = None
         for user_idx in range(self._config.num_users):
             if users is not None and (user_idx + 1) not in users:
                 all_user_records.append([])
@@ -389,10 +397,23 @@ class OmronDeviceDriver:
                 )
                 all_user_records.append([])
                 continue
+            except Exception as read_exc:
+                _LOGGER.warning(
+                    "User%d [%s] full scan read failed at 0x%04X, skipping this "
+                    "user and keeping the users already read: %s",
+                    user_idx + 1, self._config.model, start_addr, read_exc,
+                )
+                if first_link_error is None:
+                    first_link_error = read_exc
+                all_user_records.append([])
+                continue
 
+            any_user_read = True
             records = self._parse_user_records(raw_data, user_idx)
             all_user_records.append(records)
 
+        if first_link_error is not None and not any_user_read:
+            raise first_link_error
         return all_user_records
 
     async def get_latest_record(
@@ -485,10 +506,24 @@ class OmronDeviceDriver:
             sorted(scan_required_users),
         )
         # Full-scan fallback — only reads the users absent from latest_by_user
-        # *and* not in ``confirmed_empty_users``.
-        all_user_records = await self.get_all_records(
-            transport, users=scan_required_users
-        )
+        # *and* not in ``confirmed_empty_users``. If the scan gets no answer
+        # at all but the index path already produced records, keep those:
+        # the silent users' sensors stay as they were, and the users that
+        # did read are not thrown away with them.
+        try:
+            all_user_records = await self.get_all_records(
+                transport, users=scan_required_users
+            )
+        except Exception as scan_exc:
+            if not latest_by_user:
+                raise
+            _LOGGER.warning(
+                "Full scan for user(s) %s failed on model=%s, keeping the %d "
+                "user(s) the index path already read: %s",
+                sorted(scan_required_users), self._config.model,
+                len(latest_by_user), scan_exc,
+            )
+            return latest_by_user
         for user_idx, user_records in enumerate(all_user_records):
             user = user_idx + 1
             if user not in scan_required_users:
