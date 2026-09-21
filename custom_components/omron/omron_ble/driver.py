@@ -399,12 +399,14 @@ class OmronDeviceDriver:
         already found via the index.
 
         Users whose probed index slot(s) were all ``0xFF`` (the device's
-        empty-slot marker) are reported by ``_get_latest_via_index`` via the
-        ``confirmed_empty_users`` set and are skipped from the full-scan
-        fallback — they demonstrably have never recorded a measurement, so
-        scanning their memory region wastes a BLE session window (~60 s for
-        100-slot users) and tends to produce spurious TX timeouts as the
-        device runs out of payload to send back.
+        empty-slot marker), or whose cursor reads ``clear_value`` and whose
+        cursor slot the device would not serve, are reported by
+        ``_get_latest_via_index`` via the ``confirmed_empty_users`` set and
+        are skipped from the full-scan fallback — they have never recorded a
+        measurement, so scanning their memory region wastes a BLE session
+        window (~60 s for 100-slot users), tends to produce spurious TX
+        timeouts as the device runs out of payload to send back, and on a
+        cuff that refuses the unused region fails outright.
         """
         latest_by_user: dict[int, dict[str, Any]] = {}
         expected_user_count = len(self._config.per_user_records_count)
@@ -520,9 +522,10 @@ class OmronDeviceDriver:
           probe for that user (only users with a valid record are present).
         * ``confirmed_empty_users`` — ``set[int]`` of 1-based user indices
           whose probed slot(s) were *all* ``0xFF`` (the device's empty-slot
-          marker).  These users have demonstrably never recorded a
-          measurement; the caller can skip the expensive full-scan fallback
-          for them.
+          marker), or whose cursor reads ``clear_value`` and whose cursor
+          slot the device would not serve (refused or silent).  These users
+          have never recorded a measurement; the caller can skip the
+          expensive full-scan fallback for them.
 
         When ``return_all_users=False`` the function preserves the original
         single-record return shape (``dict | None``) for backward
@@ -556,10 +559,11 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
-        # Users whose probed slot(s) were all-0xFF — device has never recorded
-        # a measurement for them.  Used by the caller to skip the full-scan
-        # fallback that would otherwise spend ~60 s scanning a blank region
-        # and produce spurious TX timeouts.
+        # Users whose probed slot(s) were all-0xFF, or whose clear_value
+        # cursor slot the device would not serve — it has never recorded a
+        # measurement for them.  Used by the caller to skip the full-scan
+        # fallback that would otherwise spend ~60 s scanning a blank region,
+        # produce spurious TX timeouts, or fail outright on a refused region.
         confirmed_empty_users: set[int] = set()
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()

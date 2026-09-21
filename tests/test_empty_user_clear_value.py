@@ -335,7 +335,7 @@ class TestUnreadableUserRegion:
         )
 
     @staticmethod
-    def _run(config, *, user2_raises_on_read: bool):
+    def _run(config, *, user2_read_error: Exception | None):
         driver = OmronDeviceDriver(config)
         driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
         transport = OmronDeviceSession(MagicMock(), config)
@@ -373,8 +373,8 @@ class TestUnreadableUserRegion:
             if addr == 0x0010:
                 return index_bytes
             if addr >= 0x0804:
-                if user2_raises_on_read:
-                    raise MemoryReadRefused(addr, 0xE3)
+                if user2_read_error is not None:
+                    raise user2_read_error
                 return bytearray(b"\xff" * 0x10)
             slot = (addr - 0x01C4) // 0x10
             return user1.get(slot, bytearray(b"\xff" * 0x10))
@@ -387,7 +387,7 @@ class TestUnreadableUserRegion:
 
     def test_refusal_keeps_the_other_user_and_confirms_empty(self):
         (records, empty_users), reads = self._run(
-            self._config(), user2_raises_on_read=True
+            self._config(), user2_read_error=MemoryReadRefused(0x0E34, 0xE3)
         )
 
         # User 1 survives: its candidates were collected before user 2 failed.
@@ -401,7 +401,7 @@ class TestUnreadableUserRegion:
 
     def test_readable_empty_region_still_confirmed(self):
         (records, empty_users), _ = self._run(
-            self._config(), user2_raises_on_read=False
+            self._config(), user2_read_error=None
         )
 
         assert records[1]["measurement_type"] == "TruRead Average"
@@ -447,28 +447,18 @@ class TestUnreadableUserRegion:
         # Confirm anyway: a region the cuff will not serve fails the full
         # scan the same way and drops user 1 with it (#198), so leaving it
         # unconfirmed is worse than the zero-read confirmation 2.10.2 made.
-        config = self._config()
-        driver = OmronDeviceDriver(config)
-        driver._now_func = lambda: dt.datetime(2026, 9, 20, 14, 0, 0)
-        transport = OmronDeviceSession(MagicMock(), config)
-        transport.unlock = AsyncMock()
-
-        index_bytes = bytearray(0x18)
-        index_bytes[0:2] = b"\x00\x40"
-        index_bytes[2:4] = b"\x00\x80"
-
-        async def fake_read(addr, size, block_size=0x10):
-            if addr == 0x0010:
-                return index_bytes
-            if addr >= 0x0804:
-                raise ConnectionError("Failed to receive response after 4 retries")
-            return bytearray(b"\xff" * 0x10)
-
-        transport.read_memory_range = AsyncMock(side_effect=fake_read)
-        _records, empty_users = asyncio.run(
-            driver._get_latest_via_index(transport, return_all_users=True)
+        (records, empty_users), reads = self._run(
+            self._config(),
+            user2_read_error=ConnectionError(
+                "Failed to receive response after 4 retries"
+            ),
         )
-        assert 2 in empty_users
+
+        # The #198 invariant: user 1's records survive and no full scan is
+        # asked for, so the silent region is never entered a second time.
+        assert records[1]["measurement_type"] == "TruRead Average"
+        assert empty_users == {2}
+        assert [a for a in reads if a >= 0x0804] == [0x0804 + 99 * 0x10]
 
     def test_a_failed_read_after_an_empty_slot_does_not_confirm_empty(self):
         # Live cursor, cursor slot all-0xFF, then the next read fails. The
