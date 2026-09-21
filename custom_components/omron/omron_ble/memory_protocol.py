@@ -344,13 +344,15 @@ class MemoryProtocolMixin:
         self._last_reply_memory_address = memory_address
         if packet_type == b"\x81\x00":
             # Memory block read: payload length in byte 5, payload at bytes 6..6+data_len
-            if expected_data_len and len(frame_bytes) == 8:
+            if expected_data_len and len(frame_bytes) == 8 and frame_bytes[6]:
                 # A read the device will not serve comes back as the header
                 # alone with a result code in byte 6 -- the same 8-byte shape
                 # 0x8f00 and the control frames use, and the shape the length
                 # check above already accepts as valid. Treated as truncated
                 # it leaves the reply unset, and the caller then waits out its
                 # whole retry budget for data that already came back as "no".
+                # A zero code there is not a refusal: with no payload it is a
+                # truncated frame and takes the retry path below.
                 self._last_reply_result_code = frame_bytes[6]
                 self._last_reply_payload = b""
                 _LOGGER.debug(

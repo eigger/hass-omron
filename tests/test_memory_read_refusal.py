@@ -67,6 +67,16 @@ class TestRefusedRead:
 
         assert not session._reply_ready.is_set()
 
+    def test_a_header_only_frame_with_a_zero_code_is_truncated(self):
+        # Same 8-byte shape, but result code 0x00 is not a refusal. With no
+        # payload behind it, it is a cut-off frame and must take the retry
+        # path rather than hand the caller an empty block as success.
+        session = _session()
+        _feed(session, bytes.fromhex("0881000e341000a3"))
+
+        assert not session._reply_ready.is_set()
+        assert session._last_reply_payload is None
+
     def test_a_served_read_clears_the_result_code(self):
         session = _session()
         payload = bytes(range(0x10))

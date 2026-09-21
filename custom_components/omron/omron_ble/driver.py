@@ -399,12 +399,14 @@ class OmronDeviceDriver:
         already found via the index.
 
         Users whose probed index slot(s) were all ``0xFF`` (the device's
-        empty-slot marker) are reported by ``_get_latest_via_index`` via the
-        ``confirmed_empty_users`` set and are skipped from the full-scan
-        fallback — they demonstrably have never recorded a measurement, so
-        scanning their memory region wastes a BLE session window (~60 s for
-        100-slot users) and tends to produce spurious TX timeouts as the
-        device runs out of payload to send back.
+        empty-slot marker), or whose cursor reads ``clear_value`` and whose
+        cursor slot the device would not serve, are reported by
+        ``_get_latest_via_index`` via the ``confirmed_empty_users`` set and
+        are skipped from the full-scan fallback — they have never recorded a
+        measurement, so scanning their memory region wastes a BLE session
+        window (~60 s for 100-slot users), tends to produce spurious TX
+        timeouts as the device runs out of payload to send back, and on a
+        cuff that refuses the unused region fails outright.
         """
         latest_by_user: dict[int, dict[str, Any]] = {}
         expected_user_count = len(self._config.per_user_records_count)
@@ -520,9 +522,10 @@ class OmronDeviceDriver:
           probe for that user (only users with a valid record are present).
         * ``confirmed_empty_users`` — ``set[int]`` of 1-based user indices
           whose probed slot(s) were *all* ``0xFF`` (the device's empty-slot
-          marker).  These users have demonstrably never recorded a
-          measurement; the caller can skip the expensive full-scan fallback
-          for them.
+          marker), or whose cursor reads ``clear_value`` and whose cursor
+          slot the device would not serve (refused or silent).  These users
+          have never recorded a measurement; the caller can skip the
+          expensive full-scan fallback for them.
 
         When ``return_all_users=False`` the function preserves the original
         single-record return shape (``dict | None``) for backward
@@ -556,10 +559,11 @@ class OmronDeviceDriver:
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
-        # Users whose probed slot(s) were all-0xFF — device has never recorded
-        # a measurement for them.  Used by the caller to skip the full-scan
-        # fallback that would otherwise spend ~60 s scanning a blank region
-        # and produce spurious TX timeouts.
+        # Users whose probed slot(s) were all-0xFF, or whose clear_value
+        # cursor slot the device would not serve — it has never recorded a
+        # measurement for them.  Used by the caller to skip the full-scan
+        # fallback that would otherwise spend ~60 s scanning a blank region,
+        # produce spurious TX timeouts, or fail outright on a refused region.
         confirmed_empty_users: set[int] = set()
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
@@ -662,6 +666,7 @@ class OmronDeviceDriver:
                 # full-scan fallback safely.
                 user_had_any_read = False
                 user_all_probed_slots_empty = True
+                user_read_failed = False
                 user_collected = 0
                 user_slots_read = 0
                 for back in range(max_probe + 1):
@@ -676,31 +681,40 @@ class OmronDeviceDriver:
                             record_byte_size,
                             self._config.transmission_block_size,
                         )
-                    except MemoryReadRefused as refused:
-                        # The device answered: it will not serve this region.
-                        # With a cursor that already reads clear_value, a
-                        # refusal on the *first* slot is the confirmation the
-                        # check was after -- the pointer says empty and the
-                        # region backs it up. Later in the backtrack the
-                        # region has already answered once, so it stays
-                        # unconfirmed and the caller decides.
-                        _LOGGER.debug(
-                            "User%d [%s] slot=%d %s",
-                            idx + 1, self._config.model, probe_slot, refused,
-                        )
-                        if cursor_is_clear_value and not user_had_any_read:
-                            confirmed_empty_users.add(idx + 1)
-                        break
                     except Exception as read_exc:
-                        # No answer at all -- link trouble rather than a
-                        # verdict on this region. Keep what was already
-                        # collected for the users that did read, but do not
-                        # call anyone empty on the strength of a failed read.
-                        _LOGGER.debug(
-                            "User%d [%s] slot=%d addr=0x%04X read failed: %s",
-                            idx + 1, self._config.model, probe_slot,
-                            probe_addr, read_exc,
-                        )
+                        user_read_failed = True
+                        if isinstance(read_exc, MemoryReadRefused):
+                            # The device answered: it will not serve this
+                            # region.
+                            _LOGGER.debug(
+                                "User%d [%s] slot=%d %s",
+                                idx + 1, self._config.model, probe_slot, read_exc,
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "User%d [%s] slot=%d addr=0x%04X read failed: %s",
+                                idx + 1, self._config.model, probe_slot,
+                                probe_addr, read_exc,
+                            )
+                        if cursor_is_clear_value and not user_had_any_read:
+                            # The pointer already says empty and the very
+                            # first slot of the region did not read, refused
+                            # or silent. Confirm it either way: a region the
+                            # cuff will not serve fails the full scan the
+                            # same way and takes user 1's records with it,
+                            # which is worse than the zero-read confirmation
+                            # 2.10.2 shipped. If the link is really gone the
+                            # scan dies regardless, so nothing is lost.
+                            confirmed_empty_users.add(idx + 1)
+                            _LOGGER.debug(
+                                "User%d [%s] confirmed empty: cursor is "
+                                "clear_value and the cursor slot did not read",
+                                idx + 1, self._config.model,
+                            )
+                        # Later in the backtrack the region has answered at
+                        # least once, so keep what was collected and let the
+                        # post-loop check below decide, with the failure
+                        # noted so it never confirms empty on a failed read.
                         break
                     _LOGGER.debug(
                         "User%d [%s] slot=%d addr=0x%04X raw=%s",
@@ -759,8 +773,10 @@ class OmronDeviceDriver:
                         idx + 1, self._config.model, raw_pointer, latest_slot,
                     )
                 # After the backtrack window completes: if every read came
-                # back all-0xFF, mark this user as definitively empty.
-                if user_had_any_read and user_all_probed_slots_empty:
+                # back all-0xFF, mark this user as definitively empty. A
+                # backtrack cut short by a failed read proves nothing about
+                # the slots it never reached.
+                if user_had_any_read and user_all_probed_slots_empty and not user_read_failed:
                     confirmed_empty_users.add(idx + 1)
                     _LOGGER.debug(
                         "User%d [%s] confirmed empty: cursor slot and %d "
