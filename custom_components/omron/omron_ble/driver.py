@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
+from .memory_protocol import MemoryReadRefused
 from .session import OmronDeviceSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
 from .util import _hex
@@ -669,11 +670,38 @@ class OmronDeviceDriver:
                         probe_slot += record_count
                     logical_slot = probe_slot - pointer_min
                     probe_addr = base_addr + (logical_slot * record_step)
-                    raw_record = await transport.read_memory_range(
-                        probe_addr,
-                        record_byte_size,
-                        self._config.transmission_block_size,
-                    )
+                    try:
+                        raw_record = await transport.read_memory_range(
+                            probe_addr,
+                            record_byte_size,
+                            self._config.transmission_block_size,
+                        )
+                    except MemoryReadRefused as refused:
+                        # The device answered: it will not serve this region.
+                        # With a cursor that already reads clear_value, a
+                        # refusal on the *first* slot is the confirmation the
+                        # check was after -- the pointer says empty and the
+                        # region backs it up. Later in the backtrack the
+                        # region has already answered once, so it stays
+                        # unconfirmed and the caller decides.
+                        _LOGGER.debug(
+                            "User%d [%s] slot=%d %s",
+                            idx + 1, self._config.model, probe_slot, refused,
+                        )
+                        if cursor_is_clear_value and not user_had_any_read:
+                            confirmed_empty_users.add(idx + 1)
+                        break
+                    except Exception as read_exc:
+                        # No answer at all -- link trouble rather than a
+                        # verdict on this region. Keep what was already
+                        # collected for the users that did read, but do not
+                        # call anyone empty on the strength of a failed read.
+                        _LOGGER.debug(
+                            "User%d [%s] slot=%d addr=0x%04X read failed: %s",
+                            idx + 1, self._config.model, probe_slot,
+                            probe_addr, read_exc,
+                        )
+                        break
                     _LOGGER.debug(
                         "User%d [%s] slot=%d addr=0x%04X raw=%s",
                         idx + 1, self._config.model, probe_slot,
