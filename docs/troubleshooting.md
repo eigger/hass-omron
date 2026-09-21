@@ -4,12 +4,13 @@ When a cuff does not sync, the integration has usually already recorded why. Thi
 
 ## Where to look
 
-Open the cuff's device page (**Settings → Devices & services → Omron → the cuff**). Under *Diagnostic* there are four entities to read, in this order:
+Open the cuff's device page (**Settings → Devices & services → Omron → the cuff**). Under *Diagnostic* there are five entities to read, in this order:
 
 | Entity | What it tells you |
 |---|---|
 | **Last Failure** | When a BLE session last **failed**. Its *attributes* are the breakdown of that session — `failed_stage`, `likely_cause`, `error`, the radio (`via`, `rssi`, `paths`) and the per-stage timings. They stay until the next failure, so a failure from last night is still readable after this morning's poll succeeded. |
 | **Duration** | Seconds of the **most recent** BLE session, success or not. Its *attributes* are the same breakdown for that session. Use it when the session you are debugging is the last one. |
+| **Failure Count** | How many sessions have failed since the integration was (re)loaded. A count that rises a little every day is the cuff going back to sleep before a scheduled poll (see `connect` below); one that rises on every poll, or with the measurements not arriving, is what to look into. |
 | **Last Readout** | When a poll last **decoded a record**. A poll that connected but came back with no record does not move it — so "Duration updates, Last Readout does not" means the cuff is reachable but the readout is coming back empty, or failing before it. |
 | **Connection** (binary) | On **while a session is in progress**. It is not "the cuff is nearby": a cuff keeps its radio off between readings. |
 

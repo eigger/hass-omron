@@ -220,6 +220,9 @@ async def async_setup_entry(
     failure_coordinator = (
         hass.data[DOMAIN][entry.entry_id].get("failure_coordinator")
     )
+    failure_count_coordinator = (
+        hass.data[DOMAIN][entry.entry_id].get("failure_count_coordinator")
+    )
     extra_entities: list[SensorEntity] = []
     if duration_coordinator is not None:
         extra_entities.append(OmronPollDurationSensorEntity(hass, entry, duration_coordinator))
@@ -227,6 +230,10 @@ async def async_setup_entry(
         extra_entities.append(OmronLastReadoutSensorEntity(hass, entry, readout_coordinator))
     if failure_coordinator is not None:
         extra_entities.append(OmronLastFailureSensorEntity(hass, entry, failure_coordinator))
+    if failure_count_coordinator is not None:
+        extra_entities.append(
+            OmronFailureCountSensorEntity(hass, entry, failure_count_coordinator)
+        )
     if extra_entities:
         async_add_entities(extra_entities)
 
@@ -489,6 +496,48 @@ class OmronLastFailureSensorEntity(
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """The breakdown of the session that failed at this time."""
         return self._entry_data.get("last_failure_timing")
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Attach sensor to the same BLE device."""
+        return DeviceInfo(
+            connections={(CONNECTION_BLUETOOTH, self._address)},
+        )
+
+
+class OmronFailureCountSensorEntity(
+    CoordinatorEntity[DataUpdateCoordinator[int]],
+    SensorEntity,
+):
+    """Diagnostic sensor counting failed BLE sessions since the entry was (re)loaded.
+
+    Rising while the measurements look fine means sessions are failing where
+    nobody is watching -- the cuff going back to sleep before a scheduled poll
+    is the usual reason, and Last Failure says which.
+    """
+
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[int],
+    ) -> None:
+        super().__init__(coordinator)
+        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
+        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
+        identifier = self._address.replace(":", "")[-4:].lower()
+        model_slug = model.lower().replace("-", "_")
+        self._attr_name = f"{model} {identifier.upper()} Failure Count"
+        self._attr_unique_id = f"{model_slug}_{identifier}_failure_count"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the number of failed sessions since setup."""
+        return self.coordinator.data
 
     @property
     def device_info(self) -> DeviceInfo:

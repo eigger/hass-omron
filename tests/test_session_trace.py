@@ -283,9 +283,11 @@ class TestLikelyCause:
 class _Coordinator:
     def __init__(self):
         self.values: list[object] = []
+        self.data = None
 
     def async_set_updated_data(self, value):
         self.values.append(value)
+        self.data = value
 
 
 def _entry_data():
@@ -295,6 +297,7 @@ def _entry_data():
         "connection_coordinator": _Coordinator(),
         "duration_coordinator": _Coordinator(),
         "failure_coordinator": _Coordinator(),
+        "failure_count_coordinator": _Coordinator(),
     }
 
 
@@ -332,6 +335,7 @@ class TestTelemetry:
         assert entry_data["last_failure_timing"] == timing
         assert entry_data["last_failure_timing"] is not timing, "복사본이어야 한다"
         assert len(entry_data["failure_coordinator"].values) == 1
+        assert entry_data["failure_count_coordinator"].data == 1
         assert entry_data["connection_coordinator"].values[-1] is False
 
     def test_a_later_success_updates_duration_but_keeps_the_failure(self, plain_report):
@@ -350,6 +354,7 @@ class TestTelemetry:
         assert entry_data["last_session_timing"]["records"] == 1
         assert entry_data["last_failure_timing"]["error"] == "first"
         assert len(entry_data["failure_coordinator"].values) == 1
+        assert entry_data["failure_count_coordinator"].data == 1
 
     def test_the_report_lands_before_the_final_duration_update(self, monkeypatch, plain_report):
         """Duration 의 마지막 갱신이 엔티티 상태(속성 포함)를 쓴다 — 그 전에 있어야 한다."""
@@ -395,6 +400,7 @@ class TestTelemetry:
         asyncio.run(scenario())
         assert "last_session_timing" not in entry_data
         assert entry_data["failure_coordinator"].values == []
+        assert entry_data["failure_count_coordinator"].values == []
         assert entry_data["connection_coordinator"].values[-1] is False
 
 

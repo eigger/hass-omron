@@ -512,14 +512,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         _LOGGER,
         name=f"{DOMAIN}_failure_{address}",
     )
+    failure_count_coordinator = DataUpdateCoordinator[int](
+        hass,
+        _LOGGER,
+        name=f"{DOMAIN}_failure_count_{address}",
+    )
     connection_coordinator.async_set_updated_data(False)
     duration_coordinator.async_set_updated_data(None)
     readout_coordinator.async_set_updated_data(None)
     failure_coordinator.async_set_updated_data(None)
+    failure_count_coordinator.async_set_updated_data(0)
     hass.data[DOMAIN][entry.entry_id]["connection_coordinator"] = connection_coordinator
     hass.data[DOMAIN][entry.entry_id]["duration_coordinator"] = duration_coordinator
     hass.data[DOMAIN][entry.entry_id]["readout_coordinator"] = readout_coordinator
     hass.data[DOMAIN][entry.entry_id]["failure_coordinator"] = failure_coordinator
+    hass.data[DOMAIN][entry.entry_id]["failure_count_coordinator"] = failure_count_coordinator
 
     def _persist_transport_credential(
         hass: HomeAssistant, entry: OmronConfigEntry, device_data

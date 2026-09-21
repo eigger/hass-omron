@@ -214,11 +214,13 @@ async def omron_poll_ble_telemetry(
     On exit the session's breakdown (see ``build_session_report``) is stored as
     ``last_session_timing`` for the Duration sensor's attributes, and a failed
     session is also stamped on the Last Failure sensor with its own copy, kept
-    until the next failure so a later success does not erase it.
+    until the next failure so a later success does not erase it, and counted
+    on Failure Count.
     """
     connection_coordinator = entry_data["connection_coordinator"]
     duration_coordinator = entry_data["duration_coordinator"]
     failure_coordinator = entry_data["failure_coordinator"]
+    failure_count_coordinator = entry_data["failure_count_coordinator"]
     device_data = entry_data["data"]
     # Cleared so a session that dies before the parser records anything does
     # not publish the previous session's stages as its own.
@@ -274,6 +276,9 @@ async def omron_poll_ble_telemetry(
             entry_data["last_session_timing"] = report
             if outcome is not None:
                 entry_data["last_failure_timing"] = dict(report)
+                failure_count_coordinator.async_set_updated_data(
+                    (failure_count_coordinator.data or 0) + 1
+                )
                 failure_coordinator.async_set_updated_data(dt_util.utcnow())
         duration_coordinator.async_set_updated_data(elapsed)
         connection_coordinator.async_set_updated_data(False)

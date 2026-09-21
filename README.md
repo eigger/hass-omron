@@ -112,6 +112,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **RSSI / Signal Strength (diagnostic)**
   - **Duration (diagnostic)**: seconds of the last BLE session; its attributes are that session's breakdown (stage timings, the radio used, and on a failure the stage and a likely cause)
   - **Last Failure (diagnostic)**: when a BLE session last failed, with that session's breakdown as attributes — kept until the next failure
+  - **Failure Count (diagnostic)**: failed BLE sessions since the integration was (re)loaded
   - **Last Readout (diagnostic)**: when a poll last decoded a record
 - **Binary & Diagnostic Sensors** (Status from the last measurement):
   - **Cuff Fit**: `On` indicates the cuff was **not wrapped correctly** (improper fit).
