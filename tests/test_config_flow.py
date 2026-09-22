@@ -37,16 +37,19 @@ async def _open_model_step(hass: HomeAssistant, name: str):
             manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD},
         ),
     )
+    # An abort has no step_id. Reading it first would raise KeyError.
+    assert result["type"] is FlowResultType.FORM
     if result["step_id"] == "bluetooth_confirm":
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], user_input={}
         )
-    assert result["type"] is FlowResultType.FORM
+        assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "select_model"
     return result
 
 
 def _field(schema: vol.Schema, key: str) -> vol.Marker:
+    assert key in schema.schema
     return next(marker for marker in schema.schema if marker == key)
 
 
