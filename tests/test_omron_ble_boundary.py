@@ -1,4 +1,4 @@
-"""omron_ble is the vendored parsing library: no homeassistant, no parent-package imports."""
+"""omron_ble is the vendored library: no homeassistant, blesession.hass, or parent imports."""
 import ast
 from pathlib import Path
 
@@ -21,6 +21,12 @@ def test_omron_ble_has_no_homeassistant_or_parent_imports(path: Path) -> None:
     offending = [
         (module, level)
         for module, level in _imports(path)
-        if module == "homeassistant" or module.startswith("homeassistant.") or level > 1
+        if (
+            module == "homeassistant"
+            or module.startswith("homeassistant.")
+            or module == "blesession.hass"
+            or module.startswith("blesession.hass.")
+            or level > 1
+        )
     ]
     assert not offending, f"{path.name} reaches outside omron_ble: {offending}"

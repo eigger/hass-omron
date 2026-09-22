@@ -20,64 +20,64 @@ Home Assistant also records the Duration attributes with each state change, so t
 
 ## Reading the attributes
 
-The attributes are, in order:
+The attributes are, in order. `failed_stage` is the shared name used across BLE integrations; `failed_detail` is this cuff's own name for that stage, present only when the two differ.
 
 | Attribute | Meaning |
 |---|---|
 | `operation` | `poll` (a scheduled or triggered readout), `pairing` (the *Retry Pairing* button or an auto-pairing advertisement) or `time_sync`. |
 | `success` | Whether the session completed. |
-| `error`, `failed_stage`, `likely_cause` | Only on a failure: the exact message, the stage it escaped from, and one sentence on what that usually means. |
+| `error`, `failed_stage`, `failed_detail`, `likely_cause` | Only on a failure: the exact message, the shared stage it escaped from, the cuff's own name for that stage, and one sentence on what that usually means. |
 | `via`, `via_type`, `rssi`, `paths` | The radio the link went over (a proxy or a local adapter), the cuff's signal as that radio last saw it, and how many connectable radios currently see the cuff. `paths: 1` means there is no other radio to fall back to. On a `connect` failure `via` is the radio that was tried. |
 | `advertised_via` | Only when it differs from `via`: the radio whose advertisement was strongest, which is the one Home Assistant tries first. The link ending up elsewhere is a failover — or, on a multi-proxy setup, the proxy that holds the bond. |
+| `connect_s`, `services_s`, `pair_s`, `unlock_s`, `memory_open_s`, `time_sync_s`, `readout_s`, `device_info_s`, `registration_s`, `memory_close_s`, `disconnect_s` | Seconds spent in each stage, in the order they ran. A stage that did not run is absent. These keep the cuff's own names. |
 | `connect_attempts`, `bonded_at_connect` | How many connects were tried (up to 3; a link that drops during the post-connect settle is retried), and whether the connect made the bond (a pairing session over a local adapter). |
 | `adopted_link` | The poll ran over the link a pairing session had just opened, instead of connecting itself. |
 | `memory_session_attempts` | How many tries the unlock + readout-session open took (up to 3). |
 | `records` | How many latest records the readout came back with — one per user with data. `0` is a cuff with nothing stored: not a failure, and why the measurement entities did not move. |
 | `time_sync_error`, `registration_error` | A clock write, or a pairing registration, that failed but did not stop the session. |
-| `connect_s`, `services_s`, `pair_s`, `unlock_s`, `memory_open_s`, `time_sync_s`, `readout_s`, `device_info_s`, `registration_s`, `memory_close_s`, `disconnect_s` | Seconds spent in each stage, in the order they ran. A stage that did not run is absent. |
 
 ## Reading a failure
 
-Start with `failed_stage` on Last Failure: it says how far the session got. `likely_cause` is a reading of the stage, the error text and the radio situation; `error` is the exact message.
+Start with `failed_stage` on Last Failure: it says how far the session got, in the shared vocabulary. `failed_detail` is the cuff's name for the same stage. `likely_cause` is a reading of the stage, the error text and the radio situation; `error` is the exact message.
 
 ### `connect`
 
 The link never came up.
 - *This is the cuff's normal state between readings.* It turns its radio off to save battery and wakes for a short window after a measurement (and while it shows the Bluetooth symbol). A poll that runs while the cuff has just gone back to sleep fails here; the next one after a measurement succeeds. Look further only when a sync **never** succeeds.
-- *Check:* `rssi` and `paths`. `error` with *settle* = the cuff accepted the link and dropped it before encryption settled. `error` with *slot* = the proxy's connection slots are all in use.
+- *Check:* `rssi` and `paths`. `failed_detail: settle` (or `error` containing *settle*) = the cuff accepted the link and dropped it before encryption settled. `error` with *slot* = the proxy's connection slots are all in use.
 - *Do:* Weak `rssi` (below about −85 dBm): move the cuff or add a proxy near it. *settle* on a multi-proxy setup: only the radio that paired holds the bond — check `via` (and `advertised_via`, when present) against the proxy the cuff was paired through, and pair again through the one it now uses. *slot*: fewer BLE devices per proxy, or another proxy.
 
-### `services`
+### `session` (`failed_detail: services`)
 
 Connected, but the cuff does not expose the GATT service this model profile expects.
 - *Check:* The model chosen in the entry against the label on the cuff.
 - *Do:* Wrong model: remove the entry and add the cuff again with the right one. Right model: a stale GATT cache on the proxy — the integration already clears it and retries; if it persists, restart the proxy.
 
-### `pair`
+### `auth` (`failed_detail: pair`)
 
 Bonding with the cuff failed (`operation: pairing`).
 - *Check:* *Could not enter key programming mode* = the cuff was not in pairing mode.
 - *Do:* Hold the cuff's Bluetooth button until it shows the blinking **-P-**, then press *Retry Pairing* while it is still blinking.
 
-### `unlock`
+### `auth` (`failed_detail: unlock`)
 
 The cuff refused, or did not answer, the application-level unlock.
 - *Check:* *pairing key mismatch* = the cuff no longer accepts the stored key. *No stored transport credential* = the entry has no credential for a model that needs one. *PIN or Key Missing* / *auth* = the cuff no longer accepts the stored **bond**.
 - *Do:* All three usually mean the cuff was paired to another host since (the phone app takes the pairing over), or the bond was lost on our side (a re-flashed proxy, a changed adapter). Pair again: put the cuff in **-P-** and press *Retry Pairing*. A cuff that has to be re-paired every few days is being re-paired by the phone in between.
 
-### `memory_open`
+### `auth` (`failed_detail: memory_open`)
 
 Unlocked, but the cuff refused to start a readout session.
 - *Check:* Does it repeat? `memory_session_attempts: 3` means every try failed.
 - *Do:* Once: ignore, the next poll usually succeeds. Every time: treat it like `unlock` — pair again.
 
-### `readout`
+### `transfer` (`failed_detail: readout`)
 
 Failed while reading the record memory. This is the one stage that points at link quality — or at the memory map.
 - *Check:* `rssi`, `via`, and whether it fails at the same point every time.
 - *Do:* Once: move the cuff or the proxy it used (`via`), or add one. Every time, on a model listed as untested: the memory map for that model may be wrong — please [open an issue](https://github.com/eigger/hass-omron/issues) with a Bluetooth log ([capturing-bluetooth-logs.md](capturing-bluetooth-logs.md)).
 
-### `memory_close` / `disconnect`
+### `finish` (`failed_detail: memory_close`) / `disconnect`
 
 The records were read; only the session close failed. Harmless on its own. If the **next** connection is refused (`unlock` or `memory_open` failing right after), the cuff did not commit the session — pair again.
 
@@ -107,7 +107,7 @@ A poll that fails only sometimes is the reason Last Failure keeps its attributes
 
 1. The **Last Failure** attributes (Developer tools → States → the entity → copy the attributes block) and, if the failure is not the latest session, the **Duration** attributes from the history around that time.
 2. The model chosen in the entry and the model printed on the cuff.
-3. Which radio the cuff uses (`via` — proxy model and ESPHome version, or the adapter) if the failure is `connect` or `readout`.
+3. Which radio the cuff uses (`via` — proxy model and ESPHome version, or the adapter) if the failure is `connect` or `transfer`.
 4. For a model that pairs but never reads, or reads the wrong values: a Bluetooth log from the phone app — [capturing-bluetooth-logs.md](capturing-bluetooth-logs.md) explains how and what it contains.
 
 Debug logging is rarely needed; if asked, add `custom_components.omron: debug` under `logger:` and reproduce once.

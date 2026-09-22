@@ -86,7 +86,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         # The stage breakdown of the last BLE session this object ran (poll,
         # pairing or time sync), success or not; the diagnostic sensors
         # publish it. See ``SessionTrace``.
-        self.last_session_trace: dict[str, Any] | None = None
+        self.last_session_trace: SessionTrace | None = None
         # Application-layer credential for SECURE_SESSION profiles: loaded from
         # the config entry at setup, and replaced here when a session
         # establishes a new one so the entry can be updated after the poll.
@@ -874,9 +874,10 @@ class OmronBluetoothDeviceData(BluetoothData):
     def _record_session_trace(
         self, session: OmronDeviceSession | None, trace: SessionTrace
     ) -> None:
-        """Publish a finished session's breakdown, link facts first."""
-        link_info = session.link_info if session is not None else {}
-        self.last_session_trace = {**link_info, **trace.as_dict()}
+        """Publish a finished session's trace."""
+        if session is not None:
+            session.publish_link_to(trace)
+        self.last_session_trace = trace
 
     def _setup_device_info(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Set up device metadata from advertisement."""
@@ -1170,8 +1171,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         async with self._poll_guard:
             self._events_updates.clear()
             # This poll's own breakdown. An adopted session already carries the
-            # pairing session's trace; swapped so the stages published match
-            # this poll's duration, while the link facts stay with the session.
+            # pairing session's trace; the link is copied across and the stages
+            # are swapped, so what this poll publishes matches its own duration.
             trace = SessionTrace()
             session: OmronDeviceSession | None = None
 
@@ -1182,6 +1183,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ):
                     session = preconnected_session
                     session.reclaim_ownership()
+                    session.publish_link_to(trace)
                     trace.note(adopted_link=True)
                 else:
                     pairing_session = False
