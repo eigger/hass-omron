@@ -18,17 +18,17 @@ from custom_components.omron import session_report
 from custom_components.omron import session_handoff
 
 
-# ── SessionTrace ────────────────────────────────────────────────────────────
+# ── SessionTrace (cuff stage_map + traced; timings/facts are what the report reads) ─
 
 
 class TestSessionTrace:
-    def test_stages_are_timed_in_run_order_with_a_seconds_suffix(self):
+    def test_stages_are_timed_in_run_order(self):
         trace = SessionTrace()
         with trace.timed("connect"):
             pass
         with trace.timed("readout"):
             pass
-        assert list(trace.as_dict()) == ["connect_s", "readout_s"]
+        assert list(trace.timings) == ["connect", "readout"]
 
     def test_the_innermost_stage_an_exception_escapes_is_the_failed_stage(self):
         trace = SessionTrace()
@@ -37,8 +37,9 @@ class TestSessionTrace:
                 with trace.timed("unlock"):
                     raise RuntimeError("boom")
         assert trace.failed_stage == "unlock"
+        assert trace.failed_primary == "auth"
+        assert trace.failed_detail == "unlock"
         assert trace.stage is None, "스택이 예외 뒤에도 비워져야 한다"
-        assert trace.as_dict()["failed_stage"] == "unlock"
 
     def test_the_first_failure_wins_over_a_close_that_also_fails(self):
         """readout 에서 죽은 뒤 memory_close 도 실패하면 원인은 readout 이다."""
@@ -50,6 +51,7 @@ class TestSessionTrace:
             with trace.timed("memory_close"):
                 raise RuntimeError("no reply")
         assert trace.failed_stage == "readout"
+        assert trace.failed_primary == "transfer"
 
     def test_a_swallowed_failure_is_forgiven_so_a_later_real_one_is_recorded(self):
         """time_sync 실패는 삼켜지고 폴은 계속된다 — 그 뒤 readout 실패가 원인이다."""
@@ -80,15 +82,18 @@ class TestSessionTrace:
         for _ in range(3):
             with trace.timed("unlock"):
                 pass
-        assert list(trace.as_dict()) == ["unlock_s"]
+        assert list(trace.timings) == ["unlock"]
+        assert trace.timings["unlock"] >= 0.0
 
-    def test_notes_drop_none_and_come_before_timings(self):
+    def test_notes_drop_none_and_are_kept_apart_from_timings(self):
+        """build_report puts timings before facts; note() only stores non-None values."""
         trace = SessionTrace()
         with trace.timed("connect"):
             pass
         trace.note(records=2, time_sync_error=None)
-        assert list(trace.as_dict()) == ["records", "connect_s"]
-        assert trace.as_dict()["records"] == 2
+        assert "time_sync_error" not in trace.facts
+        assert trace.facts == {"records": 2}
+        assert list(trace.timings) == ["connect"]
 
     def test_traced_times_a_method_on_a_host_with_a_trace(self):
         class Host:
@@ -103,7 +108,7 @@ class TestSessionTrace:
         with pytest.raises(ConnectionError):
             asyncio.run(host.unlock())
         assert host.trace.failed_stage == "unlock"
-        assert "unlock_s" in host.trace.as_dict()
+        assert "unlock" in host.trace.timings
 
     def test_traced_runs_untimed_on_a_host_without_a_trace(self):
         """테스트용 트랜스포트 스탠드인은 trace 가 없다 — 그래도 동작해야 한다."""
@@ -575,7 +580,11 @@ class TestPollTrace:
         async def _connect(cls, ble_device, name, **kwargs):
             return _Client()
 
+        async def _no_sleep(_):
+            pass
+
         monkeypatch.setattr(connection_module, "establish_connection", _connect)
+        monkeypatch.setattr(connection_module.asyncio, "sleep", _no_sleep)
         monkeypatch.setattr(connection_module, "_connection_source", lambda _d: "unknown")
         monkeypatch.setattr(connection_module, "is_local_adapter", lambda device: False)
         ble_device = SimpleNamespace(address=ADDRESS, details={})

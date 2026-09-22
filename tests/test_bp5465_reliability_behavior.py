@@ -548,7 +548,7 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
                 )
 
             def _record_session_trace(self, session, trace):
-                self.last_session_trace = trace.as_dict()
+                self.last_session_trace = trace
 
         target = FakeParserSelf()
 

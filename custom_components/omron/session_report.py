@@ -14,12 +14,12 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from blesession import build_report, generic_cause, placement, stages
-
-if TYPE_CHECKING:
-    from homeassistant.core import HomeAssistant
 from blesession.hass import radio_facts
 
 from .omron_ble.session_trace import SessionTrace
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 # The poll deadline (POLL_TIMEOUT_SECONDS) cancels the session with a bare
 # TimeoutError; every other timeout on the way carries a message.
