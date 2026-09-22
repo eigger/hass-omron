@@ -6,13 +6,11 @@ RSSI, 경로 수)와 한 줄 진단(``likely_cause``)을 붙여 Duration / Last 
 센서의 속성으로 내보낸다.
 """
 import asyncio
-from contextlib import asynccontextmanager
+import sys
 from types import SimpleNamespace
 
 import pytest
-
-import sys
-
+from blesession import ConnectFailed
 from blesession.link import LinkInfo
 
 from custom_components.omron.omron_ble.session_trace import SessionTrace, traced
@@ -210,7 +208,10 @@ class TestBuildSessionReport:
             ADDRESS,
             operation="poll",
             trace=trace,
-            exc=ConnectionError("dropped during the post-connect settle on all 3 attempt(s)"),
+            exc=ConnectFailed(
+                "dropped during the post-connect settle on all 3 attempt(s)",
+                detail="settle",
+            ),
         )
 
         assert report["success"] is False
@@ -286,6 +287,17 @@ class TestBuildSessionReport:
         assert "failed_stage" not in report
         assert "-P-" in report["likely_cause"]
 
+    def test_a_settle_drop_reaches_the_report_as_failed_detail(self, radio):
+        trace = SessionTrace()
+        trace.fail("connect")
+        exc = ConnectFailed("dropped during settle", detail="settle")
+        report = session_report.build_session_report(
+            None, ADDRESS, operation="poll", trace=trace, exc=exc
+        )
+        assert report["failed_stage"] == "connect"
+        assert report["failed_detail"] == "settle"
+        assert "bond" in report["likely_cause"]
+
 
 class TestLikelyCause:
     def test_a_sleeping_cuff_is_called_normal(self):
@@ -305,21 +317,21 @@ class TestLikelyCause:
         assert "-90 dBm via p" in weak and "no other radio" in weak
 
     @pytest.mark.parametrize(
-        ("stage", "error", "needle"),
+        ("stage", "detail", "error", "needle"),
         [
-            ("connect", "no free slot on proxy", "slot"),
-            ("services", "Required service not found", "model"),
-            ("pair", "Could not enter key programming mode", "-P-"),
-            ("unlock", "Unlock failed: pairing key mismatch", "phone app"),
-            ("unlock", "No stored transport credential", "re-add"),
-            ("unlock", "PIN or Key Missing", "bond"),
-            ("memory_open", "Device rejected memory session open", "readout session"),
-            ("readout", "disconnected", "record memory"),
-            ("memory_close", "no reply", "records were read"),
+            ("connect", None, "no free slot on proxy", "slot"),
+            ("session", "services", "Required service not found", "model"),
+            ("auth", "pair", "Could not enter key programming mode", "-P-"),
+            ("auth", "unlock", "Unlock failed: pairing key mismatch", "phone app"),
+            ("auth", "unlock", "No stored transport credential", "re-add"),
+            ("auth", "unlock", "PIN or Key Missing", "bond"),
+            ("auth", "memory_open", "Device rejected memory session open", "readout session"),
+            ("transfer", "readout", "disconnected", "record memory"),
+            ("finish", "memory_close", "no reply", "records were read"),
         ],
     )
-    def test_each_stage_reads_differently(self, stage, error, needle):
-        assert needle in session_report.likely_cause(None, stage, error, {}, "poll")
+    def test_each_stage_reads_differently(self, stage, detail, error, needle):
+        assert needle in session_report.likely_cause(stage, detail, error, {}, "poll")
 
 
 # ── omron_poll_ble_telemetry ────────────────────────────────────────────────
@@ -491,9 +503,8 @@ class _ParserSelf:
         return self._session
 
     def _record_session_trace(self, session, trace):
-        from custom_components.omron.omron_ble.parser import attach_link_facts
-
-        attach_link_facts(session, trace)
+        if session is not None:
+            session.publish_link_to(trace)
         self.last_session_trace = trace
 
 
@@ -553,6 +564,26 @@ class TestPollTrace:
         assert session.trace.facts["connect_attempts"] == 3
         assert session.trace.link is not None and session.trace.link.source == "AA:BB"
 
+    def test_unknown_advertising_source_is_not_stored_on_the_trace(self, monkeypatch):
+        from custom_components.omron.omron_ble import connection as connection_module
+        from custom_components.omron.omron_ble.devices import get_device_config
+        from custom_components.omron.omron_ble.session import OmronDeviceSession
+
+        class _Client:
+            is_connected = True
+
+        async def _connect(cls, ble_device, name, **kwargs):
+            return _Client()
+
+        monkeypatch.setattr(connection_module, "establish_connection", _connect)
+        monkeypatch.setattr(connection_module, "_connection_source", lambda _d: "unknown")
+        monkeypatch.setattr(connection_module, "is_local_adapter", lambda device: False)
+        ble_device = SimpleNamespace(address=ADDRESS, details={})
+        session = OmronDeviceSession(ble_device, get_device_config("HEM-7155T"))
+        asyncio.run(session.connect())
+        assert session.trace.link is not None
+        assert session.trace.link.source is None
+
     def test_a_missing_parent_service_is_the_services_stage(self, monkeypatch):
         """verify_parent_service 는 False 를 돌려주고 raise 는 호출자가 한다 — 그래도 services 다."""
         from custom_components.omron.omron_ble.devices import get_device_config
@@ -587,7 +618,8 @@ class TestPollTrace:
 
         session = OmronDeviceSession(SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T"))
         session._client = SimpleNamespace(is_connected=True, services=[])
-        session.link_info = {"via": "AA:BB", "connect_attempts": 2}
+        session.trace.link = LinkInfo(via="AA:BB", source="AA:BB")
+        session.trace.note(connect_attempts=2)
         with session.trace.timed("pair"):
             pass
 

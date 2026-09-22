@@ -59,6 +59,13 @@ _PAIR_UNLOCK_ATTEMPTS_DEFAULT: int = 5
 PAIRING_KEY = bytearray.fromhex("deadbeaf12341234deadbeaf12341234")
 
 
+def _link_scanner_source(raw: Any) -> str | None:
+    """A habluetooth scanner id for ``LinkInfo.source``, or None if unknown."""
+    if not isinstance(raw, str) or raw == "unknown":
+        return None
+    return raw
+
+
 def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
     """Unlock notify: key programming mode ready (prefix 0x82; sub-type is in byte 1, not matched)."""
     if resp is None or len(resp) < 1:
@@ -208,6 +215,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
     async def connect(self) -> "OmronDeviceSession":
         """Open the BLE link and let bonding/encryption settle before first use."""
         if self._client is not None and self._client.is_connected:
+            self.publish_link_to(self.trace)
             return self
         if self._ble_device is None:
             raise ConnectionError(
@@ -251,34 +259,32 @@ class OmronDeviceSession(MemoryProtocolMixin):
                     link_info=self.link_info,
                 )
         finally:
-            self._publish_link()
+            self.publish_link_to(self.trace)
         return self
 
-    def _publish_link(self) -> None:
-        """Copy what the connect learned onto the trace.
+    def publish_link_to(self, trace: SessionTrace) -> None:
+        """Copy what the connect learned onto ``trace``.
 
-        A connect that died before a client existed still names the scanner
-        it advertised through and how many attempts it spent. A live client
-        is probed by ``blesession`` so the report sees the radio the link
-        actually took, including habluetooth's scanner object.
+        Safe to call on an already-connected session (early return from
+        ``connect``) or when a poll adopts the link and needs the same facts
+        on its own trace. Does not overwrite link or facts ``trace`` already
+        has.
         """
+        if self.trace.link is not None and trace.link is None:
+            trace.link = self.trace.link
         info = self.link_info
-        if self.trace.link is None and self._client is not None and self._ble_device is not None:
+        source = _link_scanner_source(info.get("source"))
+        if trace.link is None and self._client is not None and self._ble_device is not None:
             link = probe_link(self._client, self._ble_device)
-            source = info.get("source")
-            if link.source is None and isinstance(source, str):
+            if link.source is None and source is not None:
                 link = LinkInfo(via=link.via, source=source, proxy=link.proxy)
-            self.trace.link = link
-        if self.trace.link is None and (info.get("via") or info.get("source")):
-            source = info.get("source")
-            self.trace.link = LinkInfo(
-                via=info.get("via"),
-                source=source if isinstance(source, str) else None,
-            )
-        if info.get("connect_attempts") is not None:
-            self.trace.note(connect_attempts=info["connect_attempts"])
-        if "bonded_at_connect" in info:
-            self.trace.note(bonded_at_connect=info["bonded_at_connect"])
+            trace.link = link
+        if trace.link is None and (info.get("via") or source is not None):
+            trace.link = LinkInfo(via=info.get("via"), source=source)
+        for key in ("connect_attempts", "bonded_at_connect"):
+            value = self.trace.facts.get(key, info.get(key))
+            if value is not None and key not in trace.facts:
+                trace.note(**{key: value})
 
     async def refresh_services(self) -> None:
         """Re-run GATT discovery so characteristics appear after connection."""

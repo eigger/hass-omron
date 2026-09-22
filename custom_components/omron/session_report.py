@@ -11,9 +11,12 @@ come from the library.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from blesession import build_report, generic_cause, placement, stages
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 from blesession.hass import radio_facts
 
 from .omron_ble.session_trace import SessionTrace
@@ -63,7 +66,7 @@ def _cuff_cause(
             "its deadline: usually a wedged adapter or a proxy that died. "
             "Restart the adapter / proxy if it repeats."
         )
-    if where == "settle" or (stage == stages.CONNECT and "settle" in err):
+    if where == "settle":
         return (
             "The cuff accepted the link and dropped it before encryption "
             "settled: on a multi-proxy setup usually a proxy that does not "
@@ -146,7 +149,7 @@ def _cuff_cause(
 
 
 def build_session_report(
-    hass: Any,
+    hass: HomeAssistant,
     address: str,
     *,
     operation: str,

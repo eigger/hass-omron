@@ -13,7 +13,6 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
-from blesession.link import LinkInfo
 
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
@@ -42,29 +41,6 @@ from .session_trace import SessionTrace
 from .util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def attach_link_facts(session: OmronDeviceSession | None, trace: SessionTrace) -> None:
-    """Copy link facts the trace does not already carry.
-
-    The connect writes the radio and the attempt count onto the trace. A
-    caller that only filled ``session.link_info`` — an adopted link whose
-    facts were recorded before this poll's trace existed — is copied across
-    here, without overwriting what the trace already has.
-    """
-    if session is None:
-        return
-    info = session.link_info
-    if trace.link is None and (info.get("via") or info.get("source")):
-        source = info.get("source")
-        trace.link = LinkInfo(
-            via=info.get("via"),
-            source=source if isinstance(source, str) else None,
-        )
-    if info.get("connect_attempts") is not None and "connect_attempts" not in trace.facts:
-        trace.note(connect_attempts=info["connect_attempts"])
-    if "bonded_at_connect" in info and "bonded_at_connect" not in trace.facts:
-        trace.note(bonded_at_connect=info["bonded_at_connect"])
 
 # The pairing registration is two writes and only the second may be repeated;
 # one retry lets a failed clock write land without redoing the head.
@@ -898,8 +874,9 @@ class OmronBluetoothDeviceData(BluetoothData):
     def _record_session_trace(
         self, session: OmronDeviceSession | None, trace: SessionTrace
     ) -> None:
-        """Publish a finished session's trace. See ``attach_link_facts``."""
-        attach_link_facts(session, trace)
+        """Publish a finished session's trace."""
+        if session is not None:
+            session.publish_link_to(trace)
         self.last_session_trace = trace
 
     def _setup_device_info(self, service_info: BluetoothServiceInfoBleak) -> None:
@@ -1206,13 +1183,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ):
                     session = preconnected_session
                     session.reclaim_ownership()
-                    # The pairing session's stages belong to that session.
-                    # Keep only what describes the link, so the stages this
-                    # poll publishes match its own duration.
-                    trace.link = session.trace.link
-                    for key in ("connect_attempts", "bonded_at_connect"):
-                        if key in session.trace.facts:
-                            trace.note(**{key: session.trace.facts[key]})
+                    session.publish_link_to(trace)
                     trace.note(adopted_link=True)
                 else:
                     pairing_session = False
