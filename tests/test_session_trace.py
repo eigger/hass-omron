@@ -302,6 +302,11 @@ class TestBuildSessionReport:
         assert report["failed_stage"] == "connect"
         assert report["failed_detail"] == "settle"
         assert "bond" in report["likely_cause"]
+        assert "only the radio that paired" in report["likely_cause"]
+        assert "likely_cause_key" not in report, (
+            "settle 은 커프 문장이 라이브러리 것보다 구체적이라 커프 표에서 끝난다 "
+            "— 구분자는 failed_detail 이다"
+        )
 
 
 class TestLikelyCause:
@@ -710,7 +715,13 @@ class TestSessionClose:
     """종료는 폴 데드라인이 이미 터진 뒤에 돈다 — 바운드가 없으면 아무도 안 끊는다."""
 
     def test_a_disconnect_that_never_returns_is_cut_at_the_bound(self, monkeypatch):
-        """응답을 멈춘 프록시가 세션 락을 쥔 채로 멈춰 서면 안 된다."""
+        """응답을 멈춘 프록시가 세션 락을 쥔 채로 멈춰 서면 안 된다.
+
+        폴 데드라인이 터진 뒤의 정리에서 돌기 때문에, 그 조건을 그대로 만든다:
+        만료된 ``asyncio.timeout`` 안쪽 ``finally`` — 태스크는 이미
+        ``cancelling() == 1`` 이고 데드라인은 아직 ``uncancel()`` 하지 않았다.
+        안쪽 바운드는 자기 취소만 걷어내므로 이 자리에서도 동작해야 한다.
+        """
         from custom_components.omron.omron_ble import session as session_module
         from custom_components.omron.omron_ble.devices import get_device_config
         from custom_components.omron.omron_ble.session import OmronDeviceSession
@@ -731,14 +742,26 @@ class TestSessionClose:
         )
         assert session.config.peer_closes_session_sec == 0, "이 프로필은 바로 끊는다"
         session._client = _HungClient()
+        cancelling: list[int] = []
+
+        async def poll_with_deadline():
+            """_async_poll_data 의 구조: 데드라인 안에서 돌고, 정리는 그 뒤."""
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.01):
+                    try:
+                        await asyncio.sleep(3600)
+                    finally:
+                        cancelling.append(asyncio.current_task().cancelling())
+                        await session.aclose()
 
         async def scenario():
-            # 바운드가 없으면 여기서 걸린다.
+            # 바운드가 듣지 않으면 매달리는 대신 여기서 실패한다.
             async with asyncio.timeout(2):
-                await session.aclose()
+                await poll_with_deadline()
 
         asyncio.run(scenario())
 
+        assert cancelling == [1], "데드라인의 취소가 이미 전달된 뒤에 돌았다"
         assert entered.is_set(), "끊기를 시도는 했다"
         assert session._client is None, "핸들은 놓아 준다"
         assert "disconnect" in session.trace.timings
