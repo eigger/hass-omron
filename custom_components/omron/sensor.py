@@ -178,7 +178,7 @@ def _sensor_description_for_update(sensor_update: SensorUpdate, device_key: Devi
 
 def advertisement_sensor_update_to_bluetooth_data_update(
     sensor_update: SensorUpdate,
-) -> PassiveBluetoothDataUpdate[float | None]:
+) -> PassiveBluetoothDataUpdate[int | float | None]:
     """Convert advertisement SensorUpdate keys (RSSI) to a PassiveBluetooth update."""
     return PassiveBluetoothDataUpdate(
         devices={
@@ -210,13 +210,12 @@ def advertisement_sensor_update_to_bluetooth_data_update(
             if _is_advertisement_sensor_key(sensor_update, device_key)
         },
         entity_data={
-            device_key_to_bluetooth_entity_key(device_key): (
-                float(sensor_values.native_value)
-                if isinstance(sensor_values.native_value, (int, float))
-                else None
-            )
+            # Keep the parser's int RSSI. float() turns -55 into -55.0, and
+            # this entity has no suggested_display_precision.
+            device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.entity_values.items()
             if _is_advertisement_sensor_key(sensor_update, device_key)
+            and isinstance(sensor_values.native_value, (int, float))
         },
     )
 
@@ -325,17 +324,21 @@ async def async_setup_entry(
 
 class OmronAdvertisementSensorEntity(
     PassiveBluetoothProcessorEntity[
-        OmronPassiveBluetoothDataProcessor[float | None]
+        OmronPassiveBluetoothDataProcessor[int | float | None]
     ],
     SensorEntity,
 ):
-    """Sensor fed by Omron BLE advertisements (RSSI)."""
+    """Sensor fed by Omron BLE advertisements (RSSI).
+
+    Availability stays with the processor. RSSI is a measurement: holding the
+    last dBm after the cuff disappears keeps writing a stale value into history.
+    """
 
     _attr_has_entity_name = False
 
     def __init__(
         self,
-        processor: OmronPassiveBluetoothDataProcessor[float | None],
+        processor: OmronPassiveBluetoothDataProcessor[int | float | None],
         entity_key,
         description: SensorEntityDescription,
         context=None,
@@ -348,16 +351,9 @@ class OmronAdvertisementSensorEntity(
         )
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> int | float | None:
         """Return the native value."""
         return self.processor.entity_data.get(self.entity_key)
-
-    @property
-    def available(self) -> bool:
-        """Keep last known RSSI while the cuff is asleep / not advertising."""
-        if self.entity_key in self.processor.entity_data:
-            return True
-        return super().available
 
 
 class OmronBluetoothSensorEntity(

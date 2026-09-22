@@ -176,28 +176,29 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
 
     def _seed_advertisement_binary_sensors(self) -> None:
-        """Pre-register MSD flag sensors so they exist before the first advert.
+        """Register MSD flag sensors as unknown, not off.
 
-        Data Pending / Pairing Mode / Time Sync Required are advertisement-
-        only. Without a seed they stay missing from the PassiveBluetooth
-        processor until the cuff broadcasts, which after a Home Assistant
-        restart looks like "unavailable until a poll succeeds".
+        ``None`` is not a reading. Publishing ``False`` here would tell the
+        PassiveBluetooth processor the cuff is idle and overwrite a restored
+        ``on`` after a restart where the cuff has not advertised yet.
+        Callers must drop ``None`` and only publish a real bool from an
+        advertisement.
         """
         self.update_binary_sensor(
             "forced_transfer",
-            False,
+            None,
             ExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
             "Data Pending",
         )
         self.update_binary_sensor(
             "invalid_time",
-            False,
+            None,
             ExtendedBinarySensorDeviceClass.INVALID_TIME,
             "Time Sync Required",
         )
         self.update_binary_sensor(
             "pairing_mode",
-            False,
+            None,
             ExtendedBinarySensorDeviceClass.PAIRING_MODE,
             "Pairing Mode",
         )

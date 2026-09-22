@@ -123,17 +123,21 @@ def advertisement_binary_update_to_bluetooth_data_update(
                 ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS[description.device_class]
             )
             for device_key, description in sensor_update.binary_entity_descriptions.items()
-            if description.device_class in ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS
+            if _published_advertisement_binary(
+                sensor_update,
+                device_key,
+                sensor_update.binary_entity_values.get(device_key),
+            )
         },
         entity_names={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.name
             for device_key, sensor_values in sensor_update.binary_entity_values.items()
-            if _is_advertisement_binary_key(sensor_update, device_key)
+            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
         },
         entity_data={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.binary_entity_values.items()
-            if _is_advertisement_binary_key(sensor_update, device_key)
+            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
         },
     )
 
@@ -146,6 +150,22 @@ def _is_advertisement_binary_key(
     return (
         desc is not None
         and desc.device_class in ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS
+    )
+
+
+def _published_advertisement_binary(
+    sensor_update: SensorUpdate, device_key: DeviceKey, sensor_values
+) -> bool:
+    """Publish a flag only once an advertisement has produced a real bool.
+
+    The parser seeds these keys as ``None``. Writing that into the processor
+    would mark a cuff that has never advertised as off, and would replace a
+    restored ``on`` after restart.
+    """
+    if sensor_values is None:
+        return False
+    return _is_advertisement_binary_key(sensor_update, device_key) and isinstance(
+        sensor_values.native_value, bool
     )
 
 
@@ -254,8 +274,12 @@ class OmronAdvertisementBinarySensorEntity(
 
     @property
     def available(self) -> bool:
-        """Keep last known flag while the cuff is asleep / not advertising."""
-        if self.entity_key in self.processor.entity_data:
+        """Keep a real on/off while the cuff is asleep.
+
+        A missing key or a ``None`` seed is unknown, so the entity stays
+        unavailable instead of claiming the cuff is off.
+        """
+        if isinstance(self.processor.entity_data.get(self.entity_key), bool):
             return True
         return super().available
 

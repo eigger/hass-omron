@@ -442,10 +442,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         user_aliases=slot_aliases,
         get_tz=lambda: dt_util.DEFAULT_TIME_ZONE,
     )
-    # Prime MSD flags / RSSI from the last cached advertisement so Data Pending
-    # and Pairing Mode are not blank until the cuff next broadcasts (and so the
-    # PassiveBluetooth processors below can create those entities at setup).
-    if last_service_info := async_last_service_info(hass, address, connectable=True):
+    # Prime from the last cached advertisement, including a non-connectable
+    # proxy sighting. MSD flags do not need a connection; connectable=True
+    # drops the ESPHome proxy history this integration usually has, and the
+    # prime becomes a silent no-op. Absent a cached advert, leave the
+    # PassiveBluetooth restore alone — the seed is None, not a fake off.
+    last_service_info = async_last_service_info(hass, address, connectable=False)
+    if last_service_info is not None:
         data.update(last_service_info)
     # Transport credential for profiles whose unlock keeps its own key. Stored
     # hex; a malformed value is dropped rather than failing setup, which would
@@ -708,10 +711,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Platforms have registered PassiveBluetooth processors. Push the seeded /
-    # last-advertisement SensorUpdate so Data Pending, Pairing Mode, and RSSI
-    # exist immediately — without waiting for the next live advert or poll.
-    bt_coordinator.async_set_updated_data(data._finish_update())
+    # Processors are registered, so restore has already landed. Push only a
+    # cached advertisement: a seed-only update would replace a restored
+    # Data Pending ``on`` with the unknown seed while the cuff is asleep.
+    if last_service_info is not None:
+        bt_coordinator.async_set_updated_data(data._finish_update())
 
     # only start after all platforms have had a chance to subscribe
     entry.async_on_unload(bt_coordinator.async_start())
