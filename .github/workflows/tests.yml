@@ -32,8 +32,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Home Assistant, via pytest-homeassistant-custom-component, needs the
-        # Python version current core requires. blesession needs >= 3.13.
+        # pytest-homeassistant-custom-component 0.13.366 installs Home Assistant
+        # 2026.9, which requires Python >= 3.14.2, so this job cannot run on 3.13.
+        # hacs.json minimum is 2025.12.0. The suite does not execute on that floor.
         python-version: ["3.14"]
 
     steps:

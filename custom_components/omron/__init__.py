@@ -688,6 +688,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
 
 async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     """Handle options update."""
+    # Scheduled before it runs. Unload deletes runtime_data only after
+    # async_unload_entry returns, so a credential write that races a reload
+    # or shutdown must not touch a runtime that is already gone.
+    if not hasattr(entry, "runtime_data"):
+        return
     runtime = entry.runtime_data
     if runtime.credential_write:
         # A credential a poll just stored. Reloading for it would drop the
