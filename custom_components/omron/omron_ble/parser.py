@@ -113,7 +113,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.result_identifier_num: int = 0
 
         self._seed_measurement_entities()
-        self._seed_advertisement_binary_sensors()
 
     def _open_session(
         self, ble_device: BLEDevice, *, pairing_session: bool = False
@@ -174,34 +173,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 name_suffix,
                 ExtendedSensorDeviceClass,
             )
-
-    def _seed_advertisement_binary_sensors(self) -> None:
-        """Register MSD flag sensors as unknown, not off.
-
-        ``None`` is not a reading. Publishing ``False`` here would tell the
-        PassiveBluetooth processor the cuff is idle and overwrite a restored
-        ``on`` after a restart where the cuff has not advertised yet.
-        Callers must drop ``None`` and only publish a real bool from an
-        advertisement.
-        """
-        self.update_binary_sensor(
-            "forced_transfer",
-            None,
-            ExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
-            "Data Pending",
-        )
-        self.update_binary_sensor(
-            "invalid_time",
-            None,
-            ExtendedBinarySensorDeviceClass.INVALID_TIME,
-            "Time Sync Required",
-        )
-        self.update_binary_sensor(
-            "pairing_mode",
-            None,
-            ExtendedBinarySensorDeviceClass.PAIRING_MODE,
-            "Pairing Mode",
-        )
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""

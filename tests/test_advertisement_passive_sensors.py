@@ -1,8 +1,8 @@
 """Advertisement flag sensors update via PassiveBluetooth, not the poll coordinator.
 
 Data Pending / Pairing Mode / Time Sync Required are MSD advertisement
-flags. A seed of ``False`` must not be published: it would overwrite a
-restored ``on`` and would show a cuff that has never advertised as off.
+flags. They are not seeded: a startup ``False`` would overwrite a restored
+``on`` and would show a cuff that has never advertised as off.
 RSSI follows processor availability so a stale dBm is not recorded.
 """
 from __future__ import annotations
@@ -26,23 +26,18 @@ def _find_function(tree: ast.AST, name: str):
 
 
 class TestAdvertisementBinarySensors:
-    def test_parser_seeds_advertisement_flags_as_unknown(self):
+    def test_advertisement_flags_come_from_msd_not_a_seed(self):
         tree = _parse("omron_ble/parser.py")
-        seed = _find_function(tree, "_seed_advertisement_binary_sensors")
-        calls = [
-            node
-            for node in ast.walk(seed)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "update_binary_sensor"
-        ]
-        assert len(calls) == 3
-        published = {ast.unparse(call.args[0]): ast.unparse(call.args[1]) for call in calls}
-        assert published == {
-            "'forced_transfer'": "None",
-            "'invalid_time'": "None",
-            "'pairing_mode'": "None",
+        names = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+        assert "_seed_advertisement_binary_sensors" not in names
+        parse = _find_function(tree, "_parse_omron_msd")
+        body = ast.unparse(parse)
+        for key in ("forced_transfer", "invalid_time", "pairing_mode"):
+            assert key in body
 
     def test_binary_available_requires_a_real_bool(self):
         tree = _parse("binary_sensor.py")

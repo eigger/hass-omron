@@ -445,8 +445,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Prime from the last cached advertisement, including a non-connectable
     # proxy sighting. MSD flags do not need a connection; connectable=True
     # drops the ESPHome proxy history this integration usually has, and the
-    # prime becomes a silent no-op. Absent a cached advert, leave the
-    # PassiveBluetooth restore alone — the seed is None, not a fake off.
+    # prime becomes a silent no-op. With no cached advert, do not push:
+    # the PassiveBluetooth restore keeps the last on/off.
     last_service_info = async_last_service_info(hass, address, connectable=False)
     if last_service_info is not None:
         data.update(last_service_info)
@@ -712,8 +712,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Processors are registered, so restore has already landed. Push only a
-    # cached advertisement: a seed-only update would replace a restored
-    # Data Pending ``on`` with the unknown seed while the cuff is asleep.
+    # cached advertisement. With no sighting, leave the restored on/off.
     if last_service_info is not None:
         bt_coordinator.async_set_updated_data(data._finish_update())
 

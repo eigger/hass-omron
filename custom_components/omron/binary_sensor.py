@@ -158,9 +158,9 @@ def _published_advertisement_binary(
 ) -> bool:
     """Publish a flag only once an advertisement has produced a real bool.
 
-    The parser seeds these keys as ``None``. Writing that into the processor
-    would mark a cuff that has never advertised as off, and would replace a
-    restored ``on`` after restart.
+    ``None`` is not a reading. Writing it into the processor would mark a
+    cuff that has never advertised as off, and would replace a restored
+    ``on`` after restart.
     """
     if sensor_values is None:
         return False
@@ -276,7 +276,7 @@ class OmronAdvertisementBinarySensorEntity(
     def available(self) -> bool:
         """Keep a real on/off while the cuff is asleep.
 
-        A missing key or a ``None`` seed is unknown, so the entity stays
+        A missing key or ``None`` is unknown, so the entity stays
         unavailable instead of claiming the cuff is off.
         """
         if isinstance(self.processor.entity_data.get(self.entity_key), bool):
