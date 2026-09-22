@@ -13,6 +13,7 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+from blesession.link import LinkInfo
 
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
@@ -41,6 +42,29 @@ from .session_trace import SessionTrace
 from .util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def attach_link_facts(session: OmronDeviceSession | None, trace: SessionTrace) -> None:
+    """Copy link facts the trace does not already carry.
+
+    The connect writes the radio and the attempt count onto the trace. A
+    caller that only filled ``session.link_info`` — an adopted link whose
+    facts were recorded before this poll's trace existed — is copied across
+    here, without overwriting what the trace already has.
+    """
+    if session is None:
+        return
+    info = session.link_info
+    if trace.link is None and (info.get("via") or info.get("source")):
+        source = info.get("source")
+        trace.link = LinkInfo(
+            via=info.get("via"),
+            source=source if isinstance(source, str) else None,
+        )
+    if info.get("connect_attempts") is not None and "connect_attempts" not in trace.facts:
+        trace.note(connect_attempts=info["connect_attempts"])
+    if "bonded_at_connect" in info and "bonded_at_connect" not in trace.facts:
+        trace.note(bonded_at_connect=info["bonded_at_connect"])
 
 # The pairing registration is two writes and only the second may be repeated;
 # one retry lets a failed clock write land without redoing the head.
@@ -86,7 +110,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         # The stage breakdown of the last BLE session this object ran (poll,
         # pairing or time sync), success or not; the diagnostic sensors
         # publish it. See ``SessionTrace``.
-        self.last_session_trace: dict[str, Any] | None = None
+        self.last_session_trace: SessionTrace | None = None
         # Application-layer credential for SECURE_SESSION profiles: loaded from
         # the config entry at setup, and replaced here when a session
         # establishes a new one so the entry can be updated after the poll.
@@ -874,9 +898,9 @@ class OmronBluetoothDeviceData(BluetoothData):
     def _record_session_trace(
         self, session: OmronDeviceSession | None, trace: SessionTrace
     ) -> None:
-        """Publish a finished session's breakdown, link facts first."""
-        link_info = session.link_info if session is not None else {}
-        self.last_session_trace = {**link_info, **trace.as_dict()}
+        """Publish a finished session's trace. See ``attach_link_facts``."""
+        attach_link_facts(session, trace)
+        self.last_session_trace = trace
 
     def _setup_device_info(self, service_info: BluetoothServiceInfoBleak) -> None:
         """Set up device metadata from advertisement."""
@@ -1170,8 +1194,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         async with self._poll_guard:
             self._events_updates.clear()
             # This poll's own breakdown. An adopted session already carries the
-            # pairing session's trace; swapped so the stages published match
-            # this poll's duration, while the link facts stay with the session.
+            # pairing session's trace; the link is copied across and the stages
+            # are swapped, so what this poll publishes matches its own duration.
             trace = SessionTrace()
             session: OmronDeviceSession | None = None
 
@@ -1182,6 +1206,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ):
                     session = preconnected_session
                     session.reclaim_ownership()
+                    # The pairing session's stages belong to that session.
+                    # Keep only what describes the link, so the stages this
+                    # poll publishes match its own duration.
+                    trace.link = session.trace.link
+                    for key in ("connect_attempts", "bonded_at_connect"):
+                        if key in session.trace.facts:
+                            trace.note(**{key: session.trace.facts[key]})
                     trace.note(adopted_link=True)
                 else:
                     pairing_session = False

@@ -9,6 +9,8 @@ from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
+from blesession import ConnectFailed
+from blesession.link import connected_via
 
 from .bluez import _bluez_pairing_agent, is_local_adapter
 
@@ -70,16 +72,17 @@ def _connected_path(client: BleakClient, ble_device: BLEDevice) -> str:
 
     ``_connection_source`` names the scanner that saw the advertisement, not
     the radio the connection took, and on a multi-proxy setup only one of them
-    holds the bond (#91). The backend is the only place the real answer exists;
-    its shapes are private to bleak and bleak-esphome and may change.
+    holds the bond (#91). The probe itself lives in ``blesession``; this only
+    turns the answer into a string for the connect log. The report reads the
+    raw value off the session trace instead.
     """
-    backend = getattr(client, "_backend", None)
-    if backend is not None:
-        for attr in ("_source", "source"):
-            if value := getattr(backend, attr, None):
-                return str(value)
-        if path := getattr(backend, "_device_path", None):
-            return str(path)
+    via = connected_via(client)
+    if isinstance(via, str) and via:
+        return via
+    if via is not None:
+        name = getattr(via, "name", None)
+        if name:
+            return str(name)
     return _connection_source(ble_device)
 
 
@@ -244,14 +247,13 @@ async def establish_connection_with_bond_settle(
         except Exception as exc:
             _LOGGER.debug("disconnect after settle-drop ignored: %s", exc)
 
-    # ConnectionError, not BleakError: a cuff that is off, out of range, or
-    # drops the link mid-settle is the ordinary case, and async_poll sorts the
-    # ordinary case from the unexpected one by exactly this type. BleakError
-    # inherits straight from Exception, so this landed in the branch that logs
-    # at ERROR with a traceback -- which Home Assistant renders as "This error
-    # originated from a custom integration" for what is a cuff sitting in a
-    # drawer (#133). Nothing catches BleakError on this path.
-    raise ConnectionError(
+    # ConnectFailed is a ConnectionError, so async_poll still treats a cuff
+    # that is off, out of range, or drops the link mid-settle as the ordinary
+    # case (#133) — and the report can name the drop as failed_detail "settle".
+    # BleakError inherits straight from Exception, so raising that here landed
+    # in the branch that logs at ERROR with a traceback.
+    raise ConnectFailed(
         f"{name} dropped during the post-connect settle on all "
-        f"{max_attempts} attempt(s) (last source={last_source})"
+        f"{max_attempts} attempt(s) (last source={last_source})",
+        detail="settle",
     )

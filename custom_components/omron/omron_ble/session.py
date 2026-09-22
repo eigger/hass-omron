@@ -11,6 +11,8 @@ from typing import Any, AsyncIterator
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
+from blesession import probe_link
+from blesession.link import LinkInfo
 
 from .bluez import (
     _bluez_agent_pair,
@@ -235,19 +237,48 @@ class OmronDeviceSession(MemoryProtocolMixin):
         # Filled in by the connect as it goes, so a connect that fails on
         # every attempt still tells the trace which radio it tried.
         self.link_info = {}
-        with self.trace.timed("connect"):
-            self._client = await establish_connection_with_bond_settle(
-                self._ble_device,
-                self.address,
-                model=self._config.model,
-                max_attempts=self._config.connect_settle_attempts,
-                # Only the connection that creates the bond; a reconnect that sends
-                # a pair request is what cost the bond on a proxy (#142).
-                pair_on_connect=self._pairing_session and self._config.pair_on_connect,
-                hold_pairing_agent=self._config.register_pairing_agent,
-                link_info=self.link_info,
-            )
+        try:
+            with self.trace.timed("connect"):
+                self._client = await establish_connection_with_bond_settle(
+                    self._ble_device,
+                    self.address,
+                    model=self._config.model,
+                    max_attempts=self._config.connect_settle_attempts,
+                    # Only the connection that creates the bond; a reconnect that sends
+                    # a pair request is what cost the bond on a proxy (#142).
+                    pair_on_connect=self._pairing_session and self._config.pair_on_connect,
+                    hold_pairing_agent=self._config.register_pairing_agent,
+                    link_info=self.link_info,
+                )
+        finally:
+            self._publish_link()
         return self
+
+    def _publish_link(self) -> None:
+        """Copy what the connect learned onto the trace.
+
+        A connect that died before a client existed still names the scanner
+        it advertised through and how many attempts it spent. A live client
+        is probed by ``blesession`` so the report sees the radio the link
+        actually took, including habluetooth's scanner object.
+        """
+        info = self.link_info
+        if self.trace.link is None and self._client is not None and self._ble_device is not None:
+            link = probe_link(self._client, self._ble_device)
+            source = info.get("source")
+            if link.source is None and isinstance(source, str):
+                link = LinkInfo(via=link.via, source=source, proxy=link.proxy)
+            self.trace.link = link
+        if self.trace.link is None and (info.get("via") or info.get("source")):
+            source = info.get("source")
+            self.trace.link = LinkInfo(
+                via=info.get("via"),
+                source=source if isinstance(source, str) else None,
+            )
+        if info.get("connect_attempts") is not None:
+            self.trace.note(connect_attempts=info["connect_attempts"])
+        if "bonded_at_connect" in info:
+            self.trace.note(bonded_at_connect=info["bonded_at_connect"])
 
     async def refresh_services(self) -> None:
         """Re-run GATT discovery so characteristics appear after connection."""

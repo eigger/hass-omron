@@ -10,8 +10,10 @@
 
 settle-drop 은 전자인데 ``BleakError`` 로 던져지고 있었다. ``BleakError`` 는
 ``Exception`` 을 직접 상속하므로 후자로 떨어졌고, 서랍에 들어 있는 커프가
-매 폴마다 오류로 보고됐다. 어느 쪽이든 예외는 위로 가지 않고
-``_finish_update()`` 가 마지막 값을 돌려주므로, 이건 분류의 문제다.
+매 폴마다 오류로 보고됐다. 지금은 ``ConnectFailed`` (``ConnectionError``
+하위)라서 같은 갈래에 남고, 리포트는 그 드롭을 ``failed_detail: settle`` 로
+남긴다. 어느 쪽이든 예외는 위로 가지 않고 ``_finish_update()`` 가 마지막
+값을 돌려주므로, 이건 분류의 문제다.
 
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴 수 없어
 (test_stale_bond_guard.py 와 같은 이유) AST 로 검사한다.
@@ -40,11 +42,15 @@ def test_a_settle_drop_is_a_connection_error():
         and isinstance(node.exc, ast.Call)
         and isinstance(node.exc.func, ast.Name)
     }
-    assert "ConnectionError" in raised, (
-        "settle-drop 이 ConnectionError 가 아니다 — 서랍 속 커프가 매 폴마다 "
+    assert "ConnectFailed" in raised, (
+        "settle-drop 이 ConnectFailed 가 아니다 — 서랍 속 커프가 매 폴마다 "
         "트레이스백을 남긴다"
     )
     assert "BleakError" not in raised
+    # ConnectFailed 는 ConnectionError 라서 async_poll 의 평범한 갈래에 든다.
+    from blesession import ConnectFailed
+
+    assert issubclass(ConnectFailed, ConnectionError)
 
 
 def test_the_poll_sorts_the_ordinary_case_from_the_unexpected_one():

@@ -413,7 +413,9 @@ class OmronPollDurationSensorEntity(
     Its attributes are the last BLE session's breakdown -- outcome, the radio
     it went over, and per-stage timings (``connect_s``, ``unlock_s``,
     ``readout_s`` ...) -- so the session can be read from the entity instead
-    of debug logs. See ``session_report.build_session_report``.
+    of debug logs. See ``session_report.build_session_report``. ``failed_stage``
+    is the shared name (``auth``, ``transfer``, …); ``failed_detail`` is the
+    cuff's own (``unlock``, ``readout``, …).
     """
 
     _attr_device_class = SensorDeviceClass.DURATION

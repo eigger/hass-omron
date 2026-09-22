@@ -8,8 +8,11 @@ item lands or its trigger changes.
 
 `custom_components/omron/` is the Home Assistant integration;
 `custom_components/omron/omron_ble/` is the vendored protocol library. The
-library depends on `bleak`, `bleak-retry-connector`, `sensor-state-data` and
-(optionally) `dbus_fast` / `cryptography` — never on `homeassistant`.
+library depends on `bleak`, `bleak-retry-connector`, `blesession`,
+`sensor-state-data` and (optionally) `dbus_fast` / `cryptography` — never
+on `homeassistant`. `blesession.hass` is imported only from the integration
+package. The bond-settle loop, the pairing agent and the memory protocol
+stay here; the stage trace, the radio facts and the failure report do not.
 `tests/test_omron_ble_boundary.py` enforces that.
 
 ```
@@ -24,6 +27,7 @@ settings_mirror ──────┘                                           
 | Module | Holds |
 |---|---|
 | `bluez.py` / `bluez_agent.py` | D-Bus helpers (agent, Pair, RemoveDevice, Paired) and the `dbus_fast` agent class the former imports lazily |
+| `session_trace.py` | Cuff stage names mapped onto `blesession`'s vocabulary |
 | `connection.py` | `establish_connection_with_bond_settle`, bleak cache helpers |
 | `session.py` | `OmronDeviceSession`: connection lifecycle, unlock, pairing |
 | `memory_protocol.py` | `MemoryProtocolMixin`: RX notify channels, command/reply, memory session, pairing registration |

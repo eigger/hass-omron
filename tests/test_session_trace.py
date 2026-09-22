@@ -11,6 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
+import sys
+
+from blesession.link import LinkInfo
+
 from custom_components.omron.omron_ble.session_trace import SessionTrace, traced
 from custom_components.omron import session_report
 from custom_components.omron import session_handoff
@@ -134,17 +138,30 @@ class _Remote(_Scanner):
 
 @pytest.fixture
 def radio(monkeypatch):
-    """``session_report`` 가 쓰는 HA bluetooth 헬퍼를 스캐너 표로 대체한다."""
+    """``blesession.hass.radio_facts`` 가 부르는 HA bluetooth 헬퍼를 스캐너 표로 대체한다."""
     scanners: dict[str, _Scanner] = {}
     paths: list[object] = []
-    monkeypatch.setattr(session_report, "BaseHaRemoteScanner", _Remote)
+    # homeassistant itself is a MagicMock, so a submodule import does not
+    # reuse sys.modules unless the parent attribute points at it. radio_facts
+    # imports the bluetooth helpers at call time.
+    components = sys.modules["homeassistant.components"]
+    bluetooth = sys.modules["homeassistant.components.bluetooth"]
+    monkeypatch.setattr(sys.modules["homeassistant"], "components", components)
+    monkeypatch.setattr(components, "bluetooth", bluetooth)
+    monkeypatch.setattr(bluetooth, "BaseHaRemoteScanner", _Remote)
+    monkeypatch.setattr(bluetooth, "BaseHaScanner", _Scanner)
     monkeypatch.setattr(
-        session_report, "async_scanner_by_source", lambda hass, source: scanners.get(source)
+        bluetooth, "async_scanner_by_source", lambda hass, source: scanners.get(source)
     )
     monkeypatch.setattr(
-        session_report,
+        bluetooth,
         "async_scanner_devices_by_address",
-        lambda hass, address, connectable: paths,
+        lambda hass, address, connectable=True: paths,
+    )
+    monkeypatch.setattr(
+        bluetooth,
+        "async_last_service_info",
+        lambda hass, address, connectable=True: None,
     )
     return scanners, paths
 
@@ -157,14 +174,11 @@ class TestBuildSessionReport:
         scanners, paths = radio
         scanners["AA:BB"] = _Remote("proxy-bedroom (AA:BB)", rssi=-70)
         paths.extend([object(), object()])
-        trace = {
-            "via": "AA:BB",
-            "source": "AA:BB",
-            "connect_attempts": 1,
-            "records": 1,
-            "connect_s": 2.1,
-            "readout_s": 4.0,
-        }
+        trace = SessionTrace()
+        trace.link = LinkInfo(via="AA:BB", source="AA:BB")
+        trace.record("connect", 2.1)
+        trace.record("readout", 4.0)
+        trace.note(connect_attempts=1, records=1)
 
         report = session_report.build_session_report(
             None, ADDRESS, operation="poll", trace=trace, exc=None
@@ -172,7 +186,7 @@ class TestBuildSessionReport:
 
         assert list(report) == [
             "operation", "success", "via", "via_type", "rssi", "paths",
-            "connect_attempts", "records", "connect_s", "readout_s",
+            "connect_s", "readout_s", "connect_attempts", "records",
         ]
         assert report["success"] is True
         assert report["via"] == "proxy-bedroom (AA:BB)"
@@ -185,13 +199,11 @@ class TestBuildSessionReport:
         scanners, paths = radio
         scanners["hci0-src"] = _Scanner("hci0 (DC:A6)", rssi=-90)
         paths.append(object())
-        trace = {
-            "source": "hci0-src",
-            "via": "/org/bluez/hci0/dev_00_5F",  # BlueZ 경로는 스캐너로 안 풀린다
-            "failed_stage": "connect",
-            "connect_attempts": 3,
-            "connect_s": 31.0,
-        }
+        trace = SessionTrace()
+        trace.link = LinkInfo(via="/org/bluez/hci0/dev_00_5F", source="hci0-src")
+        trace.fail("connect")
+        trace.record("connect", 31.0)
+        trace.note(connect_attempts=3)
 
         report = session_report.build_session_report(
             None,
@@ -218,8 +230,10 @@ class TestBuildSessionReport:
         scanners["A"] = _Remote("proxy-a", rssi=-60)
         scanners["B"] = _Remote("proxy-b", rssi=-75)
 
+        trace = SessionTrace()
+        trace.link = LinkInfo(via="B", source="A")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace={"source": "A", "via": "B"}, exc=None
+            None, ADDRESS, operation="poll", trace=trace, exc=None
         )
         assert report["via"] == "proxy-b"
         assert report["advertised_via"] == "proxy-a"
@@ -228,28 +242,38 @@ class TestBuildSessionReport:
     def test_the_same_radio_is_not_reported_twice(self, radio):
         scanners, _ = radio
         scanners["A"] = _Remote("proxy-a", rssi=-60)
+        trace = SessionTrace()
+        trace.link = LinkInfo(via="A", source="A")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace={"source": "A", "via": "A"}, exc=None
+            None, ADDRESS, operation="poll", trace=trace, exc=None
         )
         assert "advertised_via" not in report
 
     def test_an_unresolvable_link_keeps_the_raw_path(self, radio):
+        trace = SessionTrace()
+        trace.link = LinkInfo(via="some-proxy")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace={"via": "some-proxy"}, exc=None
+            None, ADDRESS, operation="poll", trace=trace, exc=None
         )
         assert report["via"] == "some-proxy"
         assert "via_type" not in report
 
     def test_a_deadline_timeout_is_named_even_without_a_message(self, radio):
+        trace = SessionTrace()
+        trace.fail("readout")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace={"failed_stage": "readout"}, exc=TimeoutError()
+            None, ADDRESS, operation="poll", trace=trace, exc=TimeoutError()
         )
         assert "deadline" in report["error"]
         assert "deadline" in report["likely_cause"]
+        assert report["failed_stage"] == "transfer"
+        assert report["failed_detail"] == "readout"
 
     def test_a_timeout_with_a_message_is_an_ordinary_error(self, radio):
+        trace = SessionTrace()
+        trace.fail("connect")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace={"failed_stage": "connect"},
+            None, ADDRESS, operation="poll", trace=trace,
             exc=TimeoutError("Timeout waiting for connect response"),
         )
         assert report["error"] == "Timeout waiting for connect response"
@@ -266,16 +290,16 @@ class TestBuildSessionReport:
 class TestLikelyCause:
     def test_a_sleeping_cuff_is_called_normal(self):
         cause = session_report.likely_cause(
-            "connect", "Failed to connect after 4 attempt(s): timed out", {}, "poll"
+            "connect", None, "Failed to connect after 4 attempt(s): timed out", {}, "poll"
         )
         assert "normal state" in cause
 
     def test_weak_signal_adds_placement_advice_only_when_weak(self):
         strong = session_report.likely_cause(
-            "connect", "x", {"rssi": -60, "via": "p", "paths": 1}, "poll"
+            "connect", None, "x", {"rssi": -60, "via": "p", "paths": 1}, "poll"
         )
         weak = session_report.likely_cause(
-            "connect", "x", {"rssi": -90, "via": "p", "paths": 1}, "poll"
+            "connect", None, "x", {"rssi": -90, "via": "p", "paths": 1}, "poll"
         )
         assert "weak" not in strong
         assert "-90 dBm via p" in weak and "no other radio" in weak
@@ -295,7 +319,7 @@ class TestLikelyCause:
         ],
     )
     def test_each_stage_reads_differently(self, stage, error, needle):
-        assert needle in session_report.likely_cause(stage, error, {}, "poll")
+        assert needle in session_report.likely_cause(None, stage, error, {}, "poll")
 
 
 # ── omron_poll_ble_telemetry ────────────────────────────────────────────────
@@ -467,9 +491,10 @@ class _ParserSelf:
         return self._session
 
     def _record_session_trace(self, session, trace):
-        # 실물 OmronBluetoothDeviceData._record_session_trace 와 같은 합성.
-        link_info = session.link_info if session is not None else {}
-        self.last_session_trace = {**link_info, **trace.as_dict()}
+        from custom_components.omron.omron_ble.parser import attach_link_facts
+
+        attach_link_facts(session, trace)
+        self.last_session_trace = trace
 
 
 class TestPollTrace:
@@ -491,9 +516,9 @@ class TestPollTrace:
             asyncio.run(_async_poll()(target, ble_device))
 
         trace = target.last_session_trace
-        assert trace["failed_stage"] == "connect"
-        assert "connect_s" in trace
-        assert "adopted_link" not in trace
+        assert trace.failed_stage == "connect"
+        assert "connect" in trace.timings
+        assert "adopted_link" not in trace.facts
 
     def test_a_connect_that_fails_every_attempt_still_names_the_radio(self, monkeypatch):
         """settle 드롭으로 세 번 다 실패해도 어느 라디오를 몇 번 시도했는지는 남아야 한다."""
@@ -519,11 +544,14 @@ class TestPollTrace:
         ble_device = SimpleNamespace(address=ADDRESS, details={"source": "AA:BB"})
         session = OmronDeviceSession(ble_device, get_device_config("HEM-7155T"))
 
-        with pytest.raises(ConnectionError, match="settle"):
+        with pytest.raises(ConnectionError, match="settle") as caught:
             asyncio.run(session.connect())
 
         assert session.link_info == {"source": "AA:BB", "connect_attempts": 3}
         assert session.trace.failed_stage == "connect"
+        assert session.trace.failure(caught.value) == ("connect", "settle")
+        assert session.trace.facts["connect_attempts"] == 3
+        assert session.trace.link is not None and session.trace.link.source == "AA:BB"
 
     def test_a_missing_parent_service_is_the_services_stage(self, monkeypatch):
         """verify_parent_service 는 False 를 돌려주고 raise 는 호출자가 한다 — 그래도 services 다."""
@@ -546,8 +574,10 @@ class TestPollTrace:
         with pytest.raises(ConnectionError, match="Required service"):
             asyncio.run(_async_poll()(target, SimpleNamespace(address=ADDRESS), preconnected_session=session))
 
-        assert target.last_session_trace["failed_stage"] == "services"
-        cause = session_report.likely_cause("services", "Required service x not found", {}, "poll")
+        assert target.last_session_trace.failed_stage == "services"
+        cause = session_report.likely_cause(
+            "session", "services", "Required service x not found", {}, "poll"
+        )
         assert "model" in cause
 
     def test_an_adopted_link_is_marked_and_keeps_its_link_facts(self, monkeypatch):
@@ -577,7 +607,8 @@ class TestPollTrace:
             )
 
         trace = target.last_session_trace
-        assert trace["adopted_link"] is True
-        assert trace["failed_stage"] == "services"
-        assert trace["via"] == "AA:BB" and trace["connect_attempts"] == 2
-        assert "pair_s" not in trace, "페어링 세션의 단계가 폴의 것으로 나오면 안 된다"
+        assert trace.facts["adopted_link"] is True
+        assert trace.failed_stage == "services"
+        assert trace.link is not None and trace.link.via == "AA:BB"
+        assert trace.facts["connect_attempts"] == 2
+        assert "pair" not in trace.timings, "페어링 세션의 단계가 폴의 것으로 나오면 안 된다"
