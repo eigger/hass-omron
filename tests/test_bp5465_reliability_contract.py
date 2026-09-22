@@ -12,10 +12,10 @@ PARSER = REPO / "custom_components" / "omron" / "omron_ble" / "parser.py"
 def test_forced_transfer_is_latched_while_ble_lock_is_held():
     source = INIT.read_text(encoding="utf-8")
 
-    assert 'entry_data["pending_forced_transfer"] = True' in source
-    assert '"pending_forced_transfer_task"' in source
-    assert '"pending_forced_transfer_baseline"' in source
-    assert '"force_poll_after_lock"' in source
+    assert "runtime.pending_forced_transfer = True" in source
+    assert "pending_forced_transfer_task" in source
+    assert "pending_forced_transfer_baseline" in source
+    assert "force_poll_after_lock" in source
     assert "latched forced-transfer trigger" in source
     assert "Draining latched forced-transfer trigger" in source
 
@@ -31,7 +31,7 @@ def test_poll_coordinator_errors_are_not_converted_to_cached_success():
     source = INIT.read_text(encoding="utf-8")
 
     timeout_block = re.search(
-        r"except TimeoutError:(.*?)(?=\n        except Exception)",
+        r"except TimeoutError:(.*?)(?=\n    except Exception)",
         source,
         re.S,
     )
@@ -41,7 +41,7 @@ def test_poll_coordinator_errors_are_not_converted_to_cached_success():
 
     generic_block = re.search(
         r'except Exception as err:\n'
-        r'\s+# Preserve the previous coordinator data(.*?)(?=\n        finally:)',
+        r'\s+# Preserve the previous coordinator data(.*?)(?=\n    finally:)',
         source,
         re.S,
     )
@@ -93,16 +93,11 @@ def test_required_service_and_fallback_readout_fail_closed():
 def test_forced_transfer_marker_is_consumed_before_device_lookup():
     source = INIT.read_text(encoding="utf-8")
 
-    poll_start = source.index("    async def _async_poll_data(")
-    poll_end = source.index(
-        "\n    scan_interval = entry.options.get(",
-        poll_start,
-    )
+    poll_start = source.index("async def async_poll_data(")
+    poll_end = source.index("\nasync def async_setup_entry(", poll_start)
     poll_source = source[poll_start:poll_end]
 
-    marker_pos = poll_source.index(
-        'force_poll_after_lock = bool('
-    )
+    marker_pos = poll_source.index("force_poll_after_lock = runtime.force_poll_after_lock")
     device_lookup_pos = poll_source.index(
         "device = async_ble_device_from_address(hass, address)"
     )
@@ -110,13 +105,8 @@ def test_forced_transfer_marker_is_consumed_before_device_lookup():
     assert marker_pos < device_lookup_pos
 
     no_device_start = poll_source.index("if not device:")
-    coordinator_start = poll_source.index(
-        "coordinator = entry.runtime_data",
-        no_device_start,
-    )
-    no_device_block = poll_source[
-        no_device_start:coordinator_start
-    ]
+    lock_start = poll_source.index("session_lock: asyncio.Lock = runtime.session_lock")
+    no_device_block = poll_source[no_device_start:lock_start]
 
     assert "if force_poll_after_lock:" in no_device_block
     assert "raise ConnectionError(" in no_device_block

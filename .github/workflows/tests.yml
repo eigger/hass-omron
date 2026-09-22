@@ -32,8 +32,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # blesession requires Python >= 3.13.
-        python-version: ["3.13", "3.14"]
+        # pytest-homeassistant-custom-component 0.13.366 installs Home Assistant
+        # 2026.9, which requires Python >= 3.14.2, so this job cannot run on 3.13.
+        # hacs.json minimum is 2025.12.0. The suite does not execute on that floor.
+        python-version: ["3.14"]
 
     steps:
       - uses: actions/checkout@v5
@@ -46,10 +48,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pytest dbus-fast cryptography
-          # The library versions under test are the ones the integration
-          # ships, read from the manifest so the two cannot drift apart.
+          pip install -r requirements_test.txt
           pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/omron/manifest.json'))['requirements']))")
+          python scripts/ha_component_requirements.py bluetooth usb > requirements_ha.txt
+          pip install -r requirements_ha.txt
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        run: python -m pytest tests/ -v --timeout 120

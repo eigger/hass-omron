@@ -9,6 +9,7 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 통합 계층은
 없어 (test_stale_bond_guard.py 와 같은 이유) 그쪽은 AST 로 검사한다.
 """
 import ast
+import asyncio
 from pathlib import Path
 from datetime import datetime
 from types import SimpleNamespace
@@ -251,6 +252,13 @@ class TestCredentialRoundTrip:
         assert marked.index("credential_write") < marked.index("async_update_entry"), (
             "표시를 엔트리 갱신 뒤에 하면 리스너가 이미 지나간 뒤다"
         )
+
+    def test_an_unloaded_entry_does_not_raise_from_the_listener(self):
+        """Unload drops runtime_data after scheduling this listener. The task
+        must return instead of raising AttributeError."""
+        from custom_components.omron import update_listener
+
+        asyncio.run(update_listener(SimpleNamespace(), SimpleNamespace()))
 
     def test_setup_loads_it_and_a_poll_writes_it_back(self):
         source = (_COMPONENT / "__init__.py").read_text(encoding="utf-8")

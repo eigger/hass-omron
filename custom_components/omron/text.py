@@ -5,10 +5,9 @@ from __future__ import annotations
 from homeassistant.components.text import RestoreText
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .entity import OmronEntity
 from .types import OmronConfigEntry
 
 _ALIAS_MAX_LEN = 64
@@ -20,20 +19,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up text entity for optional device note."""
-    async_add_entities([OmronDeviceAliasTextEntity(hass, entry.entry_id)])
+    async_add_entities([OmronDeviceAliasTextEntity(entry)])
 
 
-class OmronDeviceAliasTextEntity(RestoreText):
+class OmronDeviceAliasTextEntity(OmronEntity, RestoreText):
     """Free-form text; state is restored by Home Assistant only (no config / registry side effects)."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
-        self.hass = hass
-        self._address = hass.data[DOMAIN][entry_id]["address"]
-        model = hass.data[DOMAIN][entry_id]["data"].device_model
-        self._default_alias = model
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_unique_id = f"{model_slug}_{identifier}_device_alias"
+    def __init__(self, entry: OmronConfigEntry) -> None:
+        self._bind(entry)
+        self._default_alias = self._runtime.model
+        self._attr_unique_id = self._runtime.entity_unique_id("device_alias")
         self._attr_translation_key = "device_alias"
         self._attr_has_entity_name = True
         self._attr_entity_category = EntityCategory.CONFIG
@@ -46,13 +41,6 @@ class OmronDeviceAliasTextEntity(RestoreText):
     def available(self) -> bool:
         """Editor is always available."""
         return True
-
-    @property
-    def device_info(self) -> DeviceInfo:
-        """Attach to the Omron BLE device."""
-        return DeviceInfo(
-            connections={(CONNECTION_BLUETOOTH, self._address)},
-        )
 
     async def async_added_to_hass(self) -> None:
         """Restore last text from recorder."""

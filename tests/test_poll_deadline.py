@@ -8,13 +8,10 @@ HA 재시작 전까지 통합이 죽는다.
 
 이를 막는 두 불변조건을 소스 구조 수준에서 고정한다:
 
-1. _async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싼다.
+1. async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싼다.
 2. async_poll 의 예외 핸들러는 CancelledError 를 삼키지 않는다. asyncio.timeout
    은 마감 시각에 태스크를 딱 한 번만 취소하므로, 그 CancelledError 를 삼키면
    루프가 다음 무경계 대기로 넘어가고 다시 발동할 데드라인이 남지 않는다.
-
-conftest 가 homeassistant/bleak 를 MagicMock 으로 치환하는 탓에 실제 인스턴스를
-만들 수 없어(클래스 자체가 MagicMock 이 된다) 런타임 대신 AST 로 검사한다.
 """
 import ast
 from pathlib import Path
@@ -48,7 +45,7 @@ class TestPollDeadline:
     """예약 폴은 반드시 유한 시간 안에 session_lock 을 돌려줘야 한다."""
 
     def test_poll_is_wrapped_in_asyncio_timeout(self):
-        fn = _find_async_function(_parse("__init__.py"), "_async_poll_data")
+        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
         wrapped = [
             item
             for node in ast.walk(fn)
@@ -58,7 +55,7 @@ class TestPollDeadline:
             and ast.unparse(item.context_expr.func) == "asyncio.timeout"
         ]
         assert wrapped, (
-            "_async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싸야 한다. "
+            "async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싸야 한다. "
             "감싸지 않으면 무경계 GATT 대기가 session_lock 을 영구 점유한다."
         )
 

@@ -1,0 +1,9 @@
+# Test environment, pinned so CI is reproducible.
+# The integration's own requirements come from manifest.json. Home Assistant
+# component requirements come from scripts/ha_component_requirements.py.
+pytest-homeassistant-custom-component==0.13.366
+pytest-timeout==2.4.0
+bluetooth-sensor-state-data==1.9.0
+sensor-state-data==2.20.0
+dbus-fast
+cryptography

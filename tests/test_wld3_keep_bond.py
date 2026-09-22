@@ -235,7 +235,7 @@ def test_a_parked_probe_link_is_closed_when_the_entry_unloads():
     init = pathlib.Path("custom_components/omron/__init__.py").read_text(
         encoding="utf-8"
     )
-    assert "discard_probe_session(hass, address)" in init
+    assert "discard_probe_session(hass, runtime.address)" in init
 
 
 def test_the_single_attempt_throttle_did_not_spread():
