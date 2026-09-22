@@ -27,6 +27,7 @@ The attributes are, in order. `failed_stage` is the shared name used across BLE 
 | `operation` | `poll` (a scheduled or triggered readout), `pairing` (the *Retry Pairing* button or an auto-pairing advertisement) or `time_sync`. |
 | `success` | Whether the session completed. |
 | `error`, `failed_stage`, `failed_detail`, `likely_cause` | Only on a failure: the exact message, the shared stage it escaped from, the cuff's own name for that stage, and one sentence on what that usually means. |
+| `likely_cause_key` | Only when that sentence is the shared one every BLE integration uses (`connect.no_slot`, `link_lost`, `unreachable`, …): a stable name for it, so an automation can match the reading instead of the English text. A sentence written for the cuff carries no key. |
 | `via`, `via_type`, `rssi`, `paths` | The radio the link went over (a proxy or a local adapter), the cuff's signal as that radio last saw it, and how many connectable radios currently see the cuff. `paths: 1` means there is no other radio to fall back to. On a `connect` failure `via` is the radio that was tried. |
 | `advertised_via` | Only when it differs from `via`: the radio whose advertisement was strongest, which is the one Home Assistant tries first. The link ending up elsewhere is a failover — or, on a multi-proxy setup, the proxy that holds the bond. |
 | `connect_s`, `services_s`, `pair_s`, `unlock_s`, `memory_open_s`, `time_sync_s`, `readout_s`, `device_info_s`, `registration_s`, `memory_close_s`, `disconnect_s` | Seconds spent in each stage, in the order they ran. A stage that did not run is absent. These keep the cuff's own names. |
@@ -38,7 +39,7 @@ The attributes are, in order. `failed_stage` is the shared name used across BLE 
 
 ## Reading a failure
 
-Start with `failed_stage` on Last Failure: it says how far the session got, in the shared vocabulary. `failed_detail` is the cuff's name for the same stage. `likely_cause` is a reading of the stage, the error text and the radio situation; `error` is the exact message.
+Start with `failed_stage` on Last Failure: it says how far the session got, in the shared vocabulary. `failed_detail` is the cuff's name for the same stage. `likely_cause` is a reading of the stage, the failure type and the radio situation; `error` is the exact message. `likely_cause_key`, when present, is the stable name of that reading.
 
 ### `connect`
 

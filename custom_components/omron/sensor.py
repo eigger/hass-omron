@@ -6,6 +6,7 @@ from datetime import datetime
 
 import datetime as dt
 from typing import Any
+from blesession import SessionReports
 from sensor_state_data import (
     DeviceKey,
     SensorDeviceClass as OmronSensorDeviceClass,
@@ -438,6 +439,7 @@ class OmronPollDurationSensorEntity(
         self._attr_name = f"{model} {identifier.upper()} Duration"
         self._attr_unique_id = f"{model_slug}_{identifier}_duration"
         self._entry_data = hass.data[DOMAIN][entry.entry_id]
+        self._reports: SessionReports = self._entry_data["session_reports"]
 
     @property
     def native_value(self) -> float | None:
@@ -447,7 +449,7 @@ class OmronPollDurationSensorEntity(
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """The last session's breakdown; each session's final duration update publishes it."""
-        return self._entry_data.get("last_session_timing")
+        return self._reports.last
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -488,6 +490,7 @@ class OmronLastFailureSensorEntity(
         self._attr_name = f"{model} {identifier.upper()} Last Failure"
         self._attr_unique_id = f"{model_slug}_{identifier}_last_failure"
         self._entry_data = hass.data[DOMAIN][entry.entry_id]
+        self._reports: SessionReports = self._entry_data["session_reports"]
 
     @property
     def native_value(self) -> "datetime | None":
@@ -497,7 +500,7 @@ class OmronLastFailureSensorEntity(
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """The breakdown of the session that failed at this time."""
-        return self._entry_data.get("last_failure_timing")
+        return self._reports.last_failure
 
     @property
     def device_info(self) -> DeviceInfo:

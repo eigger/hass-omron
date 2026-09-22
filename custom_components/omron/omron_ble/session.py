@@ -11,7 +11,7 @@ from typing import Any, AsyncIterator
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
-from blesession import probe_link
+from blesession import DISCONNECT_TIMEOUT_S, probe_link
 from blesession.link import LinkInfo
 
 from .bluez import (
@@ -405,7 +405,14 @@ class OmronDeviceSession(MemoryProtocolMixin):
                 with self.trace.timed("disconnect"):
                     await self._await_peer_close(client, addr)
                     if client.is_connected:
-                        await client.disconnect()
+                        # Bounded: the close runs after the poll deadline has
+                        # already fired, so nothing else bounds it, and a proxy
+                        # that stopped answering would hang here holding the
+                        # per-entry session lock. A timeout is swallowed below
+                        # like any other close failure -- the link is dropped
+                        # anyway once the proxy comes back.
+                        async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                            await client.disconnect()
                         disconnected = True
         except Exception:
             pass

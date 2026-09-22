@@ -30,7 +30,7 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/eigger/hass-omron/issues",
   "requirements": [
-    "blesession==0.1.0"
+    "blesession==0.2.0"
   ],
   "version": "3.0.0"
 }

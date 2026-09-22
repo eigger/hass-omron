@@ -10,7 +10,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from blesession import ConnectFailed
+from blesession import ConnectFailed, SessionReports
 from blesession.link import LinkInfo
 
 from custom_components.omron.omron_ble.session_trace import SessionTrace, traced
@@ -302,20 +302,25 @@ class TestBuildSessionReport:
         assert report["failed_stage"] == "connect"
         assert report["failed_detail"] == "settle"
         assert "bond" in report["likely_cause"]
+        assert "only the radio that paired" in report["likely_cause"]
+        assert "likely_cause_key" not in report, (
+            "settle 은 커프 문장이 라이브러리 것보다 구체적이라 커프 표에서 끝난다 "
+            "— 구분자는 failed_detail 이다"
+        )
 
 
 class TestLikelyCause:
     def test_a_sleeping_cuff_is_called_normal(self):
-        cause = session_report.likely_cause(
+        cause = session_report.cuff_cause(
             "connect", None, "Failed to connect after 4 attempt(s): timed out", {}, "poll"
         )
         assert "normal state" in cause
 
     def test_weak_signal_adds_placement_advice_only_when_weak(self):
-        strong = session_report.likely_cause(
+        strong = session_report.cuff_cause(
             "connect", None, "x", {"rssi": -60, "via": "p", "paths": 1}, "poll"
         )
-        weak = session_report.likely_cause(
+        weak = session_report.cuff_cause(
             "connect", None, "x", {"rssi": -90, "via": "p", "paths": 1}, "poll"
         )
         assert "weak" not in strong
@@ -324,7 +329,6 @@ class TestLikelyCause:
     @pytest.mark.parametrize(
         ("stage", "detail", "error", "needle"),
         [
-            ("connect", None, "no free slot on proxy", "slot"),
             ("session", "services", "Required service not found", "model"),
             ("auth", "pair", "Could not enter key programming mode", "-P-"),
             ("auth", "unlock", "Unlock failed: pairing key mismatch", "phone app"),
@@ -336,7 +340,48 @@ class TestLikelyCause:
         ],
     )
     def test_each_stage_reads_differently(self, stage, detail, error, needle):
-        assert needle in session_report.likely_cause(stage, detail, error, {}, "poll")
+        assert needle in session_report.cuff_cause(stage, detail, error, {}, "poll")
+
+    def test_a_failure_only_the_library_names_is_left_to_it(self):
+        """프록시 슬롯 고갈처럼 모든 BLE 기기가 공유하는 실패는 라이브러리 문장이다."""
+        assert (
+            session_report.cuff_cause("connect", None, "no free slot on proxy", {}, "poll")
+            is None
+        )
+
+
+class TestSharedCauseKeys:
+    """커프 문장이 없는 실패는 라이브러리 문장과 그 키(``likely_cause_key``)로 나간다."""
+
+    def test_the_shared_sentence_carries_its_key(self, radio):
+        trace = SessionTrace()
+        trace.fail("connect")
+        report = session_report.build_session_report(
+            None, ADDRESS, operation="poll", trace=trace,
+            exc=ConnectFailed("No free slot on the proxy"),
+        )
+        assert "slot" in report["likely_cause"]
+        assert report["likely_cause_key"] == "connect.no_slot"
+
+    def test_a_cuff_sentence_carries_no_key(self, radio):
+        """키는 라이브러리가 쓴 문장의 이름이다 — 커프 문장은 이미 우리 것이다."""
+        trace = SessionTrace()
+        trace.fail("unlock")
+        report = session_report.build_session_report(
+            None, ADDRESS, operation="poll", trace=trace,
+            exc=ConnectionError("Unlock failed: pairing key mismatch"),
+        )
+        assert "phone app" in report["likely_cause"]
+        assert "likely_cause_key" not in report
+
+    def test_a_failure_neither_table_names_still_gets_a_sentence(self, radio):
+        trace = SessionTrace()
+        trace.fail("device_info")
+        report = session_report.build_session_report(
+            None, ADDRESS, operation="poll", trace=trace, exc=RuntimeError("odd"),
+        )
+        assert report["likely_cause"] == session_report._NO_STAGE_CAUSE
+        assert "likely_cause_key" not in report
 
 
 # ── omron_poll_ble_telemetry ────────────────────────────────────────────────
@@ -360,6 +405,8 @@ def _entry_data():
         "duration_coordinator": _Coordinator(),
         "failure_coordinator": _Coordinator(),
         "failure_count_coordinator": _Coordinator(),
+        # 두 슬롯(마지막 세션 / 마지막 실패)은 blesession 이 규칙을 갖는다.
+        "session_reports": SessionReports(),
     }
 
 
@@ -379,8 +426,9 @@ def plain_report(monkeypatch):
 
 
 class TestTelemetry:
-    def test_a_failed_session_stamps_last_failure_with_its_own_copy(self, plain_report):
+    def test_a_failed_session_stamps_last_failure_too(self, plain_report):
         entry_data = _entry_data()
+        reports = entry_data["session_reports"]
 
         async def scenario():
             with pytest.raises(ConnectionError):
@@ -390,18 +438,19 @@ class TestTelemetry:
 
         asyncio.run(scenario())
 
-        timing = entry_data["last_session_timing"]
+        timing = reports.last
         assert timing["success"] is False
         assert timing["failed_stage"] == "connect"
         assert timing["error"] == "cuff asleep"
-        assert entry_data["last_failure_timing"] == timing
-        assert entry_data["last_failure_timing"] is not timing, "복사본이어야 한다"
+        # 두 슬롯은 통째로 갈아끼워질 뿐 수정되지 않으므로 같은 dict 로 둔다.
+        assert reports.last_failure is timing
         assert len(entry_data["failure_coordinator"].values) == 1
         assert entry_data["failure_count_coordinator"].data == 1
         assert entry_data["connection_coordinator"].values[-1] is False
 
     def test_a_later_success_updates_duration_but_keeps_the_failure(self, plain_report):
         entry_data = _entry_data()
+        reports = entry_data["session_reports"]
 
         async def scenario():
             with pytest.raises(ConnectionError):
@@ -412,9 +461,9 @@ class TestTelemetry:
 
         asyncio.run(scenario())
 
-        assert entry_data["last_session_timing"]["success"] is True
-        assert entry_data["last_session_timing"]["records"] == 1
-        assert entry_data["last_failure_timing"]["error"] == "first"
+        assert reports.last["success"] is True
+        assert reports.last["records"] == 1
+        assert reports.last_failure["error"] == "first"
         assert len(entry_data["failure_coordinator"].values) == 1
         assert entry_data["failure_count_coordinator"].data == 1
 
@@ -425,7 +474,7 @@ class TestTelemetry:
 
         class Duration(_Coordinator):
             def async_set_updated_data(self, value):
-                seen.append(entry_data.get("last_session_timing"))
+                seen.append(entry_data["session_reports"].last)
                 super().async_set_updated_data(value)
 
         entry_data["duration_coordinator"] = Duration()
@@ -440,16 +489,20 @@ class TestTelemetry:
     def test_no_attributes_while_the_session_runs(self, plain_report):
         """1초 티커가 이전 세션의 분해를 이번 세션의 시간에 붙여 기록하면 안 된다."""
         entry_data = _entry_data()
-        entry_data["last_session_timing"] = {"success": False, "failed_stage": "connect"}
+        reports = entry_data["session_reports"]
+        reports.record({"success": False, "failed_stage": "connect", "error": "old"})
         during: list[object] = []
 
         async def scenario():
             async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                during.append(entry_data["last_session_timing"])
+                during.append(reports.last)
 
         asyncio.run(scenario())
         assert during == [None]
-        assert entry_data["last_session_timing"]["success"] is True
+        assert reports.last["success"] is True
+        assert reports.last_failure["error"] == "old", (
+            "실행 중 비우는 것은 last 뿐이다 — 마지막 실패는 세션 하나보다 오래 산다"
+        )
 
     def test_the_previous_trace_is_cleared_on_entry(self, plain_report):
         """파서에 닿기 전에 죽은 세션이 이전 세션의 단계를 제 것처럼 내면 안 된다."""
@@ -462,8 +515,8 @@ class TestTelemetry:
                     raise RuntimeError("no device")
 
         asyncio.run(scenario())
-        assert "connect_s" not in entry_data["last_session_timing"]
-        assert entry_data["last_session_timing"]["operation"] == "pairing"
+        assert "connect_s" not in entry_data["session_reports"].last
+        assert entry_data["session_reports"].last["operation"] == "pairing"
 
     def test_an_outer_cancellation_is_not_a_failure(self, plain_report):
         entry_data = _entry_data()
@@ -474,7 +527,7 @@ class TestTelemetry:
                     raise asyncio.CancelledError()
 
         asyncio.run(scenario())
-        assert entry_data["last_session_timing"] is None
+        assert entry_data["session_reports"].last is None
         assert entry_data["failure_coordinator"].values == []
         assert entry_data["failure_count_coordinator"].values == []
         assert entry_data["connection_coordinator"].values[-1] is False
@@ -615,7 +668,7 @@ class TestPollTrace:
             asyncio.run(_async_poll()(target, SimpleNamespace(address=ADDRESS), preconnected_session=session))
 
         assert target.last_session_trace.failed_stage == "services"
-        cause = session_report.likely_cause(
+        cause = session_report.cuff_cause(
             "session", "services", "Required service x not found", {}, "poll"
         )
         assert "model" in cause
@@ -653,3 +706,62 @@ class TestPollTrace:
         assert trace.link is not None and trace.link.via == "AA:BB"
         assert trace.facts["connect_attempts"] == 2
         assert "pair" not in trace.timings, "페어링 세션의 단계가 폴의 것으로 나오면 안 된다"
+
+
+# ── 세션 종료 ───────────────────────────────────────────────────────────────
+
+
+class TestSessionClose:
+    """종료는 폴 데드라인이 이미 터진 뒤에 돈다 — 바운드가 없으면 아무도 안 끊는다."""
+
+    def test_a_disconnect_that_never_returns_is_cut_at_the_bound(self, monkeypatch):
+        """응답을 멈춘 프록시가 세션 락을 쥔 채로 멈춰 서면 안 된다.
+
+        폴 데드라인이 터진 뒤의 정리에서 돌기 때문에, 그 조건을 그대로 만든다:
+        만료된 ``asyncio.timeout`` 안쪽 ``finally`` — 태스크는 이미
+        ``cancelling() == 1`` 이고 데드라인은 아직 ``uncancel()`` 하지 않았다.
+        안쪽 바운드는 자기 취소만 걷어내므로 이 자리에서도 동작해야 한다.
+        """
+        from custom_components.omron.omron_ble import session as session_module
+        from custom_components.omron.omron_ble.devices import get_device_config
+        from custom_components.omron.omron_ble.session import OmronDeviceSession
+
+        monkeypatch.setattr(session_module, "DISCONNECT_TIMEOUT_S", 0.05)
+        entered = asyncio.Event()
+
+        class _HungClient:
+            is_connected = True
+            address = ADDRESS
+
+            async def disconnect(self):
+                entered.set()
+                await asyncio.sleep(3600)
+
+        session = OmronDeviceSession(
+            SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T")
+        )
+        assert session.config.peer_closes_session_sec == 0, "이 프로필은 바로 끊는다"
+        session._client = _HungClient()
+        cancelling: list[int] = []
+
+        async def poll_with_deadline():
+            """_async_poll_data 의 구조: 데드라인 안에서 돌고, 정리는 그 뒤."""
+            with pytest.raises(TimeoutError):
+                async with asyncio.timeout(0.01):
+                    try:
+                        await asyncio.sleep(3600)
+                    finally:
+                        cancelling.append(asyncio.current_task().cancelling())
+                        await session.aclose()
+
+        async def scenario():
+            # 바운드가 듣지 않으면 매달리는 대신 여기서 실패한다.
+            async with asyncio.timeout(2):
+                await poll_with_deadline()
+
+        asyncio.run(scenario())
+
+        assert cancelling == [1], "데드라인의 취소가 이미 전달된 뒤에 돌았다"
+        assert entered.is_set(), "끊기를 시도는 했다"
+        assert session._client is None, "핸들은 놓아 준다"
+        assert "disconnect" in session.trace.timings
