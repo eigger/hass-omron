@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from logging import Logger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from sensor_state_data import SensorUpdate
 
@@ -15,12 +15,15 @@ from homeassistant.components.bluetooth import (
     BluetoothServiceInfoBleak,
 )
 from homeassistant.components.bluetooth.passive_update_processor import (
+    PassiveBluetoothDataProcessor,
     PassiveBluetoothProcessorCoordinator,
 )
 from homeassistant.core import HomeAssistant
 
 if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+_T = TypeVar("_T")
 
 
 class OmronBluetoothProcessorCoordinator(
@@ -44,3 +47,16 @@ class OmronBluetoothProcessorCoordinator(
         super().__init__(hass, logger, address, mode, update_method, connectable)
         self.device_data = device_data
         self.poll_coordinator = None
+
+
+class OmronPassiveBluetoothDataProcessor(
+    PassiveBluetoothDataProcessor[_T, SensorUpdate]
+):
+    """Dispatches advertisement SensorUpdates to PassiveBluetooth entities.
+
+    Same role as ``BleEslPassiveBluetoothDataProcessor``: poll-backed
+    measurements stay on ``DataUpdateCoordinator``; advertisement flags
+    (Data Pending, Pairing Mode, …) and RSSI update here immediately.
+    """
+
+    coordinator: OmronBluetoothProcessorCoordinator

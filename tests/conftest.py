@@ -34,9 +34,13 @@ sys.modules["homeassistant.util"] = MagicMock()
 sys.modules["homeassistant.util.dt"] = MagicMock()
 
 # OmronBluetoothProcessorCoordinator(PassiveBluetoothProcessorCoordinator[SensorUpdate])
+# / OmronPassiveBluetoothDataProcessor(PassiveBluetoothDataProcessor[...])
+# / OmronAdvertisement*Entity(PassiveBluetoothProcessorEntity[...])
 # 처럼 실제로 서브클래싱 + 제네릭 첨자가 쓰이므로 MockBase 사용.
 _ha_bt_processor = MagicMock()
 _ha_bt_processor.PassiveBluetoothProcessorCoordinator = MockBase
+_ha_bt_processor.PassiveBluetoothDataProcessor = MockBase
+_ha_bt_processor.PassiveBluetoothProcessorEntity = MockBase
 sys.modules["homeassistant.components.bluetooth.passive_update_processor"] = _ha_bt_processor
 
 # DataUpdateCoordinator[T] / CoordinatorEntity 도 서브클래싱 대비 MockBase.

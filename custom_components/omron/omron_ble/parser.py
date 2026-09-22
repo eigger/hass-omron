@@ -113,6 +113,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.result_identifier_num: int = 0
 
         self._seed_measurement_entities()
+        self._seed_advertisement_binary_sensors()
 
     def _open_session(
         self, ble_device: BLEDevice, *, pairing_session: bool = False
@@ -173,6 +174,33 @@ class OmronBluetoothDeviceData(BluetoothData):
                 name_suffix,
                 ExtendedSensorDeviceClass,
             )
+
+    def _seed_advertisement_binary_sensors(self) -> None:
+        """Pre-register MSD flag sensors so they exist before the first advert.
+
+        Data Pending / Pairing Mode / Time Sync Required are advertisement-
+        only. Without a seed they stay missing from the PassiveBluetooth
+        processor until the cuff broadcasts, which after a Home Assistant
+        restart looks like "unavailable until a poll succeeds".
+        """
+        self.update_binary_sensor(
+            "forced_transfer",
+            False,
+            ExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+            "Data Pending",
+        )
+        self.update_binary_sensor(
+            "invalid_time",
+            False,
+            ExtendedBinarySensorDeviceClass.INVALID_TIME,
+            "Time Sync Required",
+        )
+        self.update_binary_sensor(
+            "pairing_mode",
+            False,
+            ExtendedBinarySensorDeviceClass.PAIRING_MODE,
+            "Pairing Mode",
+        )
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""

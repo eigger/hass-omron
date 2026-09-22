@@ -24,6 +24,10 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
+from homeassistant.components.bluetooth.passive_update_processor import (
+    PassiveBluetoothDataUpdate,
+    PassiveBluetoothProcessorEntity,
+)
 from homeassistant.const import (
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
@@ -39,12 +43,16 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
+from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity_helpers import (
     device_key_entity_id_suffix,
+    device_key_to_bluetooth_entity_key,
     hass_device_info_with_ble_connection,
+    preserved_passive_unique_id,
 )
 from .types import OmronConfigEntry
 
+# Poll-backed measurement sensors. RSSI is advertisement-only (see below).
 SENSOR_DESCRIPTIONS = {
     # ---- Blood Pressure / Heart Rate (primary sensors) ----
 
@@ -133,7 +141,10 @@ SENSOR_DESCRIPTIONS = {
         key=str(OmronSensorDeviceClass.TIMESTAMP),
         device_class=SensorDeviceClass.TIMESTAMP,
     ),
-    # Signal Strength (RSSI) (dB)
+}
+
+ADVERTISEMENT_SENSOR_DESCRIPTIONS = {
+    # Signal Strength (RSSI) — passive advertisement (ble-esl pattern)
     (
         OmronSensorDeviceClass.SIGNAL_STRENGTH,
         Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
@@ -155,13 +166,72 @@ def hass_device_info(sensor_device_info, address: str | None = None):
 
 
 def _sensor_description_for_update(sensor_update: SensorUpdate, device_key: DeviceKey) -> SensorEntityDescription | None:
-    """Map sensor-state description to HA sensor description."""
+    """Map poll-backed sensor-state description to HA sensor description."""
     state_desc = sensor_update.entity_descriptions.get(device_key)
     if state_desc is None or state_desc.device_class is None:
         return None
-    return SENSOR_DESCRIPTIONS.get(
-        (state_desc.device_class, state_desc.native_unit_of_measurement)
+    key = (state_desc.device_class, state_desc.native_unit_of_measurement)
+    if key in ADVERTISEMENT_SENSOR_DESCRIPTIONS:
+        return None
+    return SENSOR_DESCRIPTIONS.get(key)
+
+
+def advertisement_sensor_update_to_bluetooth_data_update(
+    sensor_update: SensorUpdate,
+) -> PassiveBluetoothDataUpdate[float | None]:
+    """Convert advertisement SensorUpdate keys (RSSI) to a PassiveBluetooth update."""
+    return PassiveBluetoothDataUpdate(
+        devices={
+            device_id: hass_device_info(device_info)
+            for device_id, device_info in sensor_update.devices.items()
+        },
+        entity_descriptions={
+            device_key_to_bluetooth_entity_key(device_key): (
+                ADVERTISEMENT_SENSOR_DESCRIPTIONS[
+                    (
+                        description.device_class,
+                        description.native_unit_of_measurement,
+                    )
+                ]
+            )
+            for device_key, description in sensor_update.entity_descriptions.items()
+            if (
+                description.device_class is not None
+                and (
+                    description.device_class,
+                    description.native_unit_of_measurement,
+                )
+                in ADVERTISEMENT_SENSOR_DESCRIPTIONS
+            )
+        },
+        entity_names={
+            device_key_to_bluetooth_entity_key(device_key): sensor_values.name
+            for device_key, sensor_values in sensor_update.entity_values.items()
+            if _is_advertisement_sensor_key(sensor_update, device_key)
+        },
+        entity_data={
+            device_key_to_bluetooth_entity_key(device_key): (
+                float(sensor_values.native_value)
+                if isinstance(sensor_values.native_value, (int, float))
+                else None
+            )
+            for device_key, sensor_values in sensor_update.entity_values.items()
+            if _is_advertisement_sensor_key(sensor_update, device_key)
+        },
     )
+
+
+def _is_advertisement_sensor_key(
+    sensor_update: SensorUpdate, device_key: DeviceKey
+) -> bool:
+    """Return True when this key is an advertisement-only sensor (RSSI)."""
+    desc = sensor_update.entity_descriptions.get(device_key)
+    if desc is None or desc.device_class is None:
+        return False
+    return (
+        desc.device_class,
+        desc.native_unit_of_measurement,
+    ) in ADVERTISEMENT_SENSOR_DESCRIPTIONS
 
 
 async def async_setup_entry(
@@ -170,8 +240,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Omron BLE sensors."""
-    poll_coordinator = entry.runtime_data.poll_coordinator
+    bt_coordinator = entry.runtime_data
+    poll_coordinator = bt_coordinator.poll_coordinator
     known_entity_keys: set[str] = set()
+
+    # RSSI from advertisements — same PassiveBluetooth path as ble-esl.
+    adv_processor = OmronPassiveBluetoothDataProcessor(
+        advertisement_sensor_update_to_bluetooth_data_update
+    )
+    entry.async_on_unload(
+        adv_processor.async_add_entities_listener(
+            OmronAdvertisementSensorEntity, async_add_entities
+        )
+    )
+    entry.async_on_unload(
+        bt_coordinator.async_register_processor(adv_processor, SensorEntityDescription)
+    )
 
     def _build_new_entities(sensor_update: SensorUpdate | None) -> list[SensorEntity]:
         if sensor_update is None:
@@ -237,6 +321,43 @@ async def async_setup_entry(
         )
     if extra_entities:
         async_add_entities(extra_entities)
+
+
+class OmronAdvertisementSensorEntity(
+    PassiveBluetoothProcessorEntity[
+        OmronPassiveBluetoothDataProcessor[float | None]
+    ],
+    SensorEntity,
+):
+    """Sensor fed by Omron BLE advertisements (RSSI)."""
+
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        processor: OmronPassiveBluetoothDataProcessor[float | None],
+        entity_key,
+        description: SensorEntityDescription,
+        context=None,
+    ) -> None:
+        super().__init__(processor, entity_key, description, context)
+        self._attr_unique_id = preserved_passive_unique_id(
+            model=processor.coordinator.device_data.device_model,
+            address=processor.coordinator.address,
+            entity_key=entity_key,
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the native value."""
+        return self.processor.entity_data.get(self.entity_key)
+
+    @property
+    def available(self) -> bool:
+        """Keep last known RSSI while the cuff is asleep / not advertising."""
+        if self.entity_key in self.processor.entity_data:
+            return True
+        return super().available
 
 
 class OmronBluetoothSensorEntity(

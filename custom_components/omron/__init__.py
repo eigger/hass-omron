@@ -25,6 +25,7 @@ from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
+    async_last_service_info,
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
@@ -441,6 +442,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         user_aliases=slot_aliases,
         get_tz=lambda: dt_util.DEFAULT_TIME_ZONE,
     )
+    # Prime MSD flags / RSSI from the last cached advertisement so Data Pending
+    # and Pairing Mode are not blank until the cuff next broadcasts (and so the
+    # PassiveBluetooth processors below can create those entities at setup).
+    if last_service_info := async_last_service_info(hass, address, connectable=True):
+        data.update(last_service_info)
     # Transport credential for profiles whose unlock keeps its own key. Stored
     # hex; a malformed value is dropped rather than failing setup, which would
     # leave the user with no way back other than deleting the entry.
@@ -701,6 +707,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             poll_coordinator.last_exception,
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Platforms have registered PassiveBluetooth processors. Push the seeded /
+    # last-advertisement SensorUpdate so Data Pending, Pairing Mode, and RSSI
+    # exist immediately — without waiting for the next live advert or poll.
+    bt_coordinator.async_set_updated_data(data._finish_update())
 
     # only start after all platforms have had a chance to subscribe
     entry.async_on_unload(bt_coordinator.async_start())
