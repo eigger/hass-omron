@@ -7,6 +7,7 @@ import asyncio
 import logging
 import time
 
+from blesession import SessionReports
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass, SensorUpdate
 
 from .session_handoff import (
@@ -527,6 +528,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     hass.data[DOMAIN][entry.entry_id]["readout_coordinator"] = readout_coordinator
     hass.data[DOMAIN][entry.entry_id]["failure_coordinator"] = failure_coordinator
     hass.data[DOMAIN][entry.entry_id]["failure_count_coordinator"] = failure_count_coordinator
+    # The two report slots the diagnostic sensors publish: the last session,
+    # and the last one that failed (kept until the next failure, so a success
+    # since does not erase it). blesession owns the rule between them.
+    hass.data[DOMAIN][entry.entry_id]["session_reports"] = SessionReports()
 
     def _persist_transport_credential(
         hass: HomeAssistant, entry: OmronConfigEntry, device_data

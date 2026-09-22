@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from blesession import build_report, generic_cause, placement, stages
+from blesession import build_report, cause_key, placement, stages
 from blesession.hass import radio_facts
 
 from .omron_ble.session_trace import SessionTrace
@@ -26,37 +26,25 @@ if TYPE_CHECKING:
 _DEADLINE_ERROR = "Session deadline reached; the BLE stack stopped answering"
 
 
-def likely_cause(
-    stage: str | None,
-    detail: str | None,
-    error: str,
-    facts: Mapping[str, Any],
-    operation: str,
-) -> str:
-    """One sentence on what a failed session most likely means.
-
-    ``stage`` is the shared name (``auth``, ``transfer``, …) and ``detail``
-    the cuff's own (``unlock``, ``readout``, …). Best effort — ``error``
-    keeps the exact detail. A ``None`` from the cuff-specific table falls
-    through to the shared sentences.
-    """
-    text = _cuff_cause(stage, detail, error, facts, operation)
-    if text is not None:
-        return text
-    shared = generic_cause(stage or detail, error, facts, noun="cuff")
-    if shared is not None:
-        return shared
-    return "The session failed before the first stage was reached; see error."
+# When neither table has anything to say. Every other sentence names a stage.
+_NO_STAGE_CAUSE = "The session failed before the first stage was reached; see error."
 
 
-def _cuff_cause(
+def cuff_cause(
     stage: str | None,
     detail: str | None,
     error: str,
     facts: Mapping[str, Any],
     operation: str,
 ) -> str | None:
-    """The cuff's own reading, or None where the shared sentence is the one."""
+    """The cuff's own reading of a failure, or None where the shared one is it.
+
+    ``stage`` is the shared name (``auth``, ``transfer``, …) and ``detail``
+    the cuff's own (``unlock``, ``readout``, …). Best effort — ``error``
+    keeps the exact detail. A ``None`` leaves the sentence to
+    ``blesession``, which words the failures every BLE device shares and
+    hands the report a ``likely_cause_key`` for the one it chose.
+    """
     err = error.lower()
     where = detail or stage
     advice = placement(facts, noun="cuff")
@@ -165,13 +153,31 @@ def build_session_report(
     trace = trace if trace is not None else SessionTrace()
     if isinstance(exc, TimeoutError) and not str(exc):
         exc = TimeoutError(_DEADLINE_ERROR)
+
+    def cause(
+        stage: str | None, detail: str | None, error: str, facts: Mapping[str, Any]
+    ) -> str | None:
+        """The cuff's sentence; ``None`` hands the failure back to the library.
+
+        Handing it back rather than calling ``generic_cause`` here is what
+        puts ``likely_cause_key`` on the report — the stable name for the
+        shared sentence, which a translation can key on — and lets the
+        library read the exception type, not just the message text. The
+        last-resort sentence is only for a failure neither table names, so
+        it is returned only once ``cause_key`` says the library has none.
+        """
+        text = cuff_cause(stage, detail, error, facts, operation)
+        if text is not None:
+            return text
+        if cause_key(stage, error, exc=exc) is not None:
+            return None
+        return _NO_STAGE_CAUSE
+
     return build_report(
         operation=operation,
         trace=trace,
         exc=exc,
         facts=radio_facts(hass, address, trace.link),
-        cause=lambda stage, detail, error, facts: likely_cause(
-            stage, detail, error, facts, operation
-        ),
+        cause=cause,
         noun="cuff",
     )

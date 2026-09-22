@@ -46,7 +46,10 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pytest dbus-fast cryptography "blesession==0.1.0"
+          pip install pytest dbus-fast cryptography
+          # The library versions under test are the ones the integration
+          # ships, read from the manifest so the two cannot drift apart.
+          pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/omron/manifest.json'))['requirements']))")
 
       - name: Run tests
         run: python -m pytest tests/ -v

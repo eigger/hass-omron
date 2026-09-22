@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from blesession import SessionReports
+
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
@@ -211,18 +213,19 @@ async def omron_poll_ble_telemetry(
 ) -> AsyncIterator[None]:
     """Mark BLE session active, tick duration each second, finalize elapsed time on exit.
 
-    On exit the session's breakdown (see ``build_session_report``) is stored as
-    ``last_session_timing`` for the Duration sensor's attributes (cleared while
-    the session runs), and a failed
-    session is also stamped on the Last Failure sensor with its own copy, kept
-    until the next failure so a later success does not erase it, and counted
-    on Failure Count.
+    On exit the session's breakdown (see ``build_session_report``) is filed in
+    ``entry_data["session_reports"]``: ``last`` for the Duration sensor's
+    attributes (cleared while the session runs), and, for a failed session,
+    ``last_failure`` for the Last Failure sensor, which ``blesession`` keeps
+    until the next failure so a later success does not erase it. A failure is
+    also stamped on Last Failure's own timestamp and counted on Failure Count.
     """
     connection_coordinator = entry_data["connection_coordinator"]
     duration_coordinator = entry_data["duration_coordinator"]
     failure_coordinator = entry_data["failure_coordinator"]
     failure_count_coordinator = entry_data["failure_count_coordinator"]
     device_data = entry_data["data"]
+    reports: SessionReports = entry_data["session_reports"]
     # Cleared so a session that dies before the parser records anything does
     # not publish the previous session's stages as its own.
     device_data.last_session_trace = None
@@ -238,8 +241,9 @@ async def omron_poll_ble_telemetry(
 
     # No attributes while the session runs: the ticker writes the state every
     # second, and each write would otherwise record the previous session's
-    # breakdown against this one's running time.
-    entry_data["last_session_timing"] = None
+    # breakdown against this one's running time. Only the `last` slot --
+    # `clear()` would drop the last failure, which outlives any one session.
+    reports.last = None
     connection_coordinator.async_set_updated_data(True)
     duration_coordinator.async_set_updated_data(0.0)
     ticker_task = asyncio.create_task(_duration_ticker())
@@ -277,10 +281,11 @@ async def omron_poll_ble_telemetry(
                     **({"error": str(outcome) or type(outcome).__name__} if outcome else {}),
                 }
             # Before the duration update: that update is what writes the
-            # entity state, attributes included.
-            entry_data["last_session_timing"] = report
+            # entity state, attributes included. `record` files the report in
+            # both slots as it belongs -- `last_failure` only when it carries
+            # an error, so a success leaves the evidence standing.
+            reports.record(report)
             if outcome is not None:
-                entry_data["last_failure_timing"] = dict(report)
                 failure_count_coordinator.async_set_updated_data(
                     (failure_count_coordinator.data or 0) + 1
                 )
