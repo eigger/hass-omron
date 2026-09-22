@@ -28,10 +28,10 @@ from homeassistant.const import (
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
+from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
     device_key_entity_id_suffix,
     device_key_to_bluetooth_entity_key,
@@ -175,8 +175,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Omron BLE binary sensors."""
-    bt_coordinator = entry.runtime_data
-    poll_coordinator = bt_coordinator.poll_coordinator
+    runtime = entry.runtime_data
+    bt_coordinator = runtime.bt_coordinator
+    poll_coordinator = runtime.poll_coordinator
     known_entity_keys: set[str] = set()
 
     # Advertisement MSD flags: update on every advert (hass-ble-esl pattern).
@@ -209,7 +210,6 @@ async def async_setup_entry(
             sensor_name = sensor_value.name if sensor_value is not None else str(device_key.key)
             new_entities.append(
                 OmronBluetoothBinarySensorEntity(
-                    hass=hass,
                     entry=entry,
                     coordinator=poll_coordinator,
                     device_key=device_key,
@@ -233,13 +233,9 @@ async def async_setup_entry(
 
     entry.async_on_unload(poll_coordinator.async_add_listener(_handle_poll_update))
 
-    connection_coordinator = (
-        hass.data[DOMAIN][entry.entry_id].get("connection_coordinator")
+    async_add_entities(
+        [OmronConnectionBinarySensorEntity(entry, runtime.connection_coordinator)]
     )
-    if connection_coordinator is not None:
-        async_add_entities(
-            [OmronConnectionBinarySensorEntity(hass, entry, connection_coordinator)]
-        )
 
 
 class OmronAdvertisementBinarySensorEntity(
@@ -285,7 +281,7 @@ class OmronAdvertisementBinarySensorEntity(
 
 
 class OmronBluetoothBinarySensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
+    OmronCoordinatorEntity[SensorUpdate],
     RestoreEntity,
     BinarySensorEntity,
 ):
@@ -295,7 +291,6 @@ class OmronBluetoothBinarySensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
         coordinator: DataUpdateCoordinator[SensorUpdate],
         device_key: DeviceKey,
@@ -303,15 +298,11 @@ class OmronBluetoothBinarySensorEntity(
         sensor_name: str,
     ) -> None:
         """Initialize binary sensor entity backed by poll coordinator state."""
-        super().__init__(coordinator)
+        super().__init__(entry, coordinator)
         self.entity_description = description
         self._device_key = device_key
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
-        self._attr_unique_id = f"{model_slug}_{identifier}_{key_slug}"
+        self._attr_unique_id = self._runtime.entity_unique_id(key_slug)
         self._attr_name = sensor_name
         self._restored_is_on: bool | None = None
 
@@ -362,7 +353,7 @@ class OmronBluetoothBinarySensorEntity(
 
 
 class OmronConnectionBinarySensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator[bool]],
+    OmronCoordinatorEntity[bool],
     BinarySensorEntity,
 ):
     """Diagnostic binary sensor for active BLE poll connection."""
@@ -372,17 +363,14 @@ class OmronConnectionBinarySensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
         coordinator: DataUpdateCoordinator[bool],
     ) -> None:
-        super().__init__(coordinator)
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_name = f"{model} {identifier.upper()} Connection"
-        self._attr_unique_id = f"{model_slug}_{identifier}_connection"
+        super().__init__(entry, coordinator)
+        self._attr_name = (
+            f"{self._runtime.model} {self._runtime.identifier.upper()} Connection"
+        )
+        self._attr_unique_id = self._runtime.entity_unique_id("connection")
 
     @property
     def is_on(self) -> bool:

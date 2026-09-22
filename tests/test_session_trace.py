@@ -6,7 +6,6 @@ RSSI, 경로 수)와 한 줄 진단(``likely_cause``)을 붙여 Duration / Last 
 센서의 속성으로 내보낸다.
 """
 import asyncio
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -142,15 +141,11 @@ class _Remote(_Scanner):
 @pytest.fixture
 def radio(monkeypatch):
     """``blesession.hass.radio_facts`` 가 부르는 HA bluetooth 헬퍼를 스캐너 표로 대체한다."""
+    import homeassistant.components.bluetooth as bluetooth
+
     scanners: dict[str, _Scanner] = {}
     paths: list[object] = []
-    # homeassistant itself is a MagicMock, so a submodule import does not
-    # reuse sys.modules unless the parent attribute points at it. radio_facts
-    # imports the bluetooth helpers at call time.
-    components = sys.modules["homeassistant.components"]
-    bluetooth = sys.modules["homeassistant.components.bluetooth"]
-    monkeypatch.setattr(sys.modules["homeassistant"], "components", components)
-    monkeypatch.setattr(components, "bluetooth", bluetooth)
+    # radio_facts imports these names at call time, so patching the module is enough.
     monkeypatch.setattr(bluetooth, "BaseHaRemoteScanner", _Remote)
     monkeypatch.setattr(bluetooth, "BaseHaScanner", _Scanner)
     monkeypatch.setattr(
@@ -397,17 +392,16 @@ class _Coordinator:
         self.data = value
 
 
-def _entry_data():
-    return {
-        "address": ADDRESS,
-        "data": SimpleNamespace(last_session_trace=None),
-        "connection_coordinator": _Coordinator(),
-        "duration_coordinator": _Coordinator(),
-        "failure_coordinator": _Coordinator(),
-        "failure_count_coordinator": _Coordinator(),
-        # 두 슬롯(마지막 세션 / 마지막 실패)은 blesession 이 규칙을 갖는다.
-        "session_reports": SessionReports(),
-    }
+def _runtime():
+    return SimpleNamespace(
+        address=ADDRESS,
+        device_data=SimpleNamespace(last_session_trace=None),
+        connection_coordinator=_Coordinator(),
+        duration_coordinator=_Coordinator(),
+        failure_coordinator=_Coordinator(),
+        failure_count_coordinator=_Coordinator(),
+        session_reports=SessionReports(),
+    )
 
 
 @pytest.fixture
@@ -427,13 +421,13 @@ def plain_report(monkeypatch):
 
 class TestTelemetry:
     def test_a_failed_session_stamps_last_failure_too(self, plain_report):
-        entry_data = _entry_data()
-        reports = entry_data["session_reports"]
+        entry_data = _runtime()
+        reports = entry_data.session_reports
 
         async def scenario():
             with pytest.raises(ConnectionError):
                 async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                    entry_data["data"].last_session_trace = {"failed_stage": "connect"}
+                    entry_data.device_data.last_session_trace = {"failed_stage": "connect"}
                     raise ConnectionError("cuff asleep")
 
         asyncio.run(scenario())
@@ -444,40 +438,40 @@ class TestTelemetry:
         assert timing["error"] == "cuff asleep"
         # 두 슬롯은 통째로 갈아끼워질 뿐 수정되지 않으므로 같은 dict 로 둔다.
         assert reports.last_failure is timing
-        assert len(entry_data["failure_coordinator"].values) == 1
-        assert entry_data["failure_count_coordinator"].data == 1
-        assert entry_data["connection_coordinator"].values[-1] is False
+        assert len(entry_data.failure_coordinator.values) == 1
+        assert entry_data.failure_count_coordinator.data == 1
+        assert entry_data.connection_coordinator.values[-1] is False
 
     def test_a_later_success_updates_duration_but_keeps_the_failure(self, plain_report):
-        entry_data = _entry_data()
-        reports = entry_data["session_reports"]
+        entry_data = _runtime()
+        reports = entry_data.session_reports
 
         async def scenario():
             with pytest.raises(ConnectionError):
                 async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
                     raise ConnectionError("first")
             async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                entry_data["data"].last_session_trace = {"records": 1}
+                entry_data.device_data.last_session_trace = {"records": 1}
 
         asyncio.run(scenario())
 
         assert reports.last["success"] is True
         assert reports.last["records"] == 1
         assert reports.last_failure["error"] == "first"
-        assert len(entry_data["failure_coordinator"].values) == 1
-        assert entry_data["failure_count_coordinator"].data == 1
+        assert len(entry_data.failure_coordinator.values) == 1
+        assert entry_data.failure_count_coordinator.data == 1
 
     def test_the_report_lands_before_the_final_duration_update(self, monkeypatch, plain_report):
         """Duration 의 마지막 갱신이 엔티티 상태(속성 포함)를 쓴다 — 그 전에 있어야 한다."""
-        entry_data = _entry_data()
+        entry_data = _runtime()
         seen: list[object] = []
 
         class Duration(_Coordinator):
             def async_set_updated_data(self, value):
-                seen.append(entry_data["session_reports"].last)
+                seen.append(entry_data.session_reports.last)
                 super().async_set_updated_data(value)
 
-        entry_data["duration_coordinator"] = Duration()
+        entry_data.duration_coordinator = Duration()
 
         async def scenario():
             async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
@@ -488,8 +482,8 @@ class TestTelemetry:
 
     def test_no_attributes_while_the_session_runs(self, plain_report):
         """1초 티커가 이전 세션의 분해를 이번 세션의 시간에 붙여 기록하면 안 된다."""
-        entry_data = _entry_data()
-        reports = entry_data["session_reports"]
+        entry_data = _runtime()
+        reports = entry_data.session_reports
         reports.record({"success": False, "failed_stage": "connect", "error": "old"})
         during: list[object] = []
 
@@ -506,8 +500,8 @@ class TestTelemetry:
 
     def test_the_previous_trace_is_cleared_on_entry(self, plain_report):
         """파서에 닿기 전에 죽은 세션이 이전 세션의 단계를 제 것처럼 내면 안 된다."""
-        entry_data = _entry_data()
-        entry_data["data"].last_session_trace = {"connect_s": 9.9}
+        entry_data = _runtime()
+        entry_data.device_data.last_session_trace = {"connect_s": 9.9}
 
         async def scenario():
             with pytest.raises(RuntimeError):
@@ -515,11 +509,11 @@ class TestTelemetry:
                     raise RuntimeError("no device")
 
         asyncio.run(scenario())
-        assert "connect_s" not in entry_data["session_reports"].last
-        assert entry_data["session_reports"].last["operation"] == "pairing"
+        assert "connect_s" not in entry_data.session_reports.last
+        assert entry_data.session_reports.last["operation"] == "pairing"
 
     def test_an_outer_cancellation_is_not_a_failure(self, plain_report):
-        entry_data = _entry_data()
+        entry_data = _runtime()
 
         async def scenario():
             with pytest.raises(asyncio.CancelledError):
@@ -527,10 +521,10 @@ class TestTelemetry:
                     raise asyncio.CancelledError()
 
         asyncio.run(scenario())
-        assert entry_data["session_reports"].last is None
-        assert entry_data["failure_coordinator"].values == []
-        assert entry_data["failure_count_coordinator"].values == []
-        assert entry_data["connection_coordinator"].values[-1] is False
+        assert entry_data.session_reports.last is None
+        assert entry_data.failure_coordinator.values == []
+        assert entry_data.failure_count_coordinator.values == []
+        assert entry_data.connection_coordinator.values[-1] is False
 
 
 # ── async_poll records its trace ────────────────────────────────────────────

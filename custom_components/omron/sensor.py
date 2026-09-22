@@ -6,7 +6,6 @@ from datetime import datetime
 
 import datetime as dt
 from typing import Any
-from blesession import SessionReports
 from sensor_state_data import (
     DeviceKey,
     SensorDeviceClass as OmronSensorDeviceClass,
@@ -40,10 +39,10 @@ from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
+from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
     device_key_entity_id_suffix,
     device_key_to_bluetooth_entity_key,
@@ -239,8 +238,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Omron BLE sensors."""
-    bt_coordinator = entry.runtime_data
-    poll_coordinator = bt_coordinator.poll_coordinator
+    runtime = entry.runtime_data
+    bt_coordinator = runtime.bt_coordinator
+    poll_coordinator = runtime.poll_coordinator
     known_entity_keys: set[str] = set()
 
     # RSSI from advertisements — same PassiveBluetooth path as ble-esl.
@@ -271,7 +271,6 @@ async def async_setup_entry(
             sensor_name = sensor_value.name if sensor_value is not None else str(device_key.key)
             new_entities.append(
                 OmronBluetoothSensorEntity(
-                    hass=hass,
                     entry=entry,
                     coordinator=poll_coordinator,
                     device_key=device_key,
@@ -295,31 +294,14 @@ async def async_setup_entry(
 
     entry.async_on_unload(poll_coordinator.async_add_listener(_handle_poll_update))
 
-    duration_coordinator = (
-        hass.data[DOMAIN][entry.entry_id].get("duration_coordinator")
+    async_add_entities(
+        [
+            OmronPollDurationSensorEntity(entry, runtime.duration_coordinator),
+            OmronLastReadoutSensorEntity(entry, runtime.readout_coordinator),
+            OmronLastFailureSensorEntity(entry, runtime.failure_coordinator),
+            OmronFailureCountSensorEntity(entry, runtime.failure_count_coordinator),
+        ]
     )
-    readout_coordinator = (
-        hass.data[DOMAIN][entry.entry_id].get("readout_coordinator")
-    )
-    failure_coordinator = (
-        hass.data[DOMAIN][entry.entry_id].get("failure_coordinator")
-    )
-    failure_count_coordinator = (
-        hass.data[DOMAIN][entry.entry_id].get("failure_count_coordinator")
-    )
-    extra_entities: list[SensorEntity] = []
-    if duration_coordinator is not None:
-        extra_entities.append(OmronPollDurationSensorEntity(hass, entry, duration_coordinator))
-    if readout_coordinator is not None:
-        extra_entities.append(OmronLastReadoutSensorEntity(hass, entry, readout_coordinator))
-    if failure_coordinator is not None:
-        extra_entities.append(OmronLastFailureSensorEntity(hass, entry, failure_coordinator))
-    if failure_count_coordinator is not None:
-        extra_entities.append(
-            OmronFailureCountSensorEntity(hass, entry, failure_count_coordinator)
-        )
-    if extra_entities:
-        async_add_entities(extra_entities)
 
 
 class OmronAdvertisementSensorEntity(
@@ -357,7 +339,7 @@ class OmronAdvertisementSensorEntity(
 
 
 class OmronBluetoothSensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
+    OmronCoordinatorEntity[SensorUpdate],
     RestoreEntity,
     SensorEntity,
 ):
@@ -367,7 +349,6 @@ class OmronBluetoothSensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
         coordinator: DataUpdateCoordinator[SensorUpdate],
         device_key: DeviceKey,
@@ -375,16 +356,12 @@ class OmronBluetoothSensorEntity(
         sensor_name: str,
     ) -> None:
         """Initialize sensor entity backed by poll coordinator state."""
-        super().__init__(coordinator)
+        super().__init__(entry, coordinator)
         self.entity_description = description
         self._device_key = device_key
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        self._omron_device_data = hass.data[DOMAIN][entry.entry_id]["data"]
-        model = self._omron_device_data.device_model
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
+        self._omron_device_data = self._runtime.device_data
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
-        self._attr_unique_id = f"{model_slug}_{identifier}_{key_slug}"
+        self._attr_unique_id = self._runtime.entity_unique_id(key_slug)
         self._attr_name = sensor_name
         self._restored_native_value: Any | None = None
 
@@ -523,7 +500,7 @@ class OmronBluetoothSensorEntity(
 
 
 class OmronPollDurationSensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator[float | None]],
+    OmronCoordinatorEntity[float | None],
     SensorEntity,
 ):
     """Diagnostic sensor for latest poll duration.
@@ -544,19 +521,14 @@ class OmronPollDurationSensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
         coordinator: DataUpdateCoordinator[float | None],
     ) -> None:
-        super().__init__(coordinator)
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_name = f"{model} {identifier.upper()} Duration"
-        self._attr_unique_id = f"{model_slug}_{identifier}_duration"
-        self._entry_data = hass.data[DOMAIN][entry.entry_id]
-        self._reports: SessionReports = self._entry_data["session_reports"]
+        super().__init__(entry, coordinator)
+        self._attr_name = (
+            f"{self._runtime.model} {self._runtime.identifier.upper()} Duration"
+        )
+        self._attr_unique_id = self._runtime.entity_unique_id("duration")
 
     @property
     def native_value(self) -> float | None:
@@ -566,7 +538,7 @@ class OmronPollDurationSensorEntity(
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """The last session's breakdown; each session's final duration update publishes it."""
-        return self._reports.last
+        return self._runtime.session_reports.last
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -577,7 +549,7 @@ class OmronPollDurationSensorEntity(
 
 
 class OmronLastFailureSensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator["datetime | None"]],
+    OmronCoordinatorEntity[datetime | None],
     SensorEntity,
 ):
     """Diagnostic sensor for when a BLE session last failed.
@@ -595,19 +567,14 @@ class OmronLastFailureSensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
-        coordinator: DataUpdateCoordinator["datetime | None"],
+        coordinator: DataUpdateCoordinator[datetime | None],
     ) -> None:
-        super().__init__(coordinator)
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_name = f"{model} {identifier.upper()} Last Failure"
-        self._attr_unique_id = f"{model_slug}_{identifier}_last_failure"
-        self._entry_data = hass.data[DOMAIN][entry.entry_id]
-        self._reports: SessionReports = self._entry_data["session_reports"]
+        super().__init__(entry, coordinator)
+        self._attr_name = (
+            f"{self._runtime.model} {self._runtime.identifier.upper()} Last Failure"
+        )
+        self._attr_unique_id = self._runtime.entity_unique_id("last_failure")
 
     @property
     def native_value(self) -> "datetime | None":
@@ -617,7 +584,7 @@ class OmronLastFailureSensorEntity(
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """The breakdown of the session that failed at this time."""
-        return self._reports.last_failure
+        return self._runtime.session_reports.last_failure
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -628,7 +595,7 @@ class OmronLastFailureSensorEntity(
 
 
 class OmronFailureCountSensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator[int]],
+    OmronCoordinatorEntity[int],
     SensorEntity,
 ):
     """Diagnostic sensor counting failed BLE sessions since the entry was (re)loaded.
@@ -645,17 +612,14 @@ class OmronFailureCountSensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
         coordinator: DataUpdateCoordinator[int],
     ) -> None:
-        super().__init__(coordinator)
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_name = f"{model} {identifier.upper()} Failure Count"
-        self._attr_unique_id = f"{model_slug}_{identifier}_failure_count"
+        super().__init__(entry, coordinator)
+        self._attr_name = (
+            f"{self._runtime.model} {self._runtime.identifier.upper()} Failure Count"
+        )
+        self._attr_unique_id = self._runtime.entity_unique_id("failure_count")
 
     @property
     def native_value(self) -> int | None:
@@ -671,7 +635,7 @@ class OmronFailureCountSensorEntity(
 
 
 class OmronLastReadoutSensorEntity(
-    CoordinatorEntity[DataUpdateCoordinator["datetime | None"]],
+    OmronCoordinatorEntity[datetime | None],
     SensorEntity,
 ):
     """Diagnostic sensor for when a poll last decoded a record.
@@ -689,17 +653,14 @@ class OmronLastReadoutSensorEntity(
 
     def __init__(
         self,
-        hass: HomeAssistant,
         entry: OmronConfigEntry,
-        coordinator: DataUpdateCoordinator["datetime | None"],
+        coordinator: DataUpdateCoordinator[datetime | None],
     ) -> None:
-        super().__init__(coordinator)
-        model = hass.data[DOMAIN][entry.entry_id]["data"].device_model
-        self._address = hass.data[DOMAIN][entry.entry_id]["address"]
-        identifier = self._address.replace(":", "")[-4:].lower()
-        model_slug = model.lower().replace("-", "_")
-        self._attr_name = f"{model} {identifier.upper()} Last Readout"
-        self._attr_unique_id = f"{model_slug}_{identifier}_last_readout"
+        super().__init__(entry, coordinator)
+        self._attr_name = (
+            f"{self._runtime.model} {self._runtime.identifier.upper()} Last Readout"
+        )
+        self._attr_unique_id = self._runtime.entity_unique_id("last_readout")
 
     @property
     def native_value(self) -> "datetime | None":

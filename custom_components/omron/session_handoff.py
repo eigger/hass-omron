@@ -209,23 +209,26 @@ async def run_post_pairing_poll(
 
 @asynccontextmanager
 async def omron_poll_ble_telemetry(
-    hass: HomeAssistant, entry_data: dict, operation: str = "poll"
+    hass: HomeAssistant, runtime: Any, operation: str = "poll"
 ) -> AsyncIterator[None]:
     """Mark BLE session active, tick duration each second, finalize elapsed time on exit.
 
     On exit the session's breakdown (see ``build_session_report``) is filed in
-    ``entry_data["session_reports"]``: ``last`` for the Duration sensor's
-    attributes (cleared while the session runs), and, for a failed session,
+    ``runtime.session_reports``: ``last`` for the Duration sensor's attributes
+    (cleared while the session runs), and, for a failed session,
     ``last_failure`` for the Last Failure sensor, which ``blesession`` keeps
     until the next failure so a later success does not erase it. A failure is
     also stamped on Last Failure's own timestamp and counted on Failure Count.
+
+    ``runtime`` is the entry's ``OmronRuntimeData``. Tests pass the same
+    attributes on a stand-in.
     """
-    connection_coordinator = entry_data["connection_coordinator"]
-    duration_coordinator = entry_data["duration_coordinator"]
-    failure_coordinator = entry_data["failure_coordinator"]
-    failure_count_coordinator = entry_data["failure_count_coordinator"]
-    device_data = entry_data["data"]
-    reports: SessionReports = entry_data["session_reports"]
+    connection_coordinator = runtime.connection_coordinator
+    duration_coordinator = runtime.duration_coordinator
+    failure_coordinator = runtime.failure_coordinator
+    failure_count_coordinator = runtime.failure_count_coordinator
+    device_data = runtime.device_data
+    reports: SessionReports = runtime.session_reports
     # Cleared so a session that dies before the parser records anything does
     # not publish the previous session's stages as its own.
     device_data.last_session_trace = None
@@ -267,7 +270,7 @@ async def omron_poll_ble_telemetry(
             try:
                 report = build_session_report(
                     hass,
-                    entry_data["address"],
+                    runtime.address,
                     operation=operation,
                     trace=device_data.last_session_trace,
                     exc=outcome,

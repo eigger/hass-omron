@@ -145,46 +145,34 @@ def _make_latch_harness(
     )
 
     data = FakeAdvertisementData()
-
-    coordinator = SimpleNamespace(
-        hass=hass,
-        device_data=data,
-        poll_coordinator=poll,
-    )
-
+    session_lock = asyncio.Lock()
     entry_id = "deterministic-test-entry"
+    service_info = SimpleNamespace(address=ADDRESS, connectable=True)
+
+    runtime = SimpleNamespace(
+        address=ADDRESS,
+        device_data=data,
+        bt_coordinator=SimpleNamespace(hass=hass),
+        poll_coordinator=poll,
+        session_lock=session_lock,
+        last_attempt_time=0.0,
+        pending_forced_transfer=False,
+        pending_forced_transfer_baseline=None,
+        pending_forced_transfer_task=None,
+        force_poll_after_lock=False,
+    )
 
     entry = SimpleNamespace(
         entry_id=entry_id,
-        runtime_data=coordinator,
-    )
-
-    session_lock = asyncio.Lock()
-
-    entry_data = {
-        "address": ADDRESS,
-        "session_lock": session_lock,
-        "last_attempt_time": 0.0,
-    }
-
-    hass.data = {
-        omron_init.DOMAIN: {
-            entry_id: entry_data,
-        }
-    }
-
-    service_info = SimpleNamespace(
-        address=ADDRESS,
-        connectable=True,
+        runtime_data=runtime,
     )
 
     return SimpleNamespace(
         hass=hass,
         poll=poll,
         data=data,
-        coordinator=coordinator,
+        runtime=runtime,
         entry=entry,
-        entry_data=entry_data,
         session_lock=session_lock,
         service_info=service_info,
     )
@@ -205,11 +193,11 @@ def test_locked_forced_transfer_coalesces_and_drains_exactly_once():
             )
             assert result is h.data.update_result
 
-        assert h.entry_data["pending_forced_transfer"] is True
+        assert h.runtime.pending_forced_transfer is True
         assert len(h.hass.created_tasks) == 1
         assert h.poll.refresh_calls == 0
 
-        task = h.entry_data["pending_forced_transfer_task"]
+        task = h.runtime.pending_forced_transfer_task
 
         assert task is h.hass.created_tasks[0]
         assert task is not None
@@ -225,10 +213,10 @@ def test_locked_forced_transfer_coalesces_and_drains_exactly_once():
         await asyncio.wait_for(task, timeout=1.0)
 
         assert h.poll.refresh_calls == 1
-        assert h.entry_data["pending_forced_transfer"] is False
-        assert h.entry_data["pending_forced_transfer_task"] is None
-        assert "pending_forced_transfer_baseline" not in h.entry_data
-        assert "force_poll_after_lock" not in h.entry_data
+        assert h.runtime.pending_forced_transfer is False
+        assert h.runtime.pending_forced_transfer_task is None
+        assert h.runtime.pending_forced_transfer_baseline is None
+        assert h.runtime.force_poll_after_lock is False
 
     asyncio.run(scenario())
 
@@ -246,9 +234,9 @@ def test_locked_forced_transfer_consumed_by_inflight_poll_avoids_duplicate():
             h.service_info,
         )
 
-        task = h.entry_data["pending_forced_transfer_task"]
+        task = h.runtime.pending_forced_transfer_task
 
-        assert h.entry_data["pending_forced_transfer_baseline"] is baseline
+        assert h.runtime.pending_forced_transfer_baseline is baseline
 
         # Simulate the session already owning the lock publishing a new
         # measurement before it releases the lock.
@@ -260,10 +248,10 @@ def test_locked_forced_transfer_consumed_by_inflight_poll_avoids_duplicate():
 
         # The latch is consumed, not replayed as a second connection.
         assert h.poll.refresh_calls == 0
-        assert h.entry_data["pending_forced_transfer"] is False
-        assert h.entry_data["pending_forced_transfer_task"] is None
-        assert "pending_forced_transfer_baseline" not in h.entry_data
-        assert "force_poll_after_lock" not in h.entry_data
+        assert h.runtime.pending_forced_transfer is False
+        assert h.runtime.pending_forced_transfer_task is None
+        assert h.runtime.pending_forced_transfer_baseline is None
+        assert h.runtime.force_poll_after_lock is False
 
     asyncio.run(scenario())
 
@@ -286,7 +274,7 @@ def test_failed_delayed_forced_transfer_refresh_is_relatched():
             h.service_info,
         )
 
-        task = h.entry_data["pending_forced_transfer_task"]
+        task = h.runtime.pending_forced_transfer_task
 
         h.session_lock.release()
 
@@ -295,14 +283,14 @@ def test_failed_delayed_forced_transfer_refresh_is_relatched():
         assert h.poll.refresh_calls == 1
 
         # Failure must not discard the measurement request.
-        assert h.entry_data["pending_forced_transfer"] is True
+        assert h.runtime.pending_forced_transfer is True
         assert (
-            h.entry_data["pending_forced_transfer_baseline"]
+            h.runtime.pending_forced_transfer_baseline
             is current_readout
         )
 
-        assert h.entry_data["pending_forced_transfer_task"] is None
-        assert "force_poll_after_lock" not in h.entry_data
+        assert h.runtime.pending_forced_transfer_task is None
+        assert h.runtime.force_poll_after_lock is False
 
     asyncio.run(scenario())
 
@@ -322,9 +310,9 @@ def test_non_forced_trigger_is_not_put_into_forced_transfer_latch():
                 h.service_info,
             )
 
-            assert "pending_forced_transfer" not in h.entry_data
-            assert "pending_forced_transfer_task" not in h.entry_data
-            assert "pending_forced_transfer_baseline" not in h.entry_data
+            assert h.runtime.pending_forced_transfer is False
+            assert h.runtime.pending_forced_transfer_task is None
+            assert h.runtime.pending_forced_transfer_baseline is None
             assert len(h.hass.created_tasks) == 0
             assert h.poll.refresh_calls == 0
         finally:
@@ -333,82 +321,43 @@ def test_non_forced_trigger_is_not_put_into_forced_transfer_latch():
     asyncio.run(scenario())
 
 
-def test_explicit_forced_transfer_missing_device_fails_and_consumes_marker():
+def test_explicit_forced_transfer_missing_device_fails_and_consumes_marker(monkeypatch):
     async def scenario():
         poll = FakePollCoordinator(
             success=True,
             cached_data=object(),
         )
-
-        readout = SimpleNamespace(
-            async_set_updated_data=lambda value: None,
+        runtime = SimpleNamespace(
+            address=ADDRESS,
+            session_lock=asyncio.Lock(),
+            force_poll_after_lock=True,
+            device_data=SimpleNamespace(),
+            poll_coordinator=poll,
         )
-
-        async_poll_data, namespace = _extract_async_function(
-            INIT_PATH,
-            "_async_poll_data",
-            omron_init.__dict__,
-        )
-
-        namespace["poll_coordinator"] = poll
-        namespace["readout_coordinator"] = readout
-        namespace["_persist_transport_credential"] = (
-            lambda hass, entry, device_data: None
-        )
-
-        # The key condition for the P2.16B.3 race:
-        # the device was present for the Data Pending advertisement but is no
+        entry = SimpleNamespace(runtime_data=runtime)
+        # The device was present for the Data Pending advertisement but is no
         # longer discoverable when the explicit refresh actually executes.
-        namespace["async_ble_device_from_address"] = (
-            lambda hass, address: None
+        monkeypatch.setattr(
+            omron_init, "async_ble_device_from_address", lambda hass, address: None
         )
 
-        entry_id = "missing-device-entry"
-
-        entry_data = {
-            "address": ADDRESS,
-            "session_lock": asyncio.Lock(),
-            "force_poll_after_lock": True,
-        }
-
-        hass = SimpleNamespace(
-            data={
-                omron_init.DOMAIN: {
-                    entry_id: entry_data,
-                }
-            }
-        )
-
-        device_data = SimpleNamespace()
-
-        entry = SimpleNamespace(
-            entry_id=entry_id,
-            runtime_data=SimpleNamespace(
-                device_data=device_data,
-            ),
-        )
-
-        # UpdateFailed: 예상된 BLE 실패는 통합 버그가 아니라 갱신 실패다.
-        # HA 는 UpdateFailed 만 한 번 error 로 찍고 이후 조용하며, 맨몸 예외에는
-        # 매 refresh 마다 트레이스백을 남긴다. 원인은 __cause__ 로 남는다.
+        # UpdateFailed: an expected BLE miss is a failed refresh, not an
+        # integration bug. The cause stays on __cause__.
         with pytest.raises(
             UpdateFailed,
             match="disappeared before forced-transfer poll",
         ) as raised:
-            await async_poll_data(
-                hass,
-                entry,
-            )
+            await omron_init.async_poll_data(SimpleNamespace(), entry)
         assert isinstance(raised.value.__cause__, ConnectionError)
 
         # Marker must be consumed before discovery; callers re-latch the
         # measurement request rather than leaving a stale force flag behind.
-        assert "force_poll_after_lock" not in entry_data
+        assert runtime.force_poll_after_lock is False
 
     asyncio.run(scenario())
 
 
-def test_hard_poll_error_escapes_even_when_cached_data_exists():
+def test_hard_poll_error_escapes_even_when_cached_data_exists(monkeypatch):
     async def scenario():
         cached = object()
 
@@ -430,75 +379,43 @@ def test_hard_poll_error_escapes_even_when_cached_data_exists():
                     "synthetic hard BLE poll failure"
                 )
 
-        device_data = FailingDeviceData()
-
-        async_poll_data, namespace = _extract_async_function(
-            INIT_PATH,
-            "_async_poll_data",
-            omron_init.__dict__,
+        session_lock = asyncio.Lock()
+        runtime = SimpleNamespace(
+            address=ADDRESS,
+            session_lock=session_lock,
+            force_poll_after_lock=False,
+            device_data=FailingDeviceData(),
+            poll_coordinator=poll,
+            readout_coordinator=SimpleNamespace(
+                async_set_updated_data=lambda value: None
+            ),
         )
+        entry = SimpleNamespace(runtime_data=runtime)
 
-        namespace["poll_coordinator"] = poll
-
-        namespace["readout_coordinator"] = SimpleNamespace(
-            async_set_updated_data=lambda value: None,
+        monkeypatch.setattr(
+            omron_init,
+            "async_ble_device_from_address",
+            lambda hass, address: SimpleNamespace(address=address),
         )
-
-        namespace["_persist_transport_credential"] = (
-            lambda hass, entry, parser: None
-        )
-
-        namespace["async_ble_device_from_address"] = (
-            lambda hass, address: SimpleNamespace(
-                address=address,
-            )
-        )
-
-        namespace["adopt_handoff_session"] = (
-            lambda hass, address: None
+        monkeypatch.setattr(
+            omron_init, "adopt_handoff_session", lambda hass, address: None
         )
 
         @asynccontextmanager
-        async def noop_telemetry(hass, entry_data, operation="poll"):
+        async def noop_telemetry(hass, runtime, operation="poll"):
             yield
 
-        namespace["omron_poll_ble_telemetry"] = noop_telemetry
-
-        entry_id = "hard-failure-entry"
-
-        session_lock = asyncio.Lock()
-
-        hass = SimpleNamespace(
-            data={
-                omron_init.DOMAIN: {
-                    entry_id: {
-                        "address": ADDRESS,
-                        "session_lock": session_lock,
-                    }
-                }
-            }
-        )
-
-        entry = SimpleNamespace(
-            entry_id=entry_id,
-            runtime_data=SimpleNamespace(
-                device_data=device_data,
-            ),
-        )
+        monkeypatch.setattr(omron_init, "omron_poll_ble_telemetry", noop_telemetry)
 
         with pytest.raises(
             UpdateFailed,
             match="synthetic hard BLE poll failure",
         ) as raised:
-            await async_poll_data(
-                hass,
-                entry,
-            )
-        # 원인이 보존돼야 로그에서 진짜 실패를 추적할 수 있다.
+            await omron_init.async_poll_data(SimpleNamespace(), entry)
+        # The original failure has to stay attached so logs can name it.
         assert isinstance(raised.value.__cause__, RuntimeError)
 
-        # Most important regression check:
-        # cached coordinator data must NOT convert a real BLE failure into a
+        # Cached coordinator data must not turn a real BLE failure into a
         # successful SensorUpdate return.
         assert poll.data is cached
 

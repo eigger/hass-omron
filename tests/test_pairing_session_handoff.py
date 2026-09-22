@@ -508,7 +508,7 @@ class TestCallSitesHandOffTheSession:
 
     def test_poll_cleanup_reclaims_ownership_before_closing(self):
         """A handed-off session the poll never adopted only drops on reclaim."""
-        fn = _find_async_function(_parse("__init__.py"), "_async_poll_data")
+        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
 
         assert any(
             name.endswith("reclaim_ownership") for name in _called_names(fn)
@@ -563,7 +563,7 @@ class TestSkippedPollKeepsTheSessionParked:
     def test_session_is_adopted_only_inside_the_lock(self):
         """Adopting at the top of the poll would hand the bail-out paths (no
         device, session lock held) a link they close without ever using."""
-        fn = _find_async_function(_parse("__init__.py"), "_async_poll_data")
+        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
 
         adopting = [
             node
