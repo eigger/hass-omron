@@ -15,6 +15,10 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.components.bluetooth.passive_update_processor import (
+    PassiveBluetoothDataUpdate,
+    PassiveBluetoothProcessorEntity,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import (
     STATE_UNAVAILABLE,
@@ -27,13 +31,24 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
 
 from .const import DOMAIN
+from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity_helpers import (
     device_key_entity_id_suffix,
+    device_key_to_bluetooth_entity_key,
     hass_device_info_with_ble_connection,
+    preserved_passive_unique_id,
 )
 from .types import OmronConfigEntry
 
-BINARY_SENSOR_DESCRIPTIONS = {
+# Advertisement MSD flags — live on the PassiveBluetooth processor (ble-esl pattern).
+ADVERTISEMENT_BINARY_DEVICE_CLASSES = frozenset({
+    OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+    OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
+    OmronExtendedBinarySensorDeviceClass.PAIRING_MODE,
+})
+
+# Measurement status flags from a successful GATT readout — poll coordinator.
+POLL_BINARY_SENSOR_DESCRIPTIONS = {
     OmronBinarySensorDeviceClass.PROBLEM: BinarySensorEntityDescription(
         key=OmronBinarySensorDeviceClass.PROBLEM,
         device_class=BinarySensorDeviceClass.PROBLEM,
@@ -58,6 +73,9 @@ BINARY_SENSOR_DESCRIPTIONS = {
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:seat-recline-normal",
     ),
+}
+
+ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {
     OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
         icon="mdi:sync",
@@ -76,15 +94,79 @@ BINARY_SENSOR_DESCRIPTIONS = {
 }
 
 
-def _binary_description_for_update(
+def _poll_binary_description_for_update(
     sensor_update: SensorUpdate,
     device_key: DeviceKey,
 ) -> BinarySensorEntityDescription | None:
-    """Map sensor-state binary description to HA binary description."""
+    """Map poll-backed sensor-state binary description to HA description."""
     state_desc = sensor_update.binary_entity_descriptions.get(device_key)
     if state_desc is None or state_desc.device_class is None:
         return None
-    return BINARY_SENSOR_DESCRIPTIONS.get(state_desc.device_class)
+    if state_desc.device_class in ADVERTISEMENT_BINARY_DEVICE_CLASSES:
+        return None
+    return POLL_BINARY_SENSOR_DESCRIPTIONS.get(state_desc.device_class)
+
+
+def advertisement_binary_update_to_bluetooth_data_update(
+    sensor_update: SensorUpdate,
+) -> PassiveBluetoothDataUpdate[bool | None]:
+    """Convert advertisement flag SensorUpdate keys to a PassiveBluetooth update."""
+    return PassiveBluetoothDataUpdate(
+        devices={
+            device_id: hass_device_info_with_ble_connection(
+                device_info, None, include_revision_attrs=False
+            )
+            for device_id, device_info in sensor_update.devices.items()
+        },
+        entity_descriptions={
+            device_key_to_bluetooth_entity_key(device_key): (
+                ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS[description.device_class]
+            )
+            for device_key, description in sensor_update.binary_entity_descriptions.items()
+            if _published_advertisement_binary(
+                sensor_update,
+                device_key,
+                sensor_update.binary_entity_values.get(device_key),
+            )
+        },
+        entity_names={
+            device_key_to_bluetooth_entity_key(device_key): sensor_values.name
+            for device_key, sensor_values in sensor_update.binary_entity_values.items()
+            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
+        },
+        entity_data={
+            device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
+            for device_key, sensor_values in sensor_update.binary_entity_values.items()
+            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
+        },
+    )
+
+
+def _is_advertisement_binary_key(
+    sensor_update: SensorUpdate, device_key: DeviceKey
+) -> bool:
+    """Return True when this key is an MSD advertisement flag sensor."""
+    desc = sensor_update.binary_entity_descriptions.get(device_key)
+    return (
+        desc is not None
+        and desc.device_class in ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS
+    )
+
+
+def _published_advertisement_binary(
+    sensor_update: SensorUpdate, device_key: DeviceKey, sensor_values
+) -> bool:
+    """Publish a flag only once an advertisement has produced a real bool.
+
+    ``None`` is not a reading. Writing it into the processor would mark a
+    cuff that has never advertised as off, and would replace a restored
+    ``on`` after restart.
+    """
+    if sensor_values is None:
+        return False
+    return _is_advertisement_binary_key(sensor_update, device_key) and isinstance(
+        sensor_values.native_value, bool
+    )
 
 
 async def async_setup_entry(
@@ -93,8 +175,24 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the Omron BLE binary sensors."""
-    poll_coordinator = entry.runtime_data.poll_coordinator
+    bt_coordinator = entry.runtime_data
+    poll_coordinator = bt_coordinator.poll_coordinator
     known_entity_keys: set[str] = set()
+
+    # Advertisement MSD flags: update on every advert (hass-ble-esl pattern).
+    adv_processor = OmronPassiveBluetoothDataProcessor(
+        advertisement_binary_update_to_bluetooth_data_update
+    )
+    entry.async_on_unload(
+        adv_processor.async_add_entities_listener(
+            OmronAdvertisementBinarySensorEntity, async_add_entities
+        )
+    )
+    entry.async_on_unload(
+        bt_coordinator.async_register_processor(
+            adv_processor, BinarySensorEntityDescription
+        )
+    )
 
     def _build_new_entities(sensor_update: SensorUpdate | None) -> list[BinarySensorEntity]:
         if sensor_update is None:
@@ -104,7 +202,7 @@ async def async_setup_entry(
             entity_key = device_key_entity_id_suffix(device_key)
             if entity_key in known_entity_keys:
                 continue
-            description = _binary_description_for_update(sensor_update, device_key)
+            description = _poll_binary_description_for_update(sensor_update, device_key)
             if description is None:
                 continue
             sensor_value = sensor_update.binary_entity_values.get(device_key)
@@ -144,12 +242,54 @@ async def async_setup_entry(
         )
 
 
+class OmronAdvertisementBinarySensorEntity(
+    PassiveBluetoothProcessorEntity[
+        OmronPassiveBluetoothDataProcessor[bool | None]
+    ],
+    BinarySensorEntity,
+):
+    """Binary sensor fed by Omron manufacturer advertisement flags."""
+
+    # Match the previous CoordinatorEntity naming so friendly names stay stable.
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        processor: OmronPassiveBluetoothDataProcessor[bool | None],
+        entity_key,
+        description: BinarySensorEntityDescription,
+        context=None,
+    ) -> None:
+        super().__init__(processor, entity_key, description, context)
+        self._attr_unique_id = preserved_passive_unique_id(
+            model=processor.coordinator.device_data.device_model,
+            address=processor.coordinator.address,
+            entity_key=entity_key,
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the native value."""
+        return self.processor.entity_data.get(self.entity_key)
+
+    @property
+    def available(self) -> bool:
+        """Keep a real on/off while the cuff is asleep.
+
+        A missing key or ``None`` is unknown, so the entity stays
+        unavailable instead of claiming the cuff is off.
+        """
+        if isinstance(self.processor.entity_data.get(self.entity_key), bool):
+            return True
+        return super().available
+
+
 class OmronBluetoothBinarySensorEntity(
     CoordinatorEntity[DataUpdateCoordinator[SensorUpdate]],
     RestoreEntity,
     BinarySensorEntity,
 ):
-    """Representation of a Omron binary sensor."""
+    """Representation of a poll-backed Omron binary sensor."""
 
     entity_description: BinarySensorEntityDescription
 

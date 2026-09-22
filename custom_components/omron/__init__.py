@@ -25,6 +25,7 @@ from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
     BluetoothServiceInfoBleak,
     async_ble_device_from_address,
+    async_last_service_info,
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
@@ -441,6 +442,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         user_aliases=slot_aliases,
         get_tz=lambda: dt_util.DEFAULT_TIME_ZONE,
     )
+    # Prime from the last cached advertisement, including a non-connectable
+    # proxy sighting. MSD flags do not need a connection; connectable=True
+    # drops the ESPHome proxy history this integration usually has, and the
+    # prime becomes a silent no-op. With no cached advert, do not push:
+    # the PassiveBluetooth restore keeps the last on/off.
+    last_service_info = async_last_service_info(hass, address, connectable=False)
+    if last_service_info is not None:
+        data.update(last_service_info)
     # Transport credential for profiles whose unlock keeps its own key. Stored
     # hex; a malformed value is dropped rather than failing setup, which would
     # leave the user with no way back other than deleting the entry.
@@ -701,6 +710,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
             poll_coordinator.last_exception,
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Processors are registered, so restore has already landed. Push only a
+    # cached advertisement. With no sighting, leave the restored on/off.
+    if last_service_info is not None:
+        bt_coordinator.async_set_updated_data(data._finish_update())
 
     # only start after all platforms have had a chance to subscribe
     entry.async_on_unload(bt_coordinator.async_start())
