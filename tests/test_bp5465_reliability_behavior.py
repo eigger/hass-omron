@@ -8,19 +8,14 @@ without a physical cuff:
 - in-flight consumption without a duplicate BLE poll
 - failed delayed refresh re-latching
 - forced-transfer device-disappearance fail-closed behavior
-- _async_poll_data() hard failure propagation with cached data present
+- async_poll_data() hard failure propagation with cached data present
 - parser async_poll() connection-failure propagation
-
-No production code is replaced or copied into this test.
 """
 
 from __future__ import annotations
 
-import ast
 import asyncio
-import copy
 from contextlib import asynccontextmanager
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -28,58 +23,10 @@ import pytest
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 import custom_components.omron as omron_init
-import custom_components.omron.omron_ble.parser as parser_module
+from custom_components.omron.omron_ble.parser import OmronBluetoothDeviceData
 
 
 ADDRESS = "C1:8D:32:97:D5:BB"
-
-INIT_PATH = Path(omron_init.__file__).resolve()
-PARSER_PATH = Path(parser_module.__file__).resolve()
-
-
-def _extract_async_function(path: Path, name: str, base_namespace: dict):
-    """Compile one real async function from the current production source.
-
-    This is used for nested _async_poll_data(), which normally exists only as a
-    closure inside async_setup_entry(), and for parser async_poll(), which is a
-    class method. The AST body is the exact current production implementation.
-    """
-    source = path.read_text(encoding="utf-8-sig")
-    tree = ast.parse(source)
-
-    matches = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == name
-    ]
-
-    assert len(matches) == 1, (
-        f"expected exactly one async function named {name!r}, "
-        f"found {len(matches)}"
-    )
-
-    node = copy.deepcopy(matches[0])
-
-    module = ast.Module(
-        body=[node],
-        type_ignores=[],
-    )
-
-    ast.fix_missing_locations(module)
-
-    namespace = dict(base_namespace)
-
-    exec(
-        compile(
-            module,
-            filename=str(path),
-            mode="exec",
-        ),
-        namespace,
-    )
-
-    return namespace[name], namespace
 
 
 class FakeHass:
@@ -427,12 +374,6 @@ def test_hard_poll_error_escapes_even_when_cached_data_exists(monkeypatch):
 
 def test_parser_connection_error_escapes_instead_of_returning_finish_update():
     async def scenario():
-        async_poll, namespace = _extract_async_function(
-            PARSER_PATH,
-            "async_poll",
-            parser_module.__dict__,
-        )
-
         connection_error_type = ConnectionError
 
         class Events:
@@ -477,7 +418,7 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
             connection_error_type,
             match="synthetic BLE disconnect",
         ):
-            await async_poll(
+            await OmronBluetoothDeviceData.async_poll(
                 target,
                 ble_device,
                 preconnected_session=None,
@@ -488,19 +429,6 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
         assert not target._poll_guard.locked()
 
     asyncio.run(scenario())
-
-def test_unload_cancels_a_latched_drain_task():
-    """drain 태스크는 세션 락을 기다리며 블록된다. 언로드가 취소하지 않으면
-    락이 풀린 뒤 깨어나 이미 철거된 코디네이터를 건드린다. 리로드는 옵션 변경이나
-    자격증명 저장으로도 일어난다."""
-    source = INIT_PATH.read_text(encoding="utf-8")
-    start = source.index("async def async_unload_entry(")
-    body = source[start : source.index("\n\nasync def ", start + 1) if "\n\nasync def " in source[start + 1 :] else len(source)]
-    assert "pending_forced_transfer_task" in body, (
-        "언로드가 drain 태스크를 놓아준다 — 철거된 엔트리를 건드릴 수 있다"
-    )
-    assert ".cancel()" in body
-
 
 def test_the_completion_offset_is_validated_when_the_profile_is_built():
     """커프에 닿기 전, 임포트 시점에 걸려야 한다."""

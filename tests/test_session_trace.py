@@ -529,16 +529,14 @@ class TestTelemetry:
 
 # ── async_poll records its trace ────────────────────────────────────────────
 #
-# 파서 인스턴스는 conftest 의 MagicMock 베이스 때문에 만들 수 없어, 다른
-# 테스트들처럼 async_poll 본문을 AST 로 꺼내 가짜 self 위에서 돌린다.
+# The stand-in below supplies only what ``async_poll`` touches. The method
+# itself is the one on ``OmronBluetoothDeviceData``.
 
 
 def _async_poll():
-    from test_bp5465_reliability_behavior import _extract_async_function, PARSER_PATH
-    from custom_components.omron.omron_ble import parser as parser_module
+    from custom_components.omron.omron_ble.parser import OmronBluetoothDeviceData
 
-    fn, _ = _extract_async_function(PARSER_PATH, "async_poll", parser_module.__dict__)
-    return fn
+    return OmronBluetoothDeviceData.async_poll
 
 
 class _ParserSelf:

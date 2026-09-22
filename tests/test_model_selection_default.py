@@ -7,9 +7,10 @@ forever. In #45 a HEM-7196T1 ran as the HEM-7142T2 fallback -- half the record
 size, half the users, no error anywhere. When nothing identifies the device
 the field has to be left empty so the choice is deliberate.
 
-conftest replaces homeassistant/voluptuous with MagicMock, so the flow cannot
-be instantiated; the schema construction is checked with the AST instead
-(same constraint as test_pairing_session_handoff.py).
+The dropdown itself is exercised through the flow manager
+(``test_config_flow.py``). What remains here is the catalog, the
+translations, and the rule that no later step substitutes the fallback
+model for a choice the user never made.
 """
 
 import ast
@@ -25,57 +26,6 @@ _CONFIG_FLOW = (
     / "omron"
     / "config_flow.py"
 )
-
-
-def _select_model_step() -> ast.AsyncFunctionDef:
-    tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.AsyncFunctionDef)
-            and node.name == "async_step_select_model"
-        ):
-            return node
-    raise AssertionError("async_step_select_model not found — was it renamed?")
-
-
-def test_the_form_never_falls_back_to_the_default_model() -> None:
-    step = _select_model_step()
-    names = {n.id for n in ast.walk(step) if isinstance(n, ast.Name)}
-    assert "DEFAULT_DEVICE_MODEL" not in names, (
-        "the model dropdown was given a fallback default again; an unidentified "
-        "device must leave the field empty (#45)"
-    )
-
-
-def test_the_dropdown_is_left_empty_when_nothing_identified_the_device() -> None:
-    step = _select_model_step()
-    branches = [n for n in ast.walk(step) if isinstance(n, ast.IfExp)]
-    for branch in branches:
-        if not isinstance(branch.orelse, ast.Call):
-            continue
-        keywords = {kw.arg for kw in branch.orelse.keywords}
-        args = [a for a in branch.orelse.args if isinstance(a, ast.Name)]
-        if any(a.id == "CONF_DEVICE_MODEL" for a in args):
-            assert "default" not in keywords, (
-                "the no-inference branch still supplies a default"
-            )
-            return
-    raise AssertionError(
-        "no branch leaves CONF_DEVICE_MODEL without a default — an unidentified "
-        "device would get a pre-selected model (#45)"
-    )
-
-
-def test_a_failed_identification_is_warned_about() -> None:
-    step = _select_model_step()
-    warned = any(
-        isinstance(n, ast.Attribute)
-        and n.attr == "warning"
-        and isinstance(n.value, ast.Name)
-        and n.value.id == "_LOGGER"
-        for n in ast.walk(step)
-    )
-    assert warned, "an unidentifiable device must leave a log line to diagnose"
 
 
 def test_catalog_names_still_resolve() -> None:
