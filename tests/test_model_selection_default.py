@@ -70,6 +70,7 @@ _MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous"
 
 
 def _string_files() -> list[Path]:
+    """Translation files both this module and the flow tests read."""
     component = _CONFIG_FLOW.parent
     return [
         component / "strings.json",

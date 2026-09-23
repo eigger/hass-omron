@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 
 from bleak.backends.device import BLEDevice
 from homeassistant.config_entries import SOURCE_BLUETOOTH
@@ -28,14 +27,13 @@ from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.model_aliases import AMBIGUOUS_MODEL_NAMES
 
 from bt import service_info
+from test_model_selection_default import _MODEL_STEPS, _string_files
 
 ADDRESS = "AA:BB:CC:DD:EE:11"
-_COMPONENT = Path(config_flow.__file__).resolve().parent
-_STRING_FILES = (
-    _COMPONENT / "strings.json",
-    _COMPONENT / "translations" / "en.json",
-    _COMPONENT / "translations" / "ko.json",
-)
+# Step ids whose placeholders were checked. Compared with ``_MODEL_STEPS``
+# after this module's tests, so a new model step cannot be translated and
+# given a handler while its form is never opened.
+_checked_steps: set[str] = set()
 # A carton name that covers two profiles. The probe reports it; nothing in
 # the advertisement identifies which of the two it is.
 _SHARED_NAME = "BP5350"
@@ -44,10 +42,25 @@ _SHARED_NAME = "BP5350"
 _QUIET_MSD = bytes([0x01, 0x00, 0x00, 0x00])
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _placeholder_checks_cover_every_model_step():
+    """Fail if a model step never reached ``_assert_supplied``.
+
+    The translation and handler tests walk ``_MODEL_STEPS`` on their own, so
+    they stay green when a step is added there and no flow opens it.
+    """
+    _checked_steps.clear()
+    yield
+    assert _checked_steps == set(_MODEL_STEPS), (
+        "placeholder checks cover "
+        f"{sorted(_checked_steps)}, expected {list(_MODEL_STEPS)}"
+    )
+
+
 def _description_tokens(step_id: str) -> set[str]:
-    """Every ``{name}`` the three translation files use for this step."""
+    """Every ``{name}`` the translation files use for this step."""
     tokens: set[str] = set()
-    for path in _STRING_FILES:
+    for path in _string_files():
         description = json.loads(path.read_text(encoding="utf-8"))["config"]["step"][
             step_id
         ]["description"]
@@ -56,7 +69,11 @@ def _description_tokens(step_id: str) -> set[str]:
 
 
 def _assert_supplied(result: dict, step_id: str) -> None:
-    """Home Assistant raises when a description names a placeholder the flow omits."""
+    """A token the form does not supply is left as ``{name}`` in the UI.
+
+    Home Assistant only stores ``description_placeholders``. It does not
+    format the description; the frontend does.
+    """
     supplied = result["description_placeholders"]
     missing = _description_tokens(step_id) - set(supplied)
     assert not missing, f"{step_id} omits {sorted(missing)}"
@@ -100,6 +117,7 @@ async def _open_model_step(
         assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == step_id
     _assert_supplied(result, step_id)
+    _checked_steps.add(step_id)
     return result
 
 
