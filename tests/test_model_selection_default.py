@@ -7,15 +7,15 @@ forever. In #45 a HEM-7196T1 ran as the HEM-7142T2 fallback -- half the record
 size, half the users, no error anywhere. When nothing identifies the device
 the field has to be left empty so the choice is deliberate.
 
-The dropdown itself is exercised through the flow manager
-(``test_config_flow.py``). What remains here is the catalog, the
-translations, and the rule that no later step substitutes the fallback
-model for a choice the user never made.
+The dropdown, including the unknown and shared-name steps, is exercised
+through the flow manager (``test_config_flow.py``), which also checks that
+each description's placeholders are ones that form supplies. What remains
+here is the catalog, the translations, and the rule that no later step
+substitutes the fallback model for a choice the user never made.
 """
 
 import ast
 import json
-import re
 from pathlib import Path
 
 from custom_components.omron.omron_ble.devices import infer_model_id_from_local_name
@@ -66,12 +66,6 @@ def test_no_step_substitutes_a_default_for_the_chosen_model() -> None:
     )
 
 
-_SUPPLIED_PLACEHOLDERS = frozenset(
-    # What async_step_select_model puts in description_placeholders. Home
-    # Assistant raises on a name the description uses but the flow omits.
-    {"name", "model_total", "profile_count", "variant_count",
-     "probed_model", "candidate_count", "candidates"}
-)
 _MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous")
 
 
@@ -92,15 +86,6 @@ def test_every_model_step_is_translated_everywhere() -> None:
         for step_id in _MODEL_STEPS:
             assert step_id in steps, f"{path.name} is missing {step_id}"
             assert steps[step_id].get("description"), f"{path.name}:{step_id}"
-
-
-def test_no_description_asks_for_a_placeholder_the_flow_omits() -> None:
-    for path in _string_files():
-        steps = json.loads(path.read_text(encoding="utf-8"))["config"]["step"]
-        for step_id in _MODEL_STEPS:
-            used = set(re.findall(r"\{(\w+)\}", steps[step_id]["description"]))
-            missing = used - _SUPPLIED_PLACEHOLDERS
-            assert not missing, f"{path.name}:{step_id} uses {sorted(missing)}"
 
 
 def test_each_model_step_id_has_a_handler() -> None:
