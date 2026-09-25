@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "選擇要設定的裝置。",
+        "data": {
+          "address": "裝置"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "確認裝置",
+        "description": "要設定 {name}，請先將裝置設為配對模式，然後按提交（確認）。"
+      },
+      "select_model": {
+        "title": "選擇裝置型號",
+        "description": "如果藍牙廣播名稱包含已知代碼（例如 **HEM-7600T**），則會為你選取該型號——請確認或變更。否則不會預選：請選擇壓脈帶上印的型號或 Omron Connect 中顯示的型號。清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
+        "data": {
+          "device_model": "裝置型號",
+          "scan_interval": "更新間隔（秒）"
+        }
+      },
+      "user_aliases": {
+        "title": "壓脈帶上的使用者名稱",
+        "description": "此型號儲存 **{num_users}** 個使用者設定。請為每個設定輸入一個短名稱（預設：user1、user2……）。這些名稱會用在感測器名稱和實體 ID 中，代替通用的使用者編號。",
+        "data": {
+          "user_alias_1": "使用者 1 名稱",
+          "user_alias_2": "使用者 2 名稱",
+          "user_alias_3": "使用者 3 名稱",
+          "user_alias_4": "使用者 4 名稱"
+        }
+      },
+      "pairing": {
+        "title": "配對 {model}",
+        "description": "按提交（確認）後，Home Assistant 會開始配對。請先將壓脈帶置於配對模式——大多數型號需按住藍牙按鈕直到出現 **-P-**——然後再按提交。"
+      },
+      "pairing_os": {
+        "title": "配對 {model}",
+        "description": "按提交（確認）後，Home Assistant 會開始配對。請先按說明書將裝置置於配對或可被發現模式，然後再按提交。"
+      },
+      "select_model_unknown": {
+        "title": "選擇裝置型號",
+        "description": "裝置回報的型號為 **{probed_model}**，不在此處的任何清單中，因此沒有預選。請選擇壓脈帶上印的型號或 Omron Connect 中顯示的型號。清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
+        "data": {
+          "device_model": "裝置型號",
+          "scan_interval": "更新間隔（秒）"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "選擇裝置型號",
+        "description": "裝置回報的型號為 **{probed_model}**。有 **{candidate_count}** 個型號使用該名稱，讀取方式並不相同：\n\n{candidates}\n\n壓脈帶透過無線傳送的內容無法區分它們——歐姆龍應用知道，只是因為你告訴了它。請選擇壓脈帶上印的那一個。\n\n清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
+        "data": {
+          "device_model": "裝置型號",
+          "scan_interval": "更新間隔（秒）"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "配對失敗。請確認裝置處於配對模式（畫面顯示 -P-）後再試一次。",
+      "decryption_failed": "提供的 bindkey 無效，無法解密感測器資料。請檢查後再試一次。",
+      "expected_32_characters": "bindkey 必須是 32 個字元的十六進位字串。",
+      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。"
+    },
+    "abort": {
+      "reauth_successful": "重新驗證成功",
+      "no_devices_found": "網路上找不到未設定的裝置",
+      "already_in_progress": "設定流程已在進行中",
+      "already_configured": "裝置已設定",
+      "not_supported": "不支援此裝置。",
+      "model_not_selected": "未選擇裝置型號。請重新開始並從清單中選擇型號。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Home Assistant 輪詢血壓計以取得新讀數的間隔（60–86400 秒）。數值越小，壓脈帶越耗電。\n\n**此裝置的設定槽數：** {num_users}。多於一個時，可在下方為每個槽設定顯示名稱（預設 user1、user2……）。重新命名某個槽會為該槽建立新的感測器實體。",
+        "data": {
+          "scan_interval": "更新間隔（秒）",
+          "user_alias_1": "使用者 1 名稱",
+          "user_alias_2": "使用者 2 名稱",
+          "user_alias_3": "使用者 3 名稱",
+          "user_alias_4": "使用者 4 名稱"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "收縮壓",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "舒張壓",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "脈搏",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "脈壓",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "估計平均動脈壓",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "血壓分級 (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "休克指數",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "心率血壓乘積",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "測量時間",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "訊號強度"
+      },
+      "poll_duration": {
+        "name": "耗時"
+      },
+      "last_failure": {
+        "name": "上次失敗"
+      },
+      "failure_count": {
+        "name": "失敗次數"
+      },
+      "last_readout": {
+        "name": "上次讀取"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "收縮壓 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "舒張壓 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "脈搏 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "脈壓 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "估計平均動脈壓 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "血壓分級 (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "休克指數 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "心率血壓乘積 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "測量時間 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測量類型",
+            "state": {
+              "single": "單次",
+              "truread_average": "TruRead 平均值"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "身體移動"
+      },
+      "cuff_fit": {
+        "name": "壓脈帶佩戴"
+      },
+      "irregular_pulse": {
+        "name": "不規則脈搏"
+      },
+      "improper_position": {
+        "name": "姿勢不正確"
+      },
+      "forced_transfer": {
+        "name": "等待傳輸"
+      },
+      "invalid_time": {
+        "name": "需要時間同步"
+      },
+      "pairing_mode": {
+        "name": "配對模式"
+      },
+      "connection": {
+        "name": "連線"
+      },
+      "body_movement_user": {
+        "name": "身體移動 ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "壓脈帶佩戴 ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "不規則脈搏 ({user})"
+      },
+      "improper_position_user": {
+        "name": "姿勢不正確 ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "重新整理資料"
+      },
+      "retry_pairing": {
+        "name": "重試配對"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "裝置暱稱"
+      }
+    }
+  }
+}

@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Välj en enhet att konfigurera.",
+        "data": {
+          "address": "Enhet"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Bekräfta enhet",
+        "description": "För att konfigurera {name}, sätt först enheten i parkopplingsläge och tryck sedan på Skicka (Bekräfta)."
+      },
+      "select_model": {
+        "title": "Välj enhetsmodell",
+        "description": "Om Bluetooth-annonsnamnet innehåller en känd kod (till exempel **HEM-7600T**) är den modellen vald — bekräfta eller ändra den. Annars är inget förvalt: välj modellen som är tryckt på manschetten eller visas i Omron Connect. Listan har **{model_total}** poster: **{profile_count}** hårdvaruprofiler plus **{variant_count}** regionala eller paketkoder som delar en profil. Om din exakta kod saknas, välj den närmaste modellen. Modellen avgör hur manschettens minne läses, och ett fel val ger tomma eller meningslösa värden utan fel — kontrollera raderna **profile=** i loggen. Den kan senare bara ändras genom att ta bort och lägga till enheten igen.",
+        "data": {
+          "device_model": "Enhetsmodell",
+          "scan_interval": "Uppdateringsintervall (sekunder)"
+        }
+      },
+      "user_aliases": {
+        "title": "Användarnamn på manschetten",
+        "description": "Den här modellen lagrar **{num_users}** användarprofiler. Ange ett kort namn för varje (standard: user1, user2, …). Namnen visas i sensornamn och entitets-ID i stället för generella användarnummer.",
+        "data": {
+          "user_alias_1": "Namn för användare 1",
+          "user_alias_2": "Namn för användare 2",
+          "user_alias_3": "Namn för användare 3",
+          "user_alias_4": "Namn för användare 4"
+        }
+      },
+      "pairing": {
+        "title": "Parkoppla {model}",
+        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först manschetten i parkopplingsläge — på de flesta modeller, håll Bluetooth-knappen tills **-P-** visas — och tryck sedan på Skicka."
+      },
+      "pairing_os": {
+        "title": "Parkoppla {model}",
+        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först enheten i parkopplings- eller upptäckbart läge enligt manualen och tryck sedan på Skicka."
+      },
+      "select_model_unknown": {
+        "title": "Välj enhetsmodell",
+        "description": "Enheten anger modellnumret **{probed_model}**, som inte finns i någon lista, så inget är förvalt. Välj modellen som är tryckt på manschetten eller visas i Omron Connect. Listan har **{model_total}** poster: **{profile_count}** hårdvaruprofiler plus **{variant_count}** regionala eller paketkoder som delar en profil. Om din exakta kod saknas, välj den närmaste modellen. Modellen avgör hur manschettens minne läses, och ett fel val ger tomma eller meningslösa värden utan fel — kontrollera raderna **profile=** i loggen. Den kan senare bara ändras genom att ta bort och lägga till enheten igen.",
+        "data": {
+          "device_model": "Enhetsmodell",
+          "scan_interval": "Uppdateringsintervall (sekunder)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Välj enhetsmodell",
+        "description": "Enheten anger modellnumret **{probed_model}**. **{candidate_count}** modeller har det namnet och läses inte likadant:\n\n{candidates}\n\nInget som manschetten skickar trådlöst skiljer dem åt — Omron-appen vet bara för att du berättade det. Välj den som är tryckt på manschetten.\n\nListan har **{model_total}** poster: **{profile_count}** hårdvaruprofiler plus **{variant_count}** regionala eller paketkoder som delar en profil. Om din exakta kod saknas, välj den närmaste modellen. Modellen avgör hur manschettens minne läses, och ett fel val ger tomma eller meningslösa värden utan fel — kontrollera raderna **profile=** i loggen. Den kan senare bara ändras genom att ta bort och lägga till enheten igen.",
+        "data": {
+          "device_model": "Enhetsmodell",
+          "scan_interval": "Uppdateringsintervall (sekunder)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Parkopplingen misslyckades. Kontrollera att enheten är i parkopplingsläge (-P- på displayen) och försök igen.",
+      "decryption_failed": "Den angivna bindkey fungerade inte, sensordata kunde inte dekrypteras. Kontrollera den och försök igen.",
+      "expected_32_characters": "bindkey ska vara en hexadecimal sträng på 32 tecken.",
+      "duplicate_user_aliases": "Varje användarplats måste ha ett eget namn (skiftläge spelar ingen roll)."
+    },
+    "abort": {
+      "reauth_successful": "Omautentiseringen lyckades",
+      "no_devices_found": "Inga okonfigurerade enheter hittades i nätverket",
+      "already_in_progress": "Konfigurationen pågår redan",
+      "already_configured": "Enheten är redan konfigurerad",
+      "not_supported": "Den här enheten stöds inte.",
+      "model_not_selected": "Enhetsmodellen valdes inte. Börja om och välj modellen i listan."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Hur ofta Home Assistant ska fråga blodtrycksmätaren efter nya mätningar (60–86400 sekunder). Ett lägre värde drar mer batteri på manschetten.\n\n**Profilplatser på den här enheten:** {num_users}. Om det finns fler än en, ange ett visningsnamn per plats nedan (standard user1, user2, …). Att byta namn på en plats skapar nya sensorentiteter för den platsen.",
+        "data": {
+          "scan_interval": "Uppdateringsintervall (sekunder)",
+          "user_alias_1": "Namn för användare 1",
+          "user_alias_2": "Namn för användare 2",
+          "user_alias_3": "Namn för användare 3",
+          "user_alias_4": "Namn för användare 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Varje användarplats måste ha ett eget namn (skiftläge spelar ingen roll)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Systoliskt",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastoliskt",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Puls",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pulstryck",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Beräknat MAP",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Blodtryckskategori (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Chockindex",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Rate-pressure-produkt",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Mätt klockan",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Signalstyrka"
+      },
+      "poll_duration": {
+        "name": "Varaktighet"
+      },
+      "last_failure": {
+        "name": "Senaste fel"
+      },
+      "failure_count": {
+        "name": "Antal fel"
+      },
+      "last_readout": {
+        "name": "Senaste avläsning"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Systoliskt ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastoliskt ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Puls ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pulstryck ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Beräknat MAP ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Blodtryckskategori (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Chockindex ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Rate-pressure-produkt ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Mätt klockan ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Mätningstyp",
+            "state": {
+              "single": "Enstaka",
+              "truread_average": "TruRead-medel"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Kroppsrörelse"
+      },
+      "cuff_fit": {
+        "name": "Manschettpassning"
+      },
+      "irregular_pulse": {
+        "name": "Oregelbunden puls"
+      },
+      "improper_position": {
+        "name": "Fel ställning"
+      },
+      "forced_transfer": {
+        "name": "Data väntar"
+      },
+      "invalid_time": {
+        "name": "Tidssynkronisering krävs"
+      },
+      "pairing_mode": {
+        "name": "Parkopplingsläge"
+      },
+      "connection": {
+        "name": "Anslutning"
+      },
+      "body_movement_user": {
+        "name": "Kroppsrörelse ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Manschettpassning ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Oregelbunden puls ({user})"
+      },
+      "improper_position_user": {
+        "name": "Fel ställning ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Uppdatera data"
+      },
+      "retry_pairing": {
+        "name": "Försök parkoppla igen"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Enhetens smeknamn"
+      }
+    }
+  }
+}

@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Wybierz urządzenie do skonfigurowania.",
+        "data": {
+          "address": "Urządzenie"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Potwierdź urządzenie",
+        "description": "Aby skonfigurować {name}, najpierw przełącz urządzenie w tryb parowania, a następnie naciśnij Wyślij (Potwierdź)."
+      },
+      "select_model": {
+        "title": "Wybierz model urządzenia",
+        "description": "Jeśli nazwa ogłoszenia Bluetooth zawiera znany kod (na przykład **HEM-7600T**), ten model jest wybrany — potwierdź go lub zmień. W przeciwnym razie nic nie jest wstępnie wybrane: wybierz model wydrukowany na mankiecie lub pokazany w Omron Connect. Lista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
+        "data": {
+          "device_model": "Model urządzenia",
+          "scan_interval": "Interwał odświeżania (sekundy)"
+        }
+      },
+      "user_aliases": {
+        "title": "Nazwy użytkowników na mankiecie",
+        "description": "Ten model zapisuje **{num_users}** profili użytkownika. Wpisz krótką nazwę dla każdego (domyślnie: user1, user2, …). Te nazwy pojawią się w nazwach czujników i identyfikatorach encji zamiast ogólnych numerów użytkowników.",
+        "data": {
+          "user_alias_1": "Nazwa użytkownika 1",
+          "user_alias_2": "Nazwa użytkownika 2",
+          "user_alias_3": "Nazwa użytkownika 3",
+          "user_alias_4": "Nazwa użytkownika 4"
+        }
+      },
+      "pairing": {
+        "title": "Paruj {model}",
+        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw przełącz mankiet w tryb parowania — w większości modeli przytrzymaj przycisk Bluetooth, aż pojawi się **-P-** — a potem naciśnij Wyślij."
+      },
+      "pairing_os": {
+        "title": "Paruj {model}",
+        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw ustaw urządzenie w tryb parowania lub wykrywania zgodnie z instrukcją, a potem naciśnij Wyślij."
+      },
+      "select_model_unknown": {
+        "title": "Wybierz model urządzenia",
+        "description": "Urządzenie podaje numer modelu **{probed_model}**, którego nie ma na żadnej liście, więc nic nie jest wstępnie wybrane. Wybierz model wydrukowany na mankiecie lub pokazany w Omron Connect. Lista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
+        "data": {
+          "device_model": "Model urządzenia",
+          "scan_interval": "Interwał odświeżania (sekundy)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Wybierz model urządzenia",
+        "description": "Urządzenie podaje numer modelu **{probed_model}**. Na tę nazwę odpowiada **{candidate_count}** modeli i nie czyta się ich tak samo:\n\n{candidates}\n\nNic, co mankiet wysyła bezprzewodowo, ich nie rozróżnia — aplikacja Omron wie tylko dlatego, że jej to podałeś. Wybierz model wydrukowany na mankiecie.\n\nLista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
+        "data": {
+          "device_model": "Model urządzenia",
+          "scan_interval": "Interwał odświeżania (sekundy)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Parowanie nie powiodło się. Upewnij się, że urządzenie jest w trybie parowania (-P- na wyświetlaczu) i spróbuj ponownie.",
+      "decryption_failed": "Podany bindkey nie zadziałał, nie udało się odszyfrować danych czujnika. Sprawdź go i spróbuj ponownie.",
+      "expected_32_characters": "bindkey musi być 32-znakowym ciągiem szesnastkowym.",
+      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter)."
+    },
+    "abort": {
+      "reauth_successful": "Ponowne uwierzytelnienie powiodło się",
+      "no_devices_found": "Nie znaleziono nieskonfigurowanych urządzeń w sieci",
+      "already_in_progress": "Konfiguracja jest już w toku",
+      "already_configured": "Urządzenie jest już skonfigurowane",
+      "not_supported": "To urządzenie nie jest obsługiwane.",
+      "model_not_selected": "Nie wybrano modelu urządzenia. Zacznij od nowa i wybierz model z listy."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Jak często Home Assistant ma odpytywać ciśnieniomierz o nowe pomiary (60–86400 sekund). Mniejsza wartość zużywa więcej baterii mankietu.\n\n**Miejsca profilu na tym urządzeniu:** {num_users}. Gdy jest ich więcej niż jedno, ustaw poniżej nazwę wyświetlaną dla każdego miejsca (domyślnie user1, user2, …). Zmiana nazwy miejsca tworzy nowe encje czujników dla tego miejsca.",
+        "data": {
+          "scan_interval": "Interwał odświeżania (sekundy)",
+          "user_alias_1": "Nazwa użytkownika 1",
+          "user_alias_2": "Nazwa użytkownika 2",
+          "user_alias_3": "Nazwa użytkownika 3",
+          "user_alias_4": "Nazwa użytkownika 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Skurczowe",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Rozkurczowe",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Tętno",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Ciśnienie tętna",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Szacowane MAP",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Kategoria ciśnienia (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Wskaźnik wstrząsu",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Iloczyn częstość-ciśnienie",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Zmierzono o",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Siła sygnału"
+      },
+      "poll_duration": {
+        "name": "Czas trwania"
+      },
+      "last_failure": {
+        "name": "Ostatnia awaria"
+      },
+      "failure_count": {
+        "name": "Liczba awarii"
+      },
+      "last_readout": {
+        "name": "Ostatni odczyt"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Skurczowe ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Rozkurczowe ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Tętno ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Ciśnienie tętna ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Szacowane MAP ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Kategoria ciśnienia (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Wskaźnik wstrząsu ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Iloczyn częstość-ciśnienie ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Zmierzono o ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Typ pomiaru",
+            "state": {
+              "single": "Pojedynczy",
+              "truread_average": "Średnia TruRead"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Ruch ciała"
+      },
+      "cuff_fit": {
+        "name": "Dopasowanie mankietu"
+      },
+      "irregular_pulse": {
+        "name": "Nieregularne tętno"
+      },
+      "improper_position": {
+        "name": "Nieprawidłowa pozycja"
+      },
+      "forced_transfer": {
+        "name": "Dane oczekują"
+      },
+      "invalid_time": {
+        "name": "Wymagana synchronizacja czasu"
+      },
+      "pairing_mode": {
+        "name": "Tryb parowania"
+      },
+      "connection": {
+        "name": "Połączenie"
+      },
+      "body_movement_user": {
+        "name": "Ruch ciała ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Dopasowanie mankietu ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Nieregularne tętno ({user})"
+      },
+      "improper_position_user": {
+        "name": "Nieprawidłowa pozycja ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Odśwież dane"
+      },
+      "retry_pairing": {
+        "name": "Ponów parowanie"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Nazwa urządzenia"
+      }
+    }
+  }
+}

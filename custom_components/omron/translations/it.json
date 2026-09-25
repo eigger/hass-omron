@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Scegli un dispositivo da configurare.",
+        "data": {
+          "address": "Dispositivo"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Conferma dispositivo",
+        "description": "Per configurare {name}, metti prima il dispositivo in modalità di associazione, poi premi Invia (Conferma)."
+      },
+      "select_model": {
+        "title": "Seleziona il modello",
+        "description": "Se il nome dell’annuncio Bluetooth include un codice noto (per esempio **HEM-7600T**), quel modello è selezionato: confermalo o cambialo. Altrimenti non c’è alcuna preselezione: scegli il modello stampato sul bracciale o mostrato in Omron Connect. L’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
+        "data": {
+          "device_model": "Modello del dispositivo",
+          "scan_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      },
+      "user_aliases": {
+        "title": "Nomi utente sul bracciale",
+        "description": "Questo modello memorizza **{num_users}** profili utente. Inserisci un nome breve per ciascuno (predefiniti: user1, user2, …). Questi nomi compaiono nei nomi dei sensori e negli ID delle entità al posto dei numeri utente generici.",
+        "data": {
+          "user_alias_1": "Nome utente 1",
+          "user_alias_2": "Nome utente 2",
+          "user_alias_3": "Nome utente 3",
+          "user_alias_4": "Nome utente 4"
+        }
+      },
+      "pairing": {
+        "title": "Associa {model}",
+        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Metti prima il bracciale in modalità di associazione — sulla maggior parte dei modelli tieni premuto il pulsante Bluetooth finché compare **-P-** — poi premi Invia."
+      },
+      "pairing_os": {
+        "title": "Associa {model}",
+        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Imposta prima il dispositivo in modalità di associazione o rilevabile come nel manuale, poi premi Invia."
+      },
+      "select_model_unknown": {
+        "title": "Seleziona il modello",
+        "description": "Il dispositivo indica il numero di modello **{probed_model}**, che non è in nessun elenco, quindi non c’è alcuna preselezione. Scegli il modello stampato sul bracciale o mostrato in Omron Connect. L’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
+        "data": {
+          "device_model": "Modello del dispositivo",
+          "scan_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Seleziona il modello",
+        "description": "Il dispositivo indica il numero di modello **{probed_model}**. **{candidate_count}** modelli rispondono a quel nome e non si leggono allo stesso modo:\n\n{candidates}\n\nNulla di ciò che il bracciale invia via radio li distingue: l’app Omron lo sa solo perché glielo hai detto tu. Scegli quello stampato sul bracciale.\n\nL’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
+        "data": {
+          "device_model": "Modello del dispositivo",
+          "scan_interval": "Intervallo di aggiornamento (secondi)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Associazione non riuscita. Verifica che il dispositivo sia in modalità di associazione (-P- sul display) e riprova.",
+      "decryption_failed": "La bindkey indicata non ha funzionato, i dati del sensore non sono stati decifrati. Controllala e riprova.",
+      "expected_32_characters": "La bindkey deve essere una stringa esadecimale di 32 caratteri.",
+      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole)."
+    },
+    "abort": {
+      "reauth_successful": "Riautenticazione riuscita",
+      "no_devices_found": "Nessun dispositivo non configurato trovato in rete",
+      "already_in_progress": "La configurazione è già in corso",
+      "already_configured": "Il dispositivo è già configurato",
+      "not_supported": "Questo dispositivo non è supportato.",
+      "model_not_selected": "Il modello non è stato selezionato. Ricomincia e sceglilo dall’elenco."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Ogni quanto Home Assistant deve interrogare lo sfigmomanometro per nuove misurazioni (60–86400 secondi). Un valore più basso consuma più batteria del bracciale.\n\n**Slot profilo su questo dispositivo:** {num_users}. Se ce n’è più di uno, imposta sotto un nome visualizzato per ogni slot (predefiniti user1, user2, …). Rinominare uno slot crea nuove entità sensore per quello slot.",
+        "data": {
+          "scan_interval": "Intervallo di aggiornamento (secondi)",
+          "user_alias_1": "Nome utente 1",
+          "user_alias_2": "Nome utente 2",
+          "user_alias_3": "Nome utente 3",
+          "user_alias_4": "Nome utente 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Sistolica",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastolica",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Pulsazioni",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pressione di pulsazione",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "PAM stimata",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Categoria PA (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Indice di shock",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Doppio prodotto",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Misurata alle",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Intensità del segnale"
+      },
+      "poll_duration": {
+        "name": "Durata"
+      },
+      "last_failure": {
+        "name": "Ultimo errore"
+      },
+      "failure_count": {
+        "name": "Numero di errori"
+      },
+      "last_readout": {
+        "name": "Ultima lettura"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Sistolica ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastolica ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Pulsazioni ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pressione di pulsazione ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "PAM stimata ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Categoria PA (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Indice di shock ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Doppio prodotto ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Misurata alle ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo di misurazione",
+            "state": {
+              "single": "Singola",
+              "truread_average": "Media TruRead"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Movimento del corpo"
+      },
+      "cuff_fit": {
+        "name": "Posizione del bracciale"
+      },
+      "irregular_pulse": {
+        "name": "Pulsazioni irregolari"
+      },
+      "improper_position": {
+        "name": "Postura errata"
+      },
+      "forced_transfer": {
+        "name": "Dati in attesa"
+      },
+      "invalid_time": {
+        "name": "Serve sincronizzare l’ora"
+      },
+      "pairing_mode": {
+        "name": "Modalità di associazione"
+      },
+      "connection": {
+        "name": "Connessione"
+      },
+      "body_movement_user": {
+        "name": "Movimento del corpo ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Posizione del bracciale ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Pulsazioni irregolari ({user})"
+      },
+      "improper_position_user": {
+        "name": "Postura errata ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Aggiorna dati"
+      },
+      "retry_pairing": {
+        "name": "Riprova associazione"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Nome del dispositivo"
+      }
+    }
+  }
+}

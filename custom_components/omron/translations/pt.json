@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Escolha um dispositivo para configurar.",
+        "data": {
+          "address": "Dispositivo"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Confirmar dispositivo",
+        "description": "Para configurar {name}, coloque primeiro o dispositivo no modo de emparelhamento e depois prima Enviar (Confirmar)."
+      },
+      "select_model": {
+        "title": "Selecionar modelo",
+        "description": "Se o nome do anúncio Bluetooth incluir um código conhecido (por exemplo **HEM-7600T**), esse modelo fica selecionado — confirme ou altere-o. Caso contrário nada está pré-selecionado: escolha o modelo impresso na braçadeira ou mostrado no Omron Connect. A lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
+        "data": {
+          "device_model": "Modelo do dispositivo",
+          "scan_interval": "Intervalo de atualização (segundos)"
+        }
+      },
+      "user_aliases": {
+        "title": "Nomes de utilizador na braçadeira",
+        "description": "Este modelo guarda **{num_users}** perfis de utilizador. Introduza um nome curto para cada um (predefinições: user1, user2, …). Esses nomes aparecem nos nomes dos sensores e nos IDs de entidade em vez de números genéricos.",
+        "data": {
+          "user_alias_1": "Nome do utilizador 1",
+          "user_alias_2": "Nome do utilizador 2",
+          "user_alias_3": "Nome do utilizador 3",
+          "user_alias_4": "Nome do utilizador 4"
+        }
+      },
+      "pairing": {
+        "title": "Emparelhar {model}",
+        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro a braçadeira no modo de emparelhamento — na maioria dos modelos, mantenha o botão Bluetooth até aparecer **-P-** — e depois prima Enviar."
+      },
+      "pairing_os": {
+        "title": "Emparelhar {model}",
+        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro o dispositivo no modo de emparelhamento ou detetável, como no manual, e depois prima Enviar."
+      },
+      "select_model_unknown": {
+        "title": "Selecionar modelo",
+        "description": "O dispositivo indica o número de modelo **{probed_model}**, que não está em nenhuma lista, por isso nada está pré-selecionado. Escolha o modelo impresso na braçadeira ou mostrado no Omron Connect. A lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
+        "data": {
+          "device_model": "Modelo do dispositivo",
+          "scan_interval": "Intervalo de atualização (segundos)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Selecionar modelo",
+        "description": "O dispositivo indica o número de modelo **{probed_model}**. **{candidate_count}** modelos respondem a esse nome e não se leem da mesma forma:\n\n{candidates}\n\nNada do que a braçadeira envia por rádio os distingue — a aplicação Omron só sabe porque você lhe disse. Escolha o que está impresso na braçadeira.\n\nA lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
+        "data": {
+          "device_model": "Modelo do dispositivo",
+          "scan_interval": "Intervalo de atualização (segundos)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "O emparelhamento falhou. Confirme que o dispositivo está no modo de emparelhamento (-P- no ecrã) e tente novamente.",
+      "decryption_failed": "A bindkey indicada não funcionou; não foi possível decifrar os dados do sensor. Verifique-a e tente novamente.",
+      "expected_32_characters": "A bindkey deve ser uma cadeia hexadecimal de 32 caracteres.",
+      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas)."
+    },
+    "abort": {
+      "reauth_successful": "A reautenticação foi bem-sucedida",
+      "no_devices_found": "Não foram encontrados dispositivos por configurar na rede",
+      "already_in_progress": "A configuração já está em curso",
+      "already_configured": "O dispositivo já está configurado",
+      "not_supported": "Este dispositivo não é suportado.",
+      "model_not_selected": "O modelo não foi selecionado. Comece de novo e escolha o modelo na lista."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira.\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
+        "data": {
+          "scan_interval": "Intervalo de atualização (segundos)",
+          "user_alias_1": "Nome do utilizador 1",
+          "user_alias_2": "Nome do utilizador 2",
+          "user_alias_3": "Nome do utilizador 3",
+          "user_alias_4": "Nome do utilizador 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Sistólica",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastólica",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Pulso",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pressão de pulso",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "PAM estimada",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Categoria de PA (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Índice de choque",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Duplo produto",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Medida às",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Intensidade do sinal"
+      },
+      "poll_duration": {
+        "name": "Duração"
+      },
+      "last_failure": {
+        "name": "Última falha"
+      },
+      "failure_count": {
+        "name": "Número de falhas"
+      },
+      "last_readout": {
+        "name": "Última leitura"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Sistólica ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastólica ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Pulso ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pressão de pulso ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "PAM estimada ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Categoria de PA (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Índice de choque ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Duplo produto ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Medida às ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Tipo de medição",
+            "state": {
+              "single": "Única",
+              "truread_average": "Média TruRead"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Movimento do corpo"
+      },
+      "cuff_fit": {
+        "name": "Ajuste da braçadeira"
+      },
+      "irregular_pulse": {
+        "name": "Pulso irregular"
+      },
+      "improper_position": {
+        "name": "Posição incorreta"
+      },
+      "forced_transfer": {
+        "name": "Dados pendentes"
+      },
+      "invalid_time": {
+        "name": "É preciso sincronizar a hora"
+      },
+      "pairing_mode": {
+        "name": "Modo de emparelhamento"
+      },
+      "connection": {
+        "name": "Ligação"
+      },
+      "body_movement_user": {
+        "name": "Movimento do corpo ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Ajuste da braçadeira ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Pulso irregular ({user})"
+      },
+      "improper_position_user": {
+        "name": "Posição incorreta ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Atualizar dados"
+      },
+      "retry_pairing": {
+        "name": "Repetir emparelhamento"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Alcunha do dispositivo"
+      }
+    }
+  }
+}
