@@ -79,6 +79,285 @@
     }
   },
   "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "수축기",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "이완기",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "맥박",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "맥압",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "평균동맥압(추정)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "혈압 분류 (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "쇼크 지수",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "심부담도",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "측정 시각",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "신호 강도"
+      },
+      "poll_duration": {
+        "name": "소요 시간"
+      },
+      "last_failure": {
+        "name": "마지막 실패"
+      },
+      "failure_count": {
+        "name": "실패 횟수"
+      },
+      "last_readout": {
+        "name": "마지막 판독"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "수축기 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "이완기 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "맥박 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "맥압 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "평균동맥압(추정) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "혈압 분류 (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "쇼크 지수 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "심부담도 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "측정 시각 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "측정 유형",
+            "state": {
+              "Single": "단일 측정",
+              "TruRead Average": "TruRead 평균"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "신체 움직임"
+      },
+      "cuff_fit": {
+        "name": "커프 착용"
+      },
+      "irregular_pulse": {
+        "name": "불규칙 맥박"
+      },
+      "improper_position": {
+        "name": "자세 불량"
+      },
+      "forced_transfer": {
+        "name": "전송 대기"
+      },
+      "invalid_time": {
+        "name": "시간 동기화 필요"
+      },
+      "pairing_mode": {
+        "name": "페어링 모드"
+      },
+      "connection": {
+        "name": "연결"
+      },
+      "body_movement_user": {
+        "name": "신체 움직임 ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "커프 착용 ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "불규칙 맥박 ({user})"
+      },
+      "improper_position_user": {
+        "name": "자세 불량 ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "데이터 새로고침"
+      },
+      "retry_pairing": {
+        "name": "페어링 다시 시도"
+      }
+    },
     "text": {
       "device_alias": {
         "name": "기기 별칭"

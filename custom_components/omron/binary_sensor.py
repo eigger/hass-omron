@@ -33,6 +33,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
+    apply_translated_entity_name,
     device_key_entity_id_suffix,
     device_key_to_bluetooth_entity_key,
     hass_device_info_with_ble_connection,
@@ -78,16 +79,22 @@ POLL_BINARY_SENSOR_DESCRIPTIONS = {
 ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {
     OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+        translation_key="forced_transfer",
+        has_entity_name=True,
         icon="mdi:sync",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     OmronExtendedBinarySensorDeviceClass.INVALID_TIME: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
+        translation_key="invalid_time",
+        has_entity_name=True,
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     OmronExtendedBinarySensorDeviceClass.PAIRING_MODE: BinarySensorEntityDescription(
         key=OmronExtendedBinarySensorDeviceClass.PAIRING_MODE,
+        translation_key="pairing_mode",
+        has_entity_name=True,
         icon="mdi:bluetooth-connect",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -129,11 +136,7 @@ def advertisement_binary_update_to_bluetooth_data_update(
                 sensor_update.binary_entity_values.get(device_key),
             )
         },
-        entity_names={
-            device_key_to_bluetooth_entity_key(device_key): sensor_values.name
-            for device_key, sensor_values in sensor_update.binary_entity_values.items()
-            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
-        },
+        entity_names={},
         entity_data={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.binary_entity_values.items()
@@ -247,7 +250,7 @@ class OmronAdvertisementBinarySensorEntity(
     """Binary sensor fed by Omron manufacturer advertisement flags."""
 
     # Match the previous CoordinatorEntity naming so friendly names stay stable.
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -303,7 +306,12 @@ class OmronBluetoothBinarySensorEntity(
         self._device_key = device_key
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
         self._attr_unique_id = self._runtime.entity_unique_id(key_slug)
-        self._attr_name = sensor_name
+        apply_translated_entity_name(
+            self,
+            str(device_key.key),
+            getattr(self._runtime.device_data, "_user_aliases", {}),
+            sensor_name,
+        )
         self._restored_is_on: bool | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -360,6 +368,8 @@ class OmronConnectionBinarySensorEntity(
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_translation_key = "connection"
 
     def __init__(
         self,
@@ -367,9 +377,6 @@ class OmronConnectionBinarySensorEntity(
         coordinator: DataUpdateCoordinator[bool],
     ) -> None:
         super().__init__(entry, coordinator)
-        self._attr_name = (
-            f"{self._runtime.model} {self._runtime.identifier.upper()} Connection"
-        )
         self._attr_unique_id = self._runtime.entity_unique_id("connection")
 
     @property

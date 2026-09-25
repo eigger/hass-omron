@@ -29,13 +29,15 @@ async def async_setup_entry(
     runtime = entry.runtime_data
     refresh_description = ButtonEntityDescription(
         key=runtime.entity_unique_id("refresh_data"),
-        name=f"{runtime.model} {runtime.identifier.upper()} Refresh Data",
+        translation_key="refresh_data",
+        has_entity_name=True,
         icon="mdi:refresh",
         entity_category=EntityCategory.CONFIG,
     )
     pairing_retry_description = ButtonEntityDescription(
         key=runtime.entity_unique_id("retry_pairing"),
-        name=f"{runtime.model} {runtime.identifier.upper()} Retry Pairing",
+        translation_key="retry_pairing",
+        has_entity_name=True,
         icon="mdi:bluetooth-connect",
         entity_category=EntityCategory.CONFIG,
     )

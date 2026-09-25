@@ -89,6 +89,285 @@
     }
   },
   "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Systolic",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastolic",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Pulse",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pulse Pressure",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Estimated MAP",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "BP Category (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Shock Index",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Rate Pressure Product",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Measured At",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Signal strength"
+      },
+      "poll_duration": {
+        "name": "Duration"
+      },
+      "last_failure": {
+        "name": "Last Failure"
+      },
+      "failure_count": {
+        "name": "Failure Count"
+      },
+      "last_readout": {
+        "name": "Last Readout"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Systolic ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastolic ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Pulse ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pulse Pressure ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Estimated MAP ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "BP Category (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Shock Index ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Rate Pressure Product ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Measured At ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Measurement type",
+            "state": {
+              "Single": "Single",
+              "TruRead Average": "TruRead average"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Body Movement"
+      },
+      "cuff_fit": {
+        "name": "Cuff Fit"
+      },
+      "irregular_pulse": {
+        "name": "Irregular Pulse"
+      },
+      "improper_position": {
+        "name": "Improper Position"
+      },
+      "forced_transfer": {
+        "name": "Data Pending"
+      },
+      "invalid_time": {
+        "name": "Time Sync Required"
+      },
+      "pairing_mode": {
+        "name": "Pairing Mode"
+      },
+      "connection": {
+        "name": "Connection"
+      },
+      "body_movement_user": {
+        "name": "Body Movement ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Cuff Fit ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Irregular Pulse ({user})"
+      },
+      "improper_position_user": {
+        "name": "Improper Position ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Refresh Data"
+      },
+      "retry_pairing": {
+        "name": "Retry Pairing"
+      }
+    },
     "text": {
       "device_alias": {
         "name": "Device nickname"
