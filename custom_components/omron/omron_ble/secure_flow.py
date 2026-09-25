@@ -16,6 +16,7 @@ from datetime import datetime
 import logging
 import secrets
 
+from .connection import _start_notify_with_recovery
 from .const import UNLOCK_CHARACTERISTIC_UUID
 from .devices import UnlockMode
 from .secure_session import SecureSession
@@ -82,15 +83,22 @@ async def prepare_secure_token(session, timeout: float) -> None:
     # its subscriptions, BlueZ can still hold the CCCD from the previous
     # connection, and a retry re-enters here with them enabled (#92).
     await session._ensure_services_cache()
-    await session._start_notify_with_recovery(
-        UNLOCK_CHARACTERISTIC_UUID, control_dispatch
+    await _start_notify_with_recovery(
+        session._client, UNLOCK_CHARACTERISTIC_UUID, control_dispatch,
+        model=session._config.model,
     )
     session._rebuild_notify_handle_index_map()
-    await session._start_notify_with_recovery(
-        session._config.rx_channel_uuids[0], session._on_notify_channel_data
+    await _start_notify_with_recovery(
+        session._client,
+        session._config.rx_channel_uuids[0],
+        session._on_notify_channel_data,
+        model=session._config.model,
     )
     session._notify_subscribed = True
-    await session._start_notify_with_recovery(ASYNC_NOTICE_UUID, async_notice)
+    await _start_notify_with_recovery(
+        session._client, ASYNC_NOTICE_UUID, async_notice,
+        model=session._config.model,
+    )
     _LOGGER.debug("Secure session: subscribed control, rx and async channels")
     await asyncio.sleep(0.75)
     await session._client.write_gatt_char(

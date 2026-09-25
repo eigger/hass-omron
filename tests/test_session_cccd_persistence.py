@@ -21,7 +21,6 @@
 담는 경우가 흔하다.
 """
 import asyncio
-from types import SimpleNamespace
 
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
@@ -217,20 +216,16 @@ def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch)
     빠져 있으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를 시도해
     ``Failed to initiate write`` 로 이어진다.
     """
-    from custom_components.omron.omron_ble import memory_protocol
+    from custom_components.omron.omron_ble import connection
+    from custom_components.omron.omron_ble.connection import _start_notify_with_recovery
 
-    monkeypatch.setattr(memory_protocol, "BleakError", _BlueZError)
+    monkeypatch.setattr(connection, "BleakError", _BlueZError)
     client = _NotifyHeldClient(UNLOCK_CHARACTERISTIC_UUID)
-    target = SimpleNamespace(
-        _client=client,
-        _config=get_device_config("HEM-7188T1"),
-        _on_notify_channel_data=lambda *_: None,
-    )
     sentinel = object()
 
     asyncio.run(
-        OmronDeviceSession._start_notify_with_recovery(
-            target, UNLOCK_CHARACTERISTIC_UUID, sentinel
+        _start_notify_with_recovery(
+            client, UNLOCK_CHARACTERISTIC_UUID, sentinel, model="HEM-7188T1"
         )
     )
 
@@ -263,8 +258,12 @@ def test_the_unlock_subscribe_stays_on_the_recovery_path():
         first = ast.unparse(node.args[0]) if node.args else ""
         if node.func.attr == "start_notify":
             direct.append(first)
-        elif node.func.attr == "_start_notify_with_recovery":
-            recovered.append(first)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        if node.func.id != "_start_notify_with_recovery" or len(node.args) < 2:
+            continue
+        recovered.append(ast.unparse(node.args[1]))
 
     assert not direct, f"복구를 우회하는 직접 호출이 남아 있다: {direct}"
     assert "UNLOCK_CHARACTERISTIC_UUID" in recovered, (
