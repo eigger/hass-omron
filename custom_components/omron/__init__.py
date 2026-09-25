@@ -156,6 +156,127 @@ def _persist_transport_credential(
     )
 
 
+async def _run_advertisement_session(
+    hass: HomeAssistant,
+    runtime: OmronRuntimeData,
+    data: OmronBluetoothDeviceData,
+    service_info: BluetoothServiceInfoBleak,
+    *,
+    is_pairing: bool,
+    is_invalid_time: bool,
+    is_forced_transfer: bool,
+) -> None:
+    """Pair, sync the clock, or kick a forced-transfer poll for one advertisement."""
+    session_lock: asyncio.Lock = runtime.session_lock
+    # forced_transfer-only path has no direct BLE op here — it just kicks
+    # the poll coordinator, which goes through async_poll_data and handles
+    # its own lock acquisition. Don't hold the lock during request_refresh,
+    # otherwise the child poll would see lock locked and return cached data.
+    if is_forced_transfer and not is_pairing and not is_invalid_time:
+        runtime.pending_forced_transfer = False
+        runtime.pending_forced_transfer_baseline = None
+        runtime.force_poll_after_lock = True
+        runtime.last_attempt_time = time.time()
+
+        _LOGGER.debug(
+            "Triggering scheduled poll via forced-transfer flag for %s",
+            service_info.address,
+        )
+
+        try:
+            # Undebounced for the same reason as the latched path above:
+            # force_poll_after_lock has to reach this refresh and no other.
+            await runtime.poll_coordinator.async_refresh()
+
+            if not runtime.poll_coordinator.last_update_success:
+                runtime.pending_forced_transfer = True
+                runtime.pending_forced_transfer_baseline = data.last_readout_at
+                _LOGGER.warning(
+                    "Forced-transfer poll failed for %s; "
+                    "keeping the transfer pending for retry: %s",
+                    service_info.address,
+                    runtime.poll_coordinator.last_exception,
+                )
+        except Exception as err:
+            runtime.pending_forced_transfer = True
+            runtime.pending_forced_transfer_baseline = data.last_readout_at
+            _LOGGER.error("Auto polling failed: %s", err)
+        finally:
+            runtime.force_poll_after_lock = False
+
+        return
+
+    # Pair / time-sync paths own a direct BLE op — hold the lock for that.
+    if session_lock.locked():
+        _LOGGER.debug(
+            "BLE session lock held when auto-session task started; aborting for %s",
+            service_info.address,
+        )
+        return
+
+    # An earlier attempt may have left a session parked and still
+    # connected because its poll skipped. Both branches below open a BLE
+    # link, so either would make it a second one on the same cuff — not
+    # just the pairing branch. Checked before taking the lock: the poll
+    # needs it to adopt the parked session.
+    #
+    # The poll does not time-sync, so an invalid_time advert loses that
+    # this round; the device keeps the flag set and the next advert syncs
+    # it once the parked session has been consumed.
+    if runtime.poll_coordinator and await poll_parked_session(
+        hass, service_info.address, runtime.poll_coordinator
+    ):
+        # Seed the cooldown as the session paths do, or a run of adverts
+        # spawns this task again on every one of them.
+        runtime.last_attempt_time = time.time()
+        return
+
+    action = "auto-pairing" if is_pairing else "time-sync"
+    # Doubles as the "pairing succeeded" flag: set only once the cuff is
+    # bonded, and holds the live link for the refresh below to adopt.
+    paired_session = None
+    try:
+        async with session_lock:
+            runtime.last_attempt_time = time.time()
+            _LOGGER.debug(
+                "Starting %s session for %s (lock acquired)",
+                action,
+                service_info.address,
+            )
+            await asyncio.sleep(SETTLE_DELAY_SECONDS)
+            ble_device = service_info.device
+            if is_pairing:
+                async with omron_poll_ble_telemetry(hass, runtime, "pairing"):
+                    paired_session = await data.async_retry_pairing(ble_device)
+            else:  # is_invalid_time and not is_forced_transfer
+                async with omron_poll_ble_telemetry(hass, runtime, "time_sync"):
+                    await data.async_sync_time(ble_device)
+    except Exception as err:
+        if is_pairing:
+            _LOGGER.error("Auto pairing failed: %s", err)
+        else:
+            _LOGGER.error("Auto time sync failed: %s", err)
+
+    # Lock auto-released by the context manager. The post-pairing poll runs
+    # AFTER the release so async_poll_data can acquire it independently,
+    # and adopts the link parked for it rather than reconnecting — a
+    # PER_SESSION cuff refuses that second connect.
+    if paired_session is not None:
+        if not runtime.poll_coordinator:
+            # Nothing will ever adopt the link, so do not park it.
+            await paired_session.aclose()
+        else:
+            try:
+                await run_post_pairing_poll(
+                    hass,
+                    service_info.address,
+                    paired_session,
+                    runtime.poll_coordinator,
+                )
+            except Exception as err:
+                _LOGGER.error("Post-pairing refresh failed: %s", err)
+
+
 def process_service_info(
     entry: OmronConfigEntry,
     service_info: BluetoothServiceInfoBleak,
@@ -319,116 +440,17 @@ def process_service_info(
         )
         return update
 
-    async def _run_auto_session() -> None:
-        # forced_transfer-only path has no direct BLE op here — it just kicks
-        # the poll coordinator, which goes through async_poll_data and handles
-        # its own lock acquisition. Don't hold the lock during request_refresh,
-        # otherwise the child poll would see lock locked and return cached data.
-        if is_forced_transfer and not is_pairing and not is_invalid_time:
-            runtime.pending_forced_transfer = False
-            runtime.pending_forced_transfer_baseline = None
-            runtime.force_poll_after_lock = True
-            runtime.last_attempt_time = time.time()
-
-            _LOGGER.debug(
-                "Triggering scheduled poll via forced-transfer flag for %s",
-                service_info.address,
-            )
-
-            try:
-                # Undebounced for the same reason as the latched path above:
-                # force_poll_after_lock has to reach this refresh and no other.
-                await runtime.poll_coordinator.async_refresh()
-
-                if not runtime.poll_coordinator.last_update_success:
-                    runtime.pending_forced_transfer = True
-                    runtime.pending_forced_transfer_baseline = data.last_readout_at
-                    _LOGGER.warning(
-                        "Forced-transfer poll failed for %s; "
-                        "keeping the transfer pending for retry: %s",
-                        service_info.address,
-                        runtime.poll_coordinator.last_exception,
-                    )
-            except Exception as err:
-                runtime.pending_forced_transfer = True
-                runtime.pending_forced_transfer_baseline = data.last_readout_at
-                _LOGGER.error("Auto polling failed: %s", err)
-            finally:
-                runtime.force_poll_after_lock = False
-
-            return
-
-        # Pair / time-sync paths own a direct BLE op — hold the lock for that.
-        if session_lock.locked():
-            _LOGGER.debug(
-                "BLE session lock held when auto-session task started; aborting for %s",
-                service_info.address,
-            )
-            return
-
-        # An earlier attempt may have left a session parked and still
-        # connected because its poll skipped. Both branches below open a BLE
-        # link, so either would make it a second one on the same cuff — not
-        # just the pairing branch. Checked before taking the lock: the poll
-        # needs it to adopt the parked session.
-        #
-        # The poll does not time-sync, so an invalid_time advert loses that
-        # this round; the device keeps the flag set and the next advert syncs
-        # it once the parked session has been consumed.
-        if runtime.poll_coordinator and await poll_parked_session(
-            hass, service_info.address, runtime.poll_coordinator
-        ):
-            # Seed the cooldown as the session paths do, or a run of adverts
-            # spawns this task again on every one of them.
-            runtime.last_attempt_time = time.time()
-            return
-
-        action = "auto-pairing" if is_pairing else "time-sync"
-        # Doubles as the "pairing succeeded" flag: set only once the cuff is
-        # bonded, and holds the live link for the refresh below to adopt.
-        paired_session = None
-        try:
-            async with session_lock:
-                runtime.last_attempt_time = time.time()
-                _LOGGER.debug(
-                    "Starting %s session for %s (lock acquired)",
-                    action,
-                    service_info.address,
-                )
-                await asyncio.sleep(SETTLE_DELAY_SECONDS)
-                ble_device = service_info.device
-                if is_pairing:
-                    async with omron_poll_ble_telemetry(hass, runtime, "pairing"):
-                        paired_session = await data.async_retry_pairing(ble_device)
-                else:  # is_invalid_time and not is_forced_transfer
-                    async with omron_poll_ble_telemetry(hass, runtime, "time_sync"):
-                        await data.async_sync_time(ble_device)
-        except Exception as err:
-            if is_pairing:
-                _LOGGER.error("Auto pairing failed: %s", err)
-            else:
-                _LOGGER.error("Auto time sync failed: %s", err)
-
-        # Lock auto-released by the context manager. The post-pairing poll runs
-        # AFTER the release so async_poll_data can acquire it independently,
-        # and adopts the link parked for it rather than reconnecting — a
-        # PER_SESSION cuff refuses that second connect.
-        if paired_session is not None:
-            if not runtime.poll_coordinator:
-                # Nothing will ever adopt the link, so do not park it.
-                await paired_session.aclose()
-            else:
-                try:
-                    await run_post_pairing_poll(
-                        hass,
-                        service_info.address,
-                        paired_session,
-                        runtime.poll_coordinator,
-                    )
-                except Exception as err:
-                    _LOGGER.error("Post-pairing refresh failed: %s", err)
-
-    hass.async_create_task(_run_auto_session())
+    hass.async_create_task(
+        _run_advertisement_session(
+            hass,
+            runtime,
+            data,
+            service_info,
+            is_pairing=is_pairing,
+            is_invalid_time=is_invalid_time,
+            is_forced_transfer=is_forced_transfer,
+        )
+    )
 
     return update
 

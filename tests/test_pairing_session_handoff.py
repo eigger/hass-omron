@@ -351,7 +351,7 @@ class TestRepairEntryPointsCheckForAParkedSession:
         )
 
     def test_auto_pairing_checks_before_pairing(self):
-        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
         body = ast.unparse(fn)
 
         assert "poll_parked_session" in body
@@ -360,7 +360,7 @@ class TestRepairEntryPointsCheckForAParkedSession:
     def test_check_also_covers_the_time_sync_path(self):
         """async_sync_time opens its own link, so an invalid_time advert would
         put a second one on the cuff just as pairing would."""
-        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
         body = ast.unparse(fn)
 
         assert body.index("poll_parked_session") < body.index("async_sync_time"), (
@@ -380,7 +380,7 @@ class TestRepairEntryPointsCheckForAParkedSession:
     def test_auto_pairing_seeds_the_cooldown_when_it_bails_out(self):
         """Returning early without seeding it respawns this task on every
         advertisement in a burst."""
-        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
 
         guards = [
             node
@@ -476,7 +476,7 @@ class TestCallSitesHandOffTheSession:
     """Every path that pairs must hand the session to the poll that follows."""
 
     def test_auto_pairing_hands_off_the_session(self):
-        fn = _find_async_function(_parse("__init__.py"), "_run_auto_session")
+        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
 
         assert "run_post_pairing_poll" in _called_names(fn), (
             "dropping the session here makes the follow-up poll reconnect, and "
@@ -530,7 +530,7 @@ class TestPostPairingPollIsNotDebounced:
     async_request_refresh() goes through a 10 s debouncer: when a refresh
     fired recently it schedules the poll and returns *without* running it.
     Pressing Refresh Data and then Retry Pairing lands squarely in that
-    window. The forced-transfer path in _run_auto_session deliberately uses
+    window. The forced-transfer path in _run_advertisement_session deliberately uses
     the debounced call, so this invariant is pinned on the shared helper
     rather than on the call sites.
     """
