@@ -38,90 +38,90 @@ class TestRxNotificationHandling:
 
     def test_valid_frame_sets_reply_ready_and_payload(self):
         valid_frame = _build_valid_frame(b"\x81\x00", 0x0098, b"\x01\x02\x03\x04")
-        self.session._expected_reply_packet_type = b"\x81\x00"
-        self.session._on_notify_channel_data(0, valid_frame)
+        self.session.memory._expected_reply_packet_type = b"\x81\x00"
+        self.session.memory._on_notify_channel_data(0, valid_frame)
 
-        assert self.session._reply_ready.is_set()
-        assert self.session._last_reply_packet_type == b"\x81\x00"
-        assert self.session._last_reply_payload == b"\x01\x02\x03\x04"
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_packet_type == b"\x81\x00"
+        assert self.session.memory._last_reply_payload == b"\x01\x02\x03\x04"
 
     def test_session_open_8000_frame_accepted(self):
         # Real-device open_memory_session response: 0880000000100098 (8 bytes, byte[5]=0x10)
         # Must not be rejected as a truncated frame.
         raw = bytearray.fromhex("0880000000100098")
-        self.session._expected_reply_packet_type = b"\x80\x00"
-        self.session._on_notify_channel_data(0, raw)
+        self.session.memory._expected_reply_packet_type = b"\x80\x00"
+        self.session.memory._on_notify_channel_data(0, raw)
 
-        assert self.session._reply_ready.is_set()
-        assert self.session._last_reply_packet_type == b"\x80\x00"
-        assert self.session._last_reply_payload == b"\x00"
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_packet_type == b"\x80\x00"
+        assert self.session.memory._last_reply_payload == b"\x00"
 
     def test_session_close_8f00_frame_accepted_with_nonzero_byte5(self):
         # Control frame 8f00 with non-zero byte[5] and response code 0
         raw = bytearray([0x08, 0x8F, 0x00, 0x00, 0x00, 0x10, 0x00])
         raw.append(_calc_crc(raw))
-        self.session._expected_reply_packet_type = b"\x8f\x00"
-        self.session._on_notify_channel_data(0, raw)
+        self.session.memory._expected_reply_packet_type = b"\x8f\x00"
+        self.session.memory._on_notify_channel_data(0, raw)
 
-        assert self.session._reply_ready.is_set()
-        assert self.session._last_reply_packet_type == b"\x8f\x00"
-        assert self.session._last_reply_payload == b"\x00"
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_packet_type == b"\x8f\x00"
+        assert self.session.memory._last_reply_payload == b"\x00"
 
     def test_memory_write_81c0_frame_accepted_with_nonzero_byte5(self):
         # Control frame 81c0 (write response) with non-zero byte[5] and response code 0
         raw = bytearray([0x08, 0x81, 0xC0, 0x00, 0x00, 0x0A, 0x00])
         raw.append(_calc_crc(raw))
-        self.session._expected_reply_packet_type = b"\x81\xC0"
-        self.session._on_notify_channel_data(0, raw)
+        self.session.memory._expected_reply_packet_type = b"\x81\xC0"
+        self.session.memory._on_notify_channel_data(0, raw)
 
-        assert self.session._reply_ready.is_set()
-        assert self.session._last_reply_packet_type == b"\x81\xC0"
-        assert self.session._last_reply_payload == b"\x00"
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_packet_type == b"\x81\xC0"
+        assert self.session.memory._last_reply_payload == b"\x00"
 
     def test_single_channel_declared_length_truncation_is_ignored(self):
         # Single channel frame declares 16 bytes, but only 8 bytes received
         short_frame = bytearray([16, 0x81, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00])
-        self.session._on_notify_channel_data(0, short_frame)
+        self.session.memory._on_notify_channel_data(0, short_frame)
 
-        assert not self.session._reply_ready.is_set()
-        assert self.session._last_reply_payload is None
+        assert not self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_payload is None
 
     def test_undersized_frame_is_ignored(self):
         short_frame = bytearray([0x04, 0x81, 0x00, 0x05])
-        self.session._on_notify_channel_data(0, short_frame)
+        self.session.memory._on_notify_channel_data(0, short_frame)
 
-        assert not self.session._reply_ready.is_set()
-        assert self.session._last_reply_payload is None
+        assert not self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_payload is None
 
     def test_truncated_frame_is_ignored_without_synthetic_ff(self):
         # Frame claims 16 bytes payload, but only 4 bytes are actually present
         frame = bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 0xAA, 0xBB, 0xCC, 0xDD, 0x00])
         frame.append(_calc_crc(frame))
-        self.session._expected_reply_packet_type = b"\x81\x00"
-        self.session._on_notify_channel_data(0, frame)
+        self.session.memory._expected_reply_packet_type = b"\x81\x00"
+        self.session.memory._on_notify_channel_data(0, frame)
 
         # Must not set reply_ready and must not produce fake 0xFF bytes
-        assert not self.session._reply_ready.is_set()
-        assert self.session._last_reply_payload is None
+        assert not self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_payload is None
 
     def test_unexpected_reply_packet_type_is_ignored(self):
         valid_frame = _build_valid_frame(b"\x80\x00", 0x0000, b"\x00" * 4)
         # Expected is read reply 8100, but incoming is late session open reply 8000
-        self.session._expected_reply_packet_type = b"\x81\x00"
-        self.session._on_notify_channel_data(0, valid_frame)
+        self.session.memory._expected_reply_packet_type = b"\x81\x00"
+        self.session.memory._on_notify_channel_data(0, valid_frame)
 
-        assert not self.session._reply_ready.is_set()
+        assert not self.session.memory._reply_ready.is_set()
 
     def test_error_frame_8f00_is_always_accepted(self):
         # Device reports error frame 8f00 with error code 3 in payload/byte 6
         error_frame = _build_valid_frame(b"\x8f\x00", 0x0000, b"\x03")
         # Even when waiting for 8100, 8f00 error frame must be accepted so caller gets error code
-        self.session._expected_reply_packet_type = b"\x81\x00"
-        self.session._on_notify_channel_data(0, error_frame)
+        self.session.memory._expected_reply_packet_type = b"\x81\x00"
+        self.session.memory._on_notify_channel_data(0, error_frame)
 
-        assert self.session._reply_ready.is_set()
-        assert self.session._last_reply_packet_type == b"\x8f\x00"
-        assert self.session._last_reply_payload == b"\x03"
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_packet_type == b"\x8f\x00"
+        assert self.session.memory._last_reply_payload == b"\x03"
 
     def test_oversized_packet_size_is_rejected(self):
         multi_config = DeviceConfig(
@@ -138,9 +138,9 @@ class TestRxNotificationHandling:
         session._notify_handle_to_channel = {10: 0}
 
         # packet_size = 70 (exceeds 64 byte 4-channel max)
-        session._on_notify_channel_data(10, bytearray([70] + [0] * 15))
-        assert not session._reply_ready.is_set()
-        assert session._channel_fragments[0] is None
+        session.memory._on_notify_channel_data(10, bytearray([70] + [0] * 15))
+        assert not session.memory._reply_ready.is_set()
+        assert session.memory._channel_fragments[0] is None
 
     def test_channel_zero_clears_stale_fragments_on_multi_channel(self):
         multi_config = DeviceConfig(
@@ -157,14 +157,14 @@ class TestRxNotificationHandling:
         session._notify_handle_to_channel = {10: 0, 11: 1, 12: 2, 13: 3}
 
         # Put a stale fragment on channel 1
-        session._channel_fragments[1] = bytearray(b"\xde\xad\xbe\xef" * 4)
+        session.memory._channel_fragments[1] = bytearray(b"\xde\xad\xbe\xef" * 4)
 
         # Receiving new start on channel 0 resets fragments
-        session._on_notify_channel_data(10, bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
+        session.memory._on_notify_channel_data(10, bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
 
         # Channel 1 should have been cleared when channel 0 arrived
-        assert session._channel_fragments[1] is None
-        assert not session._reply_ready.is_set()
+        assert session.memory._channel_fragments[1] is None
+        assert not session.memory._reply_ready.is_set()
 
     def test_write_command_raises_connection_error_on_8f00_device_rejection(self):
         import asyncio
@@ -175,7 +175,7 @@ class TestRxNotificationHandling:
         async def fake_write(uuid, data, response=True):
             # Simulate device responding with 8f00 error code 3 immediately
             error_frame = _build_valid_frame(b"\x8f\x00", 0x0000, b"\x03")
-            self.session._on_notify_channel_data(0, error_frame)
+            self.session.memory._on_notify_channel_data(0, error_frame)
 
         client.write_gatt_char.side_effect = fake_write
         self.session._client = client
@@ -183,4 +183,4 @@ class TestRxNotificationHandling:
         cmd = bytearray.fromhex("0801000098100081")
 
         with pytest.raises(ConnectionError, match="Device rejected command 080100 .*code 0x03"):
-            asyncio.run(self.session._write_command_and_wait_reply(cmd))
+            asyncio.run(self.session.memory._write_command_and_wait_reply(cmd))

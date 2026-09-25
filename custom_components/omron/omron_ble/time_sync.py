@@ -206,11 +206,11 @@ async def _sync_eeprom_with_session(
         return False
     if transport is None:
         transport = OmronDeviceSession.adopt(client, config)
-    if transport.memory_session_active:
+    if transport.memory.memory_session_active:
         return await _sync_time_via_eeprom(client, model, config, transport)
     if leave_memory_session_open:
         await transport.unlock()
-        await transport.open_memory_session()
+        await transport.memory.open_memory_session()
         return await _sync_time_via_eeprom(client, model, config, transport)
     async with transport.memory_session_after_unlock():
         return await _sync_time_via_eeprom(client, model, config, transport)

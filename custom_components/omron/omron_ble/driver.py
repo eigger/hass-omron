@@ -196,7 +196,7 @@ class OmronDeviceDriver:
         await transport.unlock()
 
         # Read current time sync settings from EEPROM
-        cached = await transport.read_memory_range(
+        cached = await transport.memory.read_memory_range(
             read_addr + section_start,
             section_size,
             min(section_size, self._config.transmission_block_size),
@@ -228,7 +228,7 @@ class OmronDeviceDriver:
         cached = self._build_eeprom_time_data(cached, now)
 
         # Write the modified settings back to EEPROM
-        await transport.write_memory_range(
+        await transport.memory.write_memory_range(
             write_addr + section_start,
             cached,
             block_size=len(cached),
@@ -269,7 +269,7 @@ class OmronDeviceDriver:
         if completion is None:
             return
 
-        if not transport.memory_session_active:
+        if not transport.memory.memory_session_active:
             raise ConnectionError(
                 "Cannot complete measurement readout without an active memory session"
             )
@@ -283,7 +283,7 @@ class OmronDeviceDriver:
             )
 
         index_mirror = bytearray(
-            await transport.read_memory_block(
+            await transport.memory.read_memory_block(
                 layout.head_read_address,
                 layout.head_write_size,
             )
@@ -294,13 +294,13 @@ class OmronDeviceDriver:
                 f"expected {layout.head_write_size}, got {len(index_mirror)}"
             )
         index_mirror[completion.index_flag_offset] = completion.index_flag_value
-        await transport.write_memory_block(
+        await transport.memory.write_memory_block(
             layout.head_write_address,
             index_mirror,
         )
 
         status_mirror = bytearray(
-            await transport.read_memory_block(
+            await transport.memory.read_memory_block(
                 layout.clock_read_address,
                 layout.clock_write_size,
             )
@@ -322,7 +322,7 @@ class OmronDeviceDriver:
             clock_block(status_mirror, self._now_func(), layout.clock_write_size)
         )
         status_mirror[layout.clock_write_size - 1] = 0x00
-        await transport.write_memory_block(
+        await transport.memory.write_memory_block(
             layout.clock_write_address,
             status_mirror,
         )
@@ -387,7 +387,7 @@ class OmronDeviceDriver:
             )
 
             try:
-                raw_data = await transport.read_memory_range(
+                raw_data = await transport.memory.read_memory_range(
                     start_addr, total_bytes, self._config.transmission_block_size
                 )
             except MemoryReadRefused as refused:
@@ -626,7 +626,7 @@ class OmronDeviceDriver:
         max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
         try:
-            index_bytes = await transport.read_memory_range(
+            index_bytes = await transport.memory.read_memory_range(
                 self._config.settings_read_address,
                 index_region_byte_size,
                 self._config.transmission_block_size,
@@ -734,7 +734,7 @@ class OmronDeviceDriver:
                     logical_slot = probe_slot - pointer_min
                     probe_addr = base_addr + (logical_slot * record_step)
                     try:
-                        raw_record = await transport.read_memory_range(
+                        raw_record = await transport.memory.read_memory_range(
                             probe_addr,
                             record_byte_size,
                             self._config.transmission_block_size,

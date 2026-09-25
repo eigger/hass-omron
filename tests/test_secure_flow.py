@@ -55,10 +55,14 @@ def make_session(pairing, close_code=b"\x00"):
             index_pointer_layout={"index_region_byte_size": 0x18},
         ),
         _pairing_session=pairing,
-        _token_unlock=AsyncMock(), open_memory_session=AsyncMock(),
-        read_memory_block=AsyncMock(side_effect=[bytes(range(44)), bytes(range(24))]),
-        write_memory_block=AsyncMock(),
-        _last_reply_packet_type=None, _last_reply_payload=None,
+        _token_unlock=AsyncMock(),
+        memory=SimpleNamespace(
+            open_memory_session=AsyncMock(),
+            read_memory_block=AsyncMock(side_effect=[bytes(range(44)), bytes(range(24))]),
+            write_memory_block=AsyncMock(),
+            _last_reply_packet_type=None,
+            _last_reply_payload=None,
+        ),
     )
 
     async def write(uuid, packet, response):
@@ -69,11 +73,11 @@ def make_session(pairing, close_code=b"\x00"):
         session._unlock_notify_handler(None, answer)
 
     async def close():
-        session._last_reply_packet_type = b"\x8f\x00"
-        session._last_reply_payload = close_code
+        session.memory._last_reply_packet_type = b"\x8f\x00"
+        session.memory._last_reply_payload = close_code
 
     session._client = SimpleNamespace(write_gatt_char=write)
-    session.close_memory_session = AsyncMock(side_effect=close)
+    session.memory.close_memory_session = AsyncMock(side_effect=close)
     return session, events
 
 
@@ -88,16 +92,16 @@ def test_resume_never_pairs_or_writes_settings():
     session, events = make_session(False)
     assert run(session, bytes(range(16))) == bytes(range(16))
     assert events == [b"\x70\x05", b"\x70\x06", b"\xc0"]
-    session.open_memory_session.assert_not_awaited()
-    session.write_memory_block.assert_not_awaited()
+    session.memory.open_memory_session.assert_not_awaited()
+    session.memory.write_memory_block.assert_not_awaited()
 
 
 def test_pairing_returns_key_only_after_close():
     session, events = make_session(True)
     assert run(session) == bytes(range(16))
     assert events[0] == b"\x70\x01"
-    session.close_memory_session.assert_awaited_once()
-    calls = session.write_memory_block.await_args_list
+    session.memory.close_memory_session.assert_awaited_once()
+    calls = session.memory.write_memory_block.await_args_list
     assert calls[0].args == (0x0054, bytearray(range(24)))
     assert calls[1].args[0] == 0x0080
 
@@ -111,7 +115,7 @@ def test_rejected_close_does_not_return_key():
 
 def test_timeout_does_not_return_key():
     session, _ = make_session(True)
-    session.close_memory_session = AsyncMock(side_effect=TimeoutError())
+    session.memory.close_memory_session = AsyncMock(side_effect=TimeoutError())
     with pytest.raises(TimeoutError):
         run(session)
     assert session._unlocked is False
@@ -188,9 +192,11 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch
             read_gatt_char=read, start_notify=raw_start_notify, write_gatt_char=write
         ),
         _config=SimpleNamespace(rx_channel_uuids=["rx"], model=""),
-        _rebuild_notify_handle_index_map=lambda: None,
-        _on_notify_channel_data=lambda *_: None,
         _ensure_services_cache=ensure_cache,
+        memory=SimpleNamespace(
+            _rebuild_notify_handle_index_map=lambda: None,
+            _on_notify_channel_data=lambda *_: None,
+        ),
     )
     monkeypatch.setattr(
         "custom_components.omron.omron_ble.secure_flow._start_notify_with_recovery",
@@ -202,4 +208,4 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch
                       ("notify", control), ("notify", "rx"),
                       ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
                       ("token", control)]
-    assert session._notify_subscribed
+    assert session.memory._notify_subscribed
