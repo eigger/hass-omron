@@ -80,7 +80,7 @@ trigger is the moment it becomes cheaper to do than not to do.
 
 | Item | Trigger | Notes |
 |---|---|---|
-| Shorten the long functions | Only when a fix already touches one | `driver._get_latest_via_index` 292, `__init__.process_service_info` 288, `__init__.async_setup_entry` 268 (defines `_async_poll_data` and two others as closures — untestable in isolation), `parser._poll_device_readout` 252, `parser.async_poll` 237, `unlock._pair_custom_key` 178. Function extraction cannot be proven move-only the way module moves were, so it rides along with hardware-verified fixes |
+| Shorten the long functions | Only when a fix already touches one | `parser._poll_device_readout`, `parser.async_poll`, `unlock._pair_custom_key`, `__init__.async_setup_entry`. The index probe and the advertisement session runner are already their own functions. These four stay one function because the call order is the behaviour |
 
 Not planned: renaming `parser.py`. It matches the HA `*-ble` library
 convention (`xxx_ble/parser.py` holding the `BluetoothData` subclass) and would

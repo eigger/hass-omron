@@ -567,6 +567,231 @@ class OmronDeviceDriver:
             pointer -= span
         return pointer
 
+    async def _probe_index_user(
+        self,
+        transport: OmronDeviceSession,
+        *,
+        idx: int,
+        user_cfg: dict,
+        index_bytes: bytes | bytearray,
+        record_addresses,
+        record_byte_size: int,
+        record_step: int,
+        backtrack_slots: int,
+        collect_limit: int,
+        ptr_endian: str,
+    ) -> tuple[list[tuple[int, dict[str, Any]]], bool]:
+        """Read one user's cursor slot and TruRead backtrack.
+
+        Returns that user's newest-first candidates and whether the user is
+        confirmed empty.
+        """
+        user_candidates: list[tuple[int, dict[str, Any]]] = []
+        confirmed_empty = False
+        if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
+            return [], False
+        write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
+        if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
+            _LOGGER.debug(
+                "User%d [%s]: write_cursor_offset=0x%02X invalid (index_bytes len=%d), skipping",
+                idx + 1, self._config.model, write_cursor_offset, len(index_bytes),
+            )
+            return [], False
+
+        raw_pointer = int.from_bytes(
+            index_bytes[write_cursor_offset:write_cursor_offset + 2],
+            ptr_endian,
+            signed=False,
+        )
+        # Unrecorded users have their pointer set to clear_value
+        # (0x8000 on the vendor maps). The same word is also a live
+        # cursor: bit 15 is a status flag the cuff toggles between
+        # writes and the low byte reads 0x00 for the last slot, which
+        # the HEM-7380T1 reuses routinely (#193). Read the cursor
+        # slot to tell the two apart: all-0xFF confirms the user
+        # empty below, a record means the pointer is live and the
+        # normal probe (TruRead reach-back included) carries on.
+        clear_value = user_cfg.get("clear_value", 0x8000)
+        cursor_is_clear_value = clear_value is not None and raw_pointer == clear_value
+        if cursor_is_clear_value:
+            _LOGGER.debug(
+                "User%d [%s]: cursor raw=0x%04X matches clear_value 0x%04X "
+                "— verifying the cursor slot before marking the user empty",
+                idx + 1,
+                self._config.model,
+                raw_pointer,
+                clear_value,
+            )
+
+        pointer_mask = int(user_cfg.get("write_cursor_mask", 0xFF))
+        pointer_min = int(user_cfg.get("slot_index_min", 0))
+        pointer_max = int(
+            user_cfg.get(
+                "slot_index_max",
+                self._config.per_user_records_count[idx] - 1,
+            )
+        )
+        correction = int(user_cfg.get("slot_index_bias", -1))
+        pointer_masked = raw_pointer & pointer_mask
+        pointer_corrected = pointer_masked + correction
+        pointer_wrapped = self._wrap_pointer_to_range(
+            pointer_corrected, pointer_min, pointer_max
+        )
+        if pointer_wrapped is None:
+            _LOGGER.debug(
+                "User%d [%s]: cursor raw=0x%04X masked=0x%02X corrected=%d wrapped=None "
+                "(range [%d,%d]), skipping",
+                idx + 1, self._config.model,
+                raw_pointer, pointer_masked, pointer_corrected,
+                pointer_min, pointer_max,
+            )
+            return [], False
+        record_count = (pointer_max - pointer_min) + 1
+        if record_count <= 0:
+            return [], False
+        latest_slot = pointer_wrapped
+        _LOGGER.debug(
+            "User%d [%s]: cursor raw=0x%04X masked=0x%02X bias=%+d "
+            "→ slot=%d (range [%d,%d]) base_addr=0x%04X record_step=%d",
+            idx + 1, self._config.model,
+            raw_pointer, pointer_masked, correction,
+            latest_slot, pointer_min, pointer_max,
+            int(record_addresses[idx]), record_step,
+        )
+        # backtrack_slots only widens the corrupt-slot skip window;
+        # a TruRead sequence needs at least the two older slots too.
+        max_probe = min(
+            max(backtrack_slots, collect_limit - 1),
+            max(record_count - 1, 0),
+        )
+        parsed = None
+        base_addr = int(record_addresses[idx])
+        # Track whether every probed slot for this user was the
+        # device's empty marker (all-0xFF).  If so, the user has
+        # never recorded a measurement and the caller can skip the
+        # full-scan fallback safely.
+        user_had_any_read = False
+        user_all_probed_slots_empty = True
+        user_read_failed = False
+        user_collected = 0
+        user_slots_read = 0
+        for back in range(max_probe + 1):
+            probe_slot = latest_slot - back
+            while probe_slot < pointer_min:
+                probe_slot += record_count
+            logical_slot = probe_slot - pointer_min
+            probe_addr = base_addr + (logical_slot * record_step)
+            try:
+                raw_record = await transport.memory.read_memory_range(
+                    probe_addr,
+                    record_byte_size,
+                    self._config.transmission_block_size,
+                )
+            except Exception as read_exc:
+                user_read_failed = True
+                if isinstance(read_exc, MemoryReadRefused):
+                    # The device answered: it will not serve this
+                    # region.
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d %s",
+                        idx + 1, self._config.model, probe_slot, read_exc,
+                    )
+                else:
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d addr=0x%04X read failed: %s",
+                        idx + 1, self._config.model, probe_slot,
+                        probe_addr, read_exc,
+                    )
+                if cursor_is_clear_value and not user_had_any_read:
+                    # The pointer already says empty and the very
+                    # first slot of the region did not read, refused
+                    # or silent. Confirm it either way: a region the
+                    # cuff will not serve fails the full scan the
+                    # same way and takes user 1's records with it,
+                    # which is worse than the zero-read confirmation
+                    # 2.10.2 shipped. If the link is really gone the
+                    # scan dies regardless, so nothing is lost.
+                    confirmed_empty = True
+                    _LOGGER.debug(
+                        "User%d [%s] confirmed empty: cursor is "
+                        "clear_value and the cursor slot did not read",
+                        idx + 1, self._config.model,
+                    )
+                # Later in the backtrack the region has answered at
+                # least once, so keep what was collected and let the
+                # post-loop check below decide, with the failure
+                # noted so it never confirms empty on a failed read.
+                break
+            _LOGGER.debug(
+                "User%d [%s] slot=%d addr=0x%04X raw=%s",
+                idx + 1, self._config.model, probe_slot,
+                probe_addr, bytes(raw_record).hex(),
+            )
+            user_had_any_read = True
+            user_slots_read += 1
+            # The device leaves un-written slots as all-0xFF.  A
+            # single byte that differs means *something* was stored
+            # at this slot, even if our parser rejects it.
+            if any(b != 0xFF for b in raw_record):
+                user_all_probed_slots_empty = False
+            if cursor_is_clear_value and user_all_probed_slots_empty:
+                # An all-0xFF cursor slot at a clear_value cursor is
+                # all the confirmation an empty user needs. A live
+                # cursor keeps its normal backtrack past later gaps.
+                break
+            try:
+                parsed = self._config.parse_record(bytes(raw_record))
+            except Exception as parse_exc:
+                _LOGGER.debug(
+                    "User%d [%s] slot=%d parse error: %s",
+                    idx + 1, self._config.model, probe_slot, parse_exc,
+                )
+                parsed = None
+                continue
+            parsed["_slot_index"] = probe_slot
+            _LOGGER.debug(
+                "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
+                "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
+                idx + 1, self._config.model, probe_slot,
+                parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
+                parsed.get("datetime"), parsed.get("ihb"),
+                parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
+            )
+            if not self._is_record_plausible(parsed):
+                parsed = None
+                continue
+            # Appended newest-first: the cursor slot, then each
+            # older slot in probe order.
+            user_candidates.append((idx + 1, parsed))
+            user_collected += 1
+            if user_collected >= collect_limit:
+                break
+            # Only keep reading while this slot is still part of a
+            # TruRead sequence counting down toward the cursor
+            # (pos 3 at the cursor, then 2, then 1). A Single
+            # measurement stops here at one read, as before.
+            if parsed.get("pos") != TRUREAD_SEQUENCE_LEN - user_collected + 1:
+                break
+        if cursor_is_clear_value and user_collected:
+            _LOGGER.debug(
+                "User%d [%s]: cursor raw=0x%04X equals clear_value but "
+                "slot %d holds a record — treating the pointer as live",
+                idx + 1, self._config.model, raw_pointer, latest_slot,
+            )
+        # After the backtrack window completes: if every read came
+        # back all-0xFF, mark this user as definitively empty. A
+        # backtrack cut short by a failed read proves nothing about
+        # the slots it never reached.
+        if user_had_any_read and user_all_probed_slots_empty and not user_read_failed:
+            confirmed_empty = True
+            _LOGGER.debug(
+                "User%d [%s] confirmed empty: cursor slot and %d "
+                "backtrack slot(s) all 0xFF — full-scan fallback "
+                "will be skipped for this user",
+                idx + 1, self._config.model, user_slots_read - 1,
+            )
+        return user_candidates, confirmed_empty
+
     async def _get_latest_via_index(
         self, transport: OmronDeviceSession, *, return_all_users: bool = False
     ) -> Any | None:
@@ -623,7 +848,6 @@ class OmronDeviceDriver:
         # fallback that would otherwise spend ~60 s scanning a blank region,
         # produce spurious TX timeouts, or fail outright on a refused region.
         confirmed_empty_users: set[int] = set()
-        max_probe: int = 0  # initialised here so the finally-block log never hits NameError
         await transport.unlock()
         try:
             index_bytes = await transport.memory.read_memory_range(
@@ -640,208 +864,22 @@ class OmronDeviceDriver:
                 bytes(index_bytes).hex(),
             )
             for idx, user_cfg in enumerate(user_layouts):
-                if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
-                    continue
-                write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
-                if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
-                    _LOGGER.debug(
-                        "User%d [%s]: write_cursor_offset=0x%02X invalid (index_bytes len=%d), skipping",
-                        idx + 1, self._config.model, write_cursor_offset, len(index_bytes),
-                    )
-                    continue
-
-                raw_pointer = int.from_bytes(
-                    index_bytes[write_cursor_offset:write_cursor_offset + 2],
-                    ptr_endian,
-                    signed=False,
+                user_candidates, confirmed_empty = await self._probe_index_user(
+                    transport,
+                    idx=idx,
+                    user_cfg=user_cfg,
+                    index_bytes=index_bytes,
+                    record_addresses=record_addresses,
+                    record_byte_size=record_byte_size,
+                    record_step=record_step,
+                    backtrack_slots=backtrack_slots,
+                    collect_limit=collect_limit,
+                    ptr_endian=ptr_endian,
                 )
-                # Unrecorded users have their pointer set to clear_value
-                # (0x8000 on the vendor maps). The same word is also a live
-                # cursor: bit 15 is a status flag the cuff toggles between
-                # writes and the low byte reads 0x00 for the last slot, which
-                # the HEM-7380T1 reuses routinely (#193). Read the cursor
-                # slot to tell the two apart: all-0xFF confirms the user
-                # empty below, a record means the pointer is live and the
-                # normal probe (TruRead reach-back included) carries on.
-                clear_value = user_cfg.get("clear_value", 0x8000)
-                cursor_is_clear_value = clear_value is not None and raw_pointer == clear_value
-                if cursor_is_clear_value:
-                    _LOGGER.debug(
-                        "User%d [%s]: cursor raw=0x%04X matches clear_value 0x%04X "
-                        "— verifying the cursor slot before marking the user empty",
-                        idx + 1,
-                        self._config.model,
-                        raw_pointer,
-                        clear_value,
-                    )
-
-                pointer_mask = int(user_cfg.get("write_cursor_mask", 0xFF))
-                pointer_min = int(user_cfg.get("slot_index_min", 0))
-                pointer_max = int(
-                    user_cfg.get(
-                        "slot_index_max",
-                        self._config.per_user_records_count[idx] - 1,
-                    )
-                )
-                correction = int(user_cfg.get("slot_index_bias", -1))
-                pointer_masked = raw_pointer & pointer_mask
-                pointer_corrected = pointer_masked + correction
-                pointer_wrapped = self._wrap_pointer_to_range(
-                    pointer_corrected, pointer_min, pointer_max
-                )
-                if pointer_wrapped is None:
-                    _LOGGER.debug(
-                        "User%d [%s]: cursor raw=0x%04X masked=0x%02X corrected=%d wrapped=None "
-                        "(range [%d,%d]), skipping",
-                        idx + 1, self._config.model,
-                        raw_pointer, pointer_masked, pointer_corrected,
-                        pointer_min, pointer_max,
-                    )
-                    continue
-                record_count = (pointer_max - pointer_min) + 1
-                if record_count <= 0:
-                    continue
-                latest_slot = pointer_wrapped
-                _LOGGER.debug(
-                    "User%d [%s]: cursor raw=0x%04X masked=0x%02X bias=%+d "
-                    "→ slot=%d (range [%d,%d]) base_addr=0x%04X record_step=%d",
-                    idx + 1, self._config.model,
-                    raw_pointer, pointer_masked, correction,
-                    latest_slot, pointer_min, pointer_max,
-                    int(record_addresses[idx]), record_step,
-                )
-                # backtrack_slots only widens the corrupt-slot skip window;
-                # a TruRead sequence needs at least the two older slots too.
-                max_probe = min(
-                    max(backtrack_slots, collect_limit - 1),
-                    max(record_count - 1, 0),
-                )
-                parsed = None
-                base_addr = int(record_addresses[idx])
-                # Track whether every probed slot for this user was the
-                # device's empty marker (all-0xFF).  If so, the user has
-                # never recorded a measurement and the caller can skip the
-                # full-scan fallback safely.
-                user_had_any_read = False
-                user_all_probed_slots_empty = True
-                user_read_failed = False
-                user_collected = 0
-                user_slots_read = 0
-                for back in range(max_probe + 1):
-                    probe_slot = latest_slot - back
-                    while probe_slot < pointer_min:
-                        probe_slot += record_count
-                    logical_slot = probe_slot - pointer_min
-                    probe_addr = base_addr + (logical_slot * record_step)
-                    try:
-                        raw_record = await transport.memory.read_memory_range(
-                            probe_addr,
-                            record_byte_size,
-                            self._config.transmission_block_size,
-                        )
-                    except Exception as read_exc:
-                        user_read_failed = True
-                        if isinstance(read_exc, MemoryReadRefused):
-                            # The device answered: it will not serve this
-                            # region.
-                            _LOGGER.debug(
-                                "User%d [%s] slot=%d %s",
-                                idx + 1, self._config.model, probe_slot, read_exc,
-                            )
-                        else:
-                            _LOGGER.debug(
-                                "User%d [%s] slot=%d addr=0x%04X read failed: %s",
-                                idx + 1, self._config.model, probe_slot,
-                                probe_addr, read_exc,
-                            )
-                        if cursor_is_clear_value and not user_had_any_read:
-                            # The pointer already says empty and the very
-                            # first slot of the region did not read, refused
-                            # or silent. Confirm it either way: a region the
-                            # cuff will not serve fails the full scan the
-                            # same way and takes user 1's records with it,
-                            # which is worse than the zero-read confirmation
-                            # 2.10.2 shipped. If the link is really gone the
-                            # scan dies regardless, so nothing is lost.
-                            confirmed_empty_users.add(idx + 1)
-                            _LOGGER.debug(
-                                "User%d [%s] confirmed empty: cursor is "
-                                "clear_value and the cursor slot did not read",
-                                idx + 1, self._config.model,
-                            )
-                        # Later in the backtrack the region has answered at
-                        # least once, so keep what was collected and let the
-                        # post-loop check below decide, with the failure
-                        # noted so it never confirms empty on a failed read.
-                        break
-                    _LOGGER.debug(
-                        "User%d [%s] slot=%d addr=0x%04X raw=%s",
-                        idx + 1, self._config.model, probe_slot,
-                        probe_addr, bytes(raw_record).hex(),
-                    )
-                    user_had_any_read = True
-                    user_slots_read += 1
-                    # The device leaves un-written slots as all-0xFF.  A
-                    # single byte that differs means *something* was stored
-                    # at this slot, even if our parser rejects it.
-                    if any(b != 0xFF for b in raw_record):
-                        user_all_probed_slots_empty = False
-                    if cursor_is_clear_value and user_all_probed_slots_empty:
-                        # An all-0xFF cursor slot at a clear_value cursor is
-                        # all the confirmation an empty user needs. A live
-                        # cursor keeps its normal backtrack past later gaps.
-                        break
-                    try:
-                        parsed = self._config.parse_record(bytes(raw_record))
-                    except Exception as parse_exc:
-                        _LOGGER.debug(
-                            "User%d [%s] slot=%d parse error: %s",
-                            idx + 1, self._config.model, probe_slot, parse_exc,
-                        )
-                        parsed = None
-                        continue
-                    parsed["_slot_index"] = probe_slot
-                    _LOGGER.debug(
-                        "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
-                        "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
-                        idx + 1, self._config.model, probe_slot,
-                        parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
-                        parsed.get("datetime"), parsed.get("ihb"),
-                        parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
-                    )
-                    if not self._is_record_plausible(parsed):
-                        parsed = None
-                        continue
-                    # Appended newest-first: the cursor slot, then each
-                    # older slot in probe order.
-                    candidates.append((idx + 1, parsed))
-                    user_collected += 1
-                    if user_collected >= collect_limit:
-                        break
-                    # Only keep reading while this slot is still part of a
-                    # TruRead sequence counting down toward the cursor
-                    # (pos 3 at the cursor, then 2, then 1). A Single
-                    # measurement stops here at one read, as before.
-                    if parsed.get("pos") != TRUREAD_SEQUENCE_LEN - user_collected + 1:
-                        break
-                if cursor_is_clear_value and user_collected:
-                    _LOGGER.debug(
-                        "User%d [%s]: cursor raw=0x%04X equals clear_value but "
-                        "slot %d holds a record — treating the pointer as live",
-                        idx + 1, self._config.model, raw_pointer, latest_slot,
-                    )
-                # After the backtrack window completes: if every read came
-                # back all-0xFF, mark this user as definitively empty. A
-                # backtrack cut short by a failed read proves nothing about
-                # the slots it never reached.
-                if user_had_any_read and user_all_probed_slots_empty and not user_read_failed:
+                candidates.extend(user_candidates)
+                if confirmed_empty:
                     confirmed_empty_users.add(idx + 1)
-                    _LOGGER.debug(
-                        "User%d [%s] confirmed empty: cursor slot and %d "
-                        "backtrack slot(s) all 0xFF — full-scan fallback "
-                        "will be skipped for this user",
-                        idx + 1, self._config.model, user_slots_read - 1,
-                    )
+
         except Exception as exc:
             if self._config.host_pairing_mode == HostPairingMode.OS_BONDING:
                 _LOGGER.warning(
