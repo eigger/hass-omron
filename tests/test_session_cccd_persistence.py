@@ -177,7 +177,9 @@ def test_the_token_unlock_asks_for_what_the_profile_wants():
     """unlock() 이 프로필 값을 그대로 넘겨야 한다 — 기본값이면 아무것도 안 바뀐다."""
     import inspect
 
-    sig = inspect.signature(OmronDeviceSession._token_unlock)
+    from custom_components.omron.omron_ble.unlock import _token_unlock
+
+    sig = inspect.signature(_token_unlock)
     assert sig.parameters["keep_notify"].default is False
     assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
 
@@ -247,8 +249,10 @@ def test_the_unlock_subscribe_stays_on_the_recovery_path():
     import inspect
     import textwrap
 
+    from custom_components.omron.omron_ble.unlock import _token_unlock
+
     tree = ast.parse(
-        textwrap.dedent(inspect.getsource(OmronDeviceSession._token_unlock))
+        textwrap.dedent(inspect.getsource(_token_unlock))
     )
     direct: list[str] = []
     recovered: list[str] = []
