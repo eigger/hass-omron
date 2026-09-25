@@ -22,7 +22,7 @@ def make_session():
     crypto.session_key = bytes(range(16))
     crypto.enc_peer_salt_nonce = bytes(range(8))
     session._secure_session = crypto
-    session._expected_reply_packet_type = b"\x80\x00"
+    session.memory._expected_reply_packet_type = b"\x80\x00"
     return session
 
 
@@ -31,23 +31,23 @@ def deliver(session, plaintext):
     encrypted = AESCCM(bytes(range(16)), tag_length=8).encrypt(
         counter + b"\x00" + bytes(range(8)), plaintext, counter,
     )
-    session._on_notify_channel_data(0, bytearray(b"\xc0" + counter + encrypted))
+    session.memory._on_notify_channel_data(0, bytearray(b"\xc0" + counter + encrypted))
 
 
 def test_encrypted_open_reply_is_not_treated_as_192_byte_frame():
     session = make_session()
     deliver(session, bytes.fromhex("0880000000100098"))
-    assert session._reply_ready.is_set()
-    assert session._last_reply_payload == b"\x00"
+    assert session.memory._reply_ready.is_set()
+    assert session.memory._last_reply_payload == b"\x00"
 
 
 def test_authenticated_but_invalid_inner_checksum_is_rejected():
     session = make_session()
     deliver(session, bytes.fromhex("0880000000100099"))
-    assert not session._reply_ready.is_set()
+    assert not session.memory._reply_ready.is_set()
 
 
 def test_authenticated_but_truncated_inner_frame_is_rejected():
     session = make_session()
     deliver(session, bytes.fromhex("08800000"))
-    assert not session._reply_ready.is_set()
+    assert not session.memory._reply_ready.is_set()

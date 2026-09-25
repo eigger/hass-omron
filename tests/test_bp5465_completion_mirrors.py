@@ -23,6 +23,7 @@ class _CompletionTransport:
         self.writes: list[tuple[int, bytes]] = []
         self.commands: list[str] = []
         self.events: list[str] = []
+        self.memory = self
 
     @property
     def memory_session_active(self) -> bool:

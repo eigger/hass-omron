@@ -30,7 +30,7 @@ def _feed(session: OmronDeviceSession, frame: bytes) -> None:
     """Deliver one frame the way the notify channel would."""
     char = MagicMock()
     char.uuid = session._config.rx_channel_uuids[0]
-    session._on_notify_channel_data(char, bytearray(frame))
+    session.memory._on_notify_channel_data(char, bytearray(frame))
 
 
 class TestRefusedRead:
@@ -39,9 +39,9 @@ class TestRefusedRead:
         # 08 8100 0e34 10 e3 40 — header, requested length, result code, crc.
         _feed(session, bytes.fromhex("0881000e3410e340"))
 
-        assert session._reply_ready.is_set()
-        assert session._last_reply_result_code == 0xE3
-        assert session._last_reply_payload == b""
+        assert session.memory._reply_ready.is_set()
+        assert session.memory._last_reply_result_code == 0xE3
+        assert session.memory._last_reply_payload == b""
 
     def test_read_memory_block_raises_with_the_code(self):
         session = _session()
@@ -52,12 +52,12 @@ class TestRefusedRead:
         session.memory._write_command_and_wait_reply = AsyncMock(side_effect=reply)
 
         with pytest.raises(MemoryReadRefused) as caught:
-            asyncio.run(session.read_memory_block(ADDRESS, BLOCKSIZE))
+            asyncio.run(session.memory.read_memory_block(ADDRESS, BLOCKSIZE))
 
         assert caught.value.code == 0xE3
         assert caught.value.address == ADDRESS
         # One attempt: the device answered, so there is nothing to retry.
-        assert session._write_command_and_wait_reply.await_count == 1
+        assert session.memory._write_command_and_wait_reply.await_count == 1
 
     def test_a_short_data_frame_is_still_treated_as_truncated(self):
         # Declared payload present but cut off mid-flight: not an answer, and
@@ -65,7 +65,7 @@ class TestRefusedRead:
         session = _session()
         _feed(session, bytes.fromhex("1881000e3410") + b"\x00" * 6)
 
-        assert not session._reply_ready.is_set()
+        assert not session.memory._reply_ready.is_set()
 
     def test_a_header_only_frame_with_a_zero_code_is_truncated(self):
         # Same 8-byte shape, but result code 0x00 is not a refusal. With no
@@ -74,8 +74,8 @@ class TestRefusedRead:
         session = _session()
         _feed(session, bytes.fromhex("0881000e341000a3"))
 
-        assert not session._reply_ready.is_set()
-        assert session._last_reply_payload is None
+        assert not session.memory._reply_ready.is_set()
+        assert session.memory._last_reply_payload is None
 
     def test_a_served_read_clears_the_result_code(self):
         session = _session()
@@ -87,6 +87,6 @@ class TestRefusedRead:
             crc ^= byte
         _feed(session, body + bytes([crc]))
 
-        assert session._reply_ready.is_set()
-        assert session._last_reply_result_code == 0
-        assert session._last_reply_payload == payload
+        assert session.memory._reply_ready.is_set()
+        assert session.memory._last_reply_result_code == 0
+        assert session.memory._last_reply_payload == payload

@@ -172,16 +172,16 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
     # CCCD, which the backends reject and recover from by writing the CCCD
     # back to 0x0000 first — the very churn keep_notify exists to avoid.
     try:
-        session._rebuild_notify_handle_index_map()
+        session.memory._rebuild_notify_handle_index_map()
         await _start_notify_with_recovery(
             session._client,
             session._config.rx_channel_uuids[0],
-            session._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
+            session.memory._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
             model=session._config.model,
         )
         rx_notify_primed = True
         if keep_notify:
-            session._notify_subscribed = True
+            session.memory._notify_subscribed = True
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
     except Exception as exc:
         _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)

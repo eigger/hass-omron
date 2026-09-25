@@ -61,7 +61,7 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01  # some non-FF data
             return rec
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -114,7 +114,7 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01
             return rec
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -162,7 +162,7 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01
             return rec
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -232,7 +232,7 @@ class TestEmptyUserClearValue:
                 return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
             return bytearray(b"\xff" * 16)
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -296,7 +296,7 @@ class TestEmptyUserClearValue:
                 return index_bytes
             return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -379,7 +379,7 @@ class TestUnreadableUserRegion:
             slot = (addr - 0x01C4) // 0x10
             return user1.get(slot, bytearray(b"\xff" * 0x10))
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
         result = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
         )
@@ -436,7 +436,7 @@ class TestUnreadableUserRegion:
                 return rec
             raise ConnectionError("Failed to receive response after 4 retries")
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
         _records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
         )
@@ -485,7 +485,7 @@ class TestUnreadableUserRegion:
                 return bytearray(b"\xff" * 0x10)
             raise ConnectionError("Failed to receive response after 4 retries")
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
         )

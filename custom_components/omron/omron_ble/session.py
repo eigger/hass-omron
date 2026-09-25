@@ -67,23 +67,6 @@ def _link_scanner_source(raw: Any) -> str | None:
 
 
 
-_PROTOCOL_STATE = frozenset({
-    "_notify_subscribed",
-    "_last_reply_packet_type",
-    "_last_reply_memory_address",
-    "_last_reply_payload",
-    "_last_reply_result_code",
-    "_expected_reply_packet_type",
-    "_expected_reply_memory_address",
-    "_reply_ready",
-    "_channel_fragments",
-    "_notify_handle_to_channel",
-    "_memory_session_active",
-    "_pairing_registration_head_done",
-    "_pairing_registration_clock_done",
-})
-
-
 class OmronDeviceSession:
     """A connected BLE session to one Omron device.
 
@@ -136,20 +119,6 @@ class OmronDeviceSession:
         # same subscription — re-subscribing mid-flow either resets the device
         # session or trips the backend's "already enabled" guard.
         self._unlock_notify_handler: Any = None
-
-    def __getattr__(self, name: str) -> Any:
-        memory = self.__dict__.get("memory")
-        if memory is not None and (
-            name in _PROTOCOL_STATE or hasattr(type(memory), name)
-        ):
-            return getattr(memory, name)
-        raise AttributeError(name)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name in _PROTOCOL_STATE and "memory" in self.__dict__:
-            setattr(self.__dict__["memory"], name, value)
-            return
-        object.__setattr__(self, name, value)
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -385,11 +354,11 @@ class OmronDeviceSession:
         addr = self.address or getattr(client, "address", "")
         disconnected = False
         try:
-            if self._memory_session_active:
+            if self.memory._memory_session_active:
                 try:
-                    await self.close_memory_session()
+                    await self.memory.close_memory_session()
                 except Exception as exc:
-                    if self._pairing_registration_head_done:
+                    if self.memory._pairing_registration_head_done:
                         # Whether the cuff commits the mirror on the write or
                         # on the close is not established, and this path has
                         # no retry: say so, so a refused reconnect later has a
@@ -552,7 +521,7 @@ class OmronDeviceSession:
                     "Poll pair step failed (continuing to unlock): %s", exc
                 )
         await self.unlock()
-        async with self.memory_session():
+        async with self.memory.memory_session():
             yield
 
     @traced("unlock")

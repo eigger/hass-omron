@@ -95,13 +95,13 @@ async def main():
                     os.unlink(temporary)
                 print("CREDENTIAL_COMMITTED_AFTER_CLOSE", flush=True)
             else:
-                await session.open_memory_session()
-                metadata = await session.read_memory_block(0x0010, 24)
+                await session.memory.open_memory_session()
+                metadata = await session.memory.read_memory_block(0x0010, 24)
                 if len(metadata) != 24:
                     raise ValueError("Incomplete metadata response")
                 print("METADATA_READ_OK bytes=24; NO_RECORDS_READ", flush=True)
-                await session.close_memory_session()
-                if session._last_reply_packet_type != b"\x8f\x00" or session._last_reply_payload != b"\x00":
+                await session.memory.close_memory_session()
+                if session.memory._last_reply_packet_type != b"\x8f\x00" or session.memory._last_reply_payload != b"\x00":
                     raise ConnectionError("Read close not accepted")
                 print("READ_CLOSE_OK", flush=True)
             await asyncio.sleep(1.2)

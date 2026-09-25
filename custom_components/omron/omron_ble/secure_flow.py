@@ -87,14 +87,14 @@ async def prepare_secure_token(session, timeout: float) -> None:
         session._client, UNLOCK_CHARACTERISTIC_UUID, control_dispatch,
         model=session._config.model,
     )
-    session._rebuild_notify_handle_index_map()
+    session.memory._rebuild_notify_handle_index_map()
     await _start_notify_with_recovery(
         session._client,
         session._config.rx_channel_uuids[0],
-        session._on_notify_channel_data,
+        session.memory._on_notify_channel_data,
         model=session._config.model,
     )
-    session._notify_subscribed = True
+    session.memory._notify_subscribed = True
     await _start_notify_with_recovery(
         session._client, ASYNC_NOTICE_UUID, async_notice,
         model=session._config.model,
@@ -188,29 +188,29 @@ async def establish_secure_session(
         session._unlocked = True
 
         if layout is not None:
-            await session.open_memory_session()
-            head = await session.read_memory_block(
+            await session.memory.open_memory_session()
+            head = await session.memory.read_memory_block(
                 layout.head_read_address, layout.head_read_size
             )
-            tail = await session.read_memory_block(
+            tail = await session.memory.read_memory_block(
                 layout.clock_read_address, layout.clock_read_size
             )
             if len(head) != layout.head_read_size or len(tail) != layout.clock_read_size:
                 raise ConnectionError("Incomplete secure initialization settings")
             block = clock_block(tail, now, layout.clock_write_size)
-            await session.write_memory_block(
+            await session.memory.write_memory_block(
                 layout.head_write_address,
                 bytearray(head[: layout.head_write_size]),
             )
-            await session.write_memory_block(
+            await session.memory.write_memory_block(
                 layout.clock_write_address, bytearray(block)
             )
-            await session.close_memory_session()
+            await session.memory.close_memory_session()
             # close_memory_session only warns on a rejection. Never commit a
             # credential on one: the device did not accept the initialization.
             if (
-                session._last_reply_packet_type != b"\x8f\x00"
-                or session._last_reply_payload != b"\x00"
+                session.memory._last_reply_packet_type != b"\x8f\x00"
+                or session.memory._last_reply_payload != b"\x00"
             ):
                 raise ConnectionError("Secure initialization close was not accepted")
         if crypto.ltk is None or len(crypto.ltk) != 16:

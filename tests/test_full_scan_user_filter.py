@@ -76,7 +76,7 @@ def _driver_and_transport(*, user2_error: Exception | None = None):
             return bytearray(b"\xff" * size)
         return user1_region[addr - USER1_BASE:addr - USER1_BASE + size]
 
-    transport.read_memory_range = AsyncMock(side_effect=fake_read)
+    transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
     return driver, transport, reads
 
 
@@ -146,7 +146,7 @@ class TestGetAllRecords:
                 raise MemoryReadRefused(addr, 0xE3)
             raise ConnectionError("Failed to receive response after 4 retries")
 
-        transport.read_memory_range = AsyncMock(side_effect=fake_read)
+        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
 
         with pytest.raises(ConnectionError):
             asyncio.run(driver.get_all_records(transport))

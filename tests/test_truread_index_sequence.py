@@ -96,7 +96,7 @@ def _run(
         probed.append(slot)
         return slots.get(slot, bytearray(b"\xff" * RECORD_SIZE))
 
-    transport.read_memory_range = AsyncMock(side_effect=fake_read)
+    transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
     result = asyncio.run(
         driver._get_latest_via_index(transport, return_all_users=return_all_users)
     )

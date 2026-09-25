@@ -946,7 +946,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if memory_session_active:
             for attempt in range(_REGISTRATION_ATTEMPTS):
                 try:
-                    await session.commit_pairing_registration()
+                    await session.memory.commit_pairing_registration()
                     break
                 except Exception as exc:
                     trace.forgive("registration")
@@ -1087,7 +1087,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         or self._device_config.supports_eeprom_time_sync
                     )
                     if needs_memory:
-                        if session.memory_session_active:
+                        if session.memory.memory_session_active:
                             _LOGGER.debug(
                                 "Reusing setup memory session for %s",
                                 ble_device.address,
