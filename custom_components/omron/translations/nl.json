@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Kies een apparaat om in te stellen.",
+        "data": {
+          "address": "Apparaat"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Apparaat bevestigen",
+        "description": "Om {name} in te stellen, zet het apparaat eerst in de koppelmodus en druk daarna op Verzenden (Bevestigen)."
+      },
+      "select_model": {
+        "title": "Apparaatmodel kiezen",
+        "description": "Als de Bluetooth-advertentienaam een bekende code bevat (bijvoorbeeld **HEM-7600T**), is dat model geselecteerd — bevestig of wijzig het. Anders is er niets voorgeselecteerd: kies het model dat op de manchet staat of in Omron Connect wordt getoond. De lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
+        "data": {
+          "device_model": "Apparaatmodel",
+          "scan_interval": "Bijwerkinterval (seconden)"
+        }
+      },
+      "user_aliases": {
+        "title": "Gebruikersnamen op de manchet",
+        "description": "Dit model bewaart **{num_users}** gebruikersprofielen. Voer voor elk een korte naam in (standaard: user1, user2, …). Deze namen verschijnen in sensornamen en entiteits-ID’s in plaats van algemene gebruikersnummers.",
+        "data": {
+          "user_alias_1": "Naam gebruiker 1",
+          "user_alias_2": "Naam gebruiker 2",
+          "user_alias_3": "Naam gebruiker 3",
+          "user_alias_4": "Naam gebruiker 4"
+        }
+      },
+      "pairing": {
+        "title": "{model} koppelen",
+        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet de manchet eerst in de koppelmodus — bij de meeste modellen de Bluetooth-knop ingedrukt houden tot **-P-** verschijnt — en druk daarna op Verzenden."
+      },
+      "pairing_os": {
+        "title": "{model} koppelen",
+        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet het apparaat eerst in de koppel- of zichtbare modus zoals in de handleiding en druk daarna op Verzenden."
+      },
+      "select_model_unknown": {
+        "title": "Apparaatmodel kiezen",
+        "description": "Het apparaat meldt modelnummer **{probed_model}**, dat in geen lijst staat, dus er is niets voorgeselecteerd. Kies het model dat op de manchet staat of in Omron Connect wordt getoond. De lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
+        "data": {
+          "device_model": "Apparaatmodel",
+          "scan_interval": "Bijwerkinterval (seconden)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Apparaatmodel kiezen",
+        "description": "Het apparaat meldt modelnummer **{probed_model}**. **{candidate_count}** modellen heten zo en worden niet hetzelfde gelezen:\n\n{candidates}\n\nNiets wat de manchet draadloos stuurt, maakt ze uit elkaar — de Omron-app weet het alleen omdat u het hebt aangegeven. Kies het model dat op de manchet staat.\n\nDe lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
+        "data": {
+          "device_model": "Apparaatmodel",
+          "scan_interval": "Bijwerkinterval (seconden)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Koppelen is mislukt. Controleer of het apparaat in de koppelmodus staat (-P- op het scherm) en probeer het opnieuw.",
+      "decryption_failed": "De opgegeven bindkey werkte niet; sensorgegevens konden niet worden ontsleuteld. Controleer de waarde en probeer het opnieuw.",
+      "expected_32_characters": "De bindkey moet een hexadecimale tekenreeks van 32 tekens zijn.",
+      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig)."
+    },
+    "abort": {
+      "reauth_successful": "Opnieuw verifiëren is gelukt",
+      "no_devices_found": "Geen niet-geconfigureerde apparaten gevonden op het netwerk",
+      "already_in_progress": "De configuratie is al bezig",
+      "already_configured": "Apparaat is al geconfigureerd",
+      "not_supported": "Dit apparaat wordt niet ondersteund.",
+      "model_not_selected": "Het apparaatmodel is niet gekozen. Begin opnieuw en kies het model uit de lijst."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet.\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
+        "data": {
+          "scan_interval": "Bijwerkinterval (seconden)",
+          "user_alias_1": "Naam gebruiker 1",
+          "user_alias_2": "Naam gebruiker 2",
+          "user_alias_3": "Naam gebruiker 3",
+          "user_alias_4": "Naam gebruiker 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Systolisch",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastolisch",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Pols",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Polsdruk",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Geschatte MAP",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Bloeddrukcategorie (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Shockindex",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Rate-pressure-product",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Gemeten om",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Signaalsterkte"
+      },
+      "poll_duration": {
+        "name": "Duur"
+      },
+      "last_failure": {
+        "name": "Laatste fout"
+      },
+      "failure_count": {
+        "name": "Aantal fouten"
+      },
+      "last_readout": {
+        "name": "Laatste uitlezing"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Systolisch ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastolisch ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Pols ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Polsdruk ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Geschatte MAP ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Bloeddrukcategorie (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Shockindex ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Rate-pressure-product ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Gemeten om ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Metingstype",
+            "state": {
+              "single": "Enkel",
+              "truread_average": "TruRead-gemiddelde"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Lichaamsbeweging"
+      },
+      "cuff_fit": {
+        "name": "Manchetaansluiting"
+      },
+      "irregular_pulse": {
+        "name": "Onregelmatige pols"
+      },
+      "improper_position": {
+        "name": "Verkeerde houding"
+      },
+      "forced_transfer": {
+        "name": "Gegevens in wachtrij"
+      },
+      "invalid_time": {
+        "name": "Tijdsynchronisatie nodig"
+      },
+      "pairing_mode": {
+        "name": "Koppelmodus"
+      },
+      "connection": {
+        "name": "Verbinding"
+      },
+      "body_movement_user": {
+        "name": "Lichaamsbeweging ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Manchetaansluiting ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Onregelmatige pols ({user})"
+      },
+      "improper_position_user": {
+        "name": "Verkeerde houding ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Gegevens vernieuwen"
+      },
+      "retry_pairing": {
+        "name": "Koppelen opnieuw"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Apparaatnaam"
+      }
+    }
+  }
+}

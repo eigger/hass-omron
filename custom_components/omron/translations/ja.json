@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "設定する機器を選んでください。",
+        "data": {
+          "address": "デバイス"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "機器の確認",
+        "description": "{name} を設定するには、まず機器をペアリングモードにしてから、送信（確認）を押してください。"
+      },
+      "select_model": {
+        "title": "機器モデルの選択",
+        "description": "Bluetooth の広告名に既知のコード（例: **HEM-7600T**）が含まれていれば、そのモデルが選ばれています。確認するか変更してください。そうでなければ何も選ばれていません。カフに印字されているモデルか、Omron Connect に表示されるモデルを選んでください。一覧は **{model_total}** 件です。ハードウェアプロファイル **{profile_count}** 件と、同じプロファイルを共有する地域・セットのコード **{variant_count}** 件です。正確なコードがなければ最も近いモデルを選んでください。モデルはカフのメモリの読み方を決めるので、誤るとエラーなく空の値や意味のない値が読まれます（ログの **profile=** を確認）。登録後に変えるには、機器を削除して追加し直す必要があります。",
+        "data": {
+          "device_model": "機器モデル",
+          "scan_interval": "更新間隔（秒）"
+        }
+      },
+      "user_aliases": {
+        "title": "カフ上のユーザー名",
+        "description": "このモデルはユーザープロファイルを **{num_users}** 件保存します。それぞれに短い名前を入力してください（既定: user1, user2, …）。この名前が、汎用のユーザー番号の代わりにセンサー名とエンティティ ID に使われます。",
+        "data": {
+          "user_alias_1": "ユーザー 1 の名前",
+          "user_alias_2": "ユーザー 2 の名前",
+          "user_alias_3": "ユーザー 3 の名前",
+          "user_alias_4": "ユーザー 4 の名前"
+        }
+      },
+      "pairing": {
+        "title": "{model} のペアリング",
+        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まずカフをペアリングモードにしてください（多くのモデルは、**-P-** が表示されるまで Bluetooth ボタンを長押し）。その後、送信を押してください。"
+      },
+      "pairing_os": {
+        "title": "{model} のペアリング",
+        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まず説明書どおりに機器をペアリングまたは検出可能にしてから、送信を押してください。"
+      },
+      "select_model_unknown": {
+        "title": "機器モデルの選択",
+        "description": "機器はモデル番号を **{probed_model}** と報告しましたが、ここの一覧にないため何も選ばれていません。カフに印字されているモデルか、Omron Connect に表示されるモデルを選んでください。一覧は **{model_total}** 件です。ハードウェアプロファイル **{profile_count}** 件と、同じプロファイルを共有する地域・セットのコード **{variant_count}** 件です。正確なコードがなければ最も近いモデルを選んでください。モデルはカフのメモリの読み方を決めるので、誤るとエラーなく空の値や意味のない値が読まれます（ログの **profile=** を確認）。登録後に変えるには、機器を削除して追加し直す必要があります。",
+        "data": {
+          "device_model": "機器モデル",
+          "scan_interval": "更新間隔（秒）"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "機器モデルの選択",
+        "description": "機器はモデル番号を **{probed_model}** と報告しました。この名前に応えるモデルが **{candidate_count}** 件あり、読み方が同じではありません。\n\n{candidates}\n\nカフが無線で送る情報では区別できません。Omron アプリが知っているのは、あなたが教えたからです。カフに印字されているものを選んでください。\n\n一覧は **{model_total}** 件です。ハードウェアプロファイル **{profile_count}** 件と、同じプロファイルを共有する地域・セットのコード **{variant_count}** 件です。正確なコードがなければ最も近いモデルを選んでください。モデルはカフのメモリの読み方を決めるので、誤るとエラーなく空の値や意味のない値が読まれます（ログの **profile=** を確認）。登録後に変えるには、機器を削除して追加し直す必要があります。",
+        "data": {
+          "device_model": "機器モデル",
+          "scan_interval": "更新間隔（秒）"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "ペアリングに失敗しました。機器がペアリングモード（表示が -P-）か確認して、もう一度試してください。",
+      "decryption_failed": "入力した bindkey ではデータを復号できませんでした。値を確認して、もう一度試してください。",
+      "expected_32_characters": "bindkey は 32 桁の 16 進数である必要があります。",
+      "duplicate_user_aliases": "各ユーザースロットの名前は互いに異なる必要があります（大文字と小文字は区別しません）。"
+    },
+    "abort": {
+      "reauth_successful": "再認証に成功しました",
+      "no_devices_found": "ネットワーク上に未設定の機器が見つかりません",
+      "already_in_progress": "設定フローはすでに進行中です",
+      "already_configured": "機器はすでに設定されています",
+      "not_supported": "この機器はサポートされていません。",
+      "model_not_selected": "機器モデルが選択されていません。最初からやり直し、一覧からモデルを選んでください。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Home Assistant が血圧計から新しい測定値を取得する間隔です（60–86400 秒）。短いほどカフの電池を多く使います。\n\n**この機器のプロファイルスロット数:** {num_users}。2 つ以上ある場合は、下でスロットごとの表示名を設定できます（既定 user1, user2, …）。スロット名を変えると、そのスロットのセンサーエンティティが新しく作られます。",
+        "data": {
+          "scan_interval": "更新間隔（秒）",
+          "user_alias_1": "ユーザー 1 の名前",
+          "user_alias_2": "ユーザー 2 の名前",
+          "user_alias_3": "ユーザー 3 の名前",
+          "user_alias_4": "ユーザー 4 の名前"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "各ユーザースロットの名前は互いに異なる必要があります（大文字と小文字は区別しません）。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "収縮期",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "拡張期",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "脈拍",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "脈圧",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "推定平均動脈圧",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "血圧分類 (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "ショック指数",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "レートプレッシャー積",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "測定日時",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "信号強度"
+      },
+      "poll_duration": {
+        "name": "所要時間"
+      },
+      "last_failure": {
+        "name": "最後の失敗"
+      },
+      "failure_count": {
+        "name": "失敗回数"
+      },
+      "last_readout": {
+        "name": "最後の読み取り"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "収縮期 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "拡張期 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "脈拍 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "脈圧 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "推定平均動脈圧 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "血圧分類 (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "ショック指数 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "レートプレッシャー積 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "測定日時 ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "測定タイプ",
+            "state": {
+              "single": "単回",
+              "truread_average": "TruRead 平均"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "体動"
+      },
+      "cuff_fit": {
+        "name": "カフの装着"
+      },
+      "irregular_pulse": {
+        "name": "不規則脈"
+      },
+      "improper_position": {
+        "name": "姿勢不良"
+      },
+      "forced_transfer": {
+        "name": "転送待ち"
+      },
+      "invalid_time": {
+        "name": "時刻同期が必要"
+      },
+      "pairing_mode": {
+        "name": "ペアリングモード"
+      },
+      "connection": {
+        "name": "接続"
+      },
+      "body_movement_user": {
+        "name": "体動 ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "カフの装着 ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "不規則脈 ({user})"
+      },
+      "improper_position_user": {
+        "name": "姿勢不良 ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "データを更新"
+      },
+      "retry_pairing": {
+        "name": "ペアリングを再試行"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "機器のニックネーム"
+      }
+    }
+  }
+}

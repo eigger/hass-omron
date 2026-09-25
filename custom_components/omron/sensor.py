@@ -44,12 +44,19 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
+    apply_translated_entity_name,
     device_key_entity_id_suffix,
     device_key_to_bluetooth_entity_key,
     hass_device_info_with_ble_connection,
     preserved_passive_unique_id,
 )
 from .types import OmronConfigEntry
+
+# Values stored before measurement_type became a translation key.
+_LEGACY_MEASUREMENT_TYPES = {
+    "Single": "single",
+    "TruRead Average": "truread_average",
+}
 
 # Poll-backed measurement sensors. RSSI is advertisement-only (see below).
 SENSOR_DESCRIPTIONS = {
@@ -149,6 +156,8 @@ ADVERTISEMENT_SENSOR_DESCRIPTIONS = {
         Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     ): SensorEntityDescription(
         key=f"{OmronSensorDeviceClass.SIGNAL_STRENGTH}_{Units.SIGNAL_STRENGTH_DECIBELS_MILLIWATT}",
+        translation_key="signal_strength",
+        has_entity_name=True,
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
         state_class=SensorStateClass.MEASUREMENT,
@@ -203,9 +212,11 @@ def advertisement_sensor_update_to_bluetooth_data_update(
                 in ADVERTISEMENT_SENSOR_DESCRIPTIONS
             )
         },
+        # None clears a name saved before translation_key existed. An absent
+        # key would leave that English name in place on upgrade.
         entity_names={
-            device_key_to_bluetooth_entity_key(device_key): sensor_values.name
-            for device_key, sensor_values in sensor_update.entity_values.items()
+            device_key_to_bluetooth_entity_key(device_key): None
+            for device_key in sensor_update.entity_descriptions
             if _is_advertisement_sensor_key(sensor_update, device_key)
         },
         entity_data={
@@ -316,7 +327,7 @@ class OmronAdvertisementSensorEntity(
     last dBm after the cuff disappears keeps writing a stale value into history.
     """
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -326,6 +337,11 @@ class OmronAdvertisementSensorEntity(
         context=None,
     ) -> None:
         super().__init__(processor, entity_key, description, context)
+        # TODO: remove after 3.2.x. A name restored from 3.1.0 or earlier
+        # would override translation_key until the next restart, so drop it
+        # here. Once those installs have restarted, nothing sets it.
+        if hasattr(self, "_attr_name"):
+            del self._attr_name
         self._attr_unique_id = preserved_passive_unique_id(
             model=processor.coordinator.device_data.device_model,
             address=processor.coordinator.address,
@@ -362,7 +378,12 @@ class OmronBluetoothSensorEntity(
         self._omron_device_data = self._runtime.device_data
         key_slug = f"{device_key.device_id}_{device_key.key}".lower().replace(" ", "_")
         self._attr_unique_id = self._runtime.entity_unique_id(key_slug)
-        self._attr_name = sensor_name
+        apply_translated_entity_name(
+            self,
+            str(device_key.key),
+            getattr(self._omron_device_data, "_user_aliases", {}),
+            sensor_name,
+        )
         self._restored_native_value: Any | None = None
 
     def _coerce_native_value(self, value: Any) -> Any:
@@ -425,7 +446,10 @@ class OmronBluetoothSensorEntity(
 
         for key in ['truread_details', 'measurement_type', 'improper_position']:
             if key in last_state.attributes:
-                self._omron_device_data.omron_extra_attributes[device_id][key] = last_state.attributes[key]
+                value = last_state.attributes[key]
+                if key == "measurement_type":
+                    value = _LEGACY_MEASUREMENT_TYPES.get(value, value)
+                self._omron_device_data.omron_extra_attributes[device_id][key] = value
 
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return
@@ -518,6 +542,8 @@ class OmronPollDurationSensorEntity(
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:timer-outline"
+    _attr_has_entity_name = True
+    _attr_translation_key = "poll_duration"
 
     def __init__(
         self,
@@ -525,9 +551,6 @@ class OmronPollDurationSensorEntity(
         coordinator: DataUpdateCoordinator[float | None],
     ) -> None:
         super().__init__(entry, coordinator)
-        self._attr_name = (
-            f"{self._runtime.model} {self._runtime.identifier.upper()} Duration"
-        )
         self._attr_unique_id = self._runtime.entity_unique_id("duration")
 
     @property
@@ -564,6 +587,8 @@ class OmronLastFailureSensorEntity(
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:clock-alert-outline"
+    _attr_has_entity_name = True
+    _attr_translation_key = "last_failure"
 
     def __init__(
         self,
@@ -571,9 +596,6 @@ class OmronLastFailureSensorEntity(
         coordinator: DataUpdateCoordinator[datetime | None],
     ) -> None:
         super().__init__(entry, coordinator)
-        self._attr_name = (
-            f"{self._runtime.model} {self._runtime.identifier.upper()} Last Failure"
-        )
         self._attr_unique_id = self._runtime.entity_unique_id("last_failure")
 
     @property
@@ -609,6 +631,8 @@ class OmronFailureCountSensorEntity(
     # long-term statistic built from that would only mislead.
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:alert-circle-outline"
+    _attr_has_entity_name = True
+    _attr_translation_key = "failure_count"
 
     def __init__(
         self,
@@ -616,9 +640,6 @@ class OmronFailureCountSensorEntity(
         coordinator: DataUpdateCoordinator[int],
     ) -> None:
         super().__init__(entry, coordinator)
-        self._attr_name = (
-            f"{self._runtime.model} {self._runtime.identifier.upper()} Failure Count"
-        )
         self._attr_unique_id = self._runtime.entity_unique_id("failure_count")
 
     @property
@@ -650,6 +671,8 @@ class OmronLastReadoutSensorEntity(
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:cloud-check-outline"
+    _attr_has_entity_name = True
+    _attr_translation_key = "last_readout"
 
     def __init__(
         self,
@@ -657,9 +680,6 @@ class OmronLastReadoutSensorEntity(
         coordinator: DataUpdateCoordinator[datetime | None],
     ) -> None:
         super().__init__(entry, coordinator)
-        self._attr_name = (
-            f"{self._runtime.model} {self._runtime.identifier.upper()} Last Readout"
-        )
         self._attr_unique_id = self._runtime.entity_unique_id("last_readout")
 
     @property

@@ -70,13 +70,9 @@ _MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous"
 
 
 def _string_files() -> list[Path]:
-    """Translation files both this module and the flow tests read."""
+    """strings.json plus every language file. A new translations/*.json is included."""
     component = _CONFIG_FLOW.parent
-    return [
-        component / "strings.json",
-        component / "translations" / "en.json",
-        component / "translations" / "ko.json",
-    ]
+    return [component / "strings.json", *sorted((component / "translations").glob("*.json"))]
 
 
 def test_every_model_step_is_translated_everywhere() -> None:

@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Выберите устройство для настройки.",
+        "data": {
+          "address": "Устройство"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Подтвердить устройство",
+        "description": "Чтобы настроить {name}, сначала переведите устройство в режим сопряжения, затем нажмите «Отправить» (Подтвердить)."
+      },
+      "select_model": {
+        "title": "Выбор модели",
+        "description": "Если в имени Bluetooth-объявления есть известный код (например **HEM-7600T**), эта модель уже выбрана — подтвердите или измените её. Иначе ничего не выбрано: укажите модель, напечатанную на манжете или показанную в Omron Connect. В списке **{model_total}** пунктов: **{profile_count}** аппаратных профилей и **{variant_count}** региональных или комплектных кодов с тем же профилем. Если точного кода нет, выберите ближайшую модель. Модель задаёт, как читается память манжеты; неверный выбор даёт пустые или бессмысленные значения без ошибки — смотрите в журнале строки **profile=**. Позже сменить её можно, только удалив устройство и добавив снова.",
+        "data": {
+          "device_model": "Модель устройства",
+          "scan_interval": "Интервал обновления (секунды)"
+        }
+      },
+      "user_aliases": {
+        "title": "Имена пользователей на манжете",
+        "description": "Эта модель хранит **{num_users}** профилей пользователя. Введите короткое имя для каждого (по умолчанию: user1, user2, …). Эти имена появятся в названиях датчиков и ID сущностей вместо общих номеров пользователей.",
+        "data": {
+          "user_alias_1": "Имя пользователя 1",
+          "user_alias_2": "Имя пользователя 2",
+          "user_alias_3": "Имя пользователя 3",
+          "user_alias_4": "Имя пользователя 4"
+        }
+      },
+      "pairing": {
+        "title": "Сопряжение {model}",
+        "description": "«Отправить» (Подтвердить) запустит сопряжение из Home Assistant. Сначала переведите манжету в режим сопряжения — на большинстве моделей удерживайте кнопку Bluetooth, пока не появится **-P-**, — затем нажмите «Отправить»."
+      },
+      "pairing_os": {
+        "title": "Сопряжение {model}",
+        "description": "«Отправить» (Подтвердить) запустит сопряжение из Home Assistant. Сначала переведите устройство в режим сопряжения или обнаружения, как в инструкции, затем нажмите «Отправить»."
+      },
+      "select_model_unknown": {
+        "title": "Выбор модели",
+        "description": "Устройство сообщает номер модели **{probed_model}**, которого нет ни в одном списке, поэтому ничего не выбрано. Укажите модель, напечатанную на манжете или показанную в Omron Connect. В списке **{model_total}** пунктов: **{profile_count}** аппаратных профилей и **{variant_count}** региональных или комплектных кодов с тем же профилем. Если точного кода нет, выберите ближайшую модель. Модель задаёт, как читается память манжеты; неверный выбор даёт пустые или бессмысленные значения без ошибки — смотрите в журнале строки **profile=**. Позже сменить её можно, только удалив устройство и добавив снова.",
+        "data": {
+          "device_model": "Модель устройства",
+          "scan_interval": "Интервал обновления (секунды)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Выбор модели",
+        "description": "Устройство сообщает номер модели **{probed_model}**. Этому имени отвечают **{candidate_count}** моделей, и читаются они по-разному:\n\n{candidates}\n\nПо тому, что манжета передаёт по радио, их не различить — приложение Omron знает разницу только потому, что вы её указали. Выберите модель, напечатанную на манжете.\n\nВ списке **{model_total}** пунктов: **{profile_count}** аппаратных профилей и **{variant_count}** региональных или комплектных кодов с тем же профилем. Если точного кода нет, выберите ближайшую модель. Модель задаёт, как читается память манжеты; неверный выбор даёт пустые или бессмысленные значения без ошибки — смотрите в журнале строки **profile=**. Позже сменить её можно, только удалив устройство и добавив снова.",
+        "data": {
+          "device_model": "Модель устройства",
+          "scan_interval": "Интервал обновления (секунды)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Сопряжение не удалось. Убедитесь, что устройство в режиме сопряжения (на экране -P-), и повторите попытку.",
+      "decryption_failed": "Указанный bindkey не подошёл, данные датчика не удалось расшифровать. Проверьте его и повторите попытку.",
+      "expected_32_characters": "bindkey должен быть шестнадцатеричной строкой из 32 символов.",
+      "duplicate_user_aliases": "У каждого слота пользователя должно быть своё имя (без учёта регистра)."
+    },
+    "abort": {
+      "reauth_successful": "Повторная аутентификация выполнена",
+      "no_devices_found": "В сети не найдены ненастроенные устройства",
+      "already_in_progress": "Настройка уже выполняется",
+      "already_configured": "Устройство уже настроено",
+      "not_supported": "Это устройство не поддерживается.",
+      "model_not_selected": "Модель не выбрана. Начните сначала и выберите модель из списка."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Как часто Home Assistant должен опрашивать тонометр на новые измерения (60–86400 секунд). Меньшее значение сильнее расходует батарею манжеты.\n\n**Слотов профиля на этом устройстве:** {num_users}. Если их больше одного, задайте ниже отображаемое имя для каждого слота (по умолчанию user1, user2, …). Переименование слота создаёт новые сущности датчиков для этого слота.",
+        "data": {
+          "scan_interval": "Интервал обновления (секунды)",
+          "user_alias_1": "Имя пользователя 1",
+          "user_alias_2": "Имя пользователя 2",
+          "user_alias_3": "Имя пользователя 3",
+          "user_alias_4": "Имя пользователя 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "У каждого слота пользователя должно быть своё имя (без учёта регистра)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Систолическое",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Диастолическое",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Пульс",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Пульсовое давление",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Оценочное среднее АД",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Категория АД (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Шоковый индекс",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Двойное произведение",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Время измерения",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Уровень сигнала"
+      },
+      "poll_duration": {
+        "name": "Длительность"
+      },
+      "last_failure": {
+        "name": "Последняя ошибка"
+      },
+      "failure_count": {
+        "name": "Число ошибок"
+      },
+      "last_readout": {
+        "name": "Последнее чтение"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Систолическое ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Диастолическое ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Пульс ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Пульсовое давление ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Оценочное среднее АД ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Категория АД (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Шоковый индекс ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Двойное произведение ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Время измерения ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Тип измерения",
+            "state": {
+              "single": "Одиночное",
+              "truread_average": "Среднее TruRead"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Движение тела"
+      },
+      "cuff_fit": {
+        "name": "Посадка манжеты"
+      },
+      "irregular_pulse": {
+        "name": "Нерегулярный пульс"
+      },
+      "improper_position": {
+        "name": "Неправильное положение"
+      },
+      "forced_transfer": {
+        "name": "Данные ожидают передачи"
+      },
+      "invalid_time": {
+        "name": "Нужна синхронизация времени"
+      },
+      "pairing_mode": {
+        "name": "Режим сопряжения"
+      },
+      "connection": {
+        "name": "Соединение"
+      },
+      "body_movement_user": {
+        "name": "Движение тела ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Посадка манжеты ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Нерегулярный пульс ({user})"
+      },
+      "improper_position_user": {
+        "name": "Неправильное положение ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Обновить данные"
+      },
+      "retry_pairing": {
+        "name": "Повторить сопряжение"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Имя устройства"
+      }
+    }
+  }
+}

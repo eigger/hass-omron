@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Choisissez un appareil à configurer.",
+        "data": {
+          "address": "Appareil"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Confirmer l’appareil",
+        "description": "Pour configurer {name}, mettez d’abord l’appareil en mode appairage, puis appuyez sur Envoyer (Confirmer)."
+      },
+      "select_model": {
+        "title": "Sélectionner le modèle",
+        "description": "Si le nom d’annonce Bluetooth contient un code connu (par exemple **HEM-7600T**), ce modèle est sélectionné — confirmez-le ou changez-le. Sinon rien n’est présélectionné : choisissez le modèle imprimé sur le brassard ou affiché dans Omron Connect. La liste compte **{model_total}** entrées : **{profile_count}** profils matériels plus **{variant_count}** codes régionaux ou de lot qui partagent un profil. Si votre code exact manque, choisissez le modèle le plus proche. Le modèle décide comment la mémoire du brassard est lue, et un mauvais choix donne des valeurs vides ou absurdes sans erreur — vérifiez les lignes **profile=** dans le journal. Il ne pourra plus être changé sans retirer puis ajouter à nouveau l’appareil.",
+        "data": {
+          "device_model": "Modèle",
+          "scan_interval": "Intervalle de mise à jour (secondes)"
+        }
+      },
+      "user_aliases": {
+        "title": "Noms d’utilisateur sur le brassard",
+        "description": "Ce modèle enregistre **{num_users}** profils utilisateur. Saisissez un nom court pour chacun (valeurs par défaut : user1, user2, …). Ces noms apparaissent dans les noms de capteurs et les ID d’entités à la place de numéros génériques.",
+        "data": {
+          "user_alias_1": "Nom de l’utilisateur 1",
+          "user_alias_2": "Nom de l’utilisateur 2",
+          "user_alias_3": "Nom de l’utilisateur 3",
+          "user_alias_4": "Nom de l’utilisateur 4"
+        }
+      },
+      "pairing": {
+        "title": "Appairer {model}",
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord le brassard en mode appairage — sur la plupart des modèles, maintenez le bouton Bluetooth jusqu’à ce que **-P-** s’affiche — puis appuyez sur Envoyer."
+      },
+      "pairing_os": {
+        "title": "Appairer {model}",
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord l’appareil en mode appairage ou détectable comme indiqué dans le manuel, puis appuyez sur Envoyer."
+      },
+      "select_model_unknown": {
+        "title": "Sélectionner le modèle",
+        "description": "L’appareil indique le numéro de modèle **{probed_model}**, qui ne figure dans aucune liste, donc rien n’est présélectionné. Choisissez le modèle imprimé sur le brassard ou affiché dans Omron Connect. La liste compte **{model_total}** entrées : **{profile_count}** profils matériels plus **{variant_count}** codes régionaux ou de lot qui partagent un profil. Si votre code exact manque, choisissez le modèle le plus proche. Le modèle décide comment la mémoire du brassard est lue, et un mauvais choix donne des valeurs vides ou absurdes sans erreur — vérifiez les lignes **profile=** dans le journal. Il ne pourra plus être changé sans retirer puis ajouter à nouveau l’appareil.",
+        "data": {
+          "device_model": "Modèle",
+          "scan_interval": "Intervalle de mise à jour (secondes)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Sélectionner le modèle",
+        "description": "L’appareil indique le numéro de modèle **{probed_model}**. **{candidate_count}** modèles portent ce nom et ne se lisent pas de la même façon :\n\n{candidates}\n\nRien de ce que le brassard envoie par radio ne les distingue — l’application Omron ne le sait que parce que vous le lui avez dit. Choisissez celui imprimé sur le brassard.\n\nLa liste compte **{model_total}** entrées : **{profile_count}** profils matériels plus **{variant_count}** codes régionaux ou de lot qui partagent un profil. Si votre code exact manque, choisissez le modèle le plus proche. Le modèle décide comment la mémoire du brassard est lue, et un mauvais choix donne des valeurs vides ou absurdes sans erreur — vérifiez les lignes **profile=** dans le journal. Il ne pourra plus être changé sans retirer puis ajouter à nouveau l’appareil.",
+        "data": {
+          "device_model": "Modèle",
+          "scan_interval": "Intervalle de mise à jour (secondes)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "L’appairage a échoué. Vérifiez que l’appareil est en mode appairage (-P- à l’écran) et réessayez.",
+      "decryption_failed": "La clé bindkey fournie n’a pas fonctionné, les données du capteur n’ont pas pu être déchiffrées. Vérifiez-la et réessayez.",
+      "expected_32_characters": "La clé bindkey doit être une chaîne hexadécimale de 32 caractères.",
+      "duplicate_user_aliases": "Chaque emplacement utilisateur doit avoir un nom différent (sans tenir compte de la casse)."
+    },
+    "abort": {
+      "reauth_successful": "La réauthentification a réussi",
+      "no_devices_found": "Aucun appareil non configuré trouvé sur le réseau",
+      "already_in_progress": "Un flux de configuration est déjà en cours",
+      "already_configured": "L’appareil est déjà configuré",
+      "not_supported": "Cet appareil n’est pas pris en charge.",
+      "model_not_selected": "Le modèle n’a pas été sélectionné. Recommencez et choisissez le modèle dans la liste."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Fréquence à laquelle Home Assistant interroge le tensiomètre pour de nouvelles mesures (60–86400 secondes). Une valeur plus basse consomme plus de batterie sur le brassard.\n\n**Emplacements de profil sur cet appareil :** {num_users}. S’il y en a plusieurs, définissez un nom d’affichage par emplacement ci-dessous (par défaut user1, user2, …). Renommer un emplacement crée de nouvelles entités de capteur pour cet emplacement.",
+        "data": {
+          "scan_interval": "Intervalle de mise à jour (secondes)",
+          "user_alias_1": "Nom de l’utilisateur 1",
+          "user_alias_2": "Nom de l’utilisateur 2",
+          "user_alias_3": "Nom de l’utilisateur 3",
+          "user_alias_4": "Nom de l’utilisateur 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Chaque emplacement utilisateur doit avoir un nom différent (sans tenir compte de la casse)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Systolique",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastolique",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Pouls",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pression pulsée",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "PAM estimée",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Catégorie de PA (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Indice de choc",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Produit fréquence-pression",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Mesuré à",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Intensité du signal"
+      },
+      "poll_duration": {
+        "name": "Durée"
+      },
+      "last_failure": {
+        "name": "Dernier échec"
+      },
+      "failure_count": {
+        "name": "Nombre d’échecs"
+      },
+      "last_readout": {
+        "name": "Dernière lecture"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Systolique ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastolique ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Pouls ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pression pulsée ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "PAM estimée ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Catégorie de PA (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Indice de choc ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Produit fréquence-pression ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Mesuré à ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Type de mesure",
+            "state": {
+              "single": "Unique",
+              "truread_average": "Moyenne TruRead"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Mouvement du corps"
+      },
+      "cuff_fit": {
+        "name": "Ajustement du brassard"
+      },
+      "irregular_pulse": {
+        "name": "Pouls irrégulier"
+      },
+      "improper_position": {
+        "name": "Mauvaise position"
+      },
+      "forced_transfer": {
+        "name": "Données en attente"
+      },
+      "invalid_time": {
+        "name": "Synchronisation de l’heure requise"
+      },
+      "pairing_mode": {
+        "name": "Mode d’appairage"
+      },
+      "connection": {
+        "name": "Connexion"
+      },
+      "body_movement_user": {
+        "name": "Mouvement du corps ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Ajustement du brassard ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Pouls irrégulier ({user})"
+      },
+      "improper_position_user": {
+        "name": "Mauvaise position ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Actualiser les données"
+      },
+      "retry_pairing": {
+        "name": "Réessayer l’appairage"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Surnom de l’appareil"
+      }
+    }
+  }
+}

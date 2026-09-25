@@ -11,6 +11,31 @@ from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
 
 from sensor_state_data import DeviceKey
 
+from .omron_ble.util import entity_name_translation
+
+
+def apply_translated_entity_name(
+    entity: object,
+    key: str,
+    aliases: dict[int, str] | None,
+    fallback: str,
+) -> None:
+    """Use a translation key for the entity name, never a device-class default.
+
+    ``has_entity_name`` is set so the device name stays on the device. When
+    the key is not one we translate, ``fallback`` is the name and still
+    blocks the device-class label.
+    """
+    entity._attr_has_entity_name = True  # type: ignore[attr-defined]
+    translated = entity_name_translation(key, aliases)
+    if translated is None:
+        entity._attr_name = fallback  # type: ignore[attr-defined]
+        return
+    translation_key, placeholders = translated
+    entity._attr_translation_key = translation_key  # type: ignore[attr-defined]
+    if placeholders:
+        entity._attr_translation_placeholders = placeholders  # type: ignore[attr-defined]
+
 
 def device_key_entity_id_suffix(device_key: DeviceKey) -> str:
     """Build a stable identifier from sensor-state device key."""
