@@ -24,8 +24,7 @@ entity_name_translation = _util.entity_name_translation
 _COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "omron"
 _STRING_FILES = (
     _COMPONENT / "strings.json",
-    _COMPONENT / "translations" / "en.json",
-    _COMPONENT / "translations" / "ko.json",
+    *sorted((_COMPONENT / "translations").glob("*.json")),
 )
 
 
@@ -75,7 +74,7 @@ def test_translation_files_share_entity_keys_and_user_placeholder() -> None:
     loaded = [json.loads(path.read_text(encoding="utf-8"))["entity"] for path in _STRING_FILES]
     for domain in ("sensor", "binary_sensor", "button", "text"):
         key_sets = [set(doc[domain]) for doc in loaded]
-        assert key_sets[0] == key_sets[1] == key_sets[2]
+        assert all(keys == key_sets[0] for keys in key_sets), domain
     for doc in loaded:
         for key, spec in doc["sensor"].items():
             if key.endswith("_user"):

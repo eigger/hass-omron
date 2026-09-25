@@ -1,0 +1,377 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "description": "Wählen Sie ein Gerät zum Einrichten.",
+        "data": {
+          "address": "Gerät"
+        }
+      },
+      "bluetooth_confirm": {
+        "title": "Gerät bestätigen",
+        "description": "Um {name} einzurichten, versetzen Sie das Gerät zuerst in den Kopplungsmodus und drücken Sie dann Senden (Bestätigen)."
+      },
+      "select_model": {
+        "title": "Gerätemodell auswählen",
+        "description": "Wenn der Bluetooth-Anzeigename einen bekannten Code enthält (zum Beispiel **HEM-7600T**), ist dieses Modell ausgewählt — bestätigen oder ändern Sie es. Andernfalls ist nichts vorausgewählt: wählen Sie das auf der Manschette gedruckte oder in Omron Connect angezeigte Modell. Die Liste hat **{model_total}** Einträge: **{profile_count}** Hardwareprofile plus **{variant_count}** regionale oder Bundle-Codes mit demselben Profil. Fehlt Ihr genauer Code, wählen Sie das ähnlichste Modell. Das Modell bestimmt, wie der Speicher der Manschette gelesen wird. Eine falsche Wahl liefert leere oder unsinnige Werte ohne Fehler — prüfen Sie im Protokoll die Zeilen **profile=**. Danach lässt es sich nur ändern, indem Sie das Gerät entfernen und neu hinzufügen.",
+        "data": {
+          "device_model": "Gerätemodell",
+          "scan_interval": "Aktualisierungsintervall (Sekunden)"
+        }
+      },
+      "user_aliases": {
+        "title": "Benutzernamen an der Manschette",
+        "description": "Dieses Modell speichert **{num_users}** Benutzerprofile. Geben Sie für jedes einen kurzen Namen ein (Vorgaben: user1, user2, …). Diese Namen erscheinen in Sensornamen und Entitäts-IDs anstelle allgemeiner Benutzernummern.",
+        "data": {
+          "user_alias_1": "Name Benutzer 1",
+          "user_alias_2": "Name Benutzer 2",
+          "user_alias_3": "Name Benutzer 3",
+          "user_alias_4": "Name Benutzer 4"
+        }
+      },
+      "pairing": {
+        "title": "{model} koppeln",
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie die Manschette zuerst in den Kopplungsmodus — bei den meisten Modellen die Bluetooth-Taste halten, bis **-P-** erscheint — und drücken Sie dann Senden."
+      },
+      "pairing_os": {
+        "title": "{model} koppeln",
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie das Gerät zuerst laut Anleitung in den Kopplungs- oder Sichtbarkeitsmodus und drücken Sie dann Senden."
+      },
+      "select_model_unknown": {
+        "title": "Gerätemodell auswählen",
+        "description": "Das Gerät meldet die Modellnummer **{probed_model}**, die in keiner Liste steht, daher ist nichts vorausgewählt. Wählen Sie das auf der Manschette gedruckte oder in Omron Connect angezeigte Modell. Die Liste hat **{model_total}** Einträge: **{profile_count}** Hardwareprofile plus **{variant_count}** regionale oder Bundle-Codes mit demselben Profil. Fehlt Ihr genauer Code, wählen Sie das ähnlichste Modell. Das Modell bestimmt, wie der Speicher der Manschette gelesen wird. Eine falsche Wahl liefert leere oder unsinnige Werte ohne Fehler — prüfen Sie im Protokoll die Zeilen **profile=**. Danach lässt es sich nur ändern, indem Sie das Gerät entfernen und neu hinzufügen.",
+        "data": {
+          "device_model": "Gerätemodell",
+          "scan_interval": "Aktualisierungsintervall (Sekunden)"
+        }
+      },
+      "select_model_ambiguous": {
+        "title": "Gerätemodell auswählen",
+        "description": "Das Gerät meldet die Modellnummer **{probed_model}**. **{candidate_count}** Modelle tragen diesen Namen und werden nicht gleich gelesen:\n\n{candidates}\n\nNichts, was die Manschette funkt, unterscheidet sie — die Omron-App kennt den Unterschied nur, weil Sie ihn angegeben haben. Wählen Sie das auf der Manschette gedruckte Modell.\n\nDie Liste hat **{model_total}** Einträge: **{profile_count}** Hardwareprofile plus **{variant_count}** regionale oder Bundle-Codes mit demselben Profil. Fehlt Ihr genauer Code, wählen Sie das ähnlichste Modell. Das Modell bestimmt, wie der Speicher der Manschette gelesen wird. Eine falsche Wahl liefert leere oder unsinnige Werte ohne Fehler — prüfen Sie im Protokoll die Zeilen **profile=**. Danach lässt es sich nur ändern, indem Sie das Gerät entfernen und neu hinzufügen.",
+        "data": {
+          "device_model": "Gerätemodell",
+          "scan_interval": "Aktualisierungsintervall (Sekunden)"
+        }
+      }
+    },
+    "error": {
+      "pairing_failed": "Kopplung fehlgeschlagen. Stellen Sie sicher, dass das Gerät im Kopplungsmodus ist (-P- auf dem Display) und versuchen Sie es erneut.",
+      "decryption_failed": "Der angegebene bindkey hat nicht funktioniert, die Sensordaten konnten nicht entschlüsselt werden. Bitte prüfen Sie ihn und versuchen Sie es erneut.",
+      "expected_32_characters": "Erwartet wurde ein hexadezimaler bindkey mit 32 Zeichen.",
+      "duplicate_user_aliases": "Jeder Benutzerplatz muss einen anderen Namen haben (ohne Berücksichtigung der Groß-/Kleinschreibung)."
+    },
+    "abort": {
+      "reauth_successful": "Erneute Authentifizierung war erfolgreich",
+      "no_devices_found": "Keine unkonfigurierten Geräte im Netzwerk gefunden",
+      "already_in_progress": "Der Konfigurationsablauf läuft bereits",
+      "already_configured": "Gerät ist bereits konfiguriert",
+      "not_supported": "Dieses Gerät wird nicht unterstützt.",
+      "model_not_selected": "Das Gerätemodell wurde nicht ausgewählt. Beginnen Sie von vorn und wählen Sie das Modell aus der Liste."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Omron Bluetooth",
+        "description": "Wie oft Home Assistant das Blutdruckmessgerät nach neuen Messungen abfragen soll (60–86400 Sekunden). Kleinere Werte verbrauchen mehr Batterie an der Manschette.\n\n**Profilplätze auf diesem Gerät:** {num_users}. Bei mehr als einem können Sie unten je Platz einen Anzeigenamen setzen (Vorgaben user1, user2, …). Das Umbenennen eines Platzes erzeugt neue Sensorentitäten für diesen Platz.",
+        "data": {
+          "scan_interval": "Aktualisierungsintervall (Sekunden)",
+          "user_alias_1": "Name Benutzer 1",
+          "user_alias_2": "Name Benutzer 2",
+          "user_alias_3": "Name Benutzer 3",
+          "user_alias_4": "Name Benutzer 4"
+        }
+      }
+    },
+    "error": {
+      "duplicate_user_aliases": "Jeder Benutzerplatz muss einen anderen Namen haben (ohne Berücksichtigung der Groß-/Kleinschreibung)."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "blood_pressure_systolic": {
+        "name": "Systolisch",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic": {
+        "name": "Diastolisch",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "heart_rate": {
+        "name": "Puls",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "pulse_pressure": {
+        "name": "Pulsdruck",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated": {
+        "name": "Geschätzter MAD",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "blood_pressure_category": {
+        "name": "Blutdruckkategorie (ACC/AHA)",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "shock_index": {
+        "name": "Schockindex",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "rate_pressure_product": {
+        "name": "Rate-Pressure-Product",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "measurement_timestamp": {
+        "name": "Gemessen um",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "signal_strength": {
+        "name": "Signalstärke"
+      },
+      "poll_duration": {
+        "name": "Dauer"
+      },
+      "last_failure": {
+        "name": "Letzter Fehler"
+      },
+      "failure_count": {
+        "name": "Fehleranzahl"
+      },
+      "last_readout": {
+        "name": "Letzte Auslesung"
+      },
+      "blood_pressure_systolic_user": {
+        "name": "Systolisch ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "blood_pressure_diastolic_user": {
+        "name": "Diastolisch ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "heart_rate_user": {
+        "name": "Puls ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "pulse_pressure_user": {
+        "name": "Pulsdruck ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "mean_arterial_pressure_estimated_user": {
+        "name": "Geschätzter MAD ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "blood_pressure_category_user": {
+        "name": "Blutdruckkategorie (ACC/AHA) ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "shock_index_user": {
+        "name": "Schockindex ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "rate_pressure_product_user": {
+        "name": "Rate-Pressure-Product ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      },
+      "measurement_timestamp_user": {
+        "name": "Gemessen um ({user})",
+        "state_attributes": {
+          "measurement_type": {
+            "name": "Messart",
+            "state": {
+              "single": "Einzeln",
+              "truread_average": "TruRead-Mittelwert"
+            }
+          }
+        }
+      }
+    },
+    "binary_sensor": {
+      "body_movement": {
+        "name": "Körperbewegung"
+      },
+      "cuff_fit": {
+        "name": "Manschettensitz"
+      },
+      "irregular_pulse": {
+        "name": "Unregelmäßiger Puls"
+      },
+      "improper_position": {
+        "name": "Falsche Haltung"
+      },
+      "forced_transfer": {
+        "name": "Daten ausstehend"
+      },
+      "invalid_time": {
+        "name": "Zeitsynchronisierung nötig"
+      },
+      "pairing_mode": {
+        "name": "Kopplungsmodus"
+      },
+      "connection": {
+        "name": "Verbindung"
+      },
+      "body_movement_user": {
+        "name": "Körperbewegung ({user})"
+      },
+      "cuff_fit_user": {
+        "name": "Manschettensitz ({user})"
+      },
+      "irregular_pulse_user": {
+        "name": "Unregelmäßiger Puls ({user})"
+      },
+      "improper_position_user": {
+        "name": "Falsche Haltung ({user})"
+      }
+    },
+    "button": {
+      "refresh_data": {
+        "name": "Daten aktualisieren"
+      },
+      "retry_pairing": {
+        "name": "Kopplung wiederholen"
+      }
+    },
+    "text": {
+      "device_alias": {
+        "name": "Gerätename"
+      }
+    }
+  }
+}
