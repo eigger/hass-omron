@@ -255,7 +255,6 @@ class OmronAdvertisementBinarySensorEntity(
 ):
     """Binary sensor fed by Omron manufacturer advertisement flags."""
 
-    # Match the previous CoordinatorEntity naming so friendly names stay stable.
     _attr_has_entity_name = True
 
     def __init__(
@@ -266,6 +265,11 @@ class OmronAdvertisementBinarySensorEntity(
         context=None,
     ) -> None:
         super().__init__(processor, entity_key, description, context)
+        # TODO: remove after 3.2.x. A name restored from 3.1.0 or earlier
+        # would override translation_key until the next restart, so drop it
+        # here. Once those installs have restarted, nothing sets it.
+        if hasattr(self, "_attr_name"):
+            del self._attr_name
         self._attr_unique_id = preserved_passive_unique_id(
             model=processor.coordinator.device_data.device_model,
             address=processor.coordinator.address,
