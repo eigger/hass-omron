@@ -239,7 +239,7 @@ class TestEmptyUserClearValue:
         )
 
         assert 1 not in empty_users
-        assert records[1]["measurement_type"] == "TruRead Average"
+        assert records[1]["measurement_type"] == "truread_average"
         assert (records[1]["sys"], records[1]["dia"], records[1]["bpm"]) == (119, 85, 72)
         # The live pointer runs the normal probe: 99 → 98 → 97.
         assert [a for a in read_calls if 0x01C4 <= a < 0x0804] == [0x01C4 + s * 16 for s in (99, 98, 97)]
@@ -392,7 +392,7 @@ class TestUnreadableUserRegion:
 
         # User 1 survives: its candidates were collected before user 2 failed.
         assert 1 in records
-        assert records[1]["measurement_type"] == "TruRead Average"
+        assert records[1]["measurement_type"] == "truread_average"
         # The cursor said empty and the region refuses reads — that is the
         # confirmation, so no full scan is asked for.
         assert empty_users == {2}
@@ -404,7 +404,7 @@ class TestUnreadableUserRegion:
             self._config(), user2_read_error=None
         )
 
-        assert records[1]["measurement_type"] == "TruRead Average"
+        assert records[1]["measurement_type"] == "truread_average"
         assert empty_users == {2}
 
     def test_refusal_after_a_successful_read_does_not_confirm_empty(self):
@@ -456,7 +456,7 @@ class TestUnreadableUserRegion:
 
         # The #198 invariant: user 1's records survive and no full scan is
         # asked for, so the silent region is never entered a second time.
-        assert records[1]["measurement_type"] == "TruRead Average"
+        assert records[1]["measurement_type"] == "truread_average"
         assert empty_users == {2}
         assert [a for a in reads if a >= 0x0804] == [0x0804 + 99 * 0x10]
 

@@ -122,7 +122,7 @@ class TestTruReadIndexSequence:
         result, probed = _run(_config(True), 22, _session(20, start))
 
         rec = result[1]
-        assert rec["measurement_type"] == "TruRead Average"
+        assert rec["measurement_type"] == "truread_average"
         assert (rec["sys"], rec["dia"], rec["bpm"]) == (119, 85, 72)
         assert rec["pos"] == 0
         assert [d["pos"] for d in rec["truread_details"]] == [1, 2, 3]
@@ -134,7 +134,7 @@ class TestTruReadIndexSequence:
         start = NOW - dt.timedelta(hours=1)
         result, probed = _run(_config(True), 0, _session(98, start))
 
-        assert result[1]["measurement_type"] == "TruRead Average"
+        assert result[1]["measurement_type"] == "truread_average"
         assert probed == [0, 99, 98]
 
     def test_single_measurement_reads_one_slot(self):
@@ -146,7 +146,7 @@ class TestTruReadIndexSequence:
         result, probed = _run(_config(True), 23, slots)
 
         rec = result[1]
-        assert rec["measurement_type"] == "Single"
+        assert rec["measurement_type"] == "single"
         assert (rec["sys"], rec["dia"], rec["bpm"]) == (130, 90, 65)
         assert probed == [23]
 
@@ -160,7 +160,7 @@ class TestTruReadIndexSequence:
         result, probed = _run(_config(True), 22, slots)
 
         rec = result[1]
-        assert rec["measurement_type"] == "Single"
+        assert rec["measurement_type"] == "single"
         assert rec["sys"] == 125
         # pos=3 is a sequence index here, not a posture flag.
         assert rec["pos"] == 0
@@ -174,7 +174,7 @@ class TestTruReadIndexSequence:
         }
         result, probed = _run(_config(True), 22, slots)
 
-        assert result[1]["measurement_type"] == "Single"
+        assert result[1]["measurement_type"] == "single"
         assert result[1]["sys"] == 118
         assert result[1]["pos"] == 0
         assert probed == [22, 21, 20]
@@ -184,7 +184,7 @@ class TestTruReadIndexSequence:
         result, probed = _run(_config(False), 22, _session(20, start))
 
         rec = result[1]
-        assert rec["measurement_type"] == "Single"
+        assert rec["measurement_type"] == "single"
         assert rec["sys"] == 118
         assert probed == [22]
 
@@ -195,8 +195,8 @@ class TestTruReadIndexSequence:
             _config(True), 22, _session(20, start, dt.timedelta(minutes=15, seconds=1))
         )
 
-        assert inside[1]["measurement_type"] == "TruRead Average"
-        assert outside[1]["measurement_type"] == "Single"
+        assert inside[1]["measurement_type"] == "truread_average"
+        assert outside[1]["measurement_type"] == "single"
 
     def test_single_record_path_reports_average(self):
         # get_latest_record() (single-user devices) takes the
@@ -204,7 +204,7 @@ class TestTruReadIndexSequence:
         start = NOW - dt.timedelta(hours=1)
         record, probed = _run(_config(True), 22, _session(20, start), return_all_users=False)
 
-        assert record["measurement_type"] == "TruRead Average"
+        assert record["measurement_type"] == "truread_average"
         assert (record["sys"], record["dia"], record["bpm"]) == (119, 85, 72)
         assert record["user"] == 1
         assert probed == [22, 21, 20]
@@ -216,9 +216,9 @@ class TestTruReadIndexSequence:
             _config(True, users=2), 22, _session(20, start), user2=(5, user2_slots)
         )
 
-        assert result[1]["measurement_type"] == "TruRead Average"
+        assert result[1]["measurement_type"] == "truread_average"
         assert result[1]["sys"] == 119
-        assert result[2]["measurement_type"] == "Single"
+        assert result[2]["measurement_type"] == "single"
         assert result[2]["sys"] == 135
         assert probed == [22, 21, 20]
 

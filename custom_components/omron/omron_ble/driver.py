@@ -882,7 +882,7 @@ class OmronDeviceDriver:
                 selected_per_user[user] = (user, avg_record)
                 continue
             record = user_candidates[0][1]
-            record["measurement_type"] = "Single"
+            record["measurement_type"] = "single"
             if collect_limit > 1:
                 # On these models pos is the TruRead sequence index, not a
                 # posture flag; a lone pos=1..3 (session in progress, or a
@@ -940,7 +940,7 @@ class OmronDeviceDriver:
         avg_record = dict(c3)
         for key in ("sys", "dia", "bpm"):
             avg_record[key] = round(sum(r[key] for r in newest) / TRUREAD_SEQUENCE_LEN)
-        avg_record["measurement_type"] = "TruRead Average"
+        avg_record["measurement_type"] = "truread_average"
         # c3 carries pos=3 (sequence index); clear it so the aggregate does
         # not surface as improper_position=True.
         avg_record["pos"] = 0
