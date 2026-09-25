@@ -160,6 +160,13 @@
               "truread_average": "TruRead-gemiddelde"
             }
           }
+        },
+        "state": {
+          "normal": "Normaal",
+          "elevated": "Verhoogd",
+          "hypertension_stage_1": "Hypertensie stadium 1",
+          "hypertension_stage_2": "Hypertensie stadium 2",
+          "hypertensive_crisis": "Hypertensieve crisis"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "TruRead-gemiddelde"
             }
           }
+        },
+        "state": {
+          "normal": "Normaal",
+          "elevated": "Verhoogd",
+          "hypertension_stage_1": "Hypertensie stadium 1",
+          "hypertension_stage_2": "Hypertensie stadium 2",
+          "hypertensive_crisis": "Hypertensieve crisis"
         }
       },
       "shock_index_user": {

@@ -160,6 +160,13 @@
               "truread_average": "Среднее TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Нормальное",
+          "elevated": "Повышенное",
+          "hypertension_stage_1": "Гипертония 1-й стадии",
+          "hypertension_stage_2": "Гипертония 2-й стадии",
+          "hypertensive_crisis": "Гипертонический криз"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "Среднее TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Нормальное",
+          "elevated": "Повышенное",
+          "hypertension_stage_1": "Гипертония 1-й стадии",
+          "hypertension_stage_2": "Гипертония 2-й стадии",
+          "hypertensive_crisis": "Гипертонический криз"
         }
       },
       "shock_index_user": {

@@ -160,6 +160,13 @@
               "truread_average": "TruRead-medel"
             }
           }
+        },
+        "state": {
+          "normal": "Normalt",
+          "elevated": "Förhöjt",
+          "hypertension_stage_1": "Hypertoni stadium 1",
+          "hypertension_stage_2": "Hypertoni stadium 2",
+          "hypertensive_crisis": "Hypertensiv kris"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "TruRead-medel"
             }
           }
+        },
+        "state": {
+          "normal": "Normalt",
+          "elevated": "Förhöjt",
+          "hypertension_stage_1": "Hypertoni stadium 1",
+          "hypertension_stage_2": "Hypertoni stadium 2",
+          "hypertensive_crisis": "Hypertensiv kris"
         }
       },
       "shock_index_user": {

@@ -57,6 +57,14 @@ _LEGACY_MEASUREMENT_TYPES = {
     "Single": "single",
     "TruRead Average": "truread_average",
 }
+# Values stored before the blood-pressure category became an enum.
+_LEGACY_BP_CATEGORIES = {
+    "Normal": "normal",
+    "Elevated": "elevated",
+    "Hypertension Stage 1": "hypertension_stage_1",
+    "Hypertension Stage 2": "hypertension_stage_2",
+    "Hypertensive Crisis": "hypertensive_crisis",
+}
 
 # Poll-backed measurement sensors. RSSI is advertisement-only (see below).
 SENSOR_DESCRIPTIONS = {
@@ -136,6 +144,14 @@ SENSOR_DESCRIPTIONS = {
         None,
     ): SensorEntityDescription(
         key=f"{OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_CATEGORY}",
+        device_class=SensorDeviceClass.ENUM,
+        options=[
+            "normal",
+            "elevated",
+            "hypertension_stage_1",
+            "hypertension_stage_2",
+            "hypertensive_crisis",
+        ],
         icon="mdi:clipboard-pulse-outline",
     ),
 
@@ -164,6 +180,11 @@ ADVERTISEMENT_SENSOR_DESCRIPTIONS = {
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
     ),
+}
+
+_ADVERTISEMENT_SENSOR_BY_KEY = {
+    description.key: description
+    for description in ADVERTISEMENT_SENSOR_DESCRIPTIONS.values()
 }
 
 def hass_device_info(sensor_device_info, address: str | None = None):
@@ -336,10 +357,11 @@ class OmronAdvertisementSensorEntity(
         description: SensorEntityDescription,
         context=None,
     ) -> None:
+        # Restore replays the description saved before translation_key existed.
+        # Swap in the current one first, then drop the saved English name so
+        # it cannot override the translation or collapse to the device name.
+        description = _ADVERTISEMENT_SENSOR_BY_KEY.get(description.key, description)
         super().__init__(processor, entity_key, description, context)
-        # TODO: remove after 3.2.x. A name restored from 3.1.0 or earlier
-        # would override translation_key until the next restart, so drop it
-        # here. Once those installs have restarted, nothing sets it.
         if hasattr(self, "_attr_name"):
             del self._attr_name
         self._attr_unique_id = preserved_passive_unique_id(
@@ -401,6 +423,8 @@ class OmronBluetoothSensorEntity(
             if parsed.tzinfo is None or parsed.tzinfo.utcoffset(parsed) is None:
                 parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
             return parsed
+        if isinstance(value, str):
+            return _LEGACY_BP_CATEGORIES.get(value, value)
         return value
 
     def _parse_restored_state_string(self, state_str: str) -> Any:
