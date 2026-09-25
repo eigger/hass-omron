@@ -28,7 +28,8 @@ settings_mirror ──────┘                                           
 |---|---|
 | `bluez.py` / `bluez_agent.py` | D-Bus helpers (agent, Pair, RemoveDevice, Paired) and the `dbus_fast` agent class the former imports lazily |
 | `session_trace.py` | Cuff stage names mapped onto `blesession`'s vocabulary |
-| `session.py` | `OmronDeviceSession`: connection lifecycle, unlock, pairing |
+| `session.py` | `OmronDeviceSession`: connection lifecycle. `unlock()` and `pair()` dispatch into `unlock.py` |
+| `unlock.py` | Ack checks, token unlock, secure unlock, custom-key programming |
 | `memory_protocol.py` | `MemoryProtocolMixin`: RX notify channels, command/reply, memory session, pairing registration |
 | `driver.py` | `OmronDeviceDriver`: EEPROM time, index walk, latest-record selection |
 | `secure_session.py` / `secure_flow.py` | ECDH + AES-CCM state machine, and the handshake that drives it |
@@ -66,9 +67,8 @@ trigger is the moment it becomes cheaper to do than not to do.
 
 | Item | Trigger | Notes |
 |---|---|---|
-| Split unlock out of `session.py` | The next unlock or pairing fix that touches `session.py` | `_start_notify_with_recovery` and `_NOTIFY_SUBSCRIBE_SETTLE_SEC` already live in `connection.py` |
 | `MemoryProtocolMixin` → an owned component | Wanting to unit-test the memory protocol without a session | Behavioural change, not move-only: tests and `examples/x2_session_probe.py` read `session._last_reply_*` directly; `open_memory_session` resets `_unlocked` on failure (cross-layer); `_on_notify_channel_data` decrypts via `_secure_session`. A `reset()` on the component must `clear()` the reply Event, never replace it |
-| Shorten the long functions | Only when a fix already touches one | `driver._get_latest_via_index` 292, `__init__.process_service_info` 288, `__init__.async_setup_entry` 268 (defines `_async_poll_data` and two others as closures — untestable in isolation), `parser._poll_device_readout` 252, `parser.async_poll` 237, `session._pair_custom_key` 178. Function extraction cannot be proven move-only the way module moves were, so it rides along with hardware-verified fixes |
+| Shorten the long functions | Only when a fix already touches one | `driver._get_latest_via_index` 292, `__init__.process_service_info` 288, `__init__.async_setup_entry` 268 (defines `_async_poll_data` and two others as closures — untestable in isolation), `parser._poll_device_readout` 252, `parser.async_poll` 237, `unlock._pair_custom_key` 178. Function extraction cannot be proven move-only the way module moves were, so it rides along with hardware-verified fixes |
 
 Not planned: renaming `parser.py`. It matches the HA `*-ble` library
 convention (`xxx_ble/parser.py` holding the `BluetoothData` subclass) and would

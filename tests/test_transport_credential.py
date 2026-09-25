@@ -138,6 +138,11 @@ class TestOneSecurePath:
             for node in ast.walk(fn)
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         }
+        calls.update(
+            node.func.id
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        )
         assert "_secure_unlock" in calls
         assert "_x2_unlock" not in calls, "기종 전용 unlock 이 남아 있다"
 

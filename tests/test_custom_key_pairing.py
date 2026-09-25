@@ -21,6 +21,7 @@ from custom_components.omron.omron_ble.devices import DeviceConfig, HostPairingM
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble import bluez
 from custom_components.omron.omron_ble import session as session_module
+from custom_components.omron.omron_ble import unlock as unlock_module
 
 
 class FakeBLEDevice:
@@ -101,12 +102,10 @@ def pair_custom_key_recorder(monkeypatch):
     """``_pair_custom_key`` 호출 시점을 기록(실제 GATT I/O 는 건너뜀)."""
     calls: list[bytearray] = []
 
-    async def _fake_pair_custom_key(self, pair_key):
+    async def _fake_pair_custom_key_fn(session, pair_key):
         calls.append(pair_key)
 
-    monkeypatch.setattr(
-        OmronDeviceSession, "_pair_custom_key", _fake_pair_custom_key
-    )
+    monkeypatch.setattr(session_module, "_pair_custom_key", _fake_pair_custom_key_fn)
     return calls
 
 
@@ -148,7 +147,7 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     monkeypatch,
 ):
     """링크가 끊겼으면 첫 실패에서 중단하고 끊김을 그대로 보고한다."""
-    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(unlock_module, "_bleak_refresh_services", _noop_refresh)
 
     client = FakeClient(
         connected=False,
@@ -157,7 +156,7 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
 
     with pytest.raises(ConnectionError) as excinfo:
-        asyncio.run(session._pair_custom_key(bytearray(16)))
+        asyncio.run(unlock_module._pair_custom_key(session, bytearray(16)))
 
     message = str(excinfo.value)
     assert "dropped the link" in message
@@ -168,20 +167,42 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     assert len(client.start_notify_calls) == 1
 
 
+def test_pairing_settle_runs_after_rx_subscribe_succeeds(monkeypatch):
+    """RX 구독이 성공해도 SMP가 끝나기 전에 unlock 구독으로 넘어가면 안 된다.
+
+    settle은 try/except 다음이다. except 안에 들어가면 정상 구독 경로에서
+    대기와 GATT 새로고침이 빠진다.
+    """
+    settled: list[bool] = []
+
+    async def _record_settle(_session, aggressive_timing):
+        settled.append(aggressive_timing)
+
+    monkeypatch.setattr(unlock_module, "_apply_pairing_settle_delay", _record_settle)
+    client = FakeClient(connected=False)
+    session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
+
+    with pytest.raises(ConnectionError, match="dropped the link"):
+        asyncio.run(unlock_module._pair_custom_key(session, bytearray(16)))
+
+    assert settled == [True]
+    assert len(client.start_notify_calls) == 1
+
+
 def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
     """연결이 살아있는 동안은 기존 재시도 동작(10회)을 유지한다."""
-    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(unlock_module, "_bleak_refresh_services", _noop_refresh)
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     client = FakeClient(connected=True, start_notify_error=Exception("not ready yet"))
     session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
 
     with pytest.raises(ConnectionError) as excinfo:
-        asyncio.run(session._pair_custom_key(bytearray(16)))
+        asyncio.run(unlock_module._pair_custom_key(session, bytearray(16)))
 
     assert "was not found" in str(excinfo.value)
     # RX notify 1회 + 언락 구독 10회(aggressive_gatt_timing).
-    assert len(client.start_notify_calls) == 1 + session_module._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
+    assert len(client.start_notify_calls) == 1 + unlock_module._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
 
 
 async def _noop_refresh(client):
@@ -228,7 +249,7 @@ def test_bluez_target_falls_back_to_the_device():
 
 def test_pairing_error_names_both_failures(monkeypatch):
     """링크가 언락 구독 도중에 죽으면 SMP 촉발 실패까지 함께 보고한다."""
-    monkeypatch.setattr(session_module, "_bleak_refresh_services", _noop_refresh)
+    monkeypatch.setattr(unlock_module, "_bleak_refresh_services", _noop_refresh)
     monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
 
     class _DiesOnUnlock(FakeClient):
@@ -248,7 +269,7 @@ def test_pairing_error_names_both_failures(monkeypatch):
     session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
 
     with pytest.raises(ConnectionError) as excinfo:
-        asyncio.run(session._pair_custom_key(bytearray(16)))
+        asyncio.run(unlock_module._pair_custom_key(session, bytearray(16)))
 
     message = str(excinfo.value)
     assert "unlock failed" in message
