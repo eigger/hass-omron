@@ -18,7 +18,7 @@ stay here; the stage trace, the radio facts and the failure report do not.
 ```
 bluez ─┐
        ├─ connection ─┐
-const ─┤              ├─ session (+ memory_protocol mixin) ── driver ── time_sync ── pairing
+const ─┤              ├─ session ── memory_protocol ── driver ── time_sync ── pairing
 devices┤              │                                                                  │
 secure_session ── secure_flow ─┘                                                        │
 settings_mirror ──────┘                                                  parser ◄────────┘
@@ -59,6 +59,19 @@ location, and tests that patch or read source were repointed.
 | #184 | `ble_session` → `session_handoff`, `setup_time_sync` → `time_sync`, `setup` → `pairing` |
 | #185 | `settings_mirror` errors name the mirror, not the secure flow |
 | #186 | Memory protocol out of `OmronDeviceSession` into `MemoryProtocolMixin` |
+
+## Done since 2.10.2
+
+Same rule: one structural move per PR. #213 replaced the mixin with an owned
+`MemoryProtocol`; #214 removed the session attribute forwarders, so callers
+use `session.memory`.
+
+| PR | Change |
+|---|---|
+| #211 | Notify subscribe recovery into `connection.py`; MSD and BLS decoders into `advertisement.py` and `bls.py` |
+| #212 | Unlock acks, token and secure unlock, and custom-key programming into `unlock.py` |
+| #213 | `MemoryProtocolMixin` replaced by `MemoryProtocol` owned as `session.memory` |
+| #214 | Callers use `session.memory` directly; session no longer forwards protocol attributes |
 
 ## Deferred cleanup — do when the trigger fires, not before
 
