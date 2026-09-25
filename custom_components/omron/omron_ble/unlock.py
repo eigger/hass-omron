@@ -278,7 +278,7 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
         rx_notify_error = f"{type(exc).__name__}: {exc}"
         _LOGGER.debug("Ignored error starting RX notify: %s", exc)
 
-        await _apply_pairing_settle_delay(session, aggressive_timing)
+    await _apply_pairing_settle_delay(session, aggressive_timing)
 
     if not getattr(session._client, "is_connected", True):
         # Dead already: no point retrying the unlock subscribe ten times.

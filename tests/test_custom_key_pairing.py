@@ -167,6 +167,28 @@ def test_unlock_subscribe_reports_disconnect_instead_of_missing_characteristic(
     assert len(client.start_notify_calls) == 1
 
 
+def test_pairing_settle_runs_after_rx_subscribe_succeeds(monkeypatch):
+    """RX 구독이 성공해도 SMP가 끝나기 전에 unlock 구독으로 넘어가면 안 된다.
+
+    settle은 try/except 다음이다. except 안에 들어가면 정상 구독 경로에서
+    대기와 GATT 새로고침이 빠진다.
+    """
+    settled: list[bool] = []
+
+    async def _record_settle(_session, aggressive_timing):
+        settled.append(aggressive_timing)
+
+    monkeypatch.setattr(unlock_module, "_apply_pairing_settle_delay", _record_settle)
+    client = FakeClient(connected=False)
+    session = _custom_key_session(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), client)
+
+    with pytest.raises(ConnectionError, match="dropped the link"):
+        asyncio.run(unlock_module._pair_custom_key(session, bytearray(16)))
+
+    assert settled == [True]
+    assert len(client.start_notify_calls) == 1
+
+
 def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
     """연결이 살아있는 동안은 기존 재시도 동작(10회)을 유지한다."""
     monkeypatch.setattr(unlock_module, "_bleak_refresh_services", _noop_refresh)
