@@ -52,6 +52,12 @@ from .entity_helpers import (
 )
 from .types import OmronConfigEntry
 
+# Values stored before measurement_type became a translation key.
+_LEGACY_MEASUREMENT_TYPES = {
+    "Single": "single",
+    "TruRead Average": "truread_average",
+}
+
 # Poll-backed measurement sensors. RSSI is advertisement-only (see below).
 SENSOR_DESCRIPTIONS = {
     # ---- Blood Pressure / Heart Rate (primary sensors) ----
@@ -206,7 +212,13 @@ def advertisement_sensor_update_to_bluetooth_data_update(
                 in ADVERTISEMENT_SENSOR_DESCRIPTIONS
             )
         },
-        entity_names={},
+        # None clears a name saved before translation_key existed. An absent
+        # key would leave that English name in place on upgrade.
+        entity_names={
+            device_key_to_bluetooth_entity_key(device_key): None
+            for device_key in sensor_update.entity_descriptions
+            if _is_advertisement_sensor_key(sensor_update, device_key)
+        },
         entity_data={
             # Keep the parser's int RSSI. float() turns -55 into -55.0, and
             # this entity has no suggested_display_precision.
@@ -429,7 +441,10 @@ class OmronBluetoothSensorEntity(
 
         for key in ['truread_details', 'measurement_type', 'improper_position']:
             if key in last_state.attributes:
-                self._omron_device_data.omron_extra_attributes[device_id][key] = last_state.attributes[key]
+                value = last_state.attributes[key]
+                if key == "measurement_type":
+                    value = _LEGACY_MEASUREMENT_TYPES.get(value, value)
+                self._omron_device_data.omron_extra_attributes[device_id][key] = value
 
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return

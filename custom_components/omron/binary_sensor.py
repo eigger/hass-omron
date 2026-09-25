@@ -136,7 +136,13 @@ def advertisement_binary_update_to_bluetooth_data_update(
                 sensor_update.binary_entity_values.get(device_key),
             )
         },
-        entity_names={},
+        # None clears a name saved before translation_key existed. An absent
+        # key would leave that English name in place on upgrade.
+        entity_names={
+            device_key_to_bluetooth_entity_key(device_key): None
+            for device_key, sensor_values in sensor_update.binary_entity_values.items()
+            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
+        },
         entity_data={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.binary_entity_values.items()
