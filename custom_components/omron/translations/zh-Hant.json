@@ -160,6 +160,13 @@
               "truread_average": "TruRead 平均值"
             }
           }
+        },
+        "state": {
+          "normal": "正常",
+          "elevated": "升高",
+          "hypertension_stage_1": "高血壓1期",
+          "hypertension_stage_2": "高血壓2期",
+          "hypertensive_crisis": "高血壓危象"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "TruRead 平均值"
             }
           }
+        },
+        "state": {
+          "normal": "正常",
+          "elevated": "升高",
+          "hypertension_stage_1": "高血壓1期",
+          "hypertension_stage_2": "高血壓2期",
+          "hypertensive_crisis": "高血壓危象"
         }
       },
       "shock_index_user": {

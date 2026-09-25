@@ -160,6 +160,13 @@
               "truread_average": "Średnia TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Prawidłowe",
+          "elevated": "Podwyższone",
+          "hypertension_stage_1": "Nadciśnienie stopień 1",
+          "hypertension_stage_2": "Nadciśnienie stopień 2",
+          "hypertensive_crisis": "Przełom nadciśnieniowy"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "Średnia TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Prawidłowe",
+          "elevated": "Podwyższone",
+          "hypertension_stage_1": "Nadciśnienie stopień 1",
+          "hypertension_stage_2": "Nadciśnienie stopień 2",
+          "hypertensive_crisis": "Przełom nadciśnieniowy"
         }
       },
       "shock_index_user": {

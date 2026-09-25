@@ -88,7 +88,7 @@ ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {
         key=OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
         translation_key="invalid_time",
         has_entity_name=True,
-        device_class=BinarySensorDeviceClass.PROBLEM,
+        icon="mdi:clock-alert-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     OmronExtendedBinarySensorDeviceClass.PAIRING_MODE: BinarySensorEntityDescription(
@@ -136,13 +136,7 @@ def advertisement_binary_update_to_bluetooth_data_update(
                 sensor_update.binary_entity_values.get(device_key),
             )
         },
-        # None clears a name saved before translation_key existed. An absent
-        # key would leave that English name in place on upgrade.
-        entity_names={
-            device_key_to_bluetooth_entity_key(device_key): None
-            for device_key, sensor_values in sensor_update.binary_entity_values.items()
-            if _published_advertisement_binary(sensor_update, device_key, sensor_values)
-        },
+        entity_names={},
         entity_data={
             device_key_to_bluetooth_entity_key(device_key): sensor_values.native_value
             for device_key, sensor_values in sensor_update.binary_entity_values.items()
@@ -265,11 +259,6 @@ class OmronAdvertisementBinarySensorEntity(
         context=None,
     ) -> None:
         super().__init__(processor, entity_key, description, context)
-        # TODO: remove after 3.2.x. A name restored from 3.1.0 or earlier
-        # would override translation_key until the next restart, so drop it
-        # here. Once those installs have restarted, nothing sets it.
-        if hasattr(self, "_attr_name"):
-            del self._attr_name
         self._attr_unique_id = preserved_passive_unique_id(
             model=processor.coordinator.device_data.device_model,
             address=processor.coordinator.address,

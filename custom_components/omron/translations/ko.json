@@ -150,6 +150,13 @@
               "truread_average": "TruRead 평균"
             }
           }
+        },
+        "state": {
+          "normal": "정상",
+          "elevated": "상승",
+          "hypertension_stage_1": "고혈압 1기",
+          "hypertension_stage_2": "고혈압 2기",
+          "hypertensive_crisis": "고혈압 위기"
         }
       },
       "shock_index": {
@@ -273,6 +280,13 @@
               "truread_average": "TruRead 평균"
             }
           }
+        },
+        "state": {
+          "normal": "정상",
+          "elevated": "상승",
+          "hypertension_stage_1": "고혈압 1기",
+          "hypertension_stage_2": "고혈압 2기",
+          "hypertensive_crisis": "고혈압 위기"
         }
       },
       "shock_index_user": {

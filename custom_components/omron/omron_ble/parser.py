@@ -723,14 +723,14 @@ class OmronBluetoothDeviceData(BluetoothData):
     def _classify_blood_pressure_category(sys_val: float, dia_val: float) -> str:
         """Classify blood pressure category using ACC/AHA 2017 thresholds."""
         if sys_val > 180 or dia_val > 120:
-            return "Hypertensive Crisis"
+            return "hypertensive_crisis"
         if sys_val >= 140 or dia_val >= 90:
-            return "Hypertension Stage 2"
+            return "hypertension_stage_2"
         if sys_val >= 130 or dia_val >= 80:
-            return "Hypertension Stage 1"
+            return "hypertension_stage_1"
         if sys_val >= 120 and dia_val < 80:
-            return "Elevated"
-        return "Normal"
+            return "elevated"
+        return "normal"
 
     @staticmethod
     def _decode_sfloat_le(raw: bytes) -> float:

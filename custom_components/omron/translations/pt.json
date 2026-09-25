@@ -160,6 +160,13 @@
               "truread_average": "Média TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Normal",
+          "elevated": "Elevada",
+          "hypertension_stage_1": "Hipertensão estágio 1",
+          "hypertension_stage_2": "Hipertensão estágio 2",
+          "hypertensive_crisis": "Crise hipertensiva"
         }
       },
       "shock_index": {
@@ -283,6 +290,13 @@
               "truread_average": "Média TruRead"
             }
           }
+        },
+        "state": {
+          "normal": "Normal",
+          "elevated": "Elevada",
+          "hypertension_stage_1": "Hipertensão estágio 1",
+          "hypertension_stage_2": "Hipertensão estágio 2",
+          "hypertensive_crisis": "Crise hipertensiva"
         }
       },
       "shock_index_user": {
