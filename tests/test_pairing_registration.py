@@ -32,7 +32,7 @@ from custom_components.omron.omron_ble.devices import (
     PairingRegistration,
     get_device_config,
 )
-from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
 from custom_components.omron.omron_ble.settings_mirror import (
     SettingsMirrorLayout,
     clock_block,
@@ -73,16 +73,16 @@ def _session(config, *, pairing=True, memory_active=True, memory=None):
     )
     # The two halves are methods of the real class; bind them onto the fake.
     target._write_registration_head = (
-        lambda layout, reg: OmronDeviceSession._write_registration_head(target, layout, reg)
+        lambda layout, reg: MemoryProtocol._write_registration_head(target, layout, reg)
     )
     target._write_registration_clock = (
-        lambda layout: OmronDeviceSession._write_registration_clock(target, layout)
+        lambda layout: MemoryProtocol._write_registration_clock(target, layout)
     )
     return target
 
 
 def _commit(target):
-    return asyncio.run(OmronDeviceSession.commit_pairing_registration(target))
+    return asyncio.run(MemoryProtocol.commit_pairing_registration(target))
 
 
 def _populated_slot(count: int, birth=(126, 4, 17)) -> bytes:
@@ -367,8 +367,10 @@ class TestWhenItRuns:
 
     def test_a_session_reset_rearms_both_halves(self):
         """새 세션의 3회 재시도 루프는 reset 후 다시 돈다 — 등록도 다시 써야 한다."""
-        fn = _function(_COMPONENT / "omron_ble" / "session.py", "reset_session_state")
-        body = ast.unparse(fn)
+        reset = _function(_COMPONENT / "omron_ble" / "session.py", "reset_session_state")
+        assert "memory.reset()" in ast.unparse(reset)
+        protocol_reset = _function(_COMPONENT / "omron_ble" / "memory_protocol.py", "reset")
+        body = ast.unparse(protocol_reset)
         assert "_pairing_registration_head_done = False" in body
         assert "_pairing_registration_clock_done = False" in body
 

@@ -1,4 +1,4 @@
-"""One connected BLE session to an Omron device: connection lifecycle, pairing and unlock (the memory protocol is mixed in from memory_protocol)."""
+"""One connected BLE session to an Omron device: connection lifecycle, pairing and unlock (the memory protocol is owned, from memory_protocol)."""
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +35,7 @@ from .const import (
     UNLOCK_CHARACTERISTIC_UUID,
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
-from .memory_protocol import MemoryProtocolMixin
+from .memory_protocol import MemoryProtocol
 from .secure_flow import ASYNC_NOTICE_UUID
 from .session_trace import SessionTrace, traced
 from .unlock import (
@@ -67,14 +67,31 @@ def _link_scanner_source(raw: Any) -> str | None:
 
 
 
-class OmronDeviceSession(MemoryProtocolMixin):
+_PROTOCOL_STATE = frozenset({
+    "_notify_subscribed",
+    "_last_reply_packet_type",
+    "_last_reply_memory_address",
+    "_last_reply_payload",
+    "_last_reply_result_code",
+    "_expected_reply_packet_type",
+    "_expected_reply_memory_address",
+    "_reply_ready",
+    "_channel_fragments",
+    "_notify_handle_to_channel",
+    "_memory_session_active",
+    "_pairing_registration_head_done",
+    "_pairing_registration_clock_done",
+})
+
+
+class OmronDeviceSession:
     """A connected BLE session to one Omron device.
 
     Owns the connection lifecycle (use as an ``async with`` context manager, or
     ``connect()`` / ``aclose()``), pairing and unlock. The notify channels,
-    the command/reply exchange and the memory session come from
-    ``MemoryProtocolMixin``. Supports single-channel (OS-bonding) and
-    multi-channel (classic pairing) profiles.
+    the command/reply exchange and the memory session live on ``self.memory``.
+    Supports single-channel (OS-bonding) and multi-channel (classic pairing)
+    profiles.
     """
 
     def __init__(
@@ -110,7 +127,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
         # publishes matches its own duration; the link facts stay here.
         self.trace = SessionTrace()
         self.link_info: dict[str, Any] = {}
-        self._init_memory_protocol_state()
+        self.memory = MemoryProtocol(self)
         self._unlocked = False
         self._secure_session = None
         # Swappable handler for the unlock characteristic notifications. The
@@ -119,6 +136,20 @@ class OmronDeviceSession(MemoryProtocolMixin):
         # same subscription — re-subscribing mid-flow either resets the device
         # session or trips the backend's "already enabled" guard.
         self._unlock_notify_handler: Any = None
+
+    def __getattr__(self, name: str) -> Any:
+        memory = self.__dict__.get("memory")
+        if memory is not None and (
+            name in _PROTOCOL_STATE or hasattr(type(memory), name)
+        ):
+            return getattr(memory, name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in _PROTOCOL_STATE and "memory" in self.__dict__:
+            setattr(self.__dict__["memory"], name, value)
+            return
+        object.__setattr__(self, name, value)
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -482,7 +513,7 @@ class OmronDeviceSession(MemoryProtocolMixin):
         best-effort; failures are silently ignored so the caller can proceed with
         the next attempt regardless.
         """
-        await self._unsubscribe_notify_channels(force=True)
+        await self.memory._unsubscribe_notify_channels(force=True)
         # The unlock characteristic is not an RX channel, so the loop above
         # never covered it -- and it is the one BlueZ was still holding (#92).
         try:
@@ -498,19 +529,13 @@ class OmronDeviceSession(MemoryProtocolMixin):
             _LOGGER.debug("async-notice stop_notify during reset ignored: %s", exc)
         self._unlocked = False
         self._secure_session = None
-        self._memory_session_active = False
         # Only the fresh-session retry loop in async_poll resets between
         # attempts; the handed-off pairing session has no retry and its close
         # failure is reported from aclose() instead. Where a retry does happen
         # the registration is written again, since whether the cuff commits
         # the mirror on the write or on the close is not established -- a
         # transfer count stepped twice beats a registration silently lost.
-        self._pairing_registration_head_done = False
-        self._pairing_registration_clock_done = False
-        self._channel_fragments = [None] * 4
-        self._expected_reply_packet_type = None
-        self._expected_reply_memory_address = None
-        self._reply_ready.clear()
+        self.memory.reset()
         self._debug_ble_link("reset_session_state")
 
     @asynccontextmanager

@@ -24,6 +24,7 @@ import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
+from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble.secure_flow import ASYNC_NOTICE_UUID
 
@@ -38,11 +39,15 @@ class _FakeSession:
         self.commands: list[str] = []
         self._last_reply_packet_type = bytearray.fromhex("8f00")
         self._last_reply_payload = bytes(1)
+        self._unlocked = False
+        self._secure_session = None
+        self._client = None
+        self.memory = MemoryProtocol(self)
 
     async def _write_command_and_wait_reply(self, cmd: bytearray) -> None:
         self.commands.append(bytes(cmd).hex())
 
-    close_memory_session = OmronDeviceSession.close_memory_session
+    close_memory_session = MemoryProtocol.close_memory_session
 
 
 def test_the_wld3_and_wld4_families_keep_their_notify_subscriptions():
@@ -93,7 +98,7 @@ def _release_target(model: str) -> _FakeSession:
     target._notify_subscribed = True
     target._debug_ble_link = lambda *_a, **_k: None
     target._unsubscribe_notify_channels = (
-        OmronDeviceSession._unsubscribe_notify_channels.__get__(target)
+        MemoryProtocol._unsubscribe_notify_channels.__get__(target)
     )
     return target
 
@@ -102,7 +107,7 @@ def test_the_normal_close_leaves_the_cccd_enabled():
     """정상 종료에서 stop_notify 가 한 건도 나가면 안 된다 — 앱이 남기는 상태다."""
     target = _release_target("HEM-7386T1")
 
-    asyncio.run(OmronDeviceSession.close_memory_session(target))
+    asyncio.run(MemoryProtocol.close_memory_session(target))
 
     assert target._client.stopped == []
     assert target.commands == ["080f000000000007"]
@@ -116,7 +121,7 @@ def test_profiles_outside_the_two_families_still_disable_it_on_close():
     """
     target = _release_target("HEM-7142T2")
 
-    asyncio.run(OmronDeviceSession.close_memory_session(target))
+    asyncio.run(MemoryProtocol.close_memory_session(target))
 
     assert target._client.stopped == list(
         get_device_config("HEM-7142T2").rx_channel_uuids
@@ -168,7 +173,7 @@ def test_a_kept_subscription_is_not_subscribed_again():
     target._client.started = []
     target._notify_subscribed = True
 
-    asyncio.run(OmronDeviceSession._subscribe_notify_channels(target))
+    asyncio.run(MemoryProtocol._subscribe_notify_channels(target))
 
     assert target._client.started == []
 
