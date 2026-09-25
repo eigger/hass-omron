@@ -18,7 +18,11 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from bleak.exc import BleakError
 
-from .connection import _bleak_refresh_services
+from .connection import (
+    _NOTIFY_SUBSCRIBE_SETTLE_SEC,
+    _bleak_refresh_services,
+    _start_notify_with_recovery,
+)
 from .devices import UnlockMode
 from .session_trace import traced
 from .settings_mirror import SettingsMirrorLayout, clock_block, slot_checksum
@@ -37,8 +41,6 @@ _LOGGER = logging.getLogger(__name__)
 _MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC: float = 5.0
 _MEMORY_PROTOCOL_TX_MAX_RETRIES: int = 4
 _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
-_NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
-_NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 
 # The per-transfer slot that follows the index region in the settings mirror
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
@@ -124,66 +126,15 @@ class MemoryProtocolMixin:
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
-            await self._start_notify_with_recovery(uuid)
+            await _start_notify_with_recovery(
+                self._client,
+                uuid,
+                self._on_notify_channel_data,
+                model=self._config.model,
+            )
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         self._notify_subscribed = True
         self._debug_ble_link("after_rx_subscribe")
-
-    async def _start_notify_with_recovery(
-        self, uuid: str, callback: Any | None = None
-    ) -> None:
-        """Start notify with recovery for transient BlueZ/stack races."""
-        handler = callback if callback is not None else self._on_notify_channel_data
-        last_exc: BaseException | None = None
-        for attempt in range(_NOTIFY_SUBSCRIBE_MAX_RETRIES):
-            try:
-                await self._client.start_notify(uuid, handler)
-                return
-            except BleakError as exc:
-                last_exc = exc
-                msg = str(exc).lower()
-                # BlueZ can keep CCCD/notify acquired briefly after reconnect;
-                # the ESPHome proxy backend reports the same state as
-                # "notifications are already enabled". Either way, release the
-                # stale subscription and re-subscribe.
-                if (
-                    "notify acquired" in msg
-                    or "notpermitted" in msg
-                    or "already enabled" in msg
-                    # BlueZ's wording when it still holds the session from the
-                    # previous connection, which keep_notify never released (#92).
-                    or "register notify session" in msg
-                ):
-                    _LOGGER.debug(
-                        "start_notify recovery (%d/%d) for %s on %s: %s",
-                        attempt + 1,
-                        _NOTIFY_SUBSCRIBE_MAX_RETRIES,
-                        uuid,
-                        self._config.model,
-                        exc,
-                    )
-                    try:
-                        await self._client.stop_notify(uuid)
-                    except Exception:
-                        pass
-                    await _bleak_refresh_services(self._client)
-                    if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
-                        await asyncio.sleep(0.25 * (attempt + 1))
-                    continue
-                if "service discovery has not been performed" in msg or "not been performed" in msg:
-                    await _bleak_refresh_services(self._client)
-                    if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
-                        await asyncio.sleep(0.2)
-                    continue
-                raise
-            except Exception as exc:
-                last_exc = exc
-                if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
-                    await asyncio.sleep(0.2)
-                    continue
-                raise
-        if last_exc is not None:
-            raise last_exc
 
     async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
         """Disable notifications on all RX channels.

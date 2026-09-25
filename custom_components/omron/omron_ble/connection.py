@@ -1,4 +1,4 @@
-"""Establishing the BLE link: connect, let bonding settle, refresh the GATT cache."""
+"""Establishing the BLE link: connect, let bonding settle, refresh the GATT cache, subscribe notifies."""
 from __future__ import annotations
 
 import asyncio
@@ -27,6 +27,9 @@ _POST_CONNECT_BOND_SETTLE_SEC: float = 1.5
 # of waiting out the full settle before retrying.
 _CONNECT_SETTLE_ATTEMPTS: int = 3
 _SETTLE_POLL_STEP_SEC: float = 0.25
+# After a notify subscribe, before the first write that depends on it.
+_NOTIFY_SUBSCRIBE_SETTLE_SEC: float = 0.75
+_NOTIFY_SUBSCRIBE_MAX_RETRIES: int = 3
 
 
 async def _bleak_refresh_services(client: BleakClient) -> None:
@@ -54,6 +57,66 @@ async def _bleak_clear_cache(client: BleakClient) -> bool:
     except Exception as exc:
         _LOGGER.debug("clear_cache failed (ignored): %s", exc)
         return False
+
+
+async def _start_notify_with_recovery(
+    client: BleakClient,
+    uuid: str,
+    callback: Any,
+    *,
+    model: str = "",
+) -> None:
+    """Start notify with recovery for transient BlueZ/stack races."""
+    last_exc: BaseException | None = None
+    for attempt in range(_NOTIFY_SUBSCRIBE_MAX_RETRIES):
+        try:
+            await client.start_notify(uuid, callback)
+            return
+        except BleakError as exc:
+            last_exc = exc
+            msg = str(exc).lower()
+            # BlueZ can keep CCCD/notify acquired briefly after reconnect;
+            # the ESPHome proxy backend reports the same state as
+            # "notifications are already enabled". Either way, release the
+            # stale subscription and re-subscribe.
+            if (
+                "notify acquired" in msg
+                or "notpermitted" in msg
+                or "already enabled" in msg
+                # BlueZ's wording when it still holds the session from the
+                # previous connection, which keep_notify never released (#92).
+                or "register notify session" in msg
+            ):
+                _LOGGER.debug(
+                    "start_notify recovery (%d/%d) for %s on %s: %s",
+                    attempt + 1,
+                    _NOTIFY_SUBSCRIBE_MAX_RETRIES,
+                    uuid,
+                    model,
+                    exc,
+                )
+                try:
+                    await client.stop_notify(uuid)
+                except Exception:
+                    pass
+                await _bleak_refresh_services(client)
+                if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                    await asyncio.sleep(0.25 * (attempt + 1))
+                continue
+            if "service discovery has not been performed" in msg or "not been performed" in msg:
+                await _bleak_refresh_services(client)
+                if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                    await asyncio.sleep(0.2)
+                continue
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt + 1 < _NOTIFY_SUBSCRIBE_MAX_RETRIES:
+                await asyncio.sleep(0.2)
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
 
 
 def _connection_source(ble_device: BLEDevice) -> str:

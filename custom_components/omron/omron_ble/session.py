@@ -26,8 +26,10 @@ from .bluez import (
     is_local_adapter,
 )
 from .connection import (
+    _NOTIFY_SUBSCRIBE_SETTLE_SEC,
     _bleak_clear_cache,
     _bleak_refresh_services,
+    _start_notify_with_recovery,
     establish_connection_with_bond_settle,
 )
 from .const import (
@@ -36,7 +38,7 @@ from .const import (
     UNLOCK_CHARACTERISTIC_UUID,
 )
 from .devices import DeviceConfig, HostPairingMode, UnlockMode
-from .memory_protocol import _NOTIFY_SUBSCRIBE_SETTLE_SEC, MemoryProtocolMixin
+from .memory_protocol import MemoryProtocolMixin
 from .secure_flow import ASYNC_NOTICE_UUID, establish_secure_session
 from .session_trace import SessionTrace, traced
 from .util import _hex
@@ -747,9 +749,11 @@ class OmronDeviceSession(MemoryProtocolMixin):
         # back to 0x0000 first — the very churn keep_notify exists to avoid.
         try:
             self._rebuild_notify_handle_index_map()
-            await self._start_notify_with_recovery(
+            await _start_notify_with_recovery(
+                self._client,
                 self._config.rx_channel_uuids[0],
                 self._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
+                model=self._config.model,
             )
             rx_notify_primed = True
             if keep_notify:
@@ -759,8 +763,9 @@ class OmronDeviceSession(MemoryProtocolMixin):
             _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
         self._debug_ble_link("token_unlock_before_notify")
-        await self._start_notify_with_recovery(
-            UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch
+        await _start_notify_with_recovery(
+            self._client, UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch,
+            model=self._config.model,
         )
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:

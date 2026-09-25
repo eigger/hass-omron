@@ -21,6 +21,8 @@ from sensor_state_data import (
     SensorDeviceClass,
 )
 
+from .advertisement import _decode_omron_msd_fields
+from .bls import _parse_bp_measurement
 from .const import (
     FIRMWARE_REVISION_UUID,
     HARDWARE_REVISION_UUID,
@@ -281,7 +283,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not payload or len(payload) < 2:
             return
 
-        fields = self._decode_omron_msd_fields(payload)
+        fields = _decode_omron_msd_fields(payload)
         if fields is None:
             _LOGGER.debug(
                 "Ignoring Omron MSD: format=0x%02X len=%d (length contract mismatch)",
@@ -320,119 +322,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             ExtendedBinarySensorDeviceClass.PAIRING_MODE,
             "Pairing Mode",
         )
-
-    @staticmethod
-    def _decode_omron_msd_fields(payload: bytes) -> dict[str, Any] | None:
-        """Decode OMRON MSD into a normalized dict, or ``None`` on mismatch.
-
-        Bleak strips the 2-byte LE manufacturer ID before delivering the
-        payload, so ``payload[0]`` is the first format byte of the MSD body.
-
-        Format 0x03 (older BPM, MSD >= 5 bytes):
-            ``len(payload) >= 3``; reads ``payload[1]`` (status bits) and
-            ``payload[2]`` (result identifier num).
-
-        Formats 0x01 / 0x02 / 0x06 (legacy WLP single/multi-user; 3-byte
-        per-user stride):
-            Status byte at ``payload[1]`` uses the same bit layout as
-            0x08 / 0x09.  Per-user sequence numbers occupy
-            ``payload[i*3 + 2 .. i*3 + 4]``, so minimum required length is
-            ``4 + (user_count * 3)``.  HEM-7142T2 and other older
-            single-user cuffs emit format 0x01 with ``len(payload) == 5``.
-
-        Format 0x08 (BLS-style, fixed per user count):
-            user_count == 0 → ``len(payload) == 10`` (MSD 12B)
-            user_count == 1 → ``len(payload) == 13`` (MSD 15B)
-            user_count 2 / 3 → not defined for this format → rejected.
-
-        Format 0x09 (newest, 2 bytes per registered user):
-            user_count == 0 → ``len(payload) == 9``  (MSD 11B)
-            user_count == 1 → ``len(payload) == 11`` (MSD 13B)
-            user_count == 2 → ``len(payload) == 13`` (MSD 15B)
-            user_count == 3 → ``len(payload) == 15`` (MSD 17B)
-
-        Any other ``payload[0]`` value is unsupported → ``None``.
-        Payloads shorter than 2 bytes also return ``None`` (defensive: the
-        caller already filters, but the static method is reusable).
-        """
-        if len(payload) < 2:
-            return None
-        b11 = payload[0]
-
-        if b11 == 0x03:
-            if len(payload) < 3:
-                return None
-            b12 = payload[1]
-            return {
-                "user_register_count": b12 & 0x03,
-                "invalid_time": bool(b12 & 0x04),
-                "pairing_mode": bool(b12 & 0x08),
-                "guidance_mode": (b12 & 0x30) >> 4,
-                "result_identifier_num": payload[2],
-                # Not present in this format.
-                "streaming_mode": False,
-                "service_uuid_mode": False,
-                "forced_transfer": False,
-            }
-
-        if b11 in (0x01, 0x02, 0x06):
-            b13 = payload[1]
-            user_count = b13 & 0x03
-            min_len = 4 + (user_count * 3)
-            if len(payload) < min_len:
-                return None
-            return {
-                "user_register_count": user_count,
-                "invalid_time": bool(b13 & 0x04),
-                "pairing_mode": bool(b13 & 0x08),
-                "streaming_mode": bool(b13 & 0x10),
-                "service_uuid_mode": bool(b13 & 0x20),
-                "forced_transfer": bool(b13 & 0x40),
-                # Not present in this format.
-                "guidance_mode": 0,
-                "result_identifier_num": 0,
-            }
-
-        if b11 == 0x08:
-            b13 = payload[1]
-            user_count = b13 & 0x03
-            length_ok = (
-                (user_count == 0 and len(payload) == 10)
-                or (user_count == 1 and len(payload) == 13)
-            )
-            if not length_ok:
-                return None
-            return {
-                "user_register_count": user_count,
-                "invalid_time": bool(b13 & 0x04),
-                "pairing_mode": bool(b13 & 0x08),
-                "streaming_mode": bool(b13 & 0x10),
-                "service_uuid_mode": bool(b13 & 0x20),
-                "forced_transfer": bool(b13 & 0x40),
-                # Not present in this format.
-                "guidance_mode": 0,
-                "result_identifier_num": 0,
-            }
-
-        if b11 == 0x09:
-            b10 = payload[1]
-            user_count = b10 & 0x03
-            expected_len = {0: 9, 1: 11, 2: 13, 3: 15}.get(user_count)
-            if expected_len is None or len(payload) != expected_len:
-                return None
-            return {
-                "user_register_count": user_count,
-                "invalid_time": bool(b10 & 0x04),
-                "pairing_mode": bool(b10 & 0x08),
-                "streaming_mode": bool(b10 & 0x10),
-                "service_uuid_mode": bool(b10 & 0x20),
-                "forced_transfer": bool(b10 & 0x40),
-                # Not present in this format.
-                "guidance_mode": 0,
-                "result_identifier_num": 0,
-            }
-
-        return None
 
     def _measurement_user_suffixes(
         self, user: int | None, multi_user: bool
@@ -732,86 +621,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             return "elevated"
         return "normal"
 
-    @staticmethod
-    def _decode_sfloat_le(raw: bytes) -> float:
-        """Decode IEEE-11073 16-bit SFLOAT (little-endian)."""
-        if len(raw) != 2:
-            raise ValueError("SFLOAT requires 2 bytes")
-        val = int.from_bytes(raw, "little", signed=False)
-        mantissa = val & 0x0FFF
-        exponent = (val >> 12) & 0x0F
-        if mantissa >= 0x0800:
-            mantissa -= 0x1000
-        if exponent >= 0x0008:
-            exponent -= 0x0010
-        return float(mantissa) * (10.0 ** exponent)
-
-    def _parse_bp_measurement(self, payload: bytes) -> dict[str, Any] | None:
-        """Parse BLE Blood Pressure Measurement characteristic (0x2A35)."""
-        if not payload or len(payload) < 7:
-            return None
-        flags = payload[0]
-        idx = 1
-        unit_kpa = bool(flags & 0x01)
-        has_timestamp = bool(flags & 0x02)
-        has_pulse = bool(flags & 0x04)
-        has_user_id = bool(flags & 0x08)
-        has_status = bool(flags & 0x10)
-
-        sys_val = self._decode_sfloat_le(payload[idx:idx + 2])
-        idx += 2
-        dia_val = self._decode_sfloat_le(payload[idx:idx + 2])
-        idx += 2
-        _ = self._decode_sfloat_le(payload[idx:idx + 2])  # MAP
-        idx += 2
-
-        if unit_kpa:
-            # Convert kPa to mmHg for HA entities.
-            sys_mmhg = int(round(sys_val * 7.50062))
-            dia_mmhg = int(round(dia_val * 7.50062))
-        else:
-            sys_mmhg = int(round(sys_val))
-            dia_mmhg = int(round(dia_val))
-
-        measured_dt: dt.datetime | None = None
-        if has_timestamp and len(payload) >= idx + 7:
-            year = int.from_bytes(payload[idx:idx + 2], "little")
-            month = payload[idx + 2]
-            day = payload[idx + 3]
-            hour = payload[idx + 4]
-            minute = payload[idx + 5]
-            second = payload[idx + 6]
-            idx += 7
-            try:
-                measured_dt = dt.datetime(year, month, day, hour, minute, second)
-            except ValueError:
-                measured_dt = None
-
-        pulse: int | None = None
-        if has_pulse and len(payload) >= idx + 2:
-            pulse = int(round(self._decode_sfloat_le(payload[idx:idx + 2])))
-            idx += 2
-
-        if has_user_id and len(payload) > idx:
-            idx += 1
-        
-        status_flags = {}
-        if has_status and len(payload) >= idx + 2:
-            status_val = int.from_bytes(payload[idx:idx + 2], "little")
-            status_flags["body_movement"] = bool(status_val & 0x01)
-            status_flags["cuff_fit"] = bool(status_val & 0x02)
-            status_flags["irregular_pulse"] = bool(status_val & 0x04)
-            status_flags["improper_position"] = bool(status_val & 0x20)
-            idx += 2
-
-        return {
-            "sys": sys_mmhg,
-            "dia": dia_mmhg,
-            "bpm": pulse,
-            "datetime": measured_dt,
-            "status_flags": status_flags,
-        }
-
     async def _read_latest_via_bls_racp(self, client: BleakClient) -> dict[str, Any] | None:
         """Request latest BP measurement via BLS RACP and parse 0x2A35 notification."""
         meas_char = client.services.get_characteristic(BP_MEASUREMENT_CHAR_UUID)
@@ -850,7 +659,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 await asyncio.wait_for(racp_done.wait(), timeout=1.5)
             except asyncio.TimeoutError:
                 pass
-            return self._parse_bp_measurement(raw)
+            return _parse_bp_measurement(raw)
         except Exception as exc:
             if not self._bls_racp_unavailable_logged:
                 self._bls_racp_unavailable_logged = True
@@ -974,7 +783,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                         bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
                         if bp_raw:
                             if live_record is None:
-                                live_record = self._parse_bp_measurement(bytes(bp_raw))
+                                live_record = _parse_bp_measurement(bytes(bp_raw))
                     except Exception as exc:
                         if "Read not permitted" in str(exc):
                             self._bp_char_unavailable = True

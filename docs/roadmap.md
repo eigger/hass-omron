@@ -28,7 +28,6 @@ settings_mirror ──────┘                                           
 |---|---|
 | `bluez.py` / `bluez_agent.py` | D-Bus helpers (agent, Pair, RemoveDevice, Paired) and the `dbus_fast` agent class the former imports lazily |
 | `session_trace.py` | Cuff stage names mapped onto `blesession`'s vocabulary |
-| `connection.py` | `establish_connection_with_bond_settle`, bleak cache helpers |
 | `session.py` | `OmronDeviceSession`: connection lifecycle, unlock, pairing |
 | `memory_protocol.py` | `MemoryProtocolMixin`: RX notify channels, command/reply, memory session, pairing registration |
 | `driver.py` | `OmronDeviceDriver`: EEPROM time, index walk, latest-record selection |
@@ -36,7 +35,10 @@ settings_mirror ──────┘                                           
 | `settings_mirror.py` | The settings block a session writes back before closing |
 | `time_sync.py` | CTS / EEPROM clock writes (setup and every poll) |
 | `pairing.py` | Model-number probe and `async_pair_and_sync_device` (config-flow procedures) |
+| `connection.py` | `establish_connection_with_bond_settle`, bleak cache helpers, notify subscribe recovery |
 | `parser.py` | `OmronBluetoothDeviceData`: advertisement parse, `async_poll`, sensor publishing — the HA `*-ble` library convention |
+| `advertisement.py` | `_decode_omron_msd_fields` |
+| `bls.py` | Blood Pressure Measurement (0x2A35) decode |
 | `devices.py` / `device_catalog.py` / `model_aliases.py` | Profile schema, the per-model catalog, name aliases |
 | `record_parsers.py` | Pure record decoders |
 
@@ -64,9 +66,8 @@ trigger is the moment it becomes cheaper to do than not to do.
 
 | Item | Trigger | Notes |
 |---|---|---|
-| Split unlock out of `session.py`; move `_start_notify_with_recovery` and `_NOTIFY_SUBSCRIBE_SETTLE_SEC` to `connection.py` | The next unlock or pairing fix that touches `session.py` | The notify-recovery helper is shared by memory protocol, `_token_unlock` and `_pair_custom_key`; it is link-layer code that #186 parked in the mixin |
+| Split unlock out of `session.py` | The next unlock or pairing fix that touches `session.py` | `_start_notify_with_recovery` and `_NOTIFY_SUBSCRIBE_SETTLE_SEC` already live in `connection.py` |
 | `MemoryProtocolMixin` → an owned component | Wanting to unit-test the memory protocol without a session | Behavioural change, not move-only: tests and `examples/x2_session_probe.py` read `session._last_reply_*` directly; `open_memory_session` resets `_unlocked` on failure (cross-layer); `_on_notify_channel_data` decrypts via `_secure_session`. A `reset()` on the component must `clear()` the reply Event, never replace it |
-| Extract `_decode_omron_msd_fields` → `advertisement.py`, BLS/RACP helpers → `bls.py` | A bug in MSD or BLS decoding that needs a standalone test | Both are pure; `parser.py` keeps its HA-convention name and role |
 | Shorten the long functions | Only when a fix already touches one | `driver._get_latest_via_index` 292, `__init__.process_service_info` 288, `__init__.async_setup_entry` 268 (defines `_async_poll_data` and two others as closures — untestable in isolation), `parser._poll_device_readout` 252, `parser.async_poll` 237, `session._pair_custom_key` 178. Function extraction cannot be proven move-only the way module moves were, so it rides along with hardware-verified fixes |
 
 Not planned: renaming `parser.py`. It matches the HA `*-ble` library

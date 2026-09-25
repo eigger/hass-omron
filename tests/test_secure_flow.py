@@ -160,13 +160,13 @@ def test_clock_preserves_unrelated_settings():
     assert block[15] == source[15]
 
 
-def test_prepare_reads_then_subscribes_control_rx_async_before_token():
+def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch):
     events, handlers = [], {}
     control = "b305b680-aee7-11e1-a730-0002a5d5c51b"
     async def read(uuid):
         events.append(("read", uuid[:8]))
         return b"synthetic"
-    async def subscribe(uuid, handler):
+    async def subscribe(client, uuid, handler, *, model=""):
         handlers[uuid.lower()] = handler
         events.append(("notify", uuid.lower()))
     async def write(uuid, value, response):
@@ -187,11 +187,14 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token():
         _client=SimpleNamespace(
             read_gatt_char=read, start_notify=raw_start_notify, write_gatt_char=write
         ),
-        _config=SimpleNamespace(rx_channel_uuids=["rx"]),
+        _config=SimpleNamespace(rx_channel_uuids=["rx"], model=""),
         _rebuild_notify_handle_index_map=lambda: None,
         _on_notify_channel_data=lambda *_: None,
         _ensure_services_cache=ensure_cache,
-        _start_notify_with_recovery=subscribe,
+    )
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow._start_notify_with_recovery",
+        subscribe,
     )
     asyncio.run(prepare_secure_token(session, 1))
     assert events == [("read", "00002a26"), ("read", "00002a28"),
