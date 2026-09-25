@@ -49,7 +49,7 @@ class TestRefusedRead:
         async def reply(*_args, **_kwargs):
             _feed(session, bytes.fromhex("0881000e3410e340"))
 
-        session._write_command_and_wait_reply = AsyncMock(side_effect=reply)
+        session.memory._write_command_and_wait_reply = AsyncMock(side_effect=reply)
 
         with pytest.raises(MemoryReadRefused) as caught:
             asyncio.run(session.read_memory_block(ADDRESS, BLOCKSIZE))

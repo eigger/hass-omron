@@ -1,12 +1,12 @@
 """The OMRON memory protocol: notify channels, command/reply, and the memory session.
 
-Mixed into ``OmronDeviceSession``. It owns the reply state the notify callback
+Owned by ``OmronDeviceSession``. It owns the reply state the notify callback
 fills in and ``_write_command_and_wait_reply`` consumes, the RX-channel
 subscriptions, and the memory session with its reads, writes and the pairing
-registration written on the way out. The host provides the link
+registration written on the way out. The host session provides the link
 (``_client``, ``_config``, ``address``), the secure session used to wrap
 frames, and ``_require_connected`` / ``_ensure_services_cache`` /
-``_debug_ble_link``.
+``_debug_ble_link``. A failed open clears the host's ``_unlocked`` flag.
 """
 from __future__ import annotations
 
@@ -67,31 +67,25 @@ class MemoryReadRefused(ConnectionError):
         )
 
 
-class MemoryProtocolMixin:
+class MemoryProtocol:
     """Notify channels, command/reply exchange and memory session over a Bleak client."""
 
-    if TYPE_CHECKING:
-        # Provided by the host session.
-        _client: BleakClient | None
-        _config: DeviceConfig
-        _secure_session: SecureSession | None
-        _unlocked: bool
-        _pairing_session: bool
-        address: str
-        trace: SessionTrace
+    def __init__(self, host: Any) -> None:
+        self._host = host
+        # Created once. reset() clears this event; it must never replace it,
+        # or a wait that already captured the old event hangs forever.
+        self._reply_ready = asyncio.Event()
+        self.reset()
 
-        def _require_connected(self, context: str) -> None: ...
-        async def _ensure_services_cache(self) -> None: ...
-        def _debug_ble_link(self, tag: str) -> None: ...
-
-    def _init_memory_protocol_state(self) -> None:
+    def reset(self) -> None:
+        """Drop reply and registration progress. The reply Event is cleared, not replaced."""
         self._notify_subscribed = False
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
         self._expected_reply_packet_type: bytes | None = None
         self._expected_reply_memory_address: bytes | None = None
-        self._reply_ready = asyncio.Event()
+        self._reply_ready.clear()
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
@@ -103,6 +97,39 @@ class MemoryProtocolMixin:
         # Result code from the last 0x8100 reply. Non-zero means the device
         # answered the read with a refusal rather than data.
         self._last_reply_result_code = 0
+
+    @property
+    def _client(self) -> BleakClient | None:
+        return self._host._client
+
+    @property
+    def _config(self) -> DeviceConfig:
+        return self._host._config
+
+    @property
+    def _secure_session(self) -> SecureSession | None:
+        return self._host._secure_session
+
+    @property
+    def _pairing_session(self) -> bool:
+        return self._host._pairing_session
+
+    @property
+    def address(self) -> str:
+        return self._host.address
+
+    @property
+    def trace(self) -> SessionTrace:
+        return self._host.trace
+
+    def _require_connected(self, context: str) -> None:
+        self._host._require_connected(context)
+
+    async def _ensure_services_cache(self) -> None:
+        await self._host._ensure_services_cache()
+
+    def _debug_ble_link(self, tag: str) -> None:
+        self._host._debug_ble_link(tag)
 
     def _rebuild_notify_handle_index_map(self) -> None:
         """Build mapping from GATT characteristic handles to notify channel indices."""
@@ -516,7 +543,7 @@ class MemoryProtocolMixin:
             _LOGGER.debug("Memory session opened for %s", self.address)
         except BaseException:
             self._memory_session_active = False
-            self._unlocked = False
+            self._host._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
             await self._unsubscribe_notify_channels(force=True)
             raise

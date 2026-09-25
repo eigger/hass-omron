@@ -15,7 +15,7 @@ address-mismatched replies``. 재시도해도 매번 이전 응답을 소비했�
 import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
-from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
 
 
 def _crc(frame: bytearray) -> bytearray:
@@ -59,9 +59,9 @@ class _Session:
         self._expected_reply_memory_address = bytes(command[3:5])
 
     def feed(self, frame: bytearray) -> None:
-        OmronDeviceSession._on_notify_channel_data(self, object(), bytearray(frame))
+        MemoryProtocol._on_notify_channel_data(self, object(), bytearray(frame))
 
-    _on_notify_channel_data = OmronDeviceSession._on_notify_channel_data
+    _on_notify_channel_data = MemoryProtocol._on_notify_channel_data
 
 
 def _fed(session, frame):

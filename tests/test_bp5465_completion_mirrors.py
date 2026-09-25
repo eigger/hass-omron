@@ -8,7 +8,7 @@ import pytest
 
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
-from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
 
 
 class _CompletionTransport:
@@ -72,7 +72,7 @@ def _run_completion_and_close(model: str) -> _CompletionTransport:
 
     async def run() -> None:
         await driver.complete_measurement_readout(target)
-        await OmronDeviceSession.close_memory_session(target)
+        await MemoryProtocol.close_memory_session(target)
 
     asyncio.run(run())
     return target
@@ -207,7 +207,7 @@ def test_cleanup_close_alone_never_writes_completion_mirrors():
     target = _CompletionTransport("BP5465")
 
     asyncio.run(
-        OmronDeviceSession.close_memory_session(target)
+        MemoryProtocol.close_memory_session(target)
     )
 
     assert target.reads == []

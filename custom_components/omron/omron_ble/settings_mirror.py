@@ -11,7 +11,7 @@ regions -- so nothing here is written for one model.
 
 Three paths use this: the secure session (``secure_flow``), whose
 initialization is what earns its credential; the token-key pairing commit
-(``OmronDeviceSession.commit_pairing_registration``), which a WLD3.0 cuff needs
+(``MemoryProtocol.commit_pairing_registration``), which a WLD3.0 cuff needs
 before it will resume the bond on the next connection (#175, #91); and the
 measurement completion (``OmronDeviceDriver.complete_measurement_readout``),
 which stamps the clock record the same way at the end of an ordinary poll on
