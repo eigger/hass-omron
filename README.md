@@ -5,9 +5,9 @@
 [![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 ![integration usage](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=usage&suffix=%20installs&cacheSeconds=15600&query=%24.omron.total&url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json)
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="350" alt="Omron BPM Integration">
-</p>
+| Device | Model |
+| :---: | :---: |
+| <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="280" alt="Omron HEM-7142T2"> | **HEM-7142T2** |
 
 A custom integration for Home Assistant to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors.
 
