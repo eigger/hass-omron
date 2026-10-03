@@ -117,6 +117,15 @@ def _session(
 
 
 class TestTruReadIndexSequence:
+    def test_public_latest_normalizes_sequence_position_for_full_scan_fallback(self):
+        driver = OmronDeviceDriver(_config(True))
+
+        record = driver._finalize_public_latest_record(
+            {"sys": 123, "dia": 80, "pos": 3}, user=1
+        )
+
+        assert record["pos"] == 0
+
     def test_opted_in_model_reports_average(self):
         start = NOW - dt.timedelta(hours=1)
         result, probed = _run(_config(True), 22, _session(20, start))

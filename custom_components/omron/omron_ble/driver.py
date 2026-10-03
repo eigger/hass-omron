@@ -347,6 +347,11 @@ class OmronDeviceDriver:
         result["user"] = user
         result.pop("_slot_index", None)
         result.pop("_offset", None)
+        # On these profiles ``pos`` is the TruRead sequence ordinal (1, 2,
+        # 3), not posture. A full-scan fallback bypasses sequence reduction,
+        # so normalize it before consumers turn it into improper_position.
+        if self._config.index_pointer_layout.get("truread_sequence"):
+            result["pos"] = 0
         return result
 
     async def get_all_records(
