@@ -9,7 +9,7 @@ from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import establish_connection
-from blesession import ConnectFailed
+from blesession import DISCONNECT_TIMEOUT_S, ConnectFailed
 from blesession.link import connected_via
 
 from .bluez import _bluez_pairing_agent, is_local_adapter
@@ -259,43 +259,53 @@ async def establish_connection_with_bond_settle(
                 connect_exc,
             )
             continue
-        # Only the radio that paired holds the bond, so report both paths.
-        connected_via = _connected_path(client, ble_device)
-        # Read back by pair(), which skips its own bonding only when this
-        # connect made the bond: doing it again on the same link rotates the
-        # keys just made, and skipping on the profile flag instead would also
-        # skip after a fallback and leave no bond at all.
-        client._omron_bonded_at_connect = bonded_this_client  # type: ignore[attr-defined]
-        _LOGGER.debug(
-            "BLE link established to %s (advertised by source=%s, connected via "
-            "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
-            "for bonding/encryption before first GATT op",
-            name,
-            source,
-            connected_via,
-            bonded_this_client,
-            getattr(client, "is_connected", "?"),
-            _POST_CONNECT_BOND_SETTLE_SEC,
-        )
-        # Settle for bonding/encryption, polling so a drop is caught early.
-        waited = 0.0
-        while waited < _POST_CONNECT_BOND_SETTLE_SEC:
-            await asyncio.sleep(_SETTLE_POLL_STEP_SEC)
-            waited += _SETTLE_POLL_STEP_SEC
-            if not getattr(client, "is_connected", False):
-                break
-        if getattr(client, "is_connected", False):
+        try:
+            # Only the radio that paired holds the bond, so report both paths.
+            connected_via = _connected_path(client, ble_device)
+            # Read back by pair(), which skips its own bonding only when this
+            # connect made the bond: doing it again on the same link rotates the
+            # keys just made, and skipping on the profile flag instead would also
+            # skip after a fallback and leave no bond at all.
+            client._omron_bonded_at_connect = bonded_this_client  # type: ignore[attr-defined]
             _LOGGER.debug(
-                "Post-settle state for %s via source=%s: is_connected=True",
-                name, source,
+                "BLE link established to %s (advertised by source=%s, connected via "
+                "%s, bonded_this_connect=%s, is_connected=%s); settling up to %.1fs "
+                "for bonding/encryption before first GATT op",
+                name,
+                source,
+                connected_via,
+                bonded_this_client,
+                getattr(client, "is_connected", "?"),
+                _POST_CONNECT_BOND_SETTLE_SEC,
             )
-            await _bleak_refresh_services(client)
-            # Only a link that survived the settle: ``source`` and ``via`` are
-            # the scanner ids habluetooth uses; the integration layer maps
-            # them to scanner names.
-            link_info["via"] = connected_via
-            link_info["bonded_at_connect"] = bonded_this_client
-            return client
+            # Settle for bonding/encryption, polling so a drop is caught early.
+            waited = 0.0
+            while waited < _POST_CONNECT_BOND_SETTLE_SEC:
+                await asyncio.sleep(_SETTLE_POLL_STEP_SEC)
+                waited += _SETTLE_POLL_STEP_SEC
+                if not getattr(client, "is_connected", False):
+                    break
+            if getattr(client, "is_connected", False):
+                _LOGGER.debug(
+                    "Post-settle state for %s via source=%s: is_connected=True",
+                    name, source,
+                )
+                await _bleak_refresh_services(client)
+                # Only a link that survived the settle: ``source`` and ``via`` are
+                # the scanner ids habluetooth uses; the integration layer maps
+                # them to scanner names.
+                link_info["via"] = connected_via
+                link_info["bonded_at_connect"] = bonded_this_client
+                return client
+        except BaseException:
+            # Ownership does not reach OmronDeviceSession until this function
+            # returns. Close a link interrupted during settle/service refresh.
+            try:
+                async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                    await client.disconnect()
+            except BaseException as exc:
+                _LOGGER.debug("disconnect after interrupted settle ignored: %s", exc)
+            raise
 
         # Dropped during settle; retry — re-establishing lets habluetooth
         # re-score and possibly route through a working/bonded proxy.

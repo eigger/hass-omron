@@ -145,3 +145,39 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
     # Registration still happened and cleanup still ran despite the exception.
     assert fake_bus.calls == ["RegisterAgent", "RequestDefaultAgent", "UnregisterAgent"]
     assert fake_bus.disconnected
+
+
+def test_bluez_pairing_agent_disconnects_bus_if_unregister_is_cancelled(monkeypatch):
+    pytest.importorskip("dbus_fast")
+    from custom_components.omron.omron_ble import bluez
+    from dbus_fast.aio.message_bus import MessageBus
+
+    class FakeBus:
+        def __init__(self):
+            self.disconnected = False
+
+        def export(self, path, agent):
+            pass
+
+        async def call(self, message):
+            if message.member == "UnregisterAgent":
+                raise asyncio.CancelledError
+            return None
+
+        def disconnect(self):
+            self.disconnected = True
+
+    fake_bus = FakeBus()
+
+    async def fake_connect(*args, **kwargs):
+        return fake_bus
+
+    monkeypatch.setattr(MessageBus, "connect", fake_connect)
+
+    async def run():
+        with pytest.raises(asyncio.CancelledError):
+            async with bluez._bluez_pairing_agent():
+                pass
+
+    asyncio.run(run())
+    assert fake_bus.disconnected

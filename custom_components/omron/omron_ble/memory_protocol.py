@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from bleak.exc import BleakError
+from blesession import DISCONNECT_TIMEOUT_S
 
 from .connection import (
     _NOTIFY_SUBSCRIBE_SETTLE_SEC,
@@ -179,7 +180,8 @@ class MemoryProtocol:
             return
         for uuid in self._config.rx_channel_uuids:
             try:
-                await self._client.stop_notify(uuid)
+                async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                    await self._client.stop_notify(uuid)
             except Exception as exc:
                 _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
         self._notify_subscribed = False
@@ -688,7 +690,8 @@ class MemoryProtocol:
 
         try:
             stop_cmd = bytearray.fromhex("080f000000000007")
-            await self._write_command_and_wait_reply(stop_cmd)
+            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                await self._write_command_and_wait_reply(stop_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8f00"):
                 _LOGGER.warning("Invalid response to data readout end")
             elif self._last_reply_payload and self._last_reply_payload[0]:

@@ -108,21 +108,25 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
     try:
         yield bus if agent_ready else None
     finally:
-        if registered:
-            try:
-                await bus.call(
-                    Message(
-                        destination="org.bluez",
-                        path="/org/bluez",
-                        interface="org.bluez.AgentManager1",
-                        member="UnregisterAgent",
-                        signature="o",
-                        body=[_BLUEZ_AGENT_PATH],
+        try:
+            if registered:
+                try:
+                    await bus.call(
+                        Message(
+                            destination="org.bluez",
+                            path="/org/bluez",
+                            interface="org.bluez.AgentManager1",
+                            member="UnregisterAgent",
+                            signature="o",
+                            body=[_BLUEZ_AGENT_PATH],
+                        )
                     )
-                )
-            except Exception:
-                pass
-        bus.disconnect()
+                except Exception:
+                    pass
+        finally:
+            # Cancellation during UnregisterAgent must not strand the D-Bus
+            # connection after the caller's bounded cleanup gives up.
+            bus.disconnect()
 
 
 def is_local_adapter(client: BleakClient | BLEDevice) -> bool:
