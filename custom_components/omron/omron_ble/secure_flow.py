@@ -218,6 +218,9 @@ async def establish_secure_session(
         return crypto.ltk
     except BaseException:
         session._unlocked = False
+        # The RX callback may still receive a frame until the caller closes
+        # the BLE link. Never leave a half-paired crypto state attached to it.
+        session._secure_session = None
         raise
     finally:
         session._unlock_notify_handler = None

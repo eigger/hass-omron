@@ -121,6 +121,30 @@ def test_timeout_does_not_return_key():
     assert session._unlocked is False
 
 
+def test_failed_handshake_clears_partial_secure_session():
+    session, _ = make_session(False)
+
+    async def failed_write(*_args, **_kwargs):
+        raise OSError("synthetic secure handshake failure")
+
+    session._client.write_gatt_char = failed_write
+    with patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto), patch(
+        "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
+        new_callable=AsyncMock,
+    ):
+        with pytest.raises(OSError, match="synthetic secure handshake failure"):
+            asyncio.run(
+                establish_secure_session(
+                    session,
+                    stored_ltk=bytes(range(16)),
+                    now=datetime(2026, 9, 6),
+                )
+            )
+
+    assert session._unlocked is False
+    assert session._secure_session is None
+
+
 def test_resume_without_key_is_rejected_before_io():
     session, events = make_session(False)
     with pytest.raises(ValueError, match="resume requires"):
