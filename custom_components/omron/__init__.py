@@ -38,6 +38,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 from .const import (
+    BLE_SESSION_TIMEOUT_SECONDS,
     CONF_DEVICE_MODEL,
     CONF_TRANSPORT_CREDENTIAL,
     DOMAIN,
@@ -68,7 +69,13 @@ SETTLE_DELAY_SECONDS = 0.5
 # logged until Home Assistant restarts. The deadline gives the lock back.
 # Budget: a worst-case connect (~90 s over 4 attempts) plus the memory-session
 # retries. Past that the link is stuck, not slow.
-POLL_TIMEOUT_SECONDS = 180
+POLL_TIMEOUT_SECONDS = BLE_SESSION_TIMEOUT_SECONDS
+
+
+def _session_lock_for(hass: HomeAssistant, address: str) -> asyncio.Lock:
+    """Return the per-device lock shared across config-entry reloads."""
+    locks = hass.data.setdefault(DOMAIN, {}).setdefault("_session_locks", {})
+    return locks.setdefault(address, asyncio.Lock())
 
 # When a poll fails mid-flight, keep measurement history but drop stale RSSI
 # unless this poll refreshed it (avoids showing outdated diagnostics).
@@ -156,6 +163,20 @@ def _persist_transport_credential(
     )
 
 
+def _create_entry_background_task(
+    entry: OmronConfigEntry,
+    hass: HomeAssistant,
+    runtime: OmronRuntimeData,
+    coro,
+    name: str,
+) -> asyncio.Task[None]:
+    """Create a task owned by both the entry and its current runtime."""
+    task = entry.async_create_background_task(hass, coro, name)
+    runtime.background_tasks.add(task)
+    task.add_done_callback(runtime.background_tasks.discard)
+    return task
+
+
 async def _run_advertisement_session(
     hass: HomeAssistant,
     runtime: OmronRuntimeData,
@@ -235,27 +256,42 @@ async def _run_advertisement_session(
     # Doubles as the "pairing succeeded" flag: set only once the cuff is
     # bonded, and holds the live link for the refresh below to adopt.
     paired_session = None
+    deadline = asyncio.get_running_loop().time() + BLE_SESSION_TIMEOUT_SECONDS
+    lock_acquired = False
     try:
-        async with session_lock:
-            runtime.last_attempt_time = time.time()
-            _LOGGER.debug(
-                "Starting %s session for %s (lock acquired)",
-                action,
-                service_info.address,
-            )
-            await asyncio.sleep(SETTLE_DELAY_SECONDS)
-            ble_device = service_info.device
-            if is_pairing:
-                async with omron_poll_ble_telemetry(hass, runtime, "pairing"):
+        # Bound lock acquisition, then reuse the same absolute deadline inside
+        # telemetry so timeout is recorded as TimeoutError before its cleanup.
+        async with asyncio.timeout_at(deadline):
+            await session_lock.acquire()
+            lock_acquired = True
+        runtime.last_attempt_time = time.time()
+        _LOGGER.debug(
+            "Starting %s session for %s (lock acquired)",
+            action,
+            service_info.address,
+        )
+        async with omron_poll_ble_telemetry(
+            hass, runtime, "pairing" if is_pairing else "time_sync"
+        ):
+            async with asyncio.timeout_at(deadline):
+                await asyncio.sleep(SETTLE_DELAY_SECONDS)
+                ble_device = service_info.device
+                if is_pairing:
                     paired_session = await data.async_retry_pairing(ble_device)
-            else:  # is_invalid_time and not is_forced_transfer
-                async with omron_poll_ble_telemetry(hass, runtime, "time_sync"):
+                else:  # is_invalid_time and not is_forced_transfer
                     await data.async_sync_time(ble_device)
+    except asyncio.CancelledError:
+        if paired_session is not None:
+            await paired_session.aclose()
+        raise
     except Exception as err:
         if is_pairing:
             _LOGGER.error("Auto pairing failed: %s", err)
         else:
             _LOGGER.error("Auto time sync failed: %s", err)
+    finally:
+        if lock_acquired:
+            session_lock.release()
 
     # Lock auto-released by the context manager. The post-pairing poll runs
     # AFTER the release so async_poll_data can acquire it independently,
@@ -286,6 +322,11 @@ def process_service_info(
     data = runtime.device_data
     update = data.update(service_info)
     hass = runtime.bt_coordinator.hass
+
+    # The Bluetooth processor can deliver a final callback while unload is
+    # stopping it; do not start new work after teardown has begun.
+    if getattr(runtime, "unloading", False):
+        return update
 
     # 1. Only attempt active sessions when the device is connectable
     if not service_info.connectable:
@@ -414,12 +455,14 @@ def process_service_info(
                         runtime.pending_forced_transfer_task = None
                         runtime.force_poll_after_lock = False
 
-                # Tracked on the runtime so async_unload_entry can cancel it:
-                # this task blocks on the session lock, so a reload while a
-                # poll is in flight would otherwise leave it to wake up and
-                # drive a coordinator that no longer exists.
-                runtime.pending_forced_transfer_task = hass.async_create_task(
-                    _drain_pending_forced_transfer()
+                # Entry-owned background tasks are cancelled automatically on
+                # unload, including while waiting for the per-device lock.
+                runtime.pending_forced_transfer_task = _create_entry_background_task(
+                    entry,
+                    hass,
+                    runtime,
+                    _drain_pending_forced_transfer(),
+                    f"{DOMAIN} forced transfer {service_info.address}",
                 )
         else:
             _LOGGER.debug(
@@ -440,7 +483,10 @@ def process_service_info(
         )
         return update
 
-    hass.async_create_task(
+    _create_entry_background_task(
+        entry,
+        hass,
+        runtime,
         _run_advertisement_session(
             hass,
             runtime,
@@ -449,7 +495,8 @@ def process_service_info(
             is_pairing=is_pairing,
             is_invalid_time=is_invalid_time,
             is_forced_transfer=is_forced_transfer,
-        )
+        ),
+        f"{DOMAIN} advertisement session {service_info.address}",
     )
 
     return update
@@ -681,7 +728,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         # advertisement arriving moments after the config-flow finishes does not
         # fire another auto-pairing session against a device that was just paired.
         last_attempt_time=time.time(),
+        session_lock=_session_lock_for(hass, address),
     )
+
+    # Register before the initial poll: it can establish and persist a secure
+    # transport credential, and its update listener must consume that write.
+    entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # Give the radio a moment in case a setup-flow BLE link was just torn down
     # — initial registration triggers async_setup_entry within ~20 ms of the
@@ -704,7 +756,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
 
     # only start after all platforms have had a chance to subscribe
     entry.async_on_unload(bt_coordinator.async_start())
-    entry.async_on_unload(entry.add_update_listener(update_listener))
     return True
 
 
@@ -730,14 +781,20 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:
     """Unload a config entry."""
+    runtime = entry.runtime_data
+    runtime.unloading = True
+    # HA normally cancels entry background tasks after this function returns,
+    # which is too late: a pairing task could park a new link after cleanup.
+    background_tasks = set(runtime.background_tasks)
+    if runtime.pending_forced_transfer_task is not None:
+        background_tasks.add(runtime.pending_forced_transfer_task)
+    for task in background_tasks:
+        if not task.done():
+            task.cancel()
+    if background_tasks:
+        await asyncio.gather(*background_tasks, return_exceptions=True)
     # A pairing session parked for a poll that never came would otherwise keep
     # its BLE link past the unload, with nothing left to adopt or close it.
-    runtime = entry.runtime_data
-    # Blocked on the session lock, so it can wake long after the unload and
-    # drive a coordinator that is gone.
-    pending_task = runtime.pending_forced_transfer_task
-    if pending_task is not None and not pending_task.done():
-        pending_task.cancel()
     await discard_handoff_session(hass, runtime.address)
     # Same for a model-number probe whose flow never reached pairing.
     await discard_probe_session(hass, runtime.address)

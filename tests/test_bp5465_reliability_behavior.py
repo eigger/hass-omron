@@ -106,12 +106,14 @@ def _make_latch_harness(
         pending_forced_transfer=False,
         pending_forced_transfer_baseline=None,
         pending_forced_transfer_task=None,
+        background_tasks=set(),
         force_poll_after_lock=False,
     )
 
     entry = SimpleNamespace(
         entry_id=entry_id,
         runtime_data=runtime,
+        async_create_background_task=lambda _hass, coro, _name: hass.async_create_task(coro),
     )
 
     return SimpleNamespace(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from homeassistant.components.bluetooth import async_ble_device_from_address
@@ -12,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.exceptions import HomeAssistantError
 
 from .entity import OmronEntity
+from .const import BLE_SESSION_TIMEOUT_SECONDS
 from .session_handoff import (
     omron_poll_ble_telemetry,
     poll_parked_session,
@@ -91,6 +93,24 @@ class OmronRetryPairingButtonEntity(OmronEntity, ButtonEntity):
     async def async_press(self) -> None:
         """Handle button press to retry pairing/bonding."""
         runtime = self._runtime
+        # Unload takes a snapshot of this set immediately after setting the
+        # flag. Refuse new work so no callback can register after that snapshot.
+        if runtime.unloading:
+            return
+        # Unlike entry-created background tasks, a service callback is not
+        # canceled automatically when the config entry unloads. Track this
+        # BLE operation so unload can cancel it and wait for its cleanup.
+        task = asyncio.current_task()
+        if task is not None:
+            runtime.background_tasks.add(task)
+        try:
+            await self._async_retry_pairing(runtime)
+        finally:
+            if task is not None:
+                runtime.background_tasks.discard(task)
+
+    async def _async_retry_pairing(self, runtime) -> None:
+        """Run the tracked retry-pairing operation."""
         ble_device = async_ble_device_from_address(self.hass, self._address)
         if ble_device is None:
             raise HomeAssistantError(f"BLE device not available: {self._address}")
@@ -111,24 +131,41 @@ class OmronRetryPairingButtonEntity(OmronEntity, ButtonEntity):
         # to adopt the parked session.
         if await poll_parked_session(self.hass, self._address, poll_coordinator):
             return
+        deadline = asyncio.get_running_loop().time() + BLE_SESSION_TIMEOUT_SECONDS
+        lock_acquired = False
+        paired_session = None
         try:
-            async with session_lock:
-                async with omron_poll_ble_telemetry(self.hass, runtime, "pairing"):
+            async with asyncio.timeout_at(deadline):
+                await session_lock.acquire()
+                lock_acquired = True
+            async with omron_poll_ble_telemetry(self.hass, runtime, "pairing"):
+                async with asyncio.timeout_at(deadline):
                     paired_session = await runtime.device_data.async_retry_pairing(
                         ble_device
                     )
-                # Seed the advertisement-trigger cooldown the way setup does:
-                # a pairing-mode advert arriving now would otherwise start an
-                # auto-session that takes the lock before the poll below, and
-                # that poll would skip and leave the fresh link unused.
-                runtime.last_attempt_time = time.time()
+                    # Seed the advertisement-trigger cooldown the way setup does:
+                    # a pairing-mode advert arriving now would otherwise start an
+                    # auto-session that takes the lock before the poll below, and
+                    # that poll would skip and leave the fresh link unused.
+                    runtime.last_attempt_time = time.time()
+        except asyncio.CancelledError:
+            if paired_session is not None:
+                await paired_session.aclose()
+            raise
         except Exception as err:
             raise HomeAssistantError(f"Failed to retry pairing: {err}") from err
+        finally:
+            if lock_acquired:
+                session_lock.release()
         # Lock auto-released by the context manager. Mirror setup behavior:
         # run an immediate poll after pairing so protected GATT paths are
         # exercised and bond/session state settles. async_poll_data acquires
         # the lock on its own, and adopts the link parked for it rather than
         # reconnecting — a PER_SESSION cuff refuses that second connect.
+        if runtime.unloading:
+            if paired_session is not None:
+                await paired_session.aclose()
+            return
         await run_post_pairing_poll(
             self.hass, self._address, paired_session, poll_coordinator
         )

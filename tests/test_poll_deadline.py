@@ -61,8 +61,8 @@ class TestPollDeadline:
 
     def test_poll_timeout_constant_is_positive(self):
         tree = _parse("__init__.py")
-        values = [
-            ast.literal_eval(node.value)
+        assignments = [
+            node.value
             for node in tree.body
             if isinstance(node, ast.Assign)
             and any(
@@ -70,8 +70,18 @@ class TestPollDeadline:
                 for target in node.targets
             )
         ]
-        assert values, "POLL_TIMEOUT_SECONDS 상수가 모듈 최상단에 있어야 한다"
-        assert values[0] > 0
+        assert assignments, "POLL_TIMEOUT_SECONDS 상수가 모듈 최상단에 있어야 한다"
+        value = assignments[0]
+        if isinstance(value, ast.Name) and value.id == "BLE_SESSION_TIMEOUT_SECONDS":
+            const_tree = _parse("const.py")
+            value = next(
+                node.value
+                for node in const_tree.body
+                if isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == value.id
+            )
+        assert ast.literal_eval(value) > 0
 
 
 class TestCancellationEscapesPoll:

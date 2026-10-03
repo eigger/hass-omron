@@ -526,6 +526,25 @@ class TestTelemetry:
         assert entry_data.failure_count_coordinator.values == []
         assert entry_data.connection_coordinator.values[-1] is False
 
+    def test_cancellation_during_ticker_cleanup_still_propagates(self, plain_report):
+        entry_data = _runtime()
+
+        async def scenario():
+            task = asyncio.current_task()
+            assert task is not None
+            with pytest.raises(asyncio.CancelledError):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "pairing"
+                ):
+                    # Cancellation arrives only after normal body exit, while
+                    # telemetry awaits the ticker it just cancelled.
+                    asyncio.get_running_loop().call_soon(task.cancel)
+
+        asyncio.run(scenario())
+        assert entry_data.session_reports.last is not None
+        assert entry_data.session_reports.last["success"] is True
+        assert entry_data.connection_coordinator.values[-1] is False
+
 
 # ── async_poll records its trace ────────────────────────────────────────────
 #
