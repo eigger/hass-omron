@@ -60,7 +60,7 @@ def _decode_omron_msd_fields(payload: bytes) -> dict[str, Any] | None:
     if b11 in (0x01, 0x02, 0x06):
         b13 = payload[1]
         user_count = b13 & 0x03
-        min_len = 4 + (user_count * 3)
+        min_len = 2 + (user_count * 3)
         if len(payload) < min_len:
             return None
         return {

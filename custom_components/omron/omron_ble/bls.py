@@ -5,11 +5,15 @@ import datetime as dt
 from typing import Any
 
 
-def _decode_sfloat_le(raw: bytes) -> float:
-    """Decode IEEE-11073 16-bit SFLOAT (little-endian)."""
+def _decode_sfloat_le(raw: bytes) -> float | None:
+    """Decode IEEE-11073 16-bit SFLOAT, returning None for special values."""
     if len(raw) != 2:
         raise ValueError("SFLOAT requires 2 bytes")
     val = int.from_bytes(raw, "little", signed=False)
+    # IEEE 11073-20601 special encodings used by the Bluetooth Blood
+    # Pressure Service: +Inf, NaN, NRes, RFU, and -Inf.
+    if val in {0x07FE, 0x07FF, 0x0800, 0x0801, 0x0802}:
+        return None
     mantissa = val & 0x0FFF
     exponent = (val >> 12) & 0x0F
     if mantissa >= 0x0800:
@@ -38,6 +42,9 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
     _ = _decode_sfloat_le(payload[idx:idx + 2])  # MAP
     idx += 2
 
+    if sys_val is None or dia_val is None:
+        return None
+
     if unit_kpa:
         # Convert kPa to mmHg for HA entities.
         sys_mmhg = int(round(sys_val * 7.50062))
@@ -62,7 +69,9 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
 
     pulse: int | None = None
     if has_pulse and len(payload) >= idx + 2:
-        pulse = int(round(_decode_sfloat_le(payload[idx:idx + 2])))
+        pulse_value = _decode_sfloat_le(payload[idx:idx + 2])
+        if pulse_value is not None:
+            pulse = int(round(pulse_value))
         idx += 2
 
     if has_user_id and len(payload) > idx:
