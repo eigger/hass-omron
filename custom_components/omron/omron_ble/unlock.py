@@ -11,6 +11,8 @@ import logging
 import secrets
 from typing import Any
 
+from blesession import DISCONNECT_TIMEOUT_S
+
 from .connection import (
     _NOTIFY_SUBSCRIBE_SETTLE_SEC,
     _bleak_refresh_services,
@@ -31,6 +33,17 @@ _PAIRING_PROG_WAIT_TIMEOUT_SEC: float = 2.0
 _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC: float = 5.0
 _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE: int = 10
 _PAIR_UNLOCK_ATTEMPTS_DEFAULT: int = 5
+
+
+async def _stop_notify_best_effort(
+    client: Any, characteristic: str, context: str
+) -> None:
+    """Stop one notify subscription without masking the operation's error."""
+    try:
+        async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+            await client.stop_notify(characteristic)
+    except Exception as exc:
+        _LOGGER.debug("%s stop_notify skipped: %s", context, exc)
 
 def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
     """Unlock notify: key programming mode ready (prefix 0x82; sub-type is in byte 1, not matched)."""
@@ -183,16 +196,26 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         if keep_notify:
             session.memory._notify_subscribed = True
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+    except asyncio.CancelledError:
+        if rx_notify_primed:
+            await _stop_notify_best_effort(
+                session._client,
+                session._config.rx_channel_uuids[0],
+                "token unlock RX pre-notify",
+            )
+        raise
     except Exception as exc:
         _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
 
     session._debug_ble_link("token_unlock_before_notify")
-    await _start_notify_with_recovery(
-        session._client, UNLOCK_CHARACTERISTIC_UUID, _unlock_dispatch,
-        model=session._config.model,
-    )
-    await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
     try:
+        await _start_notify_with_recovery(
+            session._client,
+            UNLOCK_CHARACTERISTIC_UUID,
+            _unlock_dispatch,
+            model=session._config.model,
+        )
+        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         unlock_event.clear()
         response_holder[0] = None
         # Prefer write-without-response (ATT Write Command, per btsnoop); fall
@@ -237,18 +260,18 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         session._unlocked = True
         _LOGGER.debug("Token unlock OK (nonce=%s)", token.hex())
     finally:
-        if keep_notify:
+        if keep_notify and session._unlocked:
             session._debug_ble_link("token_unlock_keep_notify")
         else:
-            try:
-                await session._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
-            except Exception as exc:
-                _LOGGER.debug("token unlock stop_notify skipped: %s", exc)
+            await _stop_notify_best_effort(
+                session._client, UNLOCK_CHARACTERISTIC_UUID, "token unlock"
+            )
             if rx_notify_primed:
-                try:
-                    await session._client.stop_notify(session._config.rx_channel_uuids[0])
-                except Exception as exc:
-                    _LOGGER.debug("token unlock RX pre-notify stop skipped: %s", exc)
+                await _stop_notify_best_effort(
+                    session._client,
+                    session._config.rx_channel_uuids[0],
+                    "token unlock RX pre-notify",
+                )
             session._debug_ble_link("token_unlock_after_stop_notify")
 
 
@@ -430,4 +453,3 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
 
     _LOGGER.debug("Device paired successfully with new key")
     await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
-
