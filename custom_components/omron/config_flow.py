@@ -19,6 +19,7 @@ from .omron_ble.devices import (
     infer_model_id_from_local_name,
     resolve_profile_model_id,
 )
+from .omron_ble.util import slugify_for_entity_key
 import voluptuous as vol
 
 from homeassistant.components import onboarding
@@ -76,9 +77,12 @@ def _resolved_user_aliases_from_input(
 
 
 def _user_aliases_are_unique(resolved: list[str]) -> bool:
-    """True if no two slots share the same label (case-insensitive)."""
-    lowered = [x.lower() for x in resolved]
-    return len(set(lowered)) == len(lowered)
+    """True if aliases produce distinct entity-key slugs for every slot."""
+    slugs = [
+        slugify_for_entity_key(label) or f"user{index}"
+        for index, label in enumerate(resolved, start=1)
+    ]
+    return len(set(slugs)) == len(slugs)
 
 
 def _user_aliases_schema(

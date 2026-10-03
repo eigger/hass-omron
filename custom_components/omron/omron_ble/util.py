@@ -15,6 +15,15 @@ def slugify_for_entity_key(raw: str) -> str:
     return s[:48]
 
 
+def user_alias_slug_from_entity_key(key: str) -> str | None:
+    """Return the alias suffix after a known per-user sensor base key."""
+    for base in sorted(_USER_NAME_BASES, key=len, reverse=True):
+        prefix = f"{base}_"
+        if key.startswith(prefix):
+            return key[len(prefix) :]
+    return None
+
+
 # Longest first so ``blood_pressure_systolic`` is not parsed as a shorter base.
 _TRANSLATED_NAME_BASES: tuple[str, ...] = (
     "mean_arterial_pressure_estimated",
