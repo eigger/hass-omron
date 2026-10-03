@@ -41,6 +41,7 @@ from homeassistant.data_entry_flow import AbortFlow
 from .session_handoff import (
     stash_handoff_session,
     close_probe_session,
+    discard_probe_session,
     stash_probe_session,
     take_probe_session,
 )
@@ -211,6 +212,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_model: str | None = None
         self._scan_interval: int = 300
         self._user_aliases: dict[str, str] = {}
+        self._removed = False
+
+    @callback
+    def async_remove(self) -> None:
+        """Close a model-probe link when this flow ends before pairing adopts it."""
+        self._removed = True
+        if self._discovery_info is None:
+            return
+        address = self._discovery_info.address
+        self.hass.async_create_task(discard_probe_session(self.hass, address))
 
     async def async_step_bluetooth(
         self, discovery_info: BluetoothServiceInfoBleak
@@ -276,9 +287,14 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         ble_device, keep_session_open=True
                     )
                     if probe_session is not None:
-                        stash_probe_session(
-                            self.hass, self._discovery_info.address, probe_session
-                        )
+                        if self._removed:
+                            await probe_session.aclose()
+                        else:
+                            stash_probe_session(
+                                self.hass,
+                                self._discovery_info.address,
+                                probe_session,
+                            )
                     if model_num:
                         probed_name = model_num
                         inferred = infer_model_id_from_local_name(model_num)
@@ -582,7 +598,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the user step to pick discovered device."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
-            await self.async_set_unique_id(address, raise_on_progress=False)
+            await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
             discovery = self._discovered_devices[address]
 
