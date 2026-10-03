@@ -177,6 +177,27 @@ def _create_entry_background_task(
     return task
 
 
+async def _run_initial_poll(runtime: OmronRuntimeData, address: str) -> None:
+    """Poll after setup without making Home Assistant wait for the cuff."""
+    # Give the radio time after a setup-flow disconnect. This delay used to
+    # live in async_setup_entry, where the subsequent BLE timeout held up HA
+    # startup for as long as 180 seconds when a sleeping cuff did not respond.
+    await asyncio.sleep(0.5)
+    try:
+        await runtime.poll_coordinator.async_refresh()
+    except asyncio.CancelledError:
+        raise
+    except Exception as err:
+        _LOGGER.warning("Initial poll for %s failed: %s", address, err)
+        return
+    if not runtime.poll_coordinator.last_update_success:
+        _LOGGER.warning(
+            "Initial poll update failed for %s; entities will use cached/empty state: %s",
+            address,
+            runtime.poll_coordinator.last_exception,
+        )
+
+
 async def _run_advertisement_session(
     hass: HomeAssistant,
     runtime: OmronRuntimeData,
@@ -735,19 +756,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # transport credential, and its update listener must consume that write.
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
-    # Give the radio a moment in case a setup-flow BLE link was just torn down
-    # — initial registration triggers async_setup_entry within ~20 ms of the
-    # config-flow disconnect, before the device is ready to accept a new
-    # connection. 0.5 s is cheap insurance on reloads/restarts too.
-    await asyncio.sleep(0.5)
-    await poll_coordinator.async_refresh()
-    if not poll_coordinator.last_update_success:
-        _LOGGER.warning(
-            "Initial poll update failed for %s; entities will use cached/empty state: %s",
-            address,
-            poll_coordinator.last_exception,
-        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Start the first refresh after platform setup, but don't hold HA startup
+    # open while a sleeping cuff or an unresponsive Bluetooth proxy times out.
+    _create_entry_background_task(
+        entry,
+        hass,
+        entry.runtime_data,
+        _run_initial_poll(entry.runtime_data, address),
+        f"{DOMAIN} {identifier} initial poll",
+    )
 
     # Processors are registered, so restore has already landed. Push only a
     # cached advertisement. With no sighting, leave the restored on/off.

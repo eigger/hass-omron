@@ -76,7 +76,17 @@ def test_config_entry_owns_advertisement_background_tasks():
         if isinstance(node, ast.Call)
         and ast.unparse(node.func) == "_create_entry_background_task"
     ]
-    assert len(calls) == 2
+    advertisement_tasks = [
+        node
+        for node in calls
+        if any("_run_advertisement_session" in ast.unparse(arg) for arg in node.args)
+    ]
+    assert len(advertisement_tasks) == 1
+    assert any(
+        "_drain_pending_forced_transfer" in ast.unparse(arg)
+        for call in calls
+        for arg in call.args
+    )
     helper = next(
         node
         for node in tree.body
@@ -100,21 +110,41 @@ def test_unload_cancels_and_waits_for_tasks_before_discarding_handoffs():
     assert lines["asyncio.gather"] < lines["discard_handoff_session"]
 
 
-def test_credential_update_listener_is_registered_before_initial_poll():
+def test_initial_poll_is_scheduled_after_platform_setup_without_blocking_setup():
     setup = next(
         node
         for node in ast.parse((_COMPONENT / "__init__.py").read_text(encoding="utf-8")).body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_setup_entry"
     )
-    listener_pos = refresh_pos = None
+    listener_pos = forward_pos = schedule_pos = None
     for node in ast.walk(setup):
         if not isinstance(node, ast.Call):
             continue
         call = ast.unparse(node.func)
         if call == "entry.add_update_listener":
             listener_pos = node.lineno
-        elif call == "poll_coordinator.async_refresh":
-            refresh_pos = node.lineno
+        elif call == "hass.config_entries.async_forward_entry_setups":
+            forward_pos = node.lineno
+        elif (
+            call == "_create_entry_background_task"
+            and any("_run_initial_poll" in ast.unparse(arg) for arg in node.args)
+        ):
+            schedule_pos = node.lineno
 
-    assert listener_pos is not None and refresh_pos is not None
-    assert listener_pos < refresh_pos
+    assert listener_pos is not None
+    assert forward_pos is not None
+    assert schedule_pos is not None
+    assert listener_pos < schedule_pos
+    assert forward_pos < schedule_pos
+    assert not any(
+        isinstance(node, ast.Await)
+        and "poll_coordinator.async_refresh" in ast.unparse(node)
+        for node in ast.walk(setup)
+    )
+
+    initial_poll = _function("__init__.py", "_run_initial_poll")
+    assert any(
+        isinstance(node, ast.Await)
+        and "poll_coordinator.async_refresh" in ast.unparse(node)
+        for node in ast.walk(initial_poll)
+    )
