@@ -44,6 +44,7 @@ from .unlock import (
     _maybe_send_unlock_probe,
     _pair_custom_key,
     _secure_unlock,
+    _stop_notify_best_effort,
     _token_unlock,
 )
 from .util import _hex
@@ -578,11 +579,23 @@ class OmronDeviceSession:
             await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         except Exception as exc:
             _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
+        except asyncio.CancelledError:
+            if rx_notify_primed:
+                await _stop_notify_best_effort(
+                    self._client,
+                    self._config.rx_channel_uuids[0],
+                    "unlock RX pre-notify",
+                )
+            raise
 
         self._debug_ble_link("unlock_before_notify")
-        await self._client.start_notify(UNLOCK_CHARACTERISTIC_UUID, _unlock_callback)
-        await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         try:
+            # Put subscription setup under the cleanup boundary too. A failed
+            # or canceled settle wait must release the RX subscription above.
+            await self._client.start_notify(
+                UNLOCK_CHARACTERISTIC_UUID, _unlock_callback
+            )
+            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
             # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
             await _maybe_send_unlock_probe(self, unlock_event, response_holder)
 
@@ -607,12 +620,15 @@ class OmronDeviceSession:
             self._debug_ble_link("unlock_notify_timeout")
             raise ConnectionError("Unlock failed: notify timeout") from None
         finally:
-            await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
+            await _stop_notify_best_effort(
+                self._client, UNLOCK_CHARACTERISTIC_UUID, "unlock"
+            )
             if rx_notify_primed:
-                try:
-                    await self._client.stop_notify(self._config.rx_channel_uuids[0])
-                except Exception as exc:
-                    _LOGGER.debug("unlock RX pre-notify stop skipped: %s", exc)
+                await _stop_notify_best_effort(
+                    self._client,
+                    self._config.rx_channel_uuids[0],
+                    "unlock RX pre-notify",
+                )
             self._debug_ble_link("unlock_after_stop_notify")
 
 
