@@ -487,10 +487,14 @@ class OmronBluetoothSensorEntity(
         # Reverse search using aliases (dynamic, works when names change)
         aliases = getattr(self._omron_device_data, '_user_aliases', {})
         if aliases:
-            from .omron_ble.util import slugify_for_entity_key
+            from .omron_ble.util import (
+                slugify_for_entity_key,
+                user_alias_slug_from_entity_key,
+            )
+            alias_slug = user_alias_slug_from_entity_key(key)
             for u_idx, label in aliases.items():
-                slug = slugify_for_entity_key(label)
-                if slug and key.endswith(f"_{slug}"):
+                slug = slugify_for_entity_key(label) or f"user{u_idx}"
+                if alias_slug == slug:
                     return f"user_{u_idx}"
         # Fallback: numeric suffix (_2, _user2)
         import re
