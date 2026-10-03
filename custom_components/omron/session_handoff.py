@@ -203,8 +203,21 @@ async def run_post_pairing_poll(
     reconnect a PER_SESSION cuff refuses. ``async_poll`` closes the link if it
     has dropped by then, and unloading the entry clears whatever is left.
     """
-    await stash_handoff_session(hass, address, session)
-    await poll_coordinator.async_refresh()
+    try:
+        await stash_handoff_session(hass, address, session)
+        await poll_coordinator.async_refresh()
+    except asyncio.CancelledError:
+        handoff = hass.data.get(DOMAIN, {}).get("_setup_sessions", {})
+        if handoff.get(address) is session:
+            await discard_handoff_session(hass, address)
+        elif getattr(session, "_owns_connection", True):
+            # Cancellation while stash was waiting to close a previous handoff
+            # leaves this newly paired link under its original owner.
+            try:
+                await session.aclose()
+            except BaseException as exc:
+                _LOGGER.debug("Closing cancelled pairing session for %s failed: %s", address, exc)
+        raise
 
 
 @asynccontextmanager
@@ -235,6 +248,7 @@ async def omron_poll_ble_telemetry(
     started = perf_counter()
     ticker_task: asyncio.Task[None] | None = None
     outcome: BaseException | None = None
+    cancellation_during_cleanup: asyncio.CancelledError | None = None
 
     async def _duration_ticker() -> None:
         while True:
@@ -260,8 +274,14 @@ async def omron_poll_ble_telemetry(
             ticker_task.cancel()
             try:
                 await ticker_task
-            except asyncio.CancelledError:
-                pass
+            except asyncio.CancelledError as exc:
+                # The ticker's own cancellation is expected. A cancellation
+                # of the parent entry task must propagate after reporting and
+                # resetting telemetry, or unload can park a new BLE session
+                # after its handoff bucket was already cleared.
+                current_task = asyncio.current_task()
+                if current_task is not None and current_task.cancelling():
+                    cancellation_during_cleanup = exc
         elapsed = round(perf_counter() - started, 3)
         # An outer cancellation (unload, shutdown) is not the session's
         # failure. The poll deadline is: asyncio.timeout turns its own
@@ -295,3 +315,5 @@ async def omron_poll_ble_telemetry(
                 failure_coordinator.async_set_updated_data(dt_util.utcnow())
         duration_coordinator.async_set_updated_data(elapsed)
         connection_coordinator.async_set_updated_data(False)
+        if cancellation_during_cleanup is not None:
+            raise cancellation_during_cleanup

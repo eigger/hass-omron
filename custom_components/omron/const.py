@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN = "omron"
+# Upper bound for a pairing/time-sync BLE session. Keep direct advertisement
+# and button sessions under the same limit as the scheduled poll.
+BLE_SESSION_TIMEOUT_SECONDS: Final = 180
 CONF_BINDKEY: Final = "bindkey"
 CONF_DEVICE_MODEL: Final = "device_model"
 CONF_USER_ALIASES: Final = "user_aliases"

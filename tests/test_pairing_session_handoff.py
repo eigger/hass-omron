@@ -166,6 +166,30 @@ class TestPostPairingPoll:
         assert seen["parked"] is session, "the poll must see the parked link"
         assert session.events == ["release"]
 
+    def test_cancelled_post_pairing_poll_discards_its_parked_session(self):
+        from custom_components.omron.session_handoff import run_post_pairing_poll
+        from custom_components.omron.const import DOMAIN
+
+        hass = _fake_hass()
+        session = _FakeSession()
+
+        class _CancelledCoordinator:
+            async def async_refresh(self) -> None:
+                raise asyncio.CancelledError
+
+        async def scenario():
+            try:
+                await run_post_pairing_poll(
+                    hass, self.ADDRESS, session, _CancelledCoordinator()
+                )
+            except asyncio.CancelledError:
+                return
+            raise AssertionError("cancellation should propagate")
+
+        asyncio.run(scenario())
+        assert session.events == ["release", "reclaim", "aclose"]
+        assert hass.data[DOMAIN]["_setup_sessions"] == {}
+
     def test_skipped_poll_leaves_the_session_parked(self):
         """The poll can bail out before adopting — no device, or the BLE
         session lock taken by an advertisement-triggered auto-session. Closing
@@ -338,7 +362,7 @@ class TestRepairEntryPointsCheckForAParkedSession:
 
     def test_retry_pairing_button_checks_before_pairing(self):
         fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
         )
         body = ast.unparse(fn)
 
@@ -346,7 +370,9 @@ class TestRepairEntryPointsCheckForAParkedSession:
             "pressing Retry Pairing while a link is parked would open a second "
             "BLE connection to the same cuff"
         )
-        assert body.index("poll_parked_session") < body.index("async_retry_pairing"), (
+        assert body.index("poll_parked_session") < body.index(
+            "runtime.device_data.async_retry_pairing"
+        ), (
             "the check has to come before pairing, not after"
         )
 
@@ -394,24 +420,19 @@ class TestRepairEntryPointsCheckForAParkedSession:
         """The poll it triggers needs session_lock to adopt the parked
         session, so holding the lock here would make that poll skip."""
         fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
         )
 
-        locked_blocks = [
-            node
+        calls = _called_names(fn)
+        assert "session_lock.acquire" in calls
+        assert "session_lock.release" in calls
+        assert "poll_parked_session" in calls
+        call_lines = {
+            ast.unparse(node.func): node.lineno
             for node in ast.walk(fn)
-            if isinstance(node, ast.AsyncWith)
-            and any("session_lock" in ast.unparse(item.context_expr) for item in node.items)
-        ]
-        assert locked_blocks, "expected pairing to run under session_lock"
-
-        inside = {
-            ast.unparse(call.func)
-            for block in locked_blocks
-            for call in ast.walk(block)
-            if isinstance(call, ast.Call)
+            if isinstance(node, ast.Call)
         }
-        assert "poll_parked_session" not in inside
+        assert call_lines["poll_parked_session"] < call_lines["session_lock.acquire"]
 
 
 class TestRetryPairingReturnsSession:
@@ -485,7 +506,7 @@ class TestCallSitesHandOffTheSession:
 
     def test_retry_pairing_button_hands_off_the_session(self):
         fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
         )
 
         assert "run_post_pairing_poll" in _called_names(fn)
@@ -495,7 +516,7 @@ class TestCallSitesHandOffTheSession:
         lock between pairing and the poll, so the poll skips and the fresh
         link goes unused. Setup seeds the same cooldown for the same reason."""
         fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "async_press"
+            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
         )
 
         assert "last_attempt_time" in ast.unparse(fn)
@@ -550,11 +571,17 @@ class TestPostPairingPollIsNotDebounced:
         )
 
     def test_helper_does_not_discard_the_session(self):
-        """A poll that bailed out leaves the session parked for the next one;
-        discarding here would close a link the retry still needs."""
+        """A normal skipped poll preserves the handoff; only cancellation cleans it."""
         fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
 
-        assert "discard_handoff_session" not in _called_names(fn)
+        assert "discard_handoff_session" in _called_names(fn)
+        cancellation_handler = next(
+            node
+            for node in ast.walk(fn)
+            if isinstance(node, ast.ExceptHandler)
+            and ast.unparse(node.type) == "asyncio.CancelledError"
+        )
+        assert "discard_handoff_session" in ast.unparse(cancellation_handler)
 
 
 class TestSkippedPollKeepsTheSessionParked:

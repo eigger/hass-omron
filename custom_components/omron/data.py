@@ -40,6 +40,8 @@ class OmronRuntimeData:
     pending_forced_transfer: bool = False
     pending_forced_transfer_baseline: Any = None
     pending_forced_transfer_task: asyncio.Task[None] | None = None
+    background_tasks: set[asyncio.Task[Any]] = field(default_factory=set)
+    unloading: bool = False
     force_poll_after_lock: bool = False
     credential_write: bool = False
 
