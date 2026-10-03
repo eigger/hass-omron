@@ -269,6 +269,12 @@ async def async_sync_device_time(
         if eeprom_success:
             return True
 
+        # Pairing keeps the newly opened memory session alive for the poll
+        # that immediately follows. Do not enter CTS while that protocol
+        # session is active; the peripheral may reject overlapping GATT work.
+        if leave_memory_session_open:
+            return False
+
     cts_success = await _sync_time_via_cts(client, model)
 
     if config.supports_eeprom_time_sync and not eeprom_success:
