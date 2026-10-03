@@ -227,6 +227,11 @@ class OmronDeviceSession:
                     hold_pairing_agent=self._config.register_pairing_agent,
                     link_info=self.link_info,
                 )
+        except BaseException:
+            # A failed/cancelled connect has no client for aclose() to own, but
+            # it may already have installed the session-scoped BlueZ agent.
+            await self._release_pairing_agent()
+            raise
         finally:
             self.publish_link_to(self.trace)
         return self
@@ -350,6 +355,7 @@ class OmronDeviceSession:
         """Close any open memory session and (if owned) drop the BLE link."""
         client = self._client
         if client is None:
+            await self._release_pairing_agent()
             return
         addr = self.address or getattr(client, "address", "")
         disconnected = False
@@ -372,29 +378,34 @@ class OmronDeviceSession:
                         )
             if self._owns_connection and client.is_connected:
                 with self.trace.timed("disconnect"):
-                    await self._await_peer_close(client, addr)
-                    if client.is_connected:
-                        # Bounded: the close runs after the poll deadline has
-                        # already fired, so nothing else bounds it, and a proxy
-                        # that stopped answering would hang here holding the
-                        # per-entry session lock. A timeout is swallowed below
-                        # like any other close failure -- the link is dropped
-                        # anyway once the proxy comes back.
+                    try:
                         async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
-                            await client.disconnect()
-                        disconnected = True
-        except Exception:
-            pass
+                            await self._await_peer_close(client, addr)
+                    except Exception as exc:
+                        _LOGGER.debug("Waiting for peer close on %s failed: %s", addr, exc)
+                    if client.is_connected:
+                        try:
+                            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                                await client.disconnect()
+                            disconnected = True
+                        except Exception as exc:
+                            _LOGGER.debug("Disconnect for %s failed: %s", addr, exc)
         finally:
             self._client = None
-            if self._pairing_agent is not None:
-                agent, self._pairing_agent = self._pairing_agent, None
-                try:
-                    await agent.aclose()
-                except Exception as exc:
-                    _LOGGER.debug("Releasing the pairing agent failed: %s", exc)
+            await self._release_pairing_agent()
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
+
+    async def _release_pairing_agent(self) -> None:
+        """Release a BlueZ agent even when no BLE client was established."""
+        if self._pairing_agent is None:
+            return
+        agent, self._pairing_agent = self._pairing_agent, None
+        try:
+            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                await agent.aclose()
+        except BaseException as exc:
+            _LOGGER.debug("Releasing the pairing agent failed: %s", exc)
 
     async def _await_peer_close(self, client: BleakClient, addr: str) -> None:
         """Stay idle at the end of a session so the cuff can end it itself.
