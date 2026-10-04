@@ -17,12 +17,16 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from bleak.exc import BleakError
-from blesession import DISCONNECT_TIMEOUT_S
+from blesession import (
+    DISCONNECT_TIMEOUT_S,
+    guarded_write,
+    start_notify_with_recovery,
+    stop_notify_best_effort,
+)
 
 from .connection import (
     _NOTIFY_SUBSCRIBE_SETTLE_SEC,
     _bleak_refresh_services,
-    _start_notify_with_recovery,
 )
 from .devices import UnlockMode
 from .session_trace import traced
@@ -154,11 +158,10 @@ class MemoryProtocol:
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
-            await _start_notify_with_recovery(
+            await start_notify_with_recovery(
                 self._client,
                 uuid,
                 self._on_notify_channel_data,
-                model=self._config.model,
             )
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
         self._notify_subscribed = True
@@ -179,11 +182,7 @@ class MemoryProtocol:
             )
             return
         for uuid in self._config.rx_channel_uuids:
-            try:
-                async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
-                    await self._client.stop_notify(uuid)
-            except Exception as exc:
-                _LOGGER.debug("stop_notify for %s ignored: %s", uuid, exc)
+            await stop_notify_best_effort(self._client, uuid)
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -415,12 +414,16 @@ class MemoryProtocol:
                     for ch_idx in range(num_tx_channels):
                         tx_segment = remaining_cmd[:channel_width]
                         if self._config.is_single_channel:
-                            await self._client.write_gatt_char(
-                                self._config.tx_channel_uuids[ch_idx], tx_segment, response=False
+                            await guarded_write(
+                                self._client, self._config.tx_channel_uuids[ch_idx],
+                                tx_segment, step="command", response=False,
                             )
                         else:
-                            await self._client.write_gatt_char(
-                                self._config.tx_channel_uuids[ch_idx], tx_segment
+                            # No explicit response type: bleak picks from the
+                            # characteristic's properties, as before.
+                            await guarded_write(
+                                self._client, self._config.tx_channel_uuids[ch_idx],
+                                tx_segment, step="command", response=None,
                             )
                         remaining_cmd = remaining_cmd[channel_width:]
                 except BleakError as exc:

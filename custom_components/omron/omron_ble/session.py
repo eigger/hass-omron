@@ -9,7 +9,14 @@ from typing import Any, AsyncIterator
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
-from blesession import DISCONNECT_TIMEOUT_S, probe_link
+from blesession import (
+    DISCONNECT_TIMEOUT_S,
+    WRITE_TIMEOUT_S,
+    Notifications,
+    WriteTimeout,
+    probe_link,
+    stop_notify_best_effort,
+)
 from blesession.link import LinkInfo
 
 from .bluez import (
@@ -44,7 +51,6 @@ from .unlock import (
     _maybe_send_unlock_probe,
     _pair_custom_key,
     _secure_unlock,
-    _stop_notify_best_effort,
     _token_unlock,
 )
 from .util import _hex
@@ -114,12 +120,15 @@ class OmronDeviceSession:
         self.memory = MemoryProtocol(self)
         self._unlocked = False
         self._secure_session = None
-        # Swappable handler for the unlock characteristic notifications. The
-        # CCCD is subscribed once (via a fixed dispatcher) so the token
-        # handshake and the ECDH secure handshake can run back-to-back on the
-        # same subscription — re-subscribing mid-flow either resets the device
-        # session or trips the backend's "already enabled" guard.
-        self._unlock_notify_handler: Any = None
+        # The unlock characteristic's subscription when it has to outlive the
+        # function that opened it: the token handshake and the ECDH secure
+        # handshake run back-to-back on one subscription (re-subscribing
+        # mid-flow either resets the device session or trips the backend's
+        # "already enabled" guard), and a profile that keeps its subscriptions
+        # leaves it enabled for the life of the link. The stack owns the
+        # unsubscribe; see hold_unlock_channel().
+        self._unlock_channel: Notifications | None = None
+        self._unlock_stack: AsyncExitStack | None = None
 
     # -- connection lifecycle -------------------------------------------------
 
@@ -338,6 +347,28 @@ class OmronDeviceSession:
             return None
         return raw.decode("utf-8").strip(" \x00")
 
+    def hold_unlock_channel(
+        self, stack: AsyncExitStack, channel: Notifications
+    ) -> None:
+        """Take over the unlock subscription ``stack`` owns, leaving it enabled.
+
+        A caller that opened it hands it over with ``stack.pop_all()`` once the
+        work that has to continue on it has succeeded; until
+        ``release_unlock_channel()`` the next stage reads its replies from
+        ``self._unlock_channel``. A channel held from an earlier stage is
+        replaced, not closed: closing it would unsubscribe the characteristic
+        the new one has just subscribed.
+        """
+        self._unlock_stack = stack
+        self._unlock_channel = channel
+
+    async def release_unlock_channel(self) -> None:
+        """Unsubscribe the held unlock channel, if any."""
+        stack, self._unlock_stack = self._unlock_stack, None
+        self._unlock_channel = None
+        if stack is not None:
+            await stack.aclose()
+
     def release_for_handoff(self) -> "OmronDeviceSession":
         """Hand off this session for the first poll; ``aclose()`` will not disconnect."""
         self._owns_connection = False
@@ -497,17 +528,14 @@ class OmronDeviceSession:
         await self.memory._unsubscribe_notify_channels(force=True)
         # The unlock characteristic is not an RX channel, so the loop above
         # never covered it -- and it is the one BlueZ was still holding (#92).
-        try:
-            await self._client.stop_notify(UNLOCK_CHARACTERISTIC_UUID)
-        except Exception as exc:
-            _LOGGER.debug("unlock stop_notify during reset ignored: %s", exc)
+        if self._unlock_stack is not None:
+            await self.release_unlock_channel()
+        else:
+            await stop_notify_best_effort(self._client, UNLOCK_CHARACTERISTIC_UUID)
         # Same for the secure session's async-notice channel: a retry
         # re-subscribes it, and BlueZ refuses a second subscribe on a CCCD it
         # still holds.
-        try:
-            await self._client.stop_notify(ASYNC_NOTICE_UUID)
-        except Exception as exc:
-            _LOGGER.debug("async-notice stop_notify during reset ignored: %s", exc)
+        await stop_notify_best_effort(self._client, ASYNC_NOTICE_UUID)
         self._unlocked = False
         self._secure_session = None
         # Only the fresh-session retry loop in async_poll resets between
@@ -561,76 +589,60 @@ class OmronDeviceSession:
             return
 
         unlock_key = key or PAIRING_KEY
-        unlock_event = asyncio.Event()
-        response_holder: list[bytes | None] = [None]
-        rx_notify_primed = False
 
-        def _unlock_callback(_: Any, rx_bytes: bytearray) -> None:
-            response_holder[0] = rx_bytes
-            unlock_event.set()
-
-        # Match pairing flow: briefly prime RX notify so stacks that require
-        # a security request trigger can establish encrypted notify reliably.
-        try:
-            await self._client.start_notify(
-                self._config.rx_channel_uuids[0], lambda _h, _d: None
-            )
-            rx_notify_primed = True
-            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
-        except Exception as exc:
-            _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
-        except asyncio.CancelledError:
-            if rx_notify_primed:
-                await _stop_notify_best_effort(
-                    self._client,
-                    self._config.rx_channel_uuids[0],
-                    "unlock RX pre-notify",
+        async with AsyncExitStack() as subscriptions:
+            # Match pairing flow: briefly prime RX notify so stacks that require
+            # a security request trigger can establish encrypted notify reliably.
+            # Entered first, so it is released last.
+            try:
+                await subscriptions.enter_async_context(
+                    Notifications(
+                        self._client,
+                        self._config.rx_channel_uuids[0],
+                        settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+                    )
                 )
-            raise
+            except Exception as exc:
+                _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
 
-        self._debug_ble_link("unlock_before_notify")
-        try:
-            # Put subscription setup under the cleanup boundary too. A failed
-            # or canceled settle wait must release the RX subscription above.
-            await self._client.start_notify(
-                UNLOCK_CHARACTERISTIC_UUID, _unlock_callback
-            )
-            await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
-            # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
-            await _maybe_send_unlock_probe(self, unlock_event, response_holder)
-
-            unlock_event.clear()
-            response_holder[0] = None
-            await self._client.write_gatt_char(
-                UNLOCK_CHARACTERISTIC_UUID, b'\x01' + unlock_key, response=True
-            )
-            await asyncio.wait_for(unlock_event.wait(), timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC)
-
-            response = response_holder[0]
-            if not _is_unlock_auth_key_ack(response):
-                _LOGGER.debug(
-                    "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
-                    len(response) if response is not None else None,
-                    _hex(response) if response else "None",
+            self._debug_ble_link("unlock_before_notify")
+            try:
+                # Subscription setup is inside the cleanup boundary too: a failed
+                # or canceled settle wait releases the RX subscription above.
+                replies = await subscriptions.enter_async_context(
+                    Notifications(
+                        self._client,
+                        UNLOCK_CHARACTERISTIC_UUID,
+                        settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+                    )
                 )
-                raise ConnectionError("Unlock failed: pairing key mismatch")
-            
-            self._unlocked = True
-        except asyncio.TimeoutError:
-            self._debug_ble_link("unlock_notify_timeout")
-            raise ConnectionError("Unlock failed: notify timeout") from None
-        finally:
-            await _stop_notify_best_effort(
-                self._client, UNLOCK_CHARACTERISTIC_UUID, "unlock"
-            )
-            if rx_notify_primed:
-                await _stop_notify_best_effort(
-                    self._client,
-                    self._config.rx_channel_uuids[0],
-                    "unlock RX pre-notify",
-                )
-            self._debug_ble_link("unlock_after_stop_notify")
+                # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
+                await _maybe_send_unlock_probe(self, replies)
 
+                response = await replies.request(
+                    UNLOCK_CHARACTERISTIC_UUID,
+                    b'\x01' + unlock_key,
+                    timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC,
+                    write_timeout=WRITE_TIMEOUT_S,
+                    step="unlock",
+                    response=True,
+                )
+                if not _is_unlock_auth_key_ack(response):
+                    _LOGGER.debug(
+                        "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
+                        len(response),
+                        _hex(response),
+                    )
+                    raise ConnectionError("Unlock failed: pairing key mismatch")
+
+                self._unlocked = True
+            except WriteTimeout:
+                raise
+            except TimeoutError:
+                self._debug_ble_link("unlock_notify_timeout")
+                raise ConnectionError("Unlock failed: notify timeout") from None
+            finally:
+                self._debug_ble_link("unlock_after_stop_notify")
 
     async def _pair_os_bonding(self) -> None:
         """Best-effort OS-level BLE bond establishment for modern profiles."""

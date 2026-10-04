@@ -6,6 +6,7 @@ for measurement data via GATT connection.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import logging
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from typing import Any
 
 from bleak import BleakClient
 from bleak.backends.device import BLEDevice
+from blesession import NotificationTimeout, Notifications, guarded_write
 
 from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfoBleak
@@ -62,6 +64,11 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
         label = str(v).strip() if v is not None else ""
         out[idx] = label if label else f"user{idx}"
     return out
+
+_RACP_SETTLE_S = 0.5
+_RACP_MEASUREMENT_TIMEOUT_S = 3.0
+_RACP_DONE_TIMEOUT_S = 1.5
+
 
 class OmronBluetoothDeviceData(BluetoothData):
     """Data handler for Omron BLE blood pressure monitors."""
@@ -636,44 +643,26 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self._bls_racp_unavailable_logged = True
             return None
 
-        measurement_future: asyncio.Future[bytes] = asyncio.get_running_loop().create_future()
-        racp_done = asyncio.Event()
-
-        def _meas_cb(_: Any, data: bytearray) -> None:
-            if not measurement_future.done() and data:
-                measurement_future.set_result(bytes(data))
-
-        def _racp_cb(_: Any, data: bytearray) -> None:
-            # Response code or procedure-complete indication.
-            if data:
-                racp_done.set()
-
         try:
-            await client.start_notify(BP_MEASUREMENT_CHAR_UUID, _meas_cb)
-            await client.start_notify(BP_RACP_CHAR_UUID, _racp_cb)
-            await asyncio.sleep(0.5)
-            # RACP: Report Stored Records (0x01), operator Last Record (0x06)
-            await client.write_gatt_char(BP_RACP_CHAR_UUID, b"\x01\x06", response=True)
-            raw = await asyncio.wait_for(measurement_future, timeout=3.0)
-            try:
-                await asyncio.wait_for(racp_done.wait(), timeout=1.5)
-            except asyncio.TimeoutError:
-                pass
-            return _parse_bp_measurement(raw)
+            async with (
+                Notifications(client, BP_MEASUREMENT_CHAR_UUID) as measurements,
+                Notifications(client, BP_RACP_CHAR_UUID, settle=_RACP_SETTLE_S) as racp,
+            ):
+                # RACP: Report Stored Records (0x01), operator Last Record (0x06)
+                await guarded_write(
+                    client, BP_RACP_CHAR_UUID, b"\x01\x06", step="readout", response=True
+                )
+                raw = await measurements.wait_for(bool, _RACP_MEASUREMENT_TIMEOUT_S, step="racp_measurement")
+                # Response code or procedure-complete indication; not every
+                # cuff sends one, so its absence is not a failure.
+                with contextlib.suppress(NotificationTimeout):
+                    await racp.next(_RACP_DONE_TIMEOUT_S, step="racp_done")
+                return _parse_bp_measurement(raw)
         except Exception as exc:
             if not self._bls_racp_unavailable_logged:
                 self._bls_racp_unavailable_logged = True
             _LOGGER.debug("BLS RACP latest read failed: %s", exc)
             return None
-        finally:
-            try:
-                await client.stop_notify(BP_MEASUREMENT_CHAR_UUID)
-            except Exception:
-                pass
-            try:
-                await client.stop_notify(BP_RACP_CHAR_UUID)
-            except Exception:
-                pass
 
     @property
     def last_readout_at(self) -> dt.datetime | None:

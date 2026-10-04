@@ -112,10 +112,13 @@ def test_failed_connect_releases_session_pairing_agent(monkeypatch):
 
 
 def test_aclose_bounds_memory_close(monkeypatch):
+    from blesession import subscribe as subscribe_module
+
     from custom_components.omron.omron_ble import memory_protocol as memory_module
 
     monkeypatch.setattr(session_module, "DISCONNECT_TIMEOUT_S", 0.02)
     monkeypatch.setattr(memory_module, "DISCONNECT_TIMEOUT_S", 0.02)
+    monkeypatch.setattr(subscribe_module, "STOP_NOTIFY_TIMEOUT_S", 0.02)
     client = _Client()
 
     async def hang(*args, **kwargs):

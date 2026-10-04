@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import logging
 from typing import TYPE_CHECKING
 
 from bleak import BleakClient
+from blesession import NotificationTimeout, Notifications, guarded_write
 
+from .connection import _bleak_refresh_services
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
-from .connection import _bleak_refresh_services
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 
@@ -38,6 +38,10 @@ def build_cts_payload(now: dt.datetime) -> bytearray:
         ]
     )
     return payload
+
+
+_CTS_SETTLE_S = 0.5
+_CTS_NOTIFY_TIMEOUT_S = 1.0
 
 
 async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
@@ -67,104 +71,92 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
 
     now = dt.datetime.now().astimezone()
     payload = build_cts_payload(now)
-    cts_notify_ready = asyncio.Event()
-    cts_notify_started = False
-    cts_notify_payload: list[bytes | None] = [None]
     cts_snapshot_ok = False
     cts_notify_ok = False
 
-    def _cts_callback(_: object, data: bytearray) -> None:
-        cts_notify_payload[0] = bytes(data)
-        cts_notify_ready.set()
-
     try:
-        await client.start_notify(CTS_CHARACTERISTIC_UUID, _cts_callback)
-        await asyncio.sleep(0.5)
-        cts_notify_started = True
-
-        try:
-            cts_snapshot = await client.read_gatt_char(CTS_CHARACTERISTIC_UUID)
-            if cts_snapshot:
-                cts_snapshot_ok = True
+        async with Notifications(client, CTS_CHARACTERISTIC_UUID, settle=_CTS_SETTLE_S) as cts_notifications:
+            try:
+                cts_snapshot = await client.read_gatt_char(CTS_CHARACTERISTIC_UUID)
+                if cts_snapshot:
+                    cts_snapshot_ok = True
+                    _LOGGER.debug(
+                        "CTS current-time snapshot for %s: %s",
+                        model,
+                        bytes(cts_snapshot).hex(),
+                    )
+            except Exception as exc:
                 _LOGGER.debug(
-                    "CTS current-time snapshot for %s: %s",
+                    "CTS snapshot read failed for %s (continuing): %s",
                     model,
-                    bytes(cts_snapshot).hex(),
+                    exc,
                 )
-        except Exception as exc:
-            _LOGGER.debug(
-                "CTS snapshot read failed for %s (continuing): %s",
-                model,
-                exc,
-            )
 
-        try:
-            await asyncio.wait_for(cts_notify_ready.wait(), timeout=1.0)
-            if cts_notify_payload[0] is not None:
+            try:
+                cts_notify_payload = await cts_notifications.next(_CTS_NOTIFY_TIMEOUT_S, step="cts_notify")
                 cts_notify_ok = True
                 _LOGGER.debug(
                     "CTS notify received for %s before sync: %s",
                     model,
-                    cts_notify_payload[0].hex(),
+                    cts_notify_payload.hex(),
                 )
-        except asyncio.TimeoutError:
-            _LOGGER.debug(
-                "CTS notify not received before sync for %s (continuing)",
-                model,
-            )
+            except NotificationTimeout:
+                _LOGGER.debug(
+                    "CTS notify not received before sync for %s (continuing)",
+                    model,
+                )
 
-        if not cts_snapshot_ok:
-            # Only require a successful read (snapshot) to confirm the CTS characteristic
-            # is accessible.  Some devices never send a CTS notification before the write,
-            # so requiring cts_notify_ok would incorrectly skip time sync on those devices.
-            _LOGGER.debug(
-                "Skipping CTS write for %s: snapshot read failed "
-                "(snapshot_ok=%s notify_ok=%s)",
-                model,
-                cts_snapshot_ok,
-                cts_notify_ok,
-            )
-        else:
-            await client.write_gatt_char(CTS_CHARACTERISTIC_UUID, payload, response=True)
-            _LOGGER.debug(
-                "Synced current time via CTS for %s: %s (notify_ok=%s)",
-                model,
-                now.isoformat(timespec="seconds"),
-                cts_notify_ok,
-            )
-            cts_success = True
+            if not cts_snapshot_ok:
+                # Only require a successful read (snapshot) to confirm the CTS characteristic
+                # is accessible.  Some devices never send a CTS notification before the write,
+                # so requiring cts_notify_ok would incorrectly skip time sync on those devices.
+                _LOGGER.debug(
+                    "Skipping CTS write for %s: snapshot read failed "
+                    "(snapshot_ok=%s notify_ok=%s)",
+                    model,
+                    cts_snapshot_ok,
+                    cts_notify_ok,
+                )
+            else:
+                await guarded_write(
+                    client, CTS_CHARACTERISTIC_UUID, payload, step="time_sync", response=True
+                )
+                _LOGGER.debug(
+                    "Synced current time via CTS for %s: %s (notify_ok=%s)",
+                    model,
+                    now.isoformat(timespec="seconds"),
+                    cts_notify_ok,
+                )
+                cts_success = True
 
-        char_lti = services.get_characteristic(LOCAL_TIME_INFO_UUID)
-        if char_lti:
-            try:
-                utcoffset = now.utcoffset()
-                if utcoffset is not None:
-                    offset_mins = int(utcoffset.total_seconds() // 60)
-                    tz_offset_15m = int(offset_mins // 15)
-                    tz_byte = tz_offset_15m & 0xFF
+            char_lti = services.get_characteristic(LOCAL_TIME_INFO_UUID)
+            if char_lti:
+                try:
+                    utcoffset = now.utcoffset()
+                    if utcoffset is not None:
+                        offset_mins = int(utcoffset.total_seconds() // 60)
+                        tz_offset_15m = int(offset_mins // 15)
+                        tz_byte = tz_offset_15m & 0xFF
 
-                    dst_byte = 0x00
-                    if now.dst() and now.dst().total_seconds() > 0:
-                        dst_byte = 0x04
+                        dst_byte = 0x00
+                        if now.dst() and now.dst().total_seconds() > 0:
+                            dst_byte = 0x04
 
-                    lti_payload = bytes([tz_byte, dst_byte])
-                    await client.write_gatt_char(LOCAL_TIME_INFO_UUID, lti_payload, response=True)
-                    _LOGGER.debug(
-                        "Local Time Info sync success for %s (tz_offset_15m=%d, dst=%d)",
-                        model,
-                        tz_offset_15m,
-                        dst_byte,
-                    )
-            except Exception as exc:
-                _LOGGER.debug("Local Time Info sync failed for %s: %s", model, exc)
+                        lti_payload = bytes([tz_byte, dst_byte])
+                        await guarded_write(
+                            client, LOCAL_TIME_INFO_UUID, lti_payload,
+                            step="time_sync", response=True,
+                        )
+                        _LOGGER.debug(
+                            "Local Time Info sync success for %s (tz_offset_15m=%d, dst=%d)",
+                            model,
+                            tz_offset_15m,
+                            dst_byte,
+                        )
+                except Exception as exc:
+                    _LOGGER.debug("Local Time Info sync failed for %s: %s", model, exc)
     except Exception as exc:
         _LOGGER.warning("Failed to sync time via CTS for %s: %s", model, exc)
-    finally:
-        if cts_notify_started:
-            try:
-                await client.stop_notify(CTS_CHARACTERISTIC_UUID)
-            except Exception as exc:
-                _LOGGER.debug("CTS stop_notify failed for %s: %s", model, exc)
 
     return cts_success
 

@@ -7,7 +7,7 @@ import asyncio
 import logging
 import time
 
-from blesession import SessionReports
+from blesession import NotificationTimeout, SessionReports
 from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass, SensorUpdate
 
 from .session_handoff import (
@@ -597,7 +597,13 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)
             return result
-    except TimeoutError:
+    except TimeoutError as err:
+        if isinstance(err, NotificationTimeout):
+            # A write that never returned (WriteTimeout) is one failed step,
+            # not the poll running out its deadline: report it as a failed
+            # refresh with its own message.
+            _LOGGER.debug("polling error; coordinator will retain last data: %s", err)
+            raise UpdateFailed(str(err)) from err
         # DataUpdateCoordinator retains the previous data when its update
         # method raises. Propagate the timeout so HA records this refresh as
         # failed instead of reporting stale cached data as a successful poll.

@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from blesession import Failure, build_report, cause_key, placement, stages
+from blesession import Failure, WriteTimeout, build_report, cause_key, placement, stages
 from blesession.hass import radio_facts
 
 from .omron_ble.session_trace import SessionTrace
@@ -164,6 +164,10 @@ def build_session_report(
         last-resort sentence is only for a failure neither table names, so
         it is returned only once ``cause_key`` says the library has none.
         """
+        if isinstance(failure.exc, WriteTimeout):
+            # The adapter or proxy stopped taking data; the cuff's per-stage
+            # advice (re-pair, open an issue) does not fit. The library words it.
+            return None
         text = cuff_cause(failure.stage, failure.detail, failure.error, failure.facts, operation)
         if text is not None:
             return text

@@ -22,6 +22,8 @@
 """
 import asyncio
 
+from bleak.exc import BleakError
+
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
@@ -81,6 +83,8 @@ def test_the_wld3_and_wld4_families_keep_their_notify_subscriptions():
 
 
 class _FakeClient:
+    is_connected = True
+
     def __init__(self) -> None:
         self.stopped: list[str] = []
         self.started: list[str] = []
@@ -147,6 +151,7 @@ def test_reset_releases_the_subscription_on_the_profile_under_test():
     target._expected_reply_packet_type = None
     target._reply_ready = asyncio.Event()
     target._unlocked = True
+    target._unlock_stack = None
 
     asyncio.run(OmronDeviceSession.reset_session_state(target))
 
@@ -189,8 +194,8 @@ def test_the_token_unlock_asks_for_what_the_profile_wants():
     assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
 
 
-class _BlueZError(Exception):
-    """conftest 가 bleak 를 MagicMock 으로 치환하므로 실제 예외 클래스가 필요하다."""
+class _BlueZError(BleakError):
+    """BlueZ 가 돌려주는 문구를 흉내 내는 예외. blesession 은 실제 BleakError 만 잡으므로 그 하위 클래스로 둔다."""
 
 
 class _NotifyHeldClient:
@@ -223,16 +228,14 @@ def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch)
     빠져 있으면 첫 시도가 그대로 죽고, 재시도는 이미 끊긴 링크에 쓰기를 시도해
     ``Failed to initiate write`` 로 이어진다.
     """
-    from custom_components.omron.omron_ble import connection
-    from custom_components.omron.omron_ble.connection import _start_notify_with_recovery
+    from blesession import subscribe
 
-    monkeypatch.setattr(connection, "BleakError", _BlueZError)
     client = _NotifyHeldClient(UNLOCK_CHARACTERISTIC_UUID)
     sentinel = object()
 
     asyncio.run(
-        _start_notify_with_recovery(
-            client, UNLOCK_CHARACTERISTIC_UUID, sentinel, model="HEM-7188T1"
+        subscribe.start_notify_with_recovery(
+            client, UNLOCK_CHARACTERISTIC_UUID, sentinel
         )
     )
 
@@ -261,23 +264,49 @@ def test_the_unlock_subscribe_stays_on_the_recovery_path():
     )
     direct: list[str] = []
     recovered: list[str] = []
+    notifications: list[str] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        if not isinstance(node, ast.Call):
             continue
         first = ast.unparse(node.args[0]) if node.args else ""
-        if node.func.attr == "start_notify":
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "start_notify":
             direct.append(first)
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            continue
-        if node.func.id != "_start_notify_with_recovery" or len(node.args) < 2:
-            continue
-        recovered.append(ast.unparse(node.args[1]))
+        elif isinstance(node.func, ast.Name) and node.func.id == "start_notify_with_recovery":
+            if len(node.args) >= 2:
+                recovered.append(ast.unparse(node.args[1]))
+        elif isinstance(node.func, ast.Name) and node.func.id == "Notifications":
+            recover = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}.get("recover")
+            if len(node.args) >= 2 and recover == "True":
+                notifications.append(ast.unparse(node.args[1]))
 
     assert not direct, f"복구를 우회하는 직접 호출이 남아 있다: {direct}"
-    assert "UNLOCK_CHARACTERISTIC_UUID" in recovered, (
+    assert "UNLOCK_CHARACTERISTIC_UUID" in notifications, (
         "언락 구독이 복구 경로를 타지 않는다"
     )
     assert any("rx_channel_uuids" in arg for arg in recovered), (
         "RX 프라임이 복구 경로를 타지 않는다"
     )
+
+
+def test_reset_releases_a_held_unlock_channel_instead_of_stopping_it_twice():
+    """붙들고 있는 언락 구독은 소유한 스택이 풀고, 같은 특성에 stop 을 또 보내지 않는다."""
+    target = _release_target("HEM-7386T1")
+    target._secure_session = None
+    target._channel_fragments = [None] * 4
+    target._expected_reply_packet_type = None
+    target._reply_ready = asyncio.Event()
+    released = []
+
+    class _Stack:
+        async def aclose(self):
+            released.append("unlock")
+
+    target._unlock_stack = _Stack()
+    target._unlock_channel = object()
+    target.release_unlock_channel = OmronDeviceSession.release_unlock_channel.__get__(target)
+
+    asyncio.run(OmronDeviceSession.reset_session_state(target))
+
+    assert released == ["unlock"]
+    assert target._unlock_channel is None and target._unlock_stack is None
+    assert UNLOCK_CHARACTERISTIC_UUID not in target._client.stopped

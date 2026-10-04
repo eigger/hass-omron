@@ -9,7 +9,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
-from blesession import ConnectFailed, SessionReports
+from blesession import ConnectFailed, SessionReports, WriteTimeout
 from blesession.link import LinkInfo
 
 from custom_components.omron.omron_ble.session_trace import SessionTrace, traced
@@ -224,6 +224,27 @@ class TestBuildSessionReport:
         assert report["rssi"] == -90
         assert report["paths"] == 1
         assert report["connect_attempts"] == 3
+
+    def test_a_write_that_never_returned_is_reported_as_the_adapter_not_the_cuff(self, radio):
+        """WriteTimeout 은 어느 단계에서 나든 프록시/어댑터가 멈춘 것이다.
+
+        언락 단계라고 "다시 페어링하라"고 하면 틀린 안내가 된다.
+        """
+        trace = SessionTrace()
+        trace.fail("unlock")
+        trace.record("unlock", 10.0)
+
+        report = session_report.build_session_report(
+            None,
+            ADDRESS,
+            operation="poll",
+            trace=trace,
+            exc=WriteTimeout(10.0, step="unlock"),
+        )
+
+        assert report["likely_cause_key"] == "write_timeout"
+        assert "did not complete in time" in report["likely_cause"]
+        assert "pair" not in report["likely_cause"].lower()
 
     def test_a_link_over_another_radio_than_the_advertised_one_shows_both(self, radio):
         """#91: 광고는 A 가 가장 세게 봤지만 본드는 B 가 들고 있어 B 로 연결된 경우."""
