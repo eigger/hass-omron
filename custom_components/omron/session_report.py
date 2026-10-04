@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from blesession import build_report, cause_key, placement, stages
+from blesession import Failure, build_report, cause_key, placement, stages
 from blesession.hass import radio_facts
 
 from .omron_ble.session_trace import SessionTrace
@@ -154,9 +154,7 @@ def build_session_report(
     if isinstance(exc, TimeoutError) and not str(exc):
         exc = TimeoutError(_DEADLINE_ERROR)
 
-    def cause(
-        stage: str | None, detail: str | None, error: str, facts: Mapping[str, Any]
-    ) -> str | None:
+    def cause(failure: Failure) -> str | None:
         """The cuff's sentence; ``None`` hands the failure back to the library.
 
         Handing it back rather than calling ``generic_cause`` here is what
@@ -166,10 +164,10 @@ def build_session_report(
         last-resort sentence is only for a failure neither table names, so
         it is returned only once ``cause_key`` says the library has none.
         """
-        text = cuff_cause(stage, detail, error, facts, operation)
+        text = cuff_cause(failure.stage, failure.detail, failure.error, failure.facts, operation)
         if text is not None:
             return text
-        if cause_key(stage, error, exc=exc) is not None:
+        if cause_key(failure.stage, failure.error, exc=failure.exc) is not None:
             return None
         return _NO_STAGE_CAUSE
 
