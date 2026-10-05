@@ -31,7 +31,7 @@ def test_poll_coordinator_errors_are_not_converted_to_cached_success():
     source = INIT.read_text(encoding="utf-8")
 
     timeout_block = re.search(
-        r"except TimeoutError:(.*?)(?=\n    except Exception)",
+        r"except TimeoutError as err:(.*?)(?=\n    except Exception)",
         source,
         re.S,
     )

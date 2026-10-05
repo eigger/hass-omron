@@ -12,11 +12,13 @@ every address comes out of the catalog fields the profile already carries.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import datetime
 import logging
 import secrets
 
-from .connection import _start_notify_with_recovery
+from blesession import WRITE_TIMEOUT_S, Notifications, start_notify_with_recovery
+
 from .const import UNLOCK_CHARACTERISTIC_UUID
 from .devices import UnlockMode
 from .secure_session import SecureSession
@@ -58,53 +60,54 @@ async def prepare_secure_token(session, timeout: float) -> None:
 
     The token step has to reach the device on the same subscriptions the ECDH
     exchange then uses: re-adding the unlock CCCD in between makes the device
-    reject the pairing request.
+    reject the pairing request. The unlock subscription is therefore left in
+    place and held by the session for the exchange that follows.
     """
     for uuid in _PRE_HANDSHAKE_DIS_UUIDS:
         await session._client.read_gatt_char(uuid)
         _LOGGER.debug("Secure session: device information read %s", uuid[:8])
     token = secrets.token_bytes(4)
-    accepted = asyncio.Event()
 
-    def token_reply(_char, data):
-        if len(data) >= 6 and data[:2] == b"\x91\x00" and data[2:6] == token:
-            accepted.set()
-
-    def control_dispatch(char, data):
-        handler = session._unlock_notify_handler
-        if handler is not None:
-            handler(char, data)
+    def is_token_reply(data: bytes) -> bool:
+        return len(data) >= 6 and data[:2] == b"\x91\x00" and data[2:6] == token
 
     def async_notice(_char, data):
         _LOGGER.debug("Secure session: async notification bytes=%d", len(data))
 
-    session._unlock_notify_handler = token_reply
-    # Through the recovery path, not raw start_notify: on a profile that keeps
-    # its subscriptions, BlueZ can still hold the CCCD from the previous
+    # Recovery on every subscribe, not raw start_notify: on a profile that
+    # keeps its subscriptions, BlueZ can still hold the CCCD from the previous
     # connection, and a retry re-enters here with them enabled (#92).
     await session._ensure_services_cache()
-    await _start_notify_with_recovery(
-        session._client, UNLOCK_CHARACTERISTIC_UUID, control_dispatch,
-        model=session._config.model,
-    )
-    session.memory._rebuild_notify_handle_index_map()
-    await _start_notify_with_recovery(
-        session._client,
-        session._config.rx_channel_uuids[0],
-        session.memory._on_notify_channel_data,
-        model=session._config.model,
-    )
-    session.memory._notify_subscribed = True
-    await _start_notify_with_recovery(
-        session._client, ASYNC_NOTICE_UUID, async_notice,
-        model=session._config.model,
-    )
-    _LOGGER.debug("Secure session: subscribed control, rx and async channels")
-    await asyncio.sleep(0.75)
-    await session._client.write_gatt_char(
-        UNLOCK_CHARACTERISTIC_UUID, b"\x11" + token + bytes(15), response=True
-    )
-    await asyncio.wait_for(accepted.wait(), timeout)
+    subscriptions = contextlib.AsyncExitStack()
+    try:
+        control = await subscriptions.enter_async_context(
+            Notifications(session._client, UNLOCK_CHARACTERISTIC_UUID, recover=True)
+        )
+        session.memory._rebuild_notify_handle_index_map()
+        await start_notify_with_recovery(
+            session._client,
+            session._config.rx_channel_uuids[0],
+            session.memory._on_notify_channel_data,
+        )
+        session.memory._notify_subscribed = True
+        await start_notify_with_recovery(
+            session._client, ASYNC_NOTICE_UUID, async_notice,
+        )
+        _LOGGER.debug("Secure session: subscribed control, rx and async channels")
+        await asyncio.sleep(0.75)
+        await control.request(
+            UNLOCK_CHARACTERISTIC_UUID,
+            b"\x11" + token + bytes(15),
+            timeout=timeout,
+            write_timeout=WRITE_TIMEOUT_S,
+            step="token",
+            response=True,
+            accept=is_token_reply,
+        )
+    except BaseException:
+        await subscriptions.aclose()
+        raise
+    session.hold_unlock_channel(subscriptions, control)
     _LOGGER.debug("Secure session: token accepted")
 
 
@@ -136,19 +139,21 @@ async def establish_secure_session(
     crypto = SecureSession(stored_ltk=stored_ltk)
     # Key generation and lazy crypto imports must not delay token -> request.
     first_request = crypto.build_pair_req() if pairing else crypto.build_start_enc_req()
-    replies: asyncio.Queue = asyncio.Queue()
-
-    def receive(_char, data):
-        replies.put_nowait(bytes(data))
-
     async def exchange(packet: bytes, prefix: bytes) -> bytes:
         _LOGGER.debug(
             "Secure session TX stage=%s bytes=%d", prefix.hex(), len(packet)
         )
-        await session._client.write_gatt_char(
-            UNLOCK_CHARACTERISTIC_UUID, packet, response=True
+        channel = session._unlock_channel
+        if channel is None:
+            raise ConnectionError("The secure session has no unlock subscription")
+        response = await channel.request(
+            UNLOCK_CHARACTERISTIC_UUID,
+            packet,
+            timeout=timeout,
+            write_timeout=WRITE_TIMEOUT_S,
+            step="secure_session",
+            response=True,
         )
-        response = await asyncio.wait_for(replies.get(), timeout)
         if not response.startswith(prefix):
             error = _secure_error_frame_code(response)
             if error is not None:
@@ -173,7 +178,6 @@ async def establish_secure_session(
         await prepare_secure_token(session, timeout)
         session._unlocked = False
         session._secure_session = crypto
-        session._unlock_notify_handler = receive
         if pairing:
             response = await exchange(first_request, b"\xf0\x81")
             crypto.process_pair_resp(response)
@@ -222,5 +226,3 @@ async def establish_secure_session(
         # the BLE link. Never leave a half-paired crypto state attached to it.
         session._secure_session = None
         raise
-    finally:
-        session._unlock_notify_handler = None

@@ -65,18 +65,26 @@ def make_session(pairing, close_code=b"\x00"):
         ),
     )
 
-    async def write(uuid, packet, response):
-        assert response is True
-        events.append(packet)
-        answer = {b"\x70\x01": b"\xf0\x81", b"\x70\x05": b"\xf0\x85",
-                  b"\x70\x06": b"\xf0\x86", b"\xc0": b"\xc0"}[packet]
-        session._unlock_notify_handler(None, answer)
+    class Channel:
+        """The held unlock subscription: answers each request like the cuff does."""
+
+        failure = None
+
+        async def request(
+            self, uuid, packet, *, timeout, write_timeout, step, response, accept=None
+        ):
+            assert response is True
+            if self.failure is not None:
+                raise self.failure
+            events.append(packet)
+            return {b"\x70\x01": b"\xf0\x81", b"\x70\x05": b"\xf0\x85",
+                    b"\x70\x06": b"\xf0\x86", b"\xc0": b"\xc0"}[packet]
 
     async def close():
         session.memory._last_reply_packet_type = b"\x8f\x00"
         session.memory._last_reply_payload = close_code
 
-    session._client = SimpleNamespace(write_gatt_char=write)
+    session._unlock_channel = Channel()
     session.memory.close_memory_session = AsyncMock(side_effect=close)
     return session, events
 
@@ -124,10 +132,7 @@ def test_timeout_does_not_return_key():
 def test_failed_handshake_clears_partial_secure_session():
     session, _ = make_session(False)
 
-    async def failed_write(*_args, **_kwargs):
-        raise OSError("synthetic secure handshake failure")
-
-    session._client.write_gatt_char = failed_write
+    session._unlock_channel.failure = OSError("synthetic secure handshake failure")
     with patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto), patch(
         "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
         new_callable=AsyncMock,
@@ -189,47 +194,112 @@ def test_clock_preserves_unrelated_settings():
 
 
 def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch):
+    """The control channel goes through the recovery path, and stays held for the exchange."""
+    from bleak.exc import BleakError
+    from blesession.testing import FakeClient
+
     events, handlers = [], {}
     control = "b305b680-aee7-11e1-a730-0002a5d5c51b"
-    async def read(uuid):
-        events.append(("read", uuid[:8]))
-        return b"synthetic"
+
+    class Client(FakeClient):
+        held = True
+
+        async def read_gatt_char(self, uuid):
+            events.append(("read", uuid[:8]))
+            return b"synthetic"
+
+        async def start_notify(self, uuid, handler):
+            events.append(("notify", uuid.lower()))
+            if uuid.lower() == control and self.held:
+                # BlueZ still holds the previous connection's subscription (#92).
+                self.held = False
+                raise BleakError("[org.bluez.Error.Failed] Failed to register notify session")
+            await super().start_notify(uuid, handler)
+
+        async def stop_notify(self, uuid):
+            events.append(("stop", uuid.lower()))
+            await super().stop_notify(uuid)
+
+    client = Client()
+
+    def on_write(uuid, value):
+        assert len(value) == 20 and value[0] == 0x11
+        events.append(("token", uuid.lower()))
+        client.reply(b"\x91\x00" + value[1:5], control)
+
+    client.on_write = on_write
+
     async def subscribe(client, uuid, handler, *, model=""):
         handlers[uuid.lower()] = handler
         events.append(("notify", uuid.lower()))
-    async def write(uuid, value, response):
-        assert response is True
-        assert len(value) == 20 and value[0] == 0x11
-        events.append(("token", uuid.lower()))
-        handlers[control](None, b"\x91\x00" + value[1:5])
-    async def raw_start_notify(uuid, handler):
-        raise AssertionError(
-            "raw start_notify bypasses the recovery path: a kept CCCD from the "
-            "previous connection makes the retry fail outright (#92)"
-        )
 
     async def ensure_cache():
         events.append(("cache", ""))
 
+    class Session:
+        _config = SimpleNamespace(rx_channel_uuids=["rx"], model="")
+        _client = client
+        _unlock_channel = None
+        memory = SimpleNamespace(
+            _rebuild_notify_handle_index_map=lambda: None,
+            _on_notify_channel_data=lambda *_: None,
+        )
+
+        async def _ensure_services_cache(self):
+            await ensure_cache()
+
+        def hold_unlock_channel(self, stack, channel):
+            self.stack, self._unlock_channel = stack, channel
+
+    session = Session()
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow.start_notify_with_recovery",
+        subscribe,
+    )
+    asyncio.run(prepare_secure_token(session, 1))
+    assert events == [("read", "00002a26"), ("read", "00002a28"),
+                      ("cache", ""),
+                      ("notify", control), ("stop", control), ("notify", control),
+                      ("notify", "rx"),
+                      ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
+                      ("token", control)]
+    assert session.memory._notify_subscribed
+    assert session._unlock_channel is not None
+    assert control in client.subscribed, "the control subscription must stay for the exchange"
+
+
+def test_a_token_that_never_comes_back_releases_the_control_subscription(monkeypatch):
+    from blesession.testing import FakeClient
+
+    client = FakeClient()
+
+    async def subscribe(*_a, **_k):
+        return None
+
+    async def ensure_cache():
+        return None
+
+    async def no_sleep(_seconds):
+        return None
+
+    async def read(uuid):
+        return b""
+
+    client.read_gatt_char = read
     session = SimpleNamespace(
-        _client=SimpleNamespace(
-            read_gatt_char=read, start_notify=raw_start_notify, write_gatt_char=write
-        ),
+        _client=client,
         _config=SimpleNamespace(rx_channel_uuids=["rx"], model=""),
         _ensure_services_cache=ensure_cache,
         memory=SimpleNamespace(
             _rebuild_notify_handle_index_map=lambda: None,
             _on_notify_channel_data=lambda *_: None,
         ),
+        hold_unlock_channel=lambda *_: pytest.fail("a failed token must not be held"),
     )
     monkeypatch.setattr(
-        "custom_components.omron.omron_ble.secure_flow._start_notify_with_recovery",
-        subscribe,
+        "custom_components.omron.omron_ble.secure_flow.start_notify_with_recovery", subscribe
     )
-    asyncio.run(prepare_secure_token(session, 1))
-    assert events == [("read", "00002a26"), ("read", "00002a28"),
-                      ("cache", ""),
-                      ("notify", control), ("notify", "rx"),
-                      ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
-                      ("token", control)]
-    assert session.memory._notify_subscribed
+    monkeypatch.setattr("custom_components.omron.omron_ble.secure_flow.asyncio.sleep", no_sleep)
+    with pytest.raises(TimeoutError):
+        asyncio.run(prepare_secure_token(session, 0.01))
+    assert client.subscribed == {}

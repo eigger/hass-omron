@@ -5,12 +5,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from blesession import stop_notify_best_effort
+from blesession import subscribe as subscribe_module
 
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble.unlock import _token_unlock
-from custom_components.omron.omron_ble import unlock as unlock_module
 
 
 class FailingStopNotifyClient:
@@ -65,7 +66,6 @@ async def test_token_unlock_setup_failure_still_releases_rx_subscription(monkeyp
         _ensure_services_cache=AsyncMock(),
         _debug_ble_link=lambda *_args: None,
         _unlocked=False,
-        _unlock_notify_handler=None,
         memory=SimpleNamespace(
             _rebuild_notify_handle_index_map=lambda: None,
             _on_notify_channel_data=lambda *_args: None,
@@ -77,29 +77,32 @@ async def test_token_unlock_setup_failure_still_releases_rx_subscription(monkeyp
         0,
     )
 
-    async def start_notify(_client, characteristic, _callback, **_kwargs):
+    original = client.start_notify
+
+    async def start_notify(characteristic, callback):
         if characteristic == UNLOCK_CHARACTERISTIC_UUID:
             raise OSError("unlock CCCD subscribe failed")
+        await original(characteristic, callback)
 
-    monkeypatch.setattr(
-        "custom_components.omron.omron_ble.unlock._start_notify_with_recovery",
-        start_notify,
-    )
+    client.start_notify = start_notify
 
     with pytest.raises(OSError, match="unlock CCCD subscribe failed"):
         await _token_unlock(session)
 
-    assert UNLOCK_CHARACTERISTIC_UUID in client.stopped
+    # The unlock subscription never came up, so there is nothing of it to
+    # release; the RX one primed before it must still go.
     assert rx_uuid in client.stopped
 
 
 @pytest.mark.asyncio
 async def test_cancelled_unlock_bounds_a_hung_notify_cleanup(monkeypatch):
-    monkeypatch.setattr(unlock_module, "DISCONNECT_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(subscribe_module, "STOP_NOTIFY_TIMEOUT_S", 0.01)
     started = asyncio.Event()
     cleanup_entered = asyncio.Event()
 
     class HangingClient:
+        is_connected = True
+
         async def stop_notify(self, _characteristic):
             cleanup_entered.set()
             await asyncio.Event().wait()
@@ -109,8 +112,8 @@ async def test_cancelled_unlock_bounds_a_hung_notify_cleanup(monkeypatch):
             started.set()
             await asyncio.Event().wait()
         except asyncio.CancelledError:
-            await unlock_module._stop_notify_best_effort(
-                HangingClient(), UNLOCK_CHARACTERISTIC_UUID, "test unlock"
+            await stop_notify_best_effort(
+                HangingClient(), UNLOCK_CHARACTERISTIC_UUID
             )
 
     task = asyncio.create_task(canceled_operation())
