@@ -588,7 +588,14 @@ class OmronPollDurationSensorEntity(
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """The last session's breakdown; each session's final duration update publishes it."""
+        """The last session's breakdown; each session's final duration update publishes it.
+
+        None while a session runs (or ended without a report), so the
+        ticker's writes do not attach the previous session's breakdown to
+        this one's running time.
+        """
+        if self._runtime.session_report_pending:
+            return None
         return self._runtime.session_reports.last
 
     @property

@@ -44,6 +44,9 @@ class OmronRuntimeData:
     unloading: bool = False
     force_poll_after_lock: bool = False
     credential_write: bool = False
+    # Set while a BLE session runs and until its report is recorded; the
+    # Duration sensor hides its attributes meanwhile.
+    session_report_pending: bool = False
 
     @property
     def identifier(self) -> str:
