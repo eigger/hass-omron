@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -64,3 +65,9 @@ jobs:
               --title "chore: bump blesession to ${BLESSESSION_VERSION}" \
               --body "Automated dependency update: raises the minimum blesession requirement to ${BLESSESSION_VERSION}."
           fi
+
+          # GITHUB_TOKEN-created PR events can require manual approval before
+          # their pull_request workflows run. Dispatch both checks directly on
+          # the updated PR ref so their results attach to its head commit.
+          gh workflow run tests.yml --ref "${branch}"
+          gh workflow run validate.yml --ref "${branch}"
