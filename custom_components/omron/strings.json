@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff. Set 0 to turn scheduled polling off; the Refresh Data button then is the way to update (some cuffs do not trigger a read on their own).\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
+        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff. Set 0 to turn scheduled polling off. Cuffs that signal a pending transfer are still read on their own; the others update only when you press Refresh Data.\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
         "data": {
           "scan_interval": "Update Interval (seconds, 0 = off)",
           "user_alias_1": "User 1 name",

@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Wie oft Home Assistant das Blutdruckmessgerät nach neuen Messungen abfragen soll (60–86400 Sekunden). Kleinere Werte verbrauchen mehr Batterie an der Manschette. Mit 0 ist die geplante Abfrage aus; dann aktualisiert nur die Schaltfläche „Daten aktualisieren“ (manche Manschetten lösen von selbst kein Auslesen aus).\n\n**Profilplätze auf diesem Gerät:** {num_users}. Bei mehr als einem können Sie unten je Platz einen Anzeigenamen setzen (Vorgaben user1, user2, …). Das Umbenennen eines Platzes erzeugt neue Sensorentitäten für diesen Platz.",
+        "description": "Wie oft Home Assistant das Blutdruckmessgerät nach neuen Messungen abfragen soll (60–86400 Sekunden). Kleinere Werte verbrauchen mehr Batterie an der Manschette. Mit 0 ist die geplante Abfrage aus. Manschetten, die eine ausstehende Übertragung melden, werden weiterhin von selbst ausgelesen; die übrigen aktualisieren nur über die Schaltfläche „Daten aktualisieren“.\n\n**Profilplätze auf diesem Gerät:** {num_users}. Bei mehr als einem können Sie unten je Platz einen Anzeigenamen setzen (Vorgaben user1, user2, …). Das Umbenennen eines Platzes erzeugt neue Sensorentitäten für diesen Platz.",
         "data": {
           "scan_interval": "Aktualisierungsintervall (Sekunden, 0 = aus)",
           "user_alias_1": "Name Benutzer 1",

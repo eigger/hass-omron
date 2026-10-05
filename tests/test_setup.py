@@ -104,12 +104,13 @@ async def test_unload_cancels_a_drain_waiting_on_the_session_lock(
 async def test_zero_interval_stops_scheduled_polls_but_not_manual_ones(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
-    """scan_interval 0: no timer, yet Refresh Data still polls."""
+    """Options scan_interval 0 beats data's 300: no timer, Refresh Data still polls."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         unique_id=ADDRESS,
         title="HEM-7155T EEFF",
-        data={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 0},
+        data={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 300},
+        options={CONF_SCAN_INTERVAL: 0},
     )
     entry.add_to_hass(hass)
     with patch(
@@ -123,7 +124,8 @@ async def test_zero_interval_stops_scheduled_polls_but_not_manual_ones(
         coordinator = entry.runtime_data.poll_coordinator
         assert coordinator.update_interval is None
 
-        # The one poll made at setup runs after a short settle delay.
+        # The one poll made at setup waits on a short sleep; firing time
+        # changed also fires the loop timers that end it.
         async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
         await hass.async_block_till_done()
         poll.assert_called_once()

@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Jak często Home Assistant ma odpytywać ciśnieniomierz o nowe pomiary (60–86400 sekund). Mniejsza wartość zużywa więcej baterii mankietu. Wartość 0 wyłącza zaplanowane odpytywanie; aktualizacja jest wtedy możliwa tylko przyciskiem odświeżania danych (niektóre mankiety same nie rozpoczynają odczytu).\n\n**Miejsca profilu na tym urządzeniu:** {num_users}. Gdy jest ich więcej niż jedno, ustaw poniżej nazwę wyświetlaną dla każdego miejsca (domyślnie user1, user2, …). Zmiana nazwy miejsca tworzy nowe encje czujników dla tego miejsca.",
+        "description": "Jak często Home Assistant ma odpytywać ciśnieniomierz o nowe pomiary (60–86400 sekund). Mniejsza wartość zużywa więcej baterii mankietu. Wartość 0 wyłącza zaplanowane odpytywanie. Mankiety zgłaszające oczekujący transfer nadal są odczytywane samoczynnie; pozostałe aktualizują się tylko przyciskiem odświeżania danych.\n\n**Miejsca profilu na tym urządzeniu:** {num_users}. Gdy jest ich więcej niż jedno, ustaw poniżej nazwę wyświetlaną dla każdego miejsca (domyślnie user1, user2, …). Zmiana nazwy miejsca tworzy nowe encje czujników dla tego miejsca.",
         "data": {
           "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)",
           "user_alias_1": "Nazwa użytkownika 1",

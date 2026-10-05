@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Cada cuánto debe Home Assistant consultar el tensiómetro en busca de lecturas nuevas (60–86400 segundos). Un valor menor gasta más batería del manguito. Con 0 se desactiva la consulta programada; entonces solo el botón de actualizar datos actualiza (algunos manguitos no inician una lectura por sí solos).\n\n**Ranuras de perfil en este dispositivo:** {num_users}. Si hay más de una, indique abajo un nombre para cada ranura (predeterminados user1, user2, …). Cambiar el nombre de una ranura crea nuevas entidades de sensor para esa ranura.",
+        "description": "Cada cuánto debe Home Assistant consultar el tensiómetro en busca de lecturas nuevas (60–86400 segundos). Un valor menor gasta más batería del manguito. Con 0 se desactiva la consulta programada. Los manguitos que avisan de una transferencia pendiente se siguen leyendo solos; los demás solo se actualizan con el botón de actualizar datos.\n\n**Ranuras de perfil en este dispositivo:** {num_users}. Si hay más de una, indique abajo un nombre para cada ranura (predeterminados user1, user2, …). Cambiar el nombre de una ranura crea nuevas entidades de sensor para esa ranura.",
         "data": {
           "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)",
           "user_alias_1": "Nombre del usuario 1",

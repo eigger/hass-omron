@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet. Met 0 staat geplande polling uit; alleen de knop Gegevens vernieuwen werkt dan bij (sommige manchetten starten zelf geen uitlezing).\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
+        "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet. Met 0 staat geplande polling uit. Manchetten die een wachtende overdracht melden worden nog steeds vanzelf uitgelezen; de rest werkt alleen bij met de knop Gegevens vernieuwen.\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
         "data": {
           "scan_interval": "Bijwerkinterval (seconden, 0 = uit)",
           "user_alias_1": "Naam gebruiker 1",

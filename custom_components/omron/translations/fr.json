@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Fréquence à laquelle Home Assistant interroge le tensiomètre pour de nouvelles mesures (60–86400 secondes). Une valeur plus basse consomme plus de batterie sur le brassard. Avec 0, l’interrogation planifiée est désactivée ; seul le bouton d’actualisation des données met alors à jour (certains brassards ne déclenchent pas de lecture d’eux-mêmes).\n\n**Emplacements de profil sur cet appareil :** {num_users}. S’il y en a plusieurs, définissez un nom d’affichage par emplacement ci-dessous (par défaut user1, user2, …). Renommer un emplacement crée de nouvelles entités de capteur pour cet emplacement.",
+        "description": "Fréquence à laquelle Home Assistant interroge le tensiomètre pour de nouvelles mesures (60–86400 secondes). Une valeur plus basse consomme plus de batterie sur le brassard. Avec 0, l’interrogation planifiée est désactivée. Les brassards qui signalent un transfert en attente sont toujours lus d’eux-mêmes ; les autres ne se mettent à jour qu’avec le bouton d’actualisation des données.\n\n**Emplacements de profil sur cet appareil :** {num_users}. S’il y en a plusieurs, définissez un nom d’affichage par emplacement ci-dessous (par défaut user1, user2, …). Renommer un emplacement crée de nouvelles entités de capteur pour cet emplacement.",
         "data": {
           "scan_interval": "Intervalle de mise à jour (secondes, 0 = désactivé)",
           "user_alias_1": "Nom de l’utilisateur 1",

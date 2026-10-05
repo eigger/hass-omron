@@ -266,6 +266,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                     *self._model_form,
                     errors={CONF_SCAN_INTERVAL: "invalid_scan_interval"},
                     interval=interval,
+                    chosen_model=user_input[CONF_DEVICE_MODEL],
                 )
             self._selected_model = user_input[CONF_DEVICE_MODEL]
             self._scan_interval = interval
@@ -380,16 +381,22 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         *,
         errors: dict[str, str] | None = None,
         interval: int = 300,
+        chosen_model: str | None = None,
     ) -> ConfigFlowResult:
-        """The model form. Kept so a rejected interval re-shows it without re-probing."""
+        """The model form. Kept so a rejected interval re-shows it without re-probing.
+
+        ``chosen_model`` keeps what the user picked, so a typo in the interval
+        does not put the auto-detected model back.
+        """
+        default_model = chosen_model or inferred_model
         return self.async_show_form(
             step_id=step_id,
             data_schema=vol.Schema(
                 {
                     # No default, so the choice is made rather than confirmed.
                     (
-                        vol.Required(CONF_DEVICE_MODEL, default=inferred_model)
-                        if inferred_model is not None
+                        vol.Required(CONF_DEVICE_MODEL, default=default_model)
+                        if default_model is not None
                         else vol.Required(CONF_DEVICE_MODEL)
                     ): vol.In(model_dict),
                     vol.Optional(

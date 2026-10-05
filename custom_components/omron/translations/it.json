@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Ogni quanto Home Assistant deve interrogare lo sfigmomanometro per nuove misurazioni (60–86400 secondi). Un valore più basso consuma più batteria del bracciale. Con 0 l’interrogazione pianificata è disattivata; si aggiorna solo con il pulsante di aggiornamento dati (alcuni bracciali non avviano una lettura da soli).\n\n**Slot profilo su questo dispositivo:** {num_users}. Se ce n’è più di uno, imposta sotto un nome visualizzato per ogni slot (predefiniti user1, user2, …). Rinominare uno slot crea nuove entità sensore per quello slot.",
+        "description": "Ogni quanto Home Assistant deve interrogare lo sfigmomanometro per nuove misurazioni (60–86400 secondi). Un valore più basso consuma più batteria del bracciale. Con 0 l’interrogazione pianificata è disattivata. I bracciali che segnalano un trasferimento in sospeso vengono letti comunque da soli; gli altri si aggiornano solo con il pulsante di aggiornamento dati.\n\n**Slot profilo su questo dispositivo:** {num_users}. Se ce n’è più di uno, imposta sotto un nome visualizzato per ogni slot (predefiniti user1, user2, …). Rinominare uno slot crea nuove entità sensore per quello slot.",
         "data": {
           "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)",
           "user_alias_1": "Nome utente 1",

@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Hur ofta Home Assistant ska fråga blodtrycksmätaren efter nya mätningar (60–86400 sekunder). Ett lägre värde drar mer batteri på manschetten. Med 0 är schemalagd avfrågning avstängd; då uppdateras data bara med knappen för att uppdatera data (vissa manschetter startar ingen avläsning själva).\n\n**Profilplatser på den här enheten:** {num_users}. Om det finns fler än en, ange ett visningsnamn per plats nedan (standard user1, user2, …). Att byta namn på en plats skapar nya sensorentiteter för den platsen.",
+        "description": "Hur ofta Home Assistant ska fråga blodtrycksmätaren efter nya mätningar (60–86400 sekunder). Ett lägre värde drar mer batteri på manschetten. Med 0 är schemalagd avfrågning avstängd. Manschetter som signalerar en väntande överföring läses fortfarande av automatiskt; övriga uppdateras bara med knappen för att uppdatera data.\n\n**Profilplatser på den här enheten:** {num_users}. Om det finns fler än en, ange ett visningsnamn per plats nedan (standard user1, user2, …). Att byta namn på en plats skapar nya sensorentiteter för den platsen.",
         "data": {
           "scan_interval": "Uppdateringsintervall (sekunder, 0 = av)",
           "user_alias_1": "Namn för användare 1",

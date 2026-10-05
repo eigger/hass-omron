@@ -75,7 +75,7 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira. Com 0 a consulta agendada fica desativada; só o botão de atualizar dados atualiza (algumas braçadeiras não iniciam uma leitura sozinhas).\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
+        "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira. Com 0 a consulta agendada fica desativada. As braçadeiras que sinalizam uma transferência pendente continuam a ser lidas sozinhas; as restantes só atualizam com o botão de atualizar dados.\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
         "data": {
           "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)",
           "user_alias_1": "Nome do utilizador 1",

@@ -218,12 +218,14 @@ async def test_model_step_accepts_zero_and_rejects_the_gap(
 
     rejected = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 30},
+        user_input={CONF_DEVICE_MODEL: "HEM-7600T", CONF_SCAN_INTERVAL: 30},
     )
     assert rejected["type"] is FlowResultType.FORM
     assert rejected["step_id"] == "select_model"
     assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
     assert _default(_field(rejected["data_schema"], CONF_SCAN_INTERVAL)) == 30
+    # The pick survives the rejection instead of reverting to the detected model.
+    assert _default(_field(rejected["data_schema"], CONF_DEVICE_MODEL)) == "HEM-7600T"
 
     accepted = await hass.config_entries.flow.async_configure(
         rejected["flow_id"],
@@ -277,3 +279,28 @@ async def test_options_flow_validates_the_interval(
         )
         assert done["type"] is FlowResultType.CREATE_ENTRY
         assert done["data"][CONF_SCAN_INTERVAL] == value
+
+
+async def test_options_flow_checks_the_interval_before_aliases(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A multi-user model reports the bad interval, not the alias clash."""
+    model = next(
+        m for m in config_flow.get_supported_models()
+        if config_flow.get_device_config(m).num_users > 1
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: model}
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    rejected = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_SCAN_INTERVAL: 30,
+            "user_alias_1": "same",
+            "user_alias_2": "same",
+        },
+    )
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
