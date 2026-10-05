@@ -20,6 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
 import voluptuous as vol
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 import custom_components.omron.config_flow as config_flow
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
@@ -207,3 +208,72 @@ async def test_a_shared_name_lists_the_models_it_covers(
     assert placeholders["candidate_count"] == str(len(covered))
     assert placeholders["candidates"] == "\n".join(f"- **{model_id}**" for model_id in covered)
     assert "do not read alike" in caplog.text
+
+
+async def test_model_step_accepts_zero_and_rejects_the_gap(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """0 turns scheduled polling off; 1..59 is neither off nor a sane interval."""
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+
+    rejected = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 30},
+    )
+    assert rejected["type"] is FlowResultType.FORM
+    assert rejected["step_id"] == "select_model"
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+    assert _default(_field(rejected["data_schema"], CONF_SCAN_INTERVAL)) == 30
+
+    accepted = await hass.config_entries.flow.async_configure(
+        rejected["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 0},
+    )
+    assert accepted["type"] is FlowResultType.FORM
+    assert accepted["step_id"] != "select_model"
+    assert not accepted.get("errors")
+
+
+async def test_interval_schemas_render_in_the_ui(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HA serialises the form to the frontend; an unserialisable schema 500s."""
+    from homeassistant.helpers import config_validation as cv
+    from probatio import to_field_list
+
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+    to_field_list(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    from custom_components.omron.omron_ble.devices import get_device_config
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DEVICE_MODEL: "HEM-7155T"})
+    schema = config_flow._options_init_schema(entry, get_device_config("HEM-7155T"))
+    fields = to_field_list(schema, custom_serializer=cv.custom_serializer)
+    interval = next(f for f in fields if f["name"] == CONF_SCAN_INTERVAL)
+    assert interval["valueMin"] == 0
+
+
+async def test_options_flow_validates_the_interval(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    rejected = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 30}
+    )
+    assert rejected["type"] is FlowResultType.FORM
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+
+    for value in (0, 60):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        done = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_SCAN_INTERVAL: value}
+        )
+        assert done["type"] is FlowResultType.CREATE_ENTRY
+        assert done["data"][CONF_SCAN_INTERVAL] == value

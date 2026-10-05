@@ -17,7 +17,7 @@
         "description": "如果藍牙廣播名稱包含已知代碼（例如 **HEM-7600T**），則會為你選取該型號——請確認或變更。否則不會預選：請選擇壓脈帶上印的型號或 Omron Connect 中顯示的型號。清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
         "data": {
           "device_model": "裝置型號",
-          "scan_interval": "更新間隔（秒）"
+          "scan_interval": "更新間隔（秒，0 = 關閉）"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "裝置回報的型號為 **{probed_model}**，不在此處的任何清單中，因此沒有預選。請選擇壓脈帶上印的型號或 Omron Connect 中顯示的型號。清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
         "data": {
           "device_model": "裝置型號",
-          "scan_interval": "更新間隔（秒）"
+          "scan_interval": "更新間隔（秒，0 = 關閉）"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "裝置回報的型號為 **{probed_model}**。有 **{candidate_count}** 個型號使用該名稱，讀取方式並不相同：\n\n{candidates}\n\n壓脈帶透過無線傳送的內容無法區分它們——歐姆龍應用知道，只是因為你告訴了它。請選擇壓脈帶上印的那一個。\n\n清單共有 **{model_total}** 項：硬體設定 **{profile_count}** 個，以及共用同一設定的地區或套裝代碼 **{variant_count}** 個。如果沒有完全一致的代碼，請選擇最接近的型號。型號決定如何讀取壓脈帶記憶體，選錯會在沒有錯誤的情況下得到空值或無意義的讀數——請查看紀錄中的 **profile=**。之後只能刪除並重新新增裝置才能變更。",
         "data": {
           "device_model": "裝置型號",
-          "scan_interval": "更新間隔（秒）"
+          "scan_interval": "更新間隔（秒，0 = 關閉）"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "配對失敗。請確認裝置處於配對模式（畫面顯示 -P-）後再試一次。",
       "decryption_failed": "提供的 bindkey 無效，無法解密感測器資料。請檢查後再試一次。",
       "expected_32_characters": "bindkey 必須是 32 個字元的十六進位字串。",
-      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。"
+      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。",
+      "invalid_scan_interval": "請輸入 0（不定時輪詢）或至少 60 秒。"
     },
     "abort": {
       "reauth_successful": "重新驗證成功",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Home Assistant 輪詢血壓計以取得新讀數的間隔（60–86400 秒）。數值越小，壓脈帶越耗電。\n\n**此裝置的設定槽數：** {num_users}。多於一個時，可在下方為每個槽設定顯示名稱（預設 user1、user2……）。重新命名某個槽會為該槽建立新的感測器實體。",
+        "description": "Home Assistant 輪詢血壓計以取得新讀數的間隔（60–86400 秒）。數值越小，壓脈帶越耗電。 設為 0 會關閉定時輪詢，之後只能透過「重新整理資料」按鈕更新（部分壓脈帶不會自行觸發讀取）。\n\n**此裝置的設定槽數：** {num_users}。多於一個時，可在下方為每個槽設定顯示名稱（預設 user1、user2……）。重新命名某個槽會為該槽建立新的感測器實體。",
         "data": {
-          "scan_interval": "更新間隔（秒）",
+          "scan_interval": "更新間隔（秒，0 = 關閉）",
           "user_alias_1": "使用者 1 名稱",
           "user_alias_2": "使用者 2 名稱",
           "user_alias_3": "使用者 3 名稱",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。"
+      "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。",
+      "invalid_scan_interval": "請輸入 0（不定時輪詢）或至少 60 秒。"
     }
   },
   "entity": {

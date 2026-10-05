@@ -17,7 +17,7 @@
         "description": "Se il nome dell’annuncio Bluetooth include un codice noto (per esempio **HEM-7600T**), quel modello è selezionato: confermalo o cambialo. Altrimenti non c’è alcuna preselezione: scegli il modello stampato sul bracciale o mostrato in Omron Connect. L’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
         "data": {
           "device_model": "Modello del dispositivo",
-          "scan_interval": "Intervallo di aggiornamento (secondi)"
+          "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "Il dispositivo indica il numero di modello **{probed_model}**, che non è in nessun elenco, quindi non c’è alcuna preselezione. Scegli il modello stampato sul bracciale o mostrato in Omron Connect. L’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
         "data": {
           "device_model": "Modello del dispositivo",
-          "scan_interval": "Intervallo di aggiornamento (secondi)"
+          "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "Il dispositivo indica il numero di modello **{probed_model}**. **{candidate_count}** modelli rispondono a quel nome e non si leggono allo stesso modo:\n\n{candidates}\n\nNulla di ciò che il bracciale invia via radio li distingue: l’app Omron lo sa solo perché glielo hai detto tu. Scegli quello stampato sul bracciale.\n\nL’elenco ha **{model_total}** voci: **{profile_count}** profili hardware più **{variant_count}** codici regionali o di bundle che condividono un profilo. Se manca il codice esatto, scegli il modello più simile. Il modello decide come viene letta la memoria del bracciale e una scelta sbagliata dà letture vuote o senza senso senza errore: controlla nel registro le righe **profile=**. In seguito si può cambiare solo rimuovendo e aggiungendo di nuovo il dispositivo.",
         "data": {
           "device_model": "Modello del dispositivo",
-          "scan_interval": "Intervallo di aggiornamento (secondi)"
+          "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "Associazione non riuscita. Verifica che il dispositivo sia in modalità di associazione (-P- sul display) e riprova.",
       "decryption_failed": "La bindkey indicata non ha funzionato, i dati del sensore non sono stati decifrati. Controllala e riprova.",
       "expected_32_characters": "La bindkey deve essere una stringa esadecimale di 32 caratteri.",
-      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole)."
+      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole).",
+      "invalid_scan_interval": "Inserisci 0 (nessuna interrogazione pianificata) o almeno 60 secondi."
     },
     "abort": {
       "reauth_successful": "Riautenticazione riuscita",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Ogni quanto Home Assistant deve interrogare lo sfigmomanometro per nuove misurazioni (60–86400 secondi). Un valore più basso consuma più batteria del bracciale.\n\n**Slot profilo su questo dispositivo:** {num_users}. Se ce n’è più di uno, imposta sotto un nome visualizzato per ogni slot (predefiniti user1, user2, …). Rinominare uno slot crea nuove entità sensore per quello slot.",
+        "description": "Ogni quanto Home Assistant deve interrogare lo sfigmomanometro per nuove misurazioni (60–86400 secondi). Un valore più basso consuma più batteria del bracciale. Con 0 l’interrogazione pianificata è disattivata; si aggiorna solo con il pulsante di aggiornamento dati (alcuni bracciali non avviano una lettura da soli).\n\n**Slot profilo su questo dispositivo:** {num_users}. Se ce n’è più di uno, imposta sotto un nome visualizzato per ogni slot (predefiniti user1, user2, …). Rinominare uno slot crea nuove entità sensore per quello slot.",
         "data": {
-          "scan_interval": "Intervallo di aggiornamento (secondi)",
+          "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)",
           "user_alias_1": "Nome utente 1",
           "user_alias_2": "Nome utente 2",
           "user_alias_3": "Nome utente 3",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole)."
+      "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole).",
+      "invalid_scan_interval": "Inserisci 0 (nessuna interrogazione pianificata) o almeno 60 secondi."
     }
   },
   "entity": {

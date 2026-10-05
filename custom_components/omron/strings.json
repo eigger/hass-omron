@@ -17,7 +17,7 @@
         "description": "If the Bluetooth advertisement name includes a known code (for example **HEM-7600T**), it is selected for you—confirm or change it. Otherwise nothing is preselected: choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
         "data": {
           "device_model": "Device Model",
-          "scan_interval": "Update Interval (seconds)"
+          "scan_interval": "Update Interval (seconds, 0 = off)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "The device reports its model number as **{probed_model}**, which is in no list here, so nothing is preselected. Choose the model printed on the cuff or shown in Omron Connect. The list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
         "data": {
           "device_model": "Device Model",
-          "scan_interval": "Update Interval (seconds)"
+          "scan_interval": "Update Interval (seconds, 0 = off)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "The device reports its model number as **{probed_model}**. **{candidate_count}** models answer to that name and they do not read alike:\n\n{candidates}\n\nNothing the cuff sends over the air tells them apart—the Omron app knows only because you told it. Pick the one printed on the cuff.\n\nThe list has **{model_total}** entries: **{profile_count}** hardware profiles plus **{variant_count}** regional or bundle codes that share a profile. If your exact code is missing, pick the closest model. The model decides how the cuff's memory is read, and a wrong choice gives empty or nonsensical readings with no error—check the log for **profile=** lines. It cannot be changed later without removing and re-adding the device.",
         "data": {
           "device_model": "Device Model",
-          "scan_interval": "Update Interval (seconds)"
+          "scan_interval": "Update Interval (seconds, 0 = off)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "Pairing failed. Make sure the device is in pairing mode (-P- on display) and try again.",
       "decryption_failed": "The provided bindkey did not work, sensor data could not be decrypted. Please check it and try again.",
       "expected_32_characters": "Expected a 32 character hexadecimal bindkey.",
-      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive)."
+      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive).",
+      "invalid_scan_interval": "Enter 0 (no scheduled polling) or at least 60 seconds."
     },
     "abort": {
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff.\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
+        "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff. Set 0 to turn scheduled polling off; the Refresh Data button then is the way to update (some cuffs do not trigger a read on their own).\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
         "data": {
-          "scan_interval": "Update Interval (seconds)",
+          "scan_interval": "Update Interval (seconds, 0 = off)",
           "user_alias_1": "User 1 name",
           "user_alias_2": "User 2 name",
           "user_alias_3": "User 3 name",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive)."
+      "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive).",
+      "invalid_scan_interval": "Enter 0 (no scheduled polling) or at least 60 seconds."
     }
   },
   "entity": {

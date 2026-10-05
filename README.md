@@ -100,6 +100,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
 - The integration actively polls the blood pressure monitor in the background.
 - Whenever you take a measurement, the device stores it in its internal EEPROM memory.
 - As long as the device is in range, Home Assistant will periodically connect via Bluetooth (every 5 minutes by default) and download the latest unread records.
+- To turn scheduled polling off, set the **Update Interval** to `0` (in the integration's options). Nothing then connects on a timer; the **Refresh Data** button and the cuff's own transfer signal still fetch readings. Some cuffs never signal a transfer, so with `0` those update only when you press **Refresh Data**.
 - HA creates automatically updated sensor entities for:
   - **Systolic Blood Pressure (mmHg)**
   - **Diastolic Blood Pressure (mmHg)**

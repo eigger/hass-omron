@@ -98,6 +98,15 @@ def _user_aliases_schema(
     return vol.Schema(fields)
 
 
+def _scan_interval_is_valid(value: int) -> bool:
+    """0 turns scheduled polling off; otherwise at least a minute apart.
+
+    Not in the schema: the form is serialised for the frontend, which cannot
+    render a ``vol.Any`` of a literal and a range, so the form would not load.
+    """
+    return value == 0 or value >= 60
+
+
 def _options_init_schema(
     entry: ConfigEntry,
     cfg: DeviceConfig,
@@ -125,7 +134,7 @@ def _options_init_schema(
         )
     fields: dict[Any, Any] = {
         vol.Required(CONF_SCAN_INTERVAL, default=interval_default): vol.All(
-            vol.Coerce(int), vol.Range(min=60, max=86400)
+            vol.Coerce(int), vol.Range(min=0, max=86400)
         ),
     }
     if cfg.num_users > 1:
@@ -215,6 +224,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._discovered_devices: dict[str, Discovery] = {}
         self._selected_model: str | None = None
         self._scan_interval: int = 300
+        self._model_form: tuple[Any, ...] | None = None
         self._user_aliases: dict[str, str] = {}
         self._removed = False
 
@@ -250,8 +260,15 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle device model selection step."""
         if user_input is not None:
+            interval = user_input.get(CONF_SCAN_INTERVAL, 300)
+            if not _scan_interval_is_valid(interval) and self._model_form is not None:
+                return self._show_model_form(
+                    *self._model_form,
+                    errors={CONF_SCAN_INTERVAL: "invalid_scan_interval"},
+                    interval=interval,
+                )
             self._selected_model = user_input[CONF_DEVICE_MODEL]
-            self._scan_interval = user_input.get(CONF_SCAN_INTERVAL, 300)
+            self._scan_interval = interval
 
             # Update device data with selected model
             if self._discovered_device:
@@ -351,6 +368,20 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         else:
             step_id = "select_model"
 
+        self._model_form = (step_id, desc_ph, inferred_model, model_dict)
+        return self._show_model_form(*self._model_form)
+
+    def _show_model_form(
+        self,
+        step_id: str,
+        desc_ph: dict[str, str],
+        inferred_model: str | None,
+        model_dict: dict[str, str],
+        *,
+        errors: dict[str, str] | None = None,
+        interval: int = 300,
+    ) -> ConfigFlowResult:
+        """The model form. Kept so a rejected interval re-shows it without re-probing."""
         return self.async_show_form(
             step_id=step_id,
             data_schema=vol.Schema(
@@ -362,11 +393,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         else vol.Required(CONF_DEVICE_MODEL)
                     ): vol.In(model_dict),
                     vol.Optional(
-                        CONF_SCAN_INTERVAL, default=300
-                    ): vol.All(vol.Coerce(int), vol.Range(min=60, max=86400)),
+                        CONF_SCAN_INTERVAL, default=interval
+                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=86400)),
                 }
             ),
             description_placeholders=desc_ph,
+            errors=errors,
         )
 
     async def async_step_select_model_unknown(
@@ -713,6 +745,13 @@ class OmronOptionsFlowHandler(OptionsFlow):
         cfg = get_device_config(model)
 
         if user_input is not None:
+            if not _scan_interval_is_valid(user_input[CONF_SCAN_INTERVAL]):
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=_options_init_schema(entry, cfg, user_input=user_input),
+                    errors={CONF_SCAN_INTERVAL: "invalid_scan_interval"},
+                    description_placeholders={"num_users": str(cfg.num_users)},
+                )
             out: dict[str, Any] = {
                 CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
             }

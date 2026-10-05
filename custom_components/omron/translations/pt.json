@@ -17,7 +17,7 @@
         "description": "Se o nome do anúncio Bluetooth incluir um código conhecido (por exemplo **HEM-7600T**), esse modelo fica selecionado — confirme ou altere-o. Caso contrário nada está pré-selecionado: escolha o modelo impresso na braçadeira ou mostrado no Omron Connect. A lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
         "data": {
           "device_model": "Modelo do dispositivo",
-          "scan_interval": "Intervalo de atualização (segundos)"
+          "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "O dispositivo indica o número de modelo **{probed_model}**, que não está em nenhuma lista, por isso nada está pré-selecionado. Escolha o modelo impresso na braçadeira ou mostrado no Omron Connect. A lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
         "data": {
           "device_model": "Modelo do dispositivo",
-          "scan_interval": "Intervalo de atualização (segundos)"
+          "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "O dispositivo indica o número de modelo **{probed_model}**. **{candidate_count}** modelos respondem a esse nome e não se leem da mesma forma:\n\n{candidates}\n\nNada do que a braçadeira envia por rádio os distingue — a aplicação Omron só sabe porque você lhe disse. Escolha o que está impresso na braçadeira.\n\nA lista tem **{model_total}** entradas: **{profile_count}** perfis de hardware mais **{variant_count}** códigos regionais ou de conjunto que partilham um perfil. Se o código exato faltar, escolha o modelo mais próximo. O modelo decide como a memória da braçadeira é lida, e uma escolha errada dá leituras vazias ou sem sentido sem erro — procure no registo as linhas **profile=**. Depois só pode ser alterado removendo e voltando a adicionar o dispositivo.",
         "data": {
           "device_model": "Modelo do dispositivo",
-          "scan_interval": "Intervalo de atualização (segundos)"
+          "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "O emparelhamento falhou. Confirme que o dispositivo está no modo de emparelhamento (-P- no ecrã) e tente novamente.",
       "decryption_failed": "A bindkey indicada não funcionou; não foi possível decifrar os dados do sensor. Verifique-a e tente novamente.",
       "expected_32_characters": "A bindkey deve ser uma cadeia hexadecimal de 32 caracteres.",
-      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas)."
+      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas).",
+      "invalid_scan_interval": "Introduza 0 (sem consulta agendada) ou pelo menos 60 segundos."
     },
     "abort": {
       "reauth_successful": "A reautenticação foi bem-sucedida",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira.\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
+        "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira. Com 0 a consulta agendada fica desativada; só o botão de atualizar dados atualiza (algumas braçadeiras não iniciam uma leitura sozinhas).\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
         "data": {
-          "scan_interval": "Intervalo de atualização (segundos)",
+          "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)",
           "user_alias_1": "Nome do utilizador 1",
           "user_alias_2": "Nome do utilizador 2",
           "user_alias_3": "Nome do utilizador 3",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas)."
+      "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas).",
+      "invalid_scan_interval": "Introduza 0 (sem consulta agendada) ou pelo menos 60 segundos."
     }
   },
   "entity": {
