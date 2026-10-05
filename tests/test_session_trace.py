@@ -527,23 +527,30 @@ class TestTelemetry:
         entry_data = _runtime()
         reports = entry_data.session_reports
         reports.record({"success": False, "failed_stage": "connect", "error": "old"})
-        during: list[object] = []
+        writes: list[tuple[str, object]] = []
 
         class Duration(_Coordinator):
             def async_set_updated_data(self, value):
-                during.append(_duration_attributes(entry_data))
+                # 쓰기 순서: 시작 0.0 → 티커 tick(들) → 종료 시 경과 시간.
+                writes.append(("write", _duration_attributes(entry_data)))
                 super().async_set_updated_data(value)
 
         entry_data.duration_coordinator = Duration()
 
         async def scenario():
             async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                during.append(_duration_attributes(entry_data))
+                assert len(writes) == 1  # 시작 0.0 쓰기만, 티커는 아직
+                # 한 번 양보해 티커의 첫 tick 이 실제로 상태를 쓰게 한다.
+                await asyncio.sleep(0)
+                assert len(writes) == 2, "티커의 첫 tick 이 실행되지 않았다"
+                writes.append(("body", _duration_attributes(entry_data)))
 
         asyncio.run(scenario())
-        # 0.0 쓰기, 첫 tick, 본문 — 모두 속성 없음. 마지막 쓰기만 이번 세션의 분해.
-        assert all(attrs is None for attrs in during[:-1]) and len(during) >= 3
-        assert during[-1]["success"] is True
+        start, first_tick, body, final = writes
+        assert start == ("write", None)
+        assert first_tick == ("write", None), "tick 쓰기에 이전 세션의 속성이 붙었다"
+        assert body == ("body", None)
+        assert final[1] is not None and final[1]["success"] is True
         assert reports.last["success"] is True
         assert reports.last_failure["error"] == "old", (
             "실행 중 비우는 것은 last 뿐이다 — 마지막 실패는 세션 하나보다 오래 산다"
@@ -600,7 +607,6 @@ class TestTelemetry:
         assert entry_data.session_reports.last is not None
         assert entry_data.session_reports.last["success"] is True
         assert entry_data.connection_coordinator.values[-1] is False
-
 
     def test_a_success_leaves_the_failure_sensors_alone(self, plain_report):
         entry_data = _runtime()

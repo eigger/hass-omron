@@ -146,3 +146,53 @@ async def test_zero_interval_stops_scheduled_polls_but_not_manual_ones(
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_failure_sensors_follow_the_session_reports(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Failure Count / Last Failure come from SessionReports via the listener
+    async_setup_entry binds; unload unbinds it and a reload starts fresh."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title="HEM-7155T EEFF",
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    count_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, "hem_7155t_eeff_failure_count"
+    )
+    last_id = registry.async_get_entity_id(
+        "sensor", DOMAIN, "hem_7155t_eeff_last_failure"
+    )
+    assert count_id is not None and last_id is not None
+    assert hass.states.get(count_id).state == "0"
+
+    reports = entry.runtime_data.session_reports
+    reports.record({"operation": "poll", "success": False, "error": "x"})
+    await hass.async_block_till_done()
+
+    assert hass.states.get(count_id).state == "1"
+    last_state = hass.states.get(last_id).state
+    assert last_state not in ("unknown", "unavailable")
+    # A timestamp sensor's state drops the microseconds.
+    assert dt_util.parse_datetime(last_state) == reports.last_failure_at.replace(
+        microsecond=0
+    )
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert reports._listeners == []
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.runtime_data.session_reports is not reports
+    assert hass.states.get(count_id).state == "0"
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
