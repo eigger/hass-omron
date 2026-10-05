@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from blesession import SessionReports
-
-from homeassistant.util import dt as dt_util
+from blesession import SessionReports, fallback_report
 
 from .const import DOMAIN
 from .session_report import build_session_report
@@ -228,18 +226,17 @@ async def omron_poll_ble_telemetry(
 
     On exit the session's breakdown (see ``build_session_report``) is filed in
     ``runtime.session_reports``: ``last`` for the Duration sensor's attributes
-    (cleared while the session runs), and, for a failed session,
-    ``last_failure`` for the Last Failure sensor, which ``blesession`` keeps
-    until the next failure so a later success does not erase it. A failure is
-    also stamped on Last Failure's own timestamp and counted on Failure Count.
+    (hidden while ``runtime.session_report_pending`` is set), and, for a failed
+    session, ``last_failure`` for the Last Failure sensor, which ``blesession``
+    keeps until the next failure so a later success does not erase it. The
+    failure count and time come from the same ``record`` (see
+    ``bind_failure_sensors``).
 
     ``runtime`` is the entry's ``OmronRuntimeData``. Tests pass the same
     attributes on a stand-in.
     """
     connection_coordinator = runtime.connection_coordinator
     duration_coordinator = runtime.duration_coordinator
-    failure_coordinator = runtime.failure_coordinator
-    failure_count_coordinator = runtime.failure_count_coordinator
     device_data = runtime.device_data
     reports: SessionReports = runtime.session_reports
     # Cleared so a session that dies before the parser records anything does
@@ -258,9 +255,11 @@ async def omron_poll_ble_telemetry(
 
     # No attributes while the session runs: the ticker writes the state every
     # second, and each write would otherwise record the previous session's
-    # breakdown against this one's running time. Only the `last` slot --
-    # `clear()` would drop the last failure, which outlives any one session.
-    reports.last = None
+    # breakdown against this one's running time. Raised before the first
+    # duration write, lowered only just before this session's report is
+    # recorded -- so a cancelled session, which records nothing, never shows
+    # the previous session's breakdown against its own elapsed time.
+    runtime.session_report_pending = True
     connection_coordinator.async_set_updated_data(True)
     duration_coordinator.async_set_updated_data(0.0)
     ticker_task = asyncio.create_task(_duration_ticker())
@@ -298,22 +297,36 @@ async def omron_poll_ble_telemetry(
             except Exception as report_exc:  # noqa: BLE001
                 # Diagnostics must not mask the session's own outcome.
                 _LOGGER.debug("Building the session report failed: %s", report_exc)
-                report = {
-                    "operation": operation,
-                    "success": outcome is None,
-                    **({"error": str(outcome) or type(outcome).__name__} if outcome else {}),
-                }
+                report = fallback_report(
+                    operation, trace=device_data.last_session_trace, exc=outcome
+                )
             # Before the duration update: that update is what writes the
             # entity state, attributes included. `record` files the report in
             # both slots as it belongs -- `last_failure` only when it carries
-            # an error, so a success leaves the evidence standing.
+            # an error, so a success leaves the evidence standing -- and its
+            # listeners publish the failure count and time.
+            runtime.session_report_pending = False
             reports.record(report)
-            if outcome is not None:
-                failure_count_coordinator.async_set_updated_data(
-                    (failure_count_coordinator.data or 0) + 1
-                )
-                failure_coordinator.async_set_updated_data(dt_util.utcnow())
         duration_coordinator.async_set_updated_data(elapsed)
         connection_coordinator.async_set_updated_data(False)
         if cancellation_during_cleanup is not None:
             raise cancellation_during_cleanup
+
+
+def bind_failure_sensors(runtime: Any) -> Callable[[], None]:
+    """Publish ``session_reports.failures`` / ``last_failure_at`` on their coordinators.
+
+    The Failure Count and Last Failure sensors read their coordinators; this
+    keeps those in step with every failure ``SessionReports`` records, so the
+    count and time are the library's, not a second tally. Returns the function
+    that unbinds it.
+    """
+    reports: SessionReports = runtime.session_reports
+
+    def _publish() -> None:
+        if reports.last_kind != "failure":
+            return
+        runtime.failure_count_coordinator.async_set_updated_data(reports.failures)
+        runtime.failure_coordinator.async_set_updated_data(reports.last_failure_at)
+
+    return reports.add_listener(_publish)

@@ -12,6 +12,7 @@ from sensor_state_data import SensorDeviceClass as SSDSensorDeviceClass, SensorU
 
 from .session_handoff import (
     adopt_handoff_session,
+    bind_failure_sensors,
     discard_handoff_session,
     discard_probe_session,
     omron_poll_ble_telemetry,
@@ -760,6 +761,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         last_attempt_time=time.time(),
         session_lock=_session_lock_for(hass, address),
     )
+    entry.async_on_unload(bind_failure_sensors(entry.runtime_data))
 
     # Register before the initial poll: it can establish and persist a secure
     # transport credential, and its update listener must consume that write.

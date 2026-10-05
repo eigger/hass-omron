@@ -414,7 +414,7 @@ class _Coordinator:
 
 
 def _runtime():
-    return SimpleNamespace(
+    runtime = SimpleNamespace(
         address=ADDRESS,
         device_data=SimpleNamespace(last_session_trace=None),
         connection_coordinator=_Coordinator(),
@@ -422,6 +422,19 @@ def _runtime():
         failure_coordinator=_Coordinator(),
         failure_count_coordinator=_Coordinator(),
         session_reports=SessionReports(),
+        session_report_pending=False,
+    )
+    # async_setup_entry 와 같은 배선: Failure Count / Last Failure 는 reports 에서 파생된다.
+    runtime.unbind_failure_sensors = session_handoff.bind_failure_sensors(runtime)
+    return runtime
+
+
+def _duration_attributes(runtime):
+    """Duration 센서가 지금 쓸 속성 (엔티티 없이 같은 프로퍼티를 부른다)."""
+    from custom_components.omron.sensor import OmronPollDurationSensorEntity
+
+    return OmronPollDurationSensorEntity.extra_state_attributes.fget(
+        SimpleNamespace(_runtime=runtime)
     )
 
 
@@ -462,6 +475,10 @@ class TestTelemetry:
         assert len(entry_data.failure_coordinator.values) == 1
         assert entry_data.failure_count_coordinator.data == 1
         assert entry_data.connection_coordinator.values[-1] is False
+        # 센서 값은 reports 의 카운터·시각 그대로다.
+        assert reports.failures == 1
+        assert entry_data.failure_coordinator.data is reports.last_failure_at
+        assert reports.last_failure_at.tzinfo is not None
 
     def test_a_later_success_updates_duration_but_keeps_the_failure(self, plain_report):
         entry_data = _runtime()
@@ -489,7 +506,7 @@ class TestTelemetry:
 
         class Duration(_Coordinator):
             def async_set_updated_data(self, value):
-                seen.append(entry_data.session_reports.last)
+                seen.append(_duration_attributes(entry_data))
                 super().async_set_updated_data(value)
 
         entry_data.duration_coordinator = Duration()
@@ -499,21 +516,41 @@ class TestTelemetry:
                 pass
 
         asyncio.run(scenario())
+        # 마지막 쓰기에서 숨김 플래그가 이미 내려가 있어야 속성이 실린다 (N2):
+        # connection False 는 그 뒤에 오므로 숨김 기준이 될 수 없다.
         assert seen[-1] is not None and seen[-1]["success"] is True
+        assert entry_data.session_report_pending is False
+        assert entry_data.connection_coordinator.values[-1] is False
 
     def test_no_attributes_while_the_session_runs(self, plain_report):
         """1초 티커가 이전 세션의 분해를 이번 세션의 시간에 붙여 기록하면 안 된다."""
         entry_data = _runtime()
         reports = entry_data.session_reports
         reports.record({"success": False, "failed_stage": "connect", "error": "old"})
-        during: list[object] = []
+        writes: list[tuple[str, object]] = []
+
+        class Duration(_Coordinator):
+            def async_set_updated_data(self, value):
+                # 쓰기 순서: 시작 0.0 → 티커 tick(들) → 종료 시 경과 시간.
+                writes.append(("write", _duration_attributes(entry_data)))
+                super().async_set_updated_data(value)
+
+        entry_data.duration_coordinator = Duration()
 
         async def scenario():
             async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                during.append(reports.last)
+                assert len(writes) == 1  # 시작 0.0 쓰기만, 티커는 아직
+                # 한 번 양보해 티커의 첫 tick 이 실제로 상태를 쓰게 한다.
+                await asyncio.sleep(0)
+                assert len(writes) == 2, "티커의 첫 tick 이 실행되지 않았다"
+                writes.append(("body", _duration_attributes(entry_data)))
 
         asyncio.run(scenario())
-        assert during == [None]
+        start, first_tick, body, final = writes
+        assert start == ("write", None)
+        assert first_tick == ("write", None), "tick 쓰기에 이전 세션의 속성이 붙었다"
+        assert body == ("body", None)
+        assert final[1] is not None and final[1]["success"] is True
         assert reports.last["success"] is True
         assert reports.last_failure["error"] == "old", (
             "실행 중 비우는 것은 last 뿐이다 — 마지막 실패는 세션 하나보다 오래 산다"
@@ -541,11 +578,16 @@ class TestTelemetry:
                 async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
                     raise asyncio.CancelledError()
 
+        entry_data.session_reports.record({"operation": "poll", "success": True, "connect_s": 1.0})
         asyncio.run(scenario())
-        assert entry_data.session_reports.last is None
+        # 취소는 record 하지 않는다: 슬롯도 카운터도 그대로.
+        assert entry_data.session_reports.last["connect_s"] == 1.0
+        assert entry_data.session_reports.failures == 0
         assert entry_data.failure_coordinator.values == []
         assert entry_data.failure_count_coordinator.values == []
         assert entry_data.connection_coordinator.values[-1] is False
+        # 이전 세션의 분해를 취소된 세션의 시간에 붙이지 않는다.
+        assert _duration_attributes(entry_data) is None
 
     def test_cancellation_during_ticker_cleanup_still_propagates(self, plain_report):
         entry_data = _runtime()
@@ -565,6 +607,88 @@ class TestTelemetry:
         assert entry_data.session_reports.last is not None
         assert entry_data.session_reports.last["success"] is True
         assert entry_data.connection_coordinator.values[-1] is False
+
+    def test_a_success_leaves_the_failure_sensors_alone(self, plain_report):
+        entry_data = _runtime()
+
+        async def scenario():
+            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                pass
+
+        asyncio.run(scenario())
+        assert entry_data.failure_coordinator.values == []
+        assert entry_data.failure_count_coordinator.values == []
+
+    def test_failures_count_up_from_the_reports(self, plain_report):
+        entry_data = _runtime()
+
+        async def scenario():
+            for message in ("one", "two"):
+                with pytest.raises(ConnectionError):
+                    async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                        raise ConnectionError(message)
+
+        asyncio.run(scenario())
+        assert entry_data.failure_count_coordinator.values == [1, 2]
+        assert entry_data.session_reports.failures == 2
+        assert entry_data.failure_coordinator.data is entry_data.session_reports.last_failure_at
+
+    def test_unbinding_stops_the_failure_sensors(self, plain_report):
+        entry_data = _runtime()
+        entry_data.unbind_failure_sensors()
+
+        async def scenario():
+            with pytest.raises(ConnectionError):
+                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                    raise ConnectionError("x")
+
+        asyncio.run(scenario())
+        assert entry_data.session_reports.failures == 1
+        assert entry_data.failure_count_coordinator.values == []
+
+    def test_a_report_that_cannot_be_built_falls_back(self, monkeypatch):
+        """build_session_report 가 실패해도 fallback_report 로 기록·카운트된다."""
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("report broke")
+
+        monkeypatch.setattr(session_handoff, "build_session_report", broken)
+        entry_data = _runtime()
+
+        async def scenario():
+            with pytest.raises(ConnectionError):
+                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                    trace = SessionTrace()
+                    trace.fail("unlock")
+                    entry_data.device_data.last_session_trace = trace
+                    raise ConnectionError("cuff refused")
+
+        asyncio.run(scenario())
+        report = entry_data.session_reports.last
+        assert report["operation"] == "poll"
+        assert report["success"] is False
+        assert report["error"] == "cuff refused"
+        assert report["failed_detail"] == "unlock"
+        assert "failed_stage" in report
+        assert entry_data.session_reports.last_failure is report
+        assert entry_data.failure_count_coordinator.data == 1
+        assert _duration_attributes(entry_data) is report
+
+    def test_a_fallback_success_is_not_a_failure(self, monkeypatch):
+        monkeypatch.setattr(
+            session_handoff,
+            "build_session_report",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("report broke")),
+        )
+        entry_data = _runtime()
+
+        async def scenario():
+            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "pairing"):
+                pass
+
+        asyncio.run(scenario())
+        assert entry_data.session_reports.last == {"operation": "pairing", "success": True}
+        assert entry_data.failure_count_coordinator.values == []
 
 
 # ── async_poll records its trace ────────────────────────────────────────────
