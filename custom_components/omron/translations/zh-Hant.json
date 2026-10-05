@@ -60,7 +60,7 @@
       "decryption_failed": "提供的 bindkey 無效，無法解密感測器資料。請檢查後再試一次。",
       "expected_32_characters": "bindkey 必須是 32 個字元的十六進位字串。",
       "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。",
-      "invalid_scan_interval": "請輸入 0（不定時輪詢）或至少 60 秒。"
+      "invalid_scan_interval": "請輸入 0（關閉定時輪詢）或至少 60 秒。"
     },
     "abort": {
       "reauth_successful": "重新驗證成功",
@@ -87,7 +87,7 @@
     },
     "error": {
       "duplicate_user_aliases": "每個使用者槽的名稱必須不同（不區分大小寫）。",
-      "invalid_scan_interval": "請輸入 0（不定時輪詢）或至少 60 秒。"
+      "invalid_scan_interval": "請輸入 0（關閉定時輪詢）或至少 60 秒。"
     }
   },
   "entity": {

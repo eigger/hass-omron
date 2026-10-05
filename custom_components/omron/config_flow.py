@@ -261,7 +261,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle device model selection step."""
         if user_input is not None:
             interval = user_input.get(CONF_SCAN_INTERVAL, 300)
-            if not _scan_interval_is_valid(interval) and self._model_form is not None:
+            if not _scan_interval_is_valid(interval):
+                # The form is always shown before it can be submitted.
+                assert self._model_form is not None
                 return self._show_model_form(
                     *self._model_form,
                     errors={CONF_SCAN_INTERVAL: "invalid_scan_interval"},

@@ -60,7 +60,7 @@
       "decryption_failed": "提供的 bindkey 无效，无法解密传感器数据。请检查后重试。",
       "expected_32_characters": "bindkey 应为 32 位十六进制字符。",
       "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。",
-      "invalid_scan_interval": "请输入 0（不定时轮询）或至少 60 秒。"
+      "invalid_scan_interval": "请输入 0（关闭定时轮询）或至少 60 秒。"
     },
     "abort": {
       "reauth_successful": "重新验证成功",
@@ -87,7 +87,7 @@
     },
     "error": {
       "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。",
-      "invalid_scan_interval": "请输入 0（不定时轮询）或至少 60 秒。"
+      "invalid_scan_interval": "请输入 0（关闭定时轮询）或至少 60 秒。"
     }
   },
   "entity": {
