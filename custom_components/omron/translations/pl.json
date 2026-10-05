@@ -17,7 +17,7 @@
         "description": "Jeśli nazwa ogłoszenia Bluetooth zawiera znany kod (na przykład **HEM-7600T**), ten model jest wybrany — potwierdź go lub zmień. W przeciwnym razie nic nie jest wstępnie wybrane: wybierz model wydrukowany na mankiecie lub pokazany w Omron Connect. Lista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
         "data": {
           "device_model": "Model urządzenia",
-          "scan_interval": "Interwał odświeżania (sekundy)"
+          "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "Urządzenie podaje numer modelu **{probed_model}**, którego nie ma na żadnej liście, więc nic nie jest wstępnie wybrane. Wybierz model wydrukowany na mankiecie lub pokazany w Omron Connect. Lista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
         "data": {
           "device_model": "Model urządzenia",
-          "scan_interval": "Interwał odświeżania (sekundy)"
+          "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "Urządzenie podaje numer modelu **{probed_model}**. Na tę nazwę odpowiada **{candidate_count}** modeli i nie czyta się ich tak samo:\n\n{candidates}\n\nNic, co mankiet wysyła bezprzewodowo, ich nie rozróżnia — aplikacja Omron wie tylko dlatego, że jej to podałeś. Wybierz model wydrukowany na mankiecie.\n\nLista ma **{model_total}** pozycji: **{profile_count}** profili sprzętowych oraz **{variant_count}** kodów regionalnych lub zestawów ze wspólnym profilem. Jeśli brakuje dokładnego kodu, wybierz najbliższy model. Model decyduje, jak odczytywana jest pamięć mankietu, a zły wybór daje puste lub bezsensowne odczyty bez błędu — sprawdź w dzienniku wiersze **profile=**. Później można to zmienić tylko przez usunięcie i ponowne dodanie urządzenia.",
         "data": {
           "device_model": "Model urządzenia",
-          "scan_interval": "Interwał odświeżania (sekundy)"
+          "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "Parowanie nie powiodło się. Upewnij się, że urządzenie jest w trybie parowania (-P- na wyświetlaczu) i spróbuj ponownie.",
       "decryption_failed": "Podany bindkey nie zadziałał, nie udało się odszyfrować danych czujnika. Sprawdź go i spróbuj ponownie.",
       "expected_32_characters": "bindkey musi być 32-znakowym ciągiem szesnastkowym.",
-      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter)."
+      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter).",
+      "invalid_scan_interval": "Wpisz 0 (bez zaplanowanego odpytywania) lub co najmniej 60 sekund."
     },
     "abort": {
       "reauth_successful": "Ponowne uwierzytelnienie powiodło się",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Jak często Home Assistant ma odpytywać ciśnieniomierz o nowe pomiary (60–86400 sekund). Mniejsza wartość zużywa więcej baterii mankietu.\n\n**Miejsca profilu na tym urządzeniu:** {num_users}. Gdy jest ich więcej niż jedno, ustaw poniżej nazwę wyświetlaną dla każdego miejsca (domyślnie user1, user2, …). Zmiana nazwy miejsca tworzy nowe encje czujników dla tego miejsca.",
+        "description": "Jak często Home Assistant ma odpytywać ciśnieniomierz o nowe pomiary (60–86400 sekund). Mniejsza wartość zużywa więcej baterii mankietu. Wartość 0 wyłącza zaplanowane odpytywanie. Mankiety zgłaszające oczekujący transfer nadal są odczytywane samoczynnie; pozostałe aktualizują się tylko przyciskiem odświeżania danych.\n\n**Miejsca profilu na tym urządzeniu:** {num_users}. Gdy jest ich więcej niż jedno, ustaw poniżej nazwę wyświetlaną dla każdego miejsca (domyślnie user1, user2, …). Zmiana nazwy miejsca tworzy nowe encje czujników dla tego miejsca.",
         "data": {
-          "scan_interval": "Interwał odświeżania (sekundy)",
+          "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)",
           "user_alias_1": "Nazwa użytkownika 1",
           "user_alias_2": "Nazwa użytkownika 2",
           "user_alias_3": "Nazwa użytkownika 3",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter)."
+      "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter).",
+      "invalid_scan_interval": "Wpisz 0 (bez zaplanowanego odpytywania) lub co najmniej 60 sekund."
     }
   },
   "entity": {

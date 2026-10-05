@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+from unittest.mock import AsyncMock, patch
+
+from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+from sensor_state_data import SensorUpdate
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -92,3 +99,50 @@ async def test_unload_cancels_a_drain_waiting_on_the_session_lock(
     runtime.session_lock.release()
     await hass.async_block_till_done()
     assert task.cancelled()
+
+
+async def test_zero_interval_stops_scheduled_polls_but_not_manual_ones(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Options scan_interval 0 beats data's 300: no timer, Refresh Data still polls."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title="HEM-7155T EEFF",
+        data={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 300},
+        options={CONF_SCAN_INTERVAL: 0},
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.omron.async_poll_data", new_callable=AsyncMock
+    ) as poll:
+        poll.return_value = SensorUpdate(
+            title=None, devices={}, entity_descriptions={}, entity_values={}, binary_entity_descriptions={}, binary_entity_values={}
+        )
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        coordinator = entry.runtime_data.poll_coordinator
+        assert coordinator.update_interval is None
+
+        # The one poll made at setup waits on a short sleep; firing time
+        # changed also fires the loop timers that end it.
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+        await hass.async_block_till_done()
+        poll.assert_called_once()
+
+        poll.reset_mock()
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(days=2))
+        await hass.async_block_till_done()
+        poll.assert_not_called()
+
+        await hass.services.async_call(
+            "button",
+            "press",
+            {"entity_id": "button.hem_7155t_eeff_refresh_data"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+        poll.assert_called_once()
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

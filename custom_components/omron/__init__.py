@@ -730,12 +730,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     scan_interval = entry.options.get(
         CONF_SCAN_INTERVAL, entry.data.get(CONF_SCAN_INTERVAL, 300)
     )
+    # 0 turns scheduled polling off. Refresh Data and advertisement-triggered
+    # polls still go through the coordinator, which does not need an interval.
     poll_coordinator = DataUpdateCoordinator[SensorUpdate](
         hass,
         _LOGGER,
+        config_entry=entry,
         name=DOMAIN,
         update_method=partial(async_poll_data, hass, entry),
-        update_interval=timedelta(seconds=scan_interval),
+        update_interval=timedelta(seconds=scan_interval) if scan_interval else None,
     )
 
     # Assigned before the first refresh and before advertisements start, so

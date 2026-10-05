@@ -17,7 +17,7 @@
         "description": "Als de Bluetooth-advertentienaam een bekende code bevat (bijvoorbeeld **HEM-7600T**), is dat model geselecteerd — bevestig of wijzig het. Anders is er niets voorgeselecteerd: kies het model dat op de manchet staat of in Omron Connect wordt getoond. De lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
         "data": {
           "device_model": "Apparaatmodel",
-          "scan_interval": "Bijwerkinterval (seconden)"
+          "scan_interval": "Bijwerkinterval (seconden, 0 = uit)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "Het apparaat meldt modelnummer **{probed_model}**, dat in geen lijst staat, dus er is niets voorgeselecteerd. Kies het model dat op de manchet staat of in Omron Connect wordt getoond. De lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
         "data": {
           "device_model": "Apparaatmodel",
-          "scan_interval": "Bijwerkinterval (seconden)"
+          "scan_interval": "Bijwerkinterval (seconden, 0 = uit)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "Het apparaat meldt modelnummer **{probed_model}**. **{candidate_count}** modellen heten zo en worden niet hetzelfde gelezen:\n\n{candidates}\n\nNiets wat de manchet draadloos stuurt, maakt ze uit elkaar — de Omron-app weet het alleen omdat u het hebt aangegeven. Kies het model dat op de manchet staat.\n\nDe lijst heeft **{model_total}** items: **{profile_count}** hardwareprofielen plus **{variant_count}** regionale of bundelcodes die een profiel delen. Ontbreekt uw exacte code, kies dan het meest gelijkende model. Het model bepaalt hoe het geheugen van de manchet wordt gelezen; een verkeerde keuze geeft lege of onzinnige waarden zonder fout — controleer in het logboek de regels **profile=**. Daarna kan het alleen worden gewijzigd door het apparaat te verwijderen en opnieuw toe te voegen.",
         "data": {
           "device_model": "Apparaatmodel",
-          "scan_interval": "Bijwerkinterval (seconden)"
+          "scan_interval": "Bijwerkinterval (seconden, 0 = uit)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "Koppelen is mislukt. Controleer of het apparaat in de koppelmodus staat (-P- op het scherm) en probeer het opnieuw.",
       "decryption_failed": "De opgegeven bindkey werkte niet; sensorgegevens konden niet worden ontsleuteld. Controleer de waarde en probeer het opnieuw.",
       "expected_32_characters": "De bindkey moet een hexadecimale tekenreeks van 32 tekens zijn.",
-      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig)."
+      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig).",
+      "invalid_scan_interval": "Voer 0 (geen geplande polling) of minimaal 60 seconden in."
     },
     "abort": {
       "reauth_successful": "Opnieuw verifiëren is gelukt",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet.\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
+        "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet. Met 0 staat geplande polling uit. Manchetten die een wachtende overdracht melden worden nog steeds vanzelf uitgelezen; de rest werkt alleen bij met de knop Gegevens vernieuwen.\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
         "data": {
-          "scan_interval": "Bijwerkinterval (seconden)",
+          "scan_interval": "Bijwerkinterval (seconden, 0 = uit)",
           "user_alias_1": "Naam gebruiker 1",
           "user_alias_2": "Naam gebruiker 2",
           "user_alias_3": "Naam gebruiker 3",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig)."
+      "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig).",
+      "invalid_scan_interval": "Voer 0 (geen geplande polling) of minimaal 60 seconden in."
     }
   },
   "entity": {

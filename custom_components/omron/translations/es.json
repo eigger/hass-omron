@@ -17,7 +17,7 @@
         "description": "Si el nombre del anuncio Bluetooth incluye un código conocido (por ejemplo **HEM-7600T**), ese modelo queda seleccionado: confírmelo o cámbielo. Si no, no hay nada preseleccionado: elija el modelo impreso en el manguito o el que muestra Omron Connect. La lista tiene **{model_total}** entradas: **{profile_count}** perfiles de hardware más **{variant_count}** códigos regionales o de lote que comparten un perfil. Si falta su código exacto, elija el modelo más parecido. El modelo decide cómo se lee la memoria del manguito, y una elección incorrecta da lecturas vacías o sin sentido sin error: busque las líneas **profile=** en el registro. Después no se puede cambiar sin quitar y volver a añadir el dispositivo.",
         "data": {
           "device_model": "Modelo del dispositivo",
-          "scan_interval": "Intervalo de actualización (segundos)"
+          "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "El dispositivo indica el número de modelo **{probed_model}**, que no está en ninguna lista, así que no hay nada preseleccionado. Elija el modelo impreso en el manguito o el que muestra Omron Connect. La lista tiene **{model_total}** entradas: **{profile_count}** perfiles de hardware más **{variant_count}** códigos regionales o de lote que comparten un perfil. Si falta su código exacto, elija el modelo más parecido. El modelo decide cómo se lee la memoria del manguito, y una elección incorrecta da lecturas vacías o sin sentido sin error: busque las líneas **profile=** en el registro. Después no se puede cambiar sin quitar y volver a añadir el dispositivo.",
         "data": {
           "device_model": "Modelo del dispositivo",
-          "scan_interval": "Intervalo de actualización (segundos)"
+          "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "El dispositivo indica el número de modelo **{probed_model}**. **{candidate_count}** modelos responden a ese nombre y no se leen igual:\n\n{candidates}\n\nNada de lo que el manguito envía por radio los distingue: la aplicación de Omron lo sabe solo porque usted se lo dijo. Elija el que está impreso en el manguito.\n\nLa lista tiene **{model_total}** entradas: **{profile_count}** perfiles de hardware más **{variant_count}** códigos regionales o de lote que comparten un perfil. Si falta su código exacto, elija el modelo más parecido. El modelo decide cómo se lee la memoria del manguito, y una elección incorrecta da lecturas vacías o sin sentido sin error: busque las líneas **profile=** en el registro. Después no se puede cambiar sin quitar y volver a añadir el dispositivo.",
         "data": {
           "device_model": "Modelo del dispositivo",
-          "scan_interval": "Intervalo de actualización (segundos)"
+          "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "El emparejamiento falló. Compruebe que el dispositivo está en modo de emparejamiento (-P- en la pantalla) e inténtelo de nuevo.",
       "decryption_failed": "La bindkey indicada no funcionó; no se pudieron descifrar los datos del sensor. Compruébela e inténtelo de nuevo.",
       "expected_32_characters": "La bindkey debe ser hexadecimal de 32 caracteres.",
-      "duplicate_user_aliases": "Cada ranura de usuario debe tener un nombre distinto (sin distinguir mayúsculas)."
+      "duplicate_user_aliases": "Cada ranura de usuario debe tener un nombre distinto (sin distinguir mayúsculas).",
+      "invalid_scan_interval": "Introduzca 0 (sin consulta programada) o al menos 60 segundos."
     },
     "abort": {
       "reauth_successful": "La reautenticación se realizó correctamente",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Cada cuánto debe Home Assistant consultar el tensiómetro en busca de lecturas nuevas (60–86400 segundos). Un valor menor gasta más batería del manguito.\n\n**Ranuras de perfil en este dispositivo:** {num_users}. Si hay más de una, indique abajo un nombre para cada ranura (predeterminados user1, user2, …). Cambiar el nombre de una ranura crea nuevas entidades de sensor para esa ranura.",
+        "description": "Cada cuánto debe Home Assistant consultar el tensiómetro en busca de lecturas nuevas (60–86400 segundos). Un valor menor gasta más batería del manguito. Con 0 se desactiva la consulta programada. Los manguitos que avisan de una transferencia pendiente se siguen leyendo solos; los demás solo se actualizan con el botón de actualizar datos.\n\n**Ranuras de perfil en este dispositivo:** {num_users}. Si hay más de una, indique abajo un nombre para cada ranura (predeterminados user1, user2, …). Cambiar el nombre de una ranura crea nuevas entidades de sensor para esa ranura.",
         "data": {
-          "scan_interval": "Intervalo de actualización (segundos)",
+          "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)",
           "user_alias_1": "Nombre del usuario 1",
           "user_alias_2": "Nombre del usuario 2",
           "user_alias_3": "Nombre del usuario 3",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "Cada ranura de usuario debe tener un nombre distinto (sin distinguir mayúsculas)."
+      "duplicate_user_aliases": "Cada ranura de usuario debe tener un nombre distinto (sin distinguir mayúsculas).",
+      "invalid_scan_interval": "Introduzca 0 (sin consulta programada) o al menos 60 segundos."
     }
   },
   "entity": {

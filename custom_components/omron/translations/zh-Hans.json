@@ -17,7 +17,7 @@
         "description": "如果蓝牙广播名称包含已知代码（例如 **HEM-7600T**），则会为你选中该型号——请确认或更改。否则不会预选：请选择袖带上印的型号或 Omron Connect 中显示的型号。列表共有 **{model_total}** 项：硬件配置 **{profile_count}** 个，以及共享同一配置的地区或套装代码 **{variant_count}** 个。如果没有完全一致的代码，请选择最接近的型号。型号决定如何读取袖带内存，选错会在没有错误的情况下得到空值或无意义的读数——请查看日志中的 **profile=**。之后只能删除并重新添加设备才能更改。",
         "data": {
           "device_model": "设备型号",
-          "scan_interval": "更新间隔（秒）"
+          "scan_interval": "更新间隔（秒，0 = 关闭）"
         }
       },
       "user_aliases": {
@@ -43,7 +43,7 @@
         "description": "设备报告的型号为 **{probed_model}**，不在此处的任何列表中，因此没有预选。请选择袖带上印的型号或 Omron Connect 中显示的型号。列表共有 **{model_total}** 项：硬件配置 **{profile_count}** 个，以及共享同一配置的地区或套装代码 **{variant_count}** 个。如果没有完全一致的代码，请选择最接近的型号。型号决定如何读取袖带内存，选错会在没有错误的情况下得到空值或无意义的读数——请查看日志中的 **profile=**。之后只能删除并重新添加设备才能更改。",
         "data": {
           "device_model": "设备型号",
-          "scan_interval": "更新间隔（秒）"
+          "scan_interval": "更新间隔（秒，0 = 关闭）"
         }
       },
       "select_model_ambiguous": {
@@ -51,7 +51,7 @@
         "description": "设备报告的型号为 **{probed_model}**。有 **{candidate_count}** 个型号使用该名称，读取方式并不相同：\n\n{candidates}\n\n袖带通过无线发送的内容无法区分它们——欧姆龙应用知道，只是因为你告诉了它。请选择袖带上印的那一个。\n\n列表共有 **{model_total}** 项：硬件配置 **{profile_count}** 个，以及共享同一配置的地区或套装代码 **{variant_count}** 个。如果没有完全一致的代码，请选择最接近的型号。型号决定如何读取袖带内存，选错会在没有错误的情况下得到空值或无意义的读数——请查看日志中的 **profile=**。之后只能删除并重新添加设备才能更改。",
         "data": {
           "device_model": "设备型号",
-          "scan_interval": "更新间隔（秒）"
+          "scan_interval": "更新间隔（秒，0 = 关闭）"
         }
       }
     },
@@ -59,7 +59,8 @@
       "pairing_failed": "配对失败。请确认设备处于配对模式（屏幕显示 -P-）后重试。",
       "decryption_failed": "提供的 bindkey 无效，无法解密传感器数据。请检查后重试。",
       "expected_32_characters": "bindkey 应为 32 位十六进制字符。",
-      "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。"
+      "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。",
+      "invalid_scan_interval": "请输入 0（关闭定时轮询）或至少 60 秒。"
     },
     "abort": {
       "reauth_successful": "重新验证成功",
@@ -74,9 +75,9 @@
     "step": {
       "init": {
         "title": "Omron Bluetooth",
-        "description": "Home Assistant 轮询血压计以获取新读数的间隔（60–86400 秒）。数值越小，袖带越耗电。\n\n**此设备的配置槽数：** {num_users}。多于一个时，可在下方为每个槽设置显示名称（默认 user1、user2……）。重命名某个槽会为该槽创建新的传感器实体。",
+        "description": "Home Assistant 轮询血压计以获取新读数的间隔（60–86400 秒）。数值越小，袖带越耗电。设为 0 将关闭定时轮询。会发出待传输信号的袖带仍会自动读取，其他袖带只能通过“刷新数据”按钮更新。\n\n**此设备的配置槽数：** {num_users}。多于一个时，可在下方为每个槽设置显示名称（默认 user1、user2……）。重命名某个槽会为该槽创建新的传感器实体。",
         "data": {
-          "scan_interval": "更新间隔（秒）",
+          "scan_interval": "更新间隔（秒，0 = 关闭）",
           "user_alias_1": "用户 1 名称",
           "user_alias_2": "用户 2 名称",
           "user_alias_3": "用户 3 名称",
@@ -85,7 +86,8 @@
       }
     },
     "error": {
-      "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。"
+      "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。",
+      "invalid_scan_interval": "请输入 0（关闭定时轮询）或至少 60 秒。"
     }
   },
   "entity": {
