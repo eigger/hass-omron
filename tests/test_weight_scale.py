@@ -57,7 +57,7 @@ class TestProfile:
         assert config.user_start_addresses == [0x02C0]
         assert config.per_user_records_count == [30]
         assert config.record_byte_size == 0x10
-        # The device serves 16 bytes per read and takes 12 per write.
+        # The app reads at most 16 bytes per request.
         assert config.transmission_block_size == 0x10
         user = config.index_pointer_layout["users"][0]
         assert user["write_cursor_mask"] == 0x3F
