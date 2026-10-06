@@ -66,7 +66,7 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
     return out
 
 # Local-name prefixes of Omron model codes: cuffs and scales.
-_OMRON_MODEL_PREFIXES = ("HEM-", "HN-")
+_OMRON_MODEL_PREFIXES = ("HEM-", "HN-3")
 
 _RACP_SETTLE_S = 0.5
 _RACP_MEASUREMENT_TIMEOUT_S = 3.0

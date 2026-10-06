@@ -493,8 +493,14 @@ class OmronBluetoothSensorEntity(
 
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return
-        restored = self._parse_restored_state_string(str(last_state.state))
-        shown_unit = last_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        self._restored_native_value = self._restored_value(
+            str(last_state.state), last_state.attributes
+        )
+
+    def _restored_value(self, state_str: str, attributes: Any) -> Any:
+        """Native value for a recorded state, undoing the user's display unit."""
+        restored = self._parse_restored_state_string(state_str)
+        shown_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
         native_unit = self.entity_description.native_unit_of_measurement
         if (
             self.entity_description.device_class == SensorDeviceClass.WEIGHT
@@ -502,12 +508,11 @@ class OmronBluetoothSensorEntity(
             and shown_unit
             and shown_unit != native_unit
         ):
-            # The recorded state is in the unit the user chose to display.
             try:
-                restored = MassConverter.convert(restored, shown_unit, native_unit)
+                return MassConverter.convert(restored, shown_unit, native_unit)
             except HomeAssistantError:
-                restored = None
-        self._restored_native_value = restored
+                return None
+        return restored
 
     def _resolve_user_id_from_key(self) -> str:
         """Resolve user_id from sensor key using aliases or numeric suffix."""

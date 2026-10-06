@@ -97,7 +97,7 @@ class TestRecord:
         # 0x07B0 = 98.4 kg; read little-endian it would be 2259 kg.
         raw = bytearray(RECORD)
         raw[0:2] = bytes([0x07, 0xB0])
-        assert parse_weight_16(bytes(raw), "big")["weight"] == 98.4
+        assert get_device_config("HN-300T2").parse_record(bytes(raw))["weight"] == 98.4
 
     def test_an_empty_slot_is_rejected(self):
         with pytest.raises(ValueError):
