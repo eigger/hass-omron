@@ -19,6 +19,7 @@ and a 2-byte check). The integration reads 16 at most.
 | `0x01A0` (read) / `0x0230` (write) | 12 | index block |
 | `0x01AC` (read) | 12 | read once by the app, all `0xFF` on the captured scale |
 | `0x01B8` (read) / `0x0248` (write) | 8 | clock block |
+| `0x01C0` (read) | 8 | read with the clock block by the app, unknown |
 | `0x02C0` | 30 x 16 | records, one user, ring buffer |
 
 ## Index block
@@ -33,7 +34,8 @@ and a 2-byte check). The integration reads 16 at most.
 Cursor byte: bit 7 keeps the odd parity of the byte, bits 0-5 are the pointer;
 bit 6 was set on the capture (sequence 380, past one lap of 30) and is likely
 the ring-wrapped flag. The newest record is slot `pointer - 1` (wrapping at
-30). A cursor of `0x80` is the cleared value: nothing recorded.
+30). A cursor of `0x80` is likely the cleared value (nothing recorded); the
+capture only shows `0x80` written to the unread counter.
 
 The app clears the unread counter with a 12-byte write to `0x0230` after the
 readout. The integration does not: nothing requires it for reading the latest
@@ -48,7 +50,7 @@ record. Revisit if the scale keeps announcing pending data.
 | 8 | unit, `0` on the captured scale (kg) |
 | 9-10 | sequence number, equals the index sequence for the newest record |
 | 11-12 | the same weight in 0.2 lb steps |
-| 13-15 | not defined |
+| 13-15 | unknown |
 
 The lb field is the byte-order check: `0x046D` is 226.6 lb for 102.8 kg only
 when read big-endian.
