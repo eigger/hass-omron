@@ -57,7 +57,8 @@ class TestProfile:
         assert config.user_start_addresses == [0x02C0]
         assert config.per_user_records_count == [30]
         assert config.record_byte_size == 0x10
-        assert config.ignore_checksum_blocks == (1,)
+        # The device serves 16 bytes per read and takes 12 per write.
+        assert config.transmission_block_size == 0x10
         user = config.index_pointer_layout["users"][0]
         assert user["write_cursor_mask"] == 0x3F
         assert user["cursor_parity"] == "odd"
@@ -66,7 +67,6 @@ class TestProfile:
         config = get_device_config("HEM-7142T2")
         assert config.measurement_kind == MeasurementKind.BLOOD_PRESSURE
         assert config.is_blood_pressure is True
-        assert config.ignore_checksum_blocks == ()
 
     def test_the_local_name_infers_the_model(self):
         assert infer_model_id_from_local_name("HN-300T2") == "HN-300T2"
@@ -98,6 +98,14 @@ class TestRecord:
         raw = bytearray(RECORD)
         raw[0:2] = bytes([0x07, 0xB0])
         assert get_device_config("HN-300T2").parse_record(bytes(raw))["weight"] == 98.4
+
+    def test_the_pound_field_confirms_the_byte_order(self):
+        # [11:13] holds the same weight in 0.2 lb steps. Big-endian it is
+        # 226.6 lb, which is the kg value; little-endian it is not a weight.
+        kg = parse_weight_16(RECORD, "big")["weight"]
+        pounds = int.from_bytes(RECORD[11:13], "big") * 0.2
+        assert pounds == pytest.approx(kg * 2.20462, abs=0.1)
+        assert int.from_bytes(RECORD[11:13], "little") * 0.2 > 300
 
     def test_an_empty_slot_is_rejected(self):
         with pytest.raises(ValueError):
@@ -133,6 +141,13 @@ class TestClock:
         assert bytes(
             _encode_eeprom_time_payload(layout, bytearray(CLOCK_READ), CAPTURE_AT)
         ) == CLOCK_WRITTEN
+
+    def test_the_pad_byte_is_written_back_as_read(self):
+        layout = TimeSyncLayout.AT_0_CHECKSUM.value
+        cached = bytearray(CLOCK_READ[:7] + b"\x5a")
+        written = _encode_eeprom_time_payload(layout, cached, CAPTURE_AT)
+        assert written[:7] == CLOCK_WRITTEN[:7]
+        assert written[7] == 0x5A
 
     def test_the_window_is_the_eight_bytes_the_app_touched(self):
         config = get_device_config("HN-300T2")

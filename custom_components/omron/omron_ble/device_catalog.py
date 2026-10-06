@@ -1404,8 +1404,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     # HN-300T2 -- weight-only scale on the same modern stack and WLD1.0 memory
     # protocol as the HEM-716BT2 cuff (#233). Beta: no device on hand, the
-    # layout comes from a reporter's capture. The index cursor keeps odd parity
-    # in bit 7 and bit 6 is a flag, so only the low six bits are the pointer.
+    # layout comes from a reporter's capture; see docs/hn-300t2-memory-map.md.
+    # The index cursor keeps odd parity in bit 7 and sets bit 6 once the ring
+    # has wrapped, so the pointer is the low six bits. Reads are at most 16
+    # bytes per request, writes 12.
     "HN-300T2": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HN-300T2",
@@ -1416,12 +1418,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         user_start_addresses=[0x02C0],
         per_user_records_count=[30],
         record_byte_size=0x10,
-        transmission_block_size=0x2C,
+        transmission_block_size=0x10,
         settings_read_address=0x01A0,
         settings_write_address=0x0230,
         settings_time_sync_bytes=[0x18, 0x20],
         time_sync_layout=TimeSyncLayout.AT_0_CHECKSUM,
-        ignore_checksum_blocks=(1,),
         index_pointer_layout={
             "index_region_byte_size": 0x0C,
             "endianness": "little",

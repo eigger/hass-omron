@@ -99,7 +99,7 @@ def _encode_eeprom_time_payload(
             ]
         )
         result.append(sum(result) & 0xFF)
-        result.append(0xFF)
+        result.append(cached[7] if len(cached) > 7 else 0xFF)
         return result
     if layout == "eeprom_time_at_0":
         result = bytearray(cached)
@@ -196,7 +196,7 @@ class OmronDeviceDriver:
 
         eeprom_time_at_0_checksum (8-byte block, scales)
             Time bytes [0:6] = [year-2000, month, day, hour, minute, second]
-            Checksum [6] = sum(bytes[0:6]) & 0xFF, then 0xFF.
+            Checksum [6] = sum(bytes[0:6]) & 0xFF, [7] is kept as read.
 
         Returns True on success, False if the device does not support EEPROM time sync.
         """

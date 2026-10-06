@@ -104,7 +104,7 @@ class TimeSyncLayout(StrEnum):
     AT_2_SWAPPED = "eeprom_time_at_2_swapped"
     AT_8 = "eeprom_time_at_8"
     AT_8_SWAPPED = "eeprom_time_at_8_swapped"
-    # An 8-byte block: the six time bytes, their additive checksum, then 0xFF.
+    # An 8-byte block: the six time bytes, their additive checksum, one pad byte.
     AT_0_CHECKSUM = "eeprom_time_at_0_checksum"
 
 
@@ -232,8 +232,6 @@ class DeviceConfig:
     # Per user, ``cursor_parity`` ("odd" or "even") names the parity the cursor
     # byte keeps in bit 7; the pointer is the low bits under ``write_cursor_mask``.
     index_pointer_layout: dict[str, Any] | None = None
-    # 1-based settings blocks left out of the settings checksum.
-    ignore_checksum_blocks: tuple[int, ...] = ()
 
     # Enable each notify CCCD once and leave it enabled for the life of the
     # link, the way the app does. Disabling them at session close was why the
