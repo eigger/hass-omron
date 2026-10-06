@@ -24,6 +24,7 @@ _VENDOR = json.loads(
 
 _WINDOW_START = {
     TimeSyncLayout.AT_0: 0,
+    TimeSyncLayout.AT_0_CHECKSUM: 0,
     TimeSyncLayout.AT_2: 2,
     TimeSyncLayout.AT_2_SWAPPED: 2,
     TimeSyncLayout.AT_8: 8,

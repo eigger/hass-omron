@@ -7,7 +7,7 @@ import logging
 from collections.abc import Collection
 from typing import Any
 
-from .devices import DeviceConfig, HostPairingMode
+from .devices import DeviceConfig, HostPairingMode, MeasurementKind
 from .memory_protocol import MemoryReadRefused
 from .session import OmronDeviceSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
@@ -17,6 +17,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Sub-measurements in one TruRead session (pos=1, 2, 3).
 TRUREAD_SEQUENCE_LEN = 3
+# Plausible range for a stored weight, in kg.
+WEIGHT_RANGE_KG = (1.0, 300.0)
 # A TruRead session takes roughly 3 x (measure + 60 s rest); anything wider
 # than this is two separate sessions.
 TRUREAD_SESSION_WINDOW = dt.timedelta(minutes=15)
@@ -34,7 +36,7 @@ def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
         )
-    if layout == "eeprom_time_at_0":
+    if layout in ("eeprom_time_at_0", "eeprom_time_at_0_checksum"):
         year_off, month, day, hour, minute, second = (int(b) for b in cached[0:6])
         return dt.datetime(
             year_off + 2000, month, day, hour, minute, min(second, 59)
@@ -85,6 +87,20 @@ def _encode_eeprom_time_payload(
         result.append(sum(result) & 0xFF)
         result += bytes([0x00])
         return result
+    if layout == "eeprom_time_at_0_checksum":
+        result = bytearray(
+            [
+                now.year - 2000,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+            ]
+        )
+        result.append(sum(result) & 0xFF)
+        result.append(0xFF)
+        return result
     if layout == "eeprom_time_at_0":
         result = bytearray(cached)
         if len(result) < 16:
@@ -132,6 +148,12 @@ def _encode_eeprom_time_payload(
     return result
 
 
+def _cursor_parity_ok(value: int, parity: str) -> bool:
+    """Whether a cursor byte keeps its bit-7 parity: odd or even ones in total."""
+    ones = bin(value & 0xFF).count("1")
+    return ones % 2 == (1 if parity == "odd" else 0)
+
+
 class OmronDeviceDriver:
     """High-level driver for reading records from Omron blood pressure monitors.
 
@@ -171,6 +193,10 @@ class OmronDeviceDriver:
         eeprom_time_at_0 (HEM-6401 family 16-byte settings slice)
             Time bytes [0:6] = [year-2000, month, day, hour, minute, second]
             Full 16-byte section write without the classic 10-byte checksum tail.
+
+        eeprom_time_at_0_checksum (8-byte block, scales)
+            Time bytes [0:6] = [year-2000, month, day, hour, minute, second]
+            Checksum [6] = sum(bytes[0:6]) & 0xFF, then 0xFF.
 
         Returns True on success, False if the device does not support EEPROM time sync.
         """
@@ -244,6 +270,19 @@ class OmronDeviceDriver:
         )
 
         return True
+
+    async def write_user_profile(self, transport: OmronDeviceSession) -> None:
+        """Write the user profile a device needs to interpret its readings.
+
+        Blood-pressure monitors and plain scales need none, so this is a
+        no-op for them. Body-composition scales cannot produce meaningful
+        values without the user's height, age and sex in a settings block;
+        no profile asks for one yet.
+        """
+        if self._config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+            raise NotImplementedError(
+                f"{self._config.model}: user profile write is not implemented"
+            )
 
     def _parse_eeprom_device_time(self, cached: bytearray) -> dt.datetime | None:
         """Parse and return the current time stored on the device (best-effort)."""
@@ -608,6 +647,13 @@ class OmronDeviceDriver:
             ptr_endian,
             signed=False,
         )
+        parity = user_cfg.get("cursor_parity")
+        if parity is not None and not _cursor_parity_ok(raw_pointer & 0xFF, parity):
+            _LOGGER.debug(
+                "User%d [%s]: cursor 0x%02X does not keep %s parity; "
+                "reading it anyway",
+                idx + 1, self._config.model, raw_pointer & 0xFF, parity,
+            )
         # Unrecorded users have their pointer set to clear_value
         # (0x8000 on the vendor maps). The same word is also a live
         # cursor: bit 15 is a status flag the cuff toggles between
@@ -754,14 +800,20 @@ class OmronDeviceDriver:
                 parsed = None
                 continue
             parsed["_slot_index"] = probe_slot
-            _LOGGER.debug(
-                "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
-                "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
-                idx + 1, self._config.model, probe_slot,
-                parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
-                parsed.get("datetime"), parsed.get("ihb"),
-                parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
-            )
+            if self._config.is_blood_pressure:
+                _LOGGER.debug(
+                    "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
+                    "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
+                    idx + 1, self._config.model, probe_slot,
+                    parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
+                    parsed.get("datetime"), parsed.get("ihb"),
+                    parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
+                )
+            else:
+                _LOGGER.debug(
+                    "User%d [%s] slot=%d parsed: %s",
+                    idx + 1, self._config.model, probe_slot, parsed,
+                )
             if not self._is_record_plausible(parsed):
                 parsed = None
                 continue
@@ -925,7 +977,8 @@ class OmronDeviceDriver:
                 selected_per_user[user] = (user, avg_record)
                 continue
             record = user_candidates[0][1]
-            record["measurement_type"] = "single"
+            if self._config.is_blood_pressure:
+                record["measurement_type"] = "single"
             if collect_limit > 1:
                 # On these models pos is the TruRead sequence index, not a
                 # posture flag; a lone pos=1..3 (session in progress, or a
@@ -947,12 +1000,19 @@ class OmronDeviceDriver:
         if selected is None:
             return None
         user, record = selected
-        _LOGGER.debug(
-            "Index selected [%s]: user=%d slot=%d sys=%s dia=%s bpm=%s dt=%s",
-            self._config.model, user, record.get("_slot_index", "?"),
-            record.get("sys"), record.get("dia"), record.get("bpm"),
-            record.get("datetime"),
-        )
+        if self._config.is_blood_pressure:
+            _LOGGER.debug(
+                "Index selected [%s]: user=%d slot=%d sys=%s dia=%s bpm=%s dt=%s",
+                self._config.model, user, record.get("_slot_index", "?"),
+                record.get("sys"), record.get("dia"), record.get("bpm"),
+                record.get("datetime"),
+            )
+        else:
+            _LOGGER.debug(
+                "Index selected [%s]: user=%d slot=%d weight=%s dt=%s",
+                self._config.model, user, record.get("_slot_index", "?"),
+                record.get("weight"), record.get("datetime"),
+            )
         return self._finalize_public_latest_record(record, user)
 
     def _truread_average(
@@ -1053,6 +1113,19 @@ class OmronDeviceDriver:
             ),
         )
 
+    def _is_weight_plausible(self, record: dict[str, Any]) -> bool:
+        """Weight must be a number inside the range a scale can report."""
+        weight = record.get("weight")
+        low, high = WEIGHT_RANGE_KG
+        if not isinstance(weight, (int, float)) or not (low <= weight <= high):
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: weight=%r out of range [%g, %g] kg",
+                self._config.model, record.get("_slot_index", "?"),
+                weight, low, high,
+            )
+            return False
+        return True
+
     def _is_record_plausible(self, record: dict[str, Any]) -> bool:
         """Sanity-check parsed values to avoid stale/garbage slot selection."""
         date_value = record.get("datetime")
@@ -1074,6 +1147,16 @@ class OmronDeviceDriver:
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: datetime %s is in the future (clock sync issue?)",
                 self._config.model, record.get("_slot_index", "?"), date_value,
+            )
+            return False
+
+        if self._config.measurement_kind == MeasurementKind.WEIGHT:
+            return self._is_weight_plausible(record)
+        if not self._config.is_blood_pressure:
+            _LOGGER.debug(
+                "Record rejected [%s slot=%s]: no plausibility check for %s",
+                self._config.model, record.get("_slot_index", "?"),
+                self._config.measurement_kind,
             )
             return False
 

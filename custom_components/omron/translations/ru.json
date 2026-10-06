@@ -336,6 +336,12 @@
             }
           }
         }
+      },
+      "weight": {
+        "name": "Вес"
+      },
+      "weight_user": {
+        "name": "Вес ({user})"
       }
     },
     "binary_sensor": {

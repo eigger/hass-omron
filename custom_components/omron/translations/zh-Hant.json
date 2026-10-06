@@ -336,6 +336,12 @@
             }
           }
         }
+      },
+      "weight": {
+        "name": "體重"
+      },
+      "weight_user": {
+        "name": "體重 ({user})"
       }
     },
     "binary_sensor": {

@@ -8,6 +8,7 @@ from .devices import (
     Endianness,
     HostPairingMode,
     MeasurementCompletion,
+    MeasurementKind,
     PairingRegistration,
     RecordParser,
     TimeSyncLayout,
@@ -1399,6 +1400,45 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7142T2-Z",
             "HEM-7142T2-ZAZ",
             "HEM-7142T2_JAZ",
+        ),
+    ),
+    # HN-300T2 -- weight-only scale on the same modern stack and WLD1.0 memory
+    # protocol as the HEM-716BT2 cuff (#233). Beta: no device on hand, the
+    # layout comes from a reporter's capture. The index cursor keeps odd parity
+    # in bit 7 and bit 6 is a flag, so only the low six bits are the pointer.
+    "HN-300T2": DeviceConfig(
+        **_MODERN_OS_BONDING_BASE,
+        model="HN-300T2",
+        connect_type=ConnectType.WLD1_0,
+        measurement_kind=MeasurementKind.WEIGHT,
+        unlock_mode=UnlockMode.TOKEN_KEY,
+        endianness=Endianness.BIG,
+        user_start_addresses=[0x02C0],
+        per_user_records_count=[30],
+        record_byte_size=0x10,
+        transmission_block_size=0x2C,
+        settings_read_address=0x01A0,
+        settings_write_address=0x0230,
+        settings_time_sync_bytes=[0x18, 0x20],
+        time_sync_layout=TimeSyncLayout.AT_0_CHECKSUM,
+        ignore_checksum_blocks=(1,),
+        index_pointer_layout={
+            "index_region_byte_size": 0x0C,
+            "endianness": "little",
+            "users": [
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0x3F, "cursor_parity": "odd", "clear_value": 0x80, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
+            ],
+        },
+        record_parser=RecordParser.WEIGHT_16,
+        equivalent_model_ids=(
+            "HN-300T2_AP",
+            "HN-300T2_E-BK",
+            "HN-300T2_E-GY",
+            "HN-300T2_J-BK",
+            "HN-300T2_J-W",
+            "HN-300T2_JT-BK",
+            "HN-300T2_JT-W",
+            "HN-300T2_JT_TW-BK",
         ),
     ),
 }

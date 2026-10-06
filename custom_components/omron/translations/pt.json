@@ -336,6 +336,12 @@
             }
           }
         }
+      },
+      "weight": {
+        "name": "Peso"
+      },
+      "weight_user": {
+        "name": "Peso ({user})"
       }
     },
     "binary_sensor": {

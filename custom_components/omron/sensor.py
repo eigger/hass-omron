@@ -32,6 +32,7 @@ from homeassistant.const import (
     STATE_UNKNOWN,
     EntityCategory,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfMass,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -153,6 +154,18 @@ SENSOR_DESCRIPTIONS = {
             "hypertensive_crisis",
         ],
         icon="mdi:clipboard-pulse-outline",
+    ),
+
+    # Weight (scales)
+    (
+        OmronExtendedSensorDeviceClass.WEIGHT,
+        "kg",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.WEIGHT}_kg",
+        device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
     ),
 
     # Timestamp (datetime object)

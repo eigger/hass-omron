@@ -43,6 +43,7 @@ _TRANSLATED_NAME_BASES: tuple[str, ...] = (
     "shock_index",
     "heart_rate",
     "cuff_fit",
+    "weight",
 )
 
 # Slot label is part of the entity key only for these. Device-level flags are not.
@@ -60,6 +61,7 @@ _USER_NAME_BASES = frozenset({
     "shock_index",
     "heart_rate",
     "cuff_fit",
+    "weight",
 })
 
 

@@ -69,6 +69,9 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
     RATE_PRESSURE_PRODUCT = "rate_pressure_product"
     BLOOD_PRESSURE_CATEGORY = "blood_pressure_category"
 
+    # Weight (scales)
+    WEIGHT = "weight"
+
 
 class ExtendedBinarySensorDeviceClass(BaseDeviceClass):
     """Device class for additional binary sensors."""

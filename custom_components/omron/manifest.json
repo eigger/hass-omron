@@ -17,6 +17,10 @@
     {
       "local_name": "HEM-*",
       "connectable": true
+    },
+    {
+      "local_name": "HN-*",
+      "connectable": true
     }
   ],
   "codeowners": [

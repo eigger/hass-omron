@@ -22,6 +22,7 @@ from .record_parsers import (
     parse_classic_vital_14_bitpacked,
     parse_classic_vital_16_6401_family,
     parse_classic_vital_24_heartguide,
+    parse_weight_16,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +63,19 @@ class ConnectType(StrEnum):
     WLS3_0 = "WLS3.0"
 
 
+class MeasurementKind(StrEnum):
+    """What a device measures; picks the record checks and the entity set.
+
+    Everything below the record decoder -- session, unlock, bonding, memory
+    protocol -- is the same for every kind, so a kind is a property of the
+    profile and not a separate catalog.
+    """
+
+    BLOOD_PRESSURE = "blood_pressure"
+    WEIGHT = "weight"
+    BODY_COMPOSITION = "body_composition"
+
+
 class Endianness(StrEnum):
     """Byte order for EEPROM/record decoding."""
 
@@ -77,6 +91,7 @@ class RecordParser(StrEnum):
     CLASSIC_VITAL_14_BITPACKED = "classic_vital_14_bitpacked"
     CLASSIC_VITAL_14_6232_FAMILY = "classic_vital_14_6232_family"
     CLASSIC_VITAL_24_HEARTGUIDE = "classic_vital_24_heartguide"
+    WEIGHT_16 = "weight_16"
 
 
 class TimeSyncLayout(StrEnum):
@@ -93,6 +108,8 @@ class TimeSyncLayout(StrEnum):
     AT_2_SWAPPED = "eeprom_time_at_2_swapped"
     AT_8 = "eeprom_time_at_8"
     AT_8_SWAPPED = "eeprom_time_at_8_swapped"
+    # An 8-byte block: the six time bytes, their additive checksum, then 0xFF.
+    AT_0_CHECKSUM = "eeprom_time_at_0_checksum"
 
 
 # How long to wait for the peer to hang up before closing the link ourselves.
@@ -206,6 +223,9 @@ class DeviceConfig:
     record_byte_size: int = 0x0E
     transmission_block_size: int = 0x2C
 
+    # What the device measures. Blood pressure unless the profile says so.
+    measurement_kind: MeasurementKind = MeasurementKind.BLOOD_PRESSURE
+
     # Settings addresses
     settings_read_address: int | None = None
     settings_write_address: int | None = None
@@ -213,7 +233,11 @@ class DeviceConfig:
     # EEPROM time layout; see TimeSyncLayout and _decode_eeprom_time_payload.
     # AT_0 also writes the whole 16-byte block back with no checksum tail.
     time_sync_layout: TimeSyncLayout | None = None
+    # Per user, ``cursor_parity`` ("odd" or "even") names the parity the cursor
+    # byte keeps in bit 7; the pointer is the low bits under ``write_cursor_mask``.
     index_pointer_layout: dict[str, Any] | None = None
+    # 1-based settings blocks the vendor map leaves out of its checksum.
+    ignore_checksum_blocks: tuple[int, ...] = ()
 
     # Enable each notify CCCD once and leave it enabled for the life of the
     # link, the way the app does. Disabling them at session close was why the
@@ -427,7 +451,7 @@ class DeviceConfig:
         fallback profile, which would name a device we did not identify. Logs
         keep ``model`` either way, so a report still shows what was resolved.
         """
-        if self.model.upper().startswith("HEM-"):
+        if self.model.upper().startswith(("HEM-", "HN-")):
             return self.model
         alias = MODEL_NUMBER_ALIASES.get(self.model)
         if alias:
@@ -435,6 +459,11 @@ class DeviceConfig:
         if self.model in CANONICAL_DEVICE_PROFILES or self.model in MODEL_VARIANT_MAP:
             return resolve_profile_model_id(self.model)
         return self.model
+
+    @property
+    def is_blood_pressure(self) -> bool:
+        """Whether this profile measures blood pressure."""
+        return self.measurement_kind == MeasurementKind.BLOOD_PRESSURE
 
     @property
     def num_users(self) -> int:
@@ -471,6 +500,7 @@ class DeviceConfig:
             RecordParser.CLASSIC_VITAL_14_BITPACKED: parse_classic_vital_14_bitpacked,
             RecordParser.CLASSIC_VITAL_14_6232_FAMILY: parse_classic_vital_14_6232_family,
             RecordParser.CLASSIC_VITAL_24_HEARTGUIDE: parse_classic_vital_24_heartguide,
+            RecordParser.WEIGHT_16: parse_weight_16,
         }
         parser = parser_map.get(self.record_parser)
         if parser is None:
@@ -574,7 +604,7 @@ def get_supported_model_stats() -> dict[str, int]:
     }
 
 
-_HEM_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+)", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(r"((?:HEM|HN)-[A-Z0-9_.-]+)", re.IGNORECASE)
 # Decoration the carton adds over the app's own listing: a HEM-7188T1-LEO
 # reports "X2+ Connect" where the app says "X2+".
 _NAME_DECORATION_RE = re.compile(
@@ -634,7 +664,7 @@ def _exact_catalog_model_id(token: str) -> str | None:
 
 
 def infer_model_id_from_local_name(local_name: str | None) -> str | None:
-    """Return a catalog model id if the BLE local name embeds a known HEM-* code.
+    """Return a catalog model id if the BLE local name embeds a known HEM-* or HN-* code.
 
     Many Omron cuffs advertise a name like ``HEM-7600T`` or ``Omron … HEM-7322T-D``;
     manufacturer data alone usually does not include the full model string. The mobile
@@ -643,7 +673,7 @@ def infer_model_id_from_local_name(local_name: str | None) -> str | None:
     if not local_name or not str(local_name).strip():
         return None
     name = str(local_name).strip()
-    match = _HEM_MODEL_CODE_RE.search(name)
+    match = _MODEL_CODE_RE.search(name)
     if not match:
         # The config flow also feeds this the GATT Model Number String, which is
         # a different namespace: a US retail cuff answers with its carton name,

@@ -38,7 +38,13 @@ from .const import (
     ExtendedBinarySensorDeviceClass,
 )
 from .time_sync import async_sync_device_time, async_sync_eeprom_time
-from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
+from .devices import (
+    HostPairingMode,
+    DeviceConfig,
+    MeasurementKind,
+    get_device_config,
+    resolve_profile_model_id,
+)
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
@@ -64,6 +70,9 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
         label = str(v).strip() if v is not None else ""
         out[idx] = label if label else f"user{idx}"
     return out
+
+# Local-name prefixes of Omron model codes: cuffs and scales.
+_OMRON_MODEL_PREFIXES = ("HEM-", "HN-")
 
 _RACP_SETTLE_S = 0.5
 _RACP_MEASUREMENT_TIMEOUT_S = 3.0
@@ -185,6 +194,11 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
+        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+            return (
+                ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
+                ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+            )
         return (
             ("blood_pressure_systolic", "mmHg", sensor_classes.BLOOD_PRESSURE_SYSTOLIC, "Systolic"),
             ("blood_pressure_diastolic", "mmHg", sensor_classes.BLOOD_PRESSURE_DIASTOLIC, "Diastolic"),
@@ -233,7 +247,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if name:
             if "omron" in name.lower():
                 return True
-            if name.upper().startswith("HEM-"):
+            if name.upper().startswith(_OMRON_MODEL_PREFIXES):
                 return True
         return False
 
@@ -263,7 +277,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
                 return
-            if name.upper().startswith("HEM-"):
+            if name.upper().startswith(_OMRON_MODEL_PREFIXES):
                 self._setup_device_info(service_info)
                 self.last_service_info = service_info
 
@@ -522,6 +536,12 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
+        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+            return (
+                record.get("datetime"),
+                record.get("user"),
+                record.get("weight"),
+            )
         return (
             record.get("datetime"),
             record.get("user"),
@@ -537,6 +557,18 @@ class OmronBluetoothDeviceData(BluetoothData):
         from .const import ExtendedSensorDeviceClass
 
         key_suffix, name_suffix = self._measurement_user_suffixes(user, multi_user)
+        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+            self._publish_measurement_sensor(
+                "weight",
+                "kg",
+                record.get("weight"),
+                ExtendedSensorDeviceClass.WEIGHT,
+                "Weight",
+                key_suffix,
+                name_suffix,
+            )
+            self._publish_measurement_timestamp(record, key_suffix, name_suffix)
+            return
         sys_val, dia_val, bpm_val = self._publish_primary_measurements(
             record,
             key_suffix,
@@ -684,9 +716,13 @@ class OmronBluetoothDeviceData(BluetoothData):
         normalized_address = service_info.address.replace(":", "")
         identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address
 
-        self.set_title(f"{manufacturer} BPM {identifier}")
+        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+            self.set_title(f"{manufacturer} Scale {identifier}")
+            self.set_device_type("Scale")
+        else:
+            self.set_title(f"{manufacturer} BPM {identifier}")
+            self.set_device_type("Blood Pressure Monitor")
         self.set_device_name(f"{model} {identifier}")
-        self.set_device_type("Blood Pressure Monitor")
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
@@ -734,6 +770,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                 "Time sync failed during poll for %s: %s", ble_device.address, exc
             )
 
+        if memory_session_active:
+            await self._driver.write_user_profile(session)
+
         with trace.timed("readout"):
             multi_user_mode = self._device_config.num_users > 1
             record: dict[str, Any] | None = None
@@ -742,7 +781,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             if multi_user_mode:
                 latest_by_user = await self._driver.get_latest_records_per_user(session)
                 eeprom_record_decoded = bool(latest_by_user)
-                if not latest_by_user:
+                if not latest_by_user and self._device_config.is_blood_pressure:
                     # Diagnostic only: the classic EEPROM index/full-scan path found
                     # nothing usable. Probe the standard BLE Blood Pressure Service
                     # RACP path too so the log shows whether this device exposes
@@ -766,8 +805,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                 record = await self._driver.get_latest_record(session)
                 eeprom_record_decoded = record is not None
                 live_record: dict[str, Any] | None = None
-                live_record = await self._read_latest_via_bls_racp(client)
-                if not self._bp_char_unavailable:
+                # The standard Blood Pressure Service only exists on cuffs.
+                if self._device_config.is_blood_pressure:
+                    live_record = await self._read_latest_via_bls_racp(client)
+                if (
+                    self._device_config.is_blood_pressure
+                    and not self._bp_char_unavailable
+                ):
                     try:
                         bp_raw = await client.read_gatt_char(BP_MEASUREMENT_CHAR_UUID)
                         if bp_raw:
@@ -844,13 +888,20 @@ class OmronBluetoothDeviceData(BluetoothData):
                         if signature != previous:
                             self._last_record_signatures_by_user[user] = signature
             elif record:
-                _LOGGER.debug(
-                    "Latest selected: datetime=%s sys=%s dia=%s bpm=%s",
-                    record.get("datetime"),
-                    record.get("sys"),
-                    record.get("dia"),
-                    record.get("bpm"),
-                )
+                if self._device_config.is_blood_pressure:
+                    _LOGGER.debug(
+                        "Latest selected: datetime=%s sys=%s dia=%s bpm=%s",
+                        record.get("datetime"),
+                        record.get("sys"),
+                        record.get("dia"),
+                        record.get("bpm"),
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Latest selected: datetime=%s weight=%s",
+                        record.get("datetime"),
+                        record.get("weight"),
+                    )
                 self._update_measurement_sensors(record)
                 signature = self._build_record_signature(record)
                 if signature != self._last_record_signature:
