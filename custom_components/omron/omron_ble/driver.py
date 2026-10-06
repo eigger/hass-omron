@@ -7,7 +7,7 @@ import logging
 from collections.abc import Collection
 from typing import Any
 
-from .devices import DeviceConfig, HostPairingMode, MeasurementKind
+from .devices import DeviceConfig, HostPairingMode
 from .memory_protocol import MemoryReadRefused
 from .session import OmronDeviceSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
@@ -274,15 +274,8 @@ class OmronDeviceDriver:
     async def write_user_profile(self, transport: OmronDeviceSession) -> None:
         """Write the user profile a device needs to interpret its readings.
 
-        Blood-pressure monitors and plain scales need none, so this is a
-        no-op for them. Body-composition scales cannot produce meaningful
-        values without the user's height, age and sex in a settings block;
-        no profile asks for one yet.
+        Nothing needs one yet; body-composition scales will (height, age, sex).
         """
-        if self._config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
-            raise NotImplementedError(
-                f"{self._config.model}: user profile write is not implemented"
-            )
 
     def _parse_eeprom_device_time(self, cached: bytearray) -> dt.datetime | None:
         """Parse and return the current time stored on the device (best-effort)."""
@@ -1150,15 +1143,8 @@ class OmronDeviceDriver:
             )
             return False
 
-        if self._config.measurement_kind == MeasurementKind.WEIGHT:
-            return self._is_weight_plausible(record)
         if not self._config.is_blood_pressure:
-            _LOGGER.debug(
-                "Record rejected [%s slot=%s]: no plausibility check for %s",
-                self._config.model, record.get("_slot_index", "?"),
-                self._config.measurement_kind,
-            )
-            return False
+            return self._is_weight_plausible(record)
 
         sys = record.get("sys")
         dia = record.get("dia")

@@ -32,6 +32,8 @@ INDEX = bytes.fromhex("540000000100000001 7c0080".replace(" ", ""))
 RECORD = bytes.fromhex("08081a0a0612 3a27 00017c046dff9aff".replace(" ", ""))
 CLOCK_READ = bytes.fromhex("1a0a06123a3ab0ff")
 CLOCK_WRITTEN = bytes.fromhex("1a0a0612 3b12 89ff".replace(" ", ""))
+WEIGHT_SERVICE = "0000181d-0000-1000-8000-00805f9b34fb"
+PRESSURE_SERVICE = "00001810-0000-1000-8000-00805f9b34fb"
 CAPTURE_AT = datetime.datetime(2026, 10, 6, 18, 59, 18)
 
 
@@ -55,7 +57,6 @@ class TestProfile:
         assert config.user_start_addresses == [0x02C0]
         assert config.per_user_records_count == [30]
         assert config.record_byte_size == 0x10
-        # The vendor map leaves the first settings block out of its checksum.
         assert config.ignore_checksum_blocks == (1,)
         user = config.index_pointer_layout["users"][0]
         assert user["write_cursor_mask"] == 0x3F
@@ -71,6 +72,19 @@ class TestProfile:
         assert infer_model_id_from_local_name("HN-300T2") == "HN-300T2"
         assert infer_model_id_from_local_name("OMRON HN-300T2_AP") == "HN-300T2_AP"
 
+    def test_a_name_that_only_ends_in_hn_is_not_a_scale(self):
+        assert infer_model_id_from_local_name("XHN-300T2") is None
+        assert infer_model_id_from_local_name("XHN-1 HEM-7600T") == "HEM-7600T"
+
+    def test_the_standard_weight_service_alone_is_compatible(self):
+        scale = get_device_config("HN-300T2")
+        cuff = get_device_config("HEM-7142T2")
+        weight, pressure = [WEIGHT_SERVICE], [PRESSURE_SERVICE]
+        assert scale.is_advertisement_compatible(weight)
+        assert not scale.is_advertisement_compatible(pressure)
+        assert cuff.is_advertisement_compatible(pressure)
+        assert not cuff.is_advertisement_compatible(weight)
+
 
 class TestRecord:
     def test_capture_record(self):
@@ -78,6 +92,12 @@ class TestRecord:
         assert record["weight"] == 102.8
         assert record["datetime"] == datetime.datetime(2026, 10, 6, 18, 58, 39)
         assert record["_record_id"] == 0x017C
+
+    def test_the_weight_is_big_endian(self):
+        # 0x07B0 = 98.4 kg; read little-endian it would be 2259 kg.
+        raw = bytearray(RECORD)
+        raw[0:2] = bytes([0x07, 0xB0])
+        assert parse_weight_16(bytes(raw), "big")["weight"] == 98.4
 
     def test_an_empty_slot_is_rejected(self):
         with pytest.raises(ValueError):
@@ -187,20 +207,9 @@ class TestReadout:
 
 
 class TestProfileHook:
-    def test_a_scale_needs_no_profile_write(self):
+    def test_no_profile_needs_a_write_yet(self):
         driver, transport, _ = _driver_and_transport({})
         asyncio.run(driver.write_user_profile(transport))
-
-    def test_a_body_composition_profile_has_no_writer_yet(self):
-        from dataclasses import replace
-
-        config = replace(
-            get_device_config("HN-300T2"),
-            measurement_kind=MeasurementKind.BODY_COMPOSITION,
-        )
-        driver = OmronDeviceDriver(config)
-        with pytest.raises(NotImplementedError):
-            asyncio.run(driver.write_user_profile(MagicMock()))
 
 
 class TestEntityNames:

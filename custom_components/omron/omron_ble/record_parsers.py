@@ -267,14 +267,12 @@ def parse_classic_vital_24_heartguide(
     return record
 
 
-
 def parse_weight_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     """16-byte weight-scale record (HN-300T2).
 
     Byte layout:
       [0:2]   weight in 0.05 kg steps (0xFFFF means empty)
       [2:8]   year-2000, month, day, hour, minute, second
-      [8]     unit flag
       [9:11]  sequence number
     """
     if len(data) < 16:
@@ -285,7 +283,6 @@ def parse_weight_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
 
     record: dict[str, Any] = {
         "weight": round(raw_weight * 0.05, 2),
-        "unit": int(data[8]),
         "_record_id": int.from_bytes(bytes(data[9:11]), endianness),
     }
     try:

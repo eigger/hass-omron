@@ -38,13 +38,7 @@ from .const import (
     ExtendedBinarySensorDeviceClass,
 )
 from .time_sync import async_sync_device_time, async_sync_eeprom_time
-from .devices import (
-    HostPairingMode,
-    DeviceConfig,
-    MeasurementKind,
-    get_device_config,
-    resolve_profile_model_id,
-)
+from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
@@ -167,6 +161,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
+        if self.last_service_info is not None:
+            self._setup_device_info(self.last_service_info)
 
     def _seed_measurement_entities(self) -> None:
         """Pre-register measurement sensor descriptions for offline startup.
@@ -194,7 +190,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
-        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+        if not self._device_config.is_blood_pressure:
             return (
                 ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
                 ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
@@ -536,7 +532,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _build_record_signature(self, record: dict[str, Any]) -> tuple[Any, ...]:
         """Build a compact record signature for new-vs-stale detection."""
-        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+        if not self._device_config.is_blood_pressure:
             return (
                 record.get("datetime"),
                 record.get("user"),
@@ -557,7 +553,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         from .const import ExtendedSensorDeviceClass
 
         key_suffix, name_suffix = self._measurement_user_suffixes(user, multi_user)
-        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+        if not self._device_config.is_blood_pressure:
             self._publish_measurement_sensor(
                 "weight",
                 "kg",
@@ -716,7 +712,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         normalized_address = service_info.address.replace(":", "")
         identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address
 
-        if self._device_config.measurement_kind == MeasurementKind.WEIGHT:
+        if not self._device_config.is_blood_pressure:
             self.set_title(f"{manufacturer} Scale {identifier}")
             self.set_device_type("Scale")
         else:
@@ -870,14 +866,22 @@ class OmronBluetoothDeviceData(BluetoothData):
                 if latest_by_user:
                     for user in sorted(latest_by_user):
                         user_record = latest_by_user[user]
-                        _LOGGER.debug(
-                            "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
-                            user,
-                            user_record.get("datetime"),
-                            user_record.get("sys"),
-                            user_record.get("dia"),
-                            user_record.get("bpm"),
-                        )
+                        if self._device_config.is_blood_pressure:
+                            _LOGGER.debug(
+                                "User-specific latest selected: user=%d datetime=%s sys=%s dia=%s bpm=%s",
+                                user,
+                                user_record.get("datetime"),
+                                user_record.get("sys"),
+                                user_record.get("dia"),
+                                user_record.get("bpm"),
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "User-specific latest selected: user=%d datetime=%s weight=%s",
+                                user,
+                                user_record.get("datetime"),
+                                user_record.get("weight"),
+                            )
                         self._update_measurement_sensors(
                             user_record,
                             user=user,

@@ -11,6 +11,7 @@ from .const import (
     CLASSIC_STACK_PARENT_SERVICE_UUID,
     MODERN_STACK_PARENT_SERVICE_UUID,
     STANDARD_BLOOD_PRESSURE_SERVICE_UUID,
+    STANDARD_WEIGHT_SCALE_SERVICE_UUID,
     CLASSIC_STACK_RX_CHARACTERISTIC_UUIDS,
     CLASSIC_STACK_TX_CHARACTERISTIC_UUIDS,
     DEFAULT_DEVICE_MODEL,
@@ -64,12 +65,7 @@ class ConnectType(StrEnum):
 
 
 class MeasurementKind(StrEnum):
-    """What a device measures; picks the record checks and the entity set.
-
-    Everything below the record decoder -- session, unlock, bonding, memory
-    protocol -- is the same for every kind, so a kind is a property of the
-    profile and not a separate catalog.
-    """
+    """What a device measures; picks the record checks and the entity set."""
 
     BLOOD_PRESSURE = "blood_pressure"
     WEIGHT = "weight"
@@ -236,7 +232,7 @@ class DeviceConfig:
     # Per user, ``cursor_parity`` ("odd" or "even") names the parity the cursor
     # byte keeps in bit 7; the pointer is the low bits under ``write_cursor_mask``.
     index_pointer_layout: dict[str, Any] | None = None
-    # 1-based settings blocks the vendor map leaves out of its checksum.
+    # 1-based settings blocks left out of the settings checksum.
     ignore_checksum_blocks: tuple[int, ...] = ()
 
     # Enable each notify CCCD once and leave it enabled for the life of the
@@ -438,7 +434,7 @@ class DeviceConfig:
 
     @property
     def display_model(self) -> str:
-        """Model name for the UI, kept in the HEM- form.
+        """Model name for the UI, kept in the HEM- (cuff) or HN- (scale) form.
 
         A profile can be reached by a retail carton name -- BP5465 is the only
         one in the catalog -- and that is also what the cuff answers with over
@@ -526,17 +522,21 @@ class DeviceConfig:
     def is_advertisement_compatible(self, service_uuids: list[str] | None) -> bool:
         """Whether scan-time service UUIDs are consistent enough to attempt pairing/poll.
 
-        Passive advertisements often list only the standard Blood Pressure service (0x1810);
-        the Omron parent service may appear only after GATT service discovery post-connection.
+        Passive advertisements often list only the standard service of the device kind
+        (Blood Pressure 0x1810, Weight Scale 0x181D); the Omron parent service may
+        appear only after GATT service discovery post-connection.
         """
         if not service_uuids:
             return True
         if self.is_service_compatible(service_uuids):
             return True
         advertised = {str(u).lower() for u in service_uuids}
-        if STANDARD_BLOOD_PRESSURE_SERVICE_UUID.lower() in advertised:
-            return True
-        return False
+        standard = (
+            STANDARD_BLOOD_PRESSURE_SERVICE_UUID
+            if self.is_blood_pressure
+            else STANDARD_WEIGHT_SCALE_SERVICE_UUID
+        )
+        return standard.lower() in advertised
 
 
 
@@ -604,7 +604,7 @@ def get_supported_model_stats() -> dict[str, int]:
     }
 
 
-_MODEL_CODE_RE = re.compile(r"((?:HEM|HN)-[A-Z0-9_.-]+)", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+|(?<![A-Z0-9])HN-[A-Z0-9_.-]+)", re.IGNORECASE)
 # Decoration the carton adds over the app's own listing: a HEM-7188T1-LEO
 # reports "X2+ Connect" where the app says "X2+".
 _NAME_DECORATION_RE = re.compile(

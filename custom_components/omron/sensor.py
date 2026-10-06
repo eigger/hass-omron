@@ -28,6 +28,7 @@ from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothProcessorEntity,
 )
 from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     EntityCategory,
@@ -36,6 +37,8 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util.unit_conversion import MassConverter
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -165,7 +168,7 @@ SENSOR_DESCRIPTIONS = {
         device_class=SensorDeviceClass.WEIGHT,
         native_unit_of_measurement=UnitOfMass.KILOGRAMS,
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=2,
+        suggested_display_precision=1,
     ),
 
     # Timestamp (datetime object)
@@ -490,9 +493,21 @@ class OmronBluetoothSensorEntity(
 
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return
-        self._restored_native_value = self._parse_restored_state_string(
-            str(last_state.state)
-        )
+        restored = self._parse_restored_state_string(str(last_state.state))
+        shown_unit = last_state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        native_unit = self.entity_description.native_unit_of_measurement
+        if (
+            self.entity_description.device_class == SensorDeviceClass.WEIGHT
+            and isinstance(restored, (int, float))
+            and shown_unit
+            and shown_unit != native_unit
+        ):
+            # The recorded state is in the unit the user chose to display.
+            try:
+                restored = MassConverter.convert(restored, shown_unit, native_unit)
+            except HomeAssistantError:
+                restored = None
+        self._restored_native_value = restored
 
     def _resolve_user_id_from_key(self) -> str:
         """Resolve user_id from sensor key using aliases or numeric suffix."""
