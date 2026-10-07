@@ -161,8 +161,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._last_record_signature = None
         self._last_record_signatures_by_user = {}
-        if self.last_service_info is not None:
-            self._setup_device_info(self.last_service_info)
 
     def _seed_measurement_entities(self) -> None:
         """Pre-register measurement sensor descriptions for offline startup.
@@ -712,12 +710,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         normalized_address = service_info.address.replace(":", "")
         identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address
 
-        if not self._device_config.is_blood_pressure:
-            self.set_title(f"{manufacturer} Scale {identifier}")
-            self.set_device_type("Scale")
-        else:
-            self.set_title(f"{manufacturer} BPM {identifier}")
+        self.set_title(f"{manufacturer} {identifier}")
+        if self._device_config.is_blood_pressure:
             self.set_device_type("Blood Pressure Monitor")
+        else:
+            self.set_device_type("Scale")
         self.set_device_name(f"{model} {identifier}")
         self.set_device_manufacturer(manufacturer)
         self.pending = False
