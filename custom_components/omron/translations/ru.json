@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Вес ({user})"
+      },
+      "bmi": {
+        "name": "ИМТ"
+      },
+      "bmi_category": {
+        "name": "Категория ИМТ (ВОЗ)",
+        "state": {
+          "underweight": "Недостаточный вес",
+          "normal": "Норма",
+          "overweight": "Избыточный вес",
+          "obesity_class_1": "Ожирение I степени",
+          "obesity_class_2": "Ожирение II степени",
+          "obesity_class_3": "Ожирение III степени"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Имя устройства"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Рост"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "Рост должен быть 0 (чтобы очистить) или от {min} до {max} см."
     }
   }
 }

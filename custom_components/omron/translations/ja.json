@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "体重 ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI 判定 (WHO)",
+        "state": {
+          "underweight": "低体重",
+          "normal": "普通体重",
+          "overweight": "過体重",
+          "obesity_class_1": "肥満 1 度",
+          "obesity_class_2": "肥満 2 度",
+          "obesity_class_3": "肥満 3 度"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "機器のニックネーム"
       }
+    },
+    "number": {
+      "height": {
+        "name": "身長"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "身長は 0 (クリア) または {min}〜{max} cm で入力してください。"
     }
   }
 }

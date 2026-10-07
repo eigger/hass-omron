@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Vikt ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI-kategori (WHO)",
+        "state": {
+          "underweight": "Undervikt",
+          "normal": "Normalvikt",
+          "overweight": "Övervikt",
+          "obesity_class_1": "Fetma klass 1",
+          "obesity_class_2": "Fetma klass 2",
+          "obesity_class_3": "Fetma klass 3"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Enhetens smeknamn"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Längd"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "Längden måste vara 0 (för att rensa) eller mellan {min} och {max} cm."
     }
   }
 }

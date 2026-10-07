@@ -52,6 +52,7 @@ from .types import OmronConfigEntry
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.NUMBER,
     Platform.SENSOR,
     Platform.TEXT,
 ]
