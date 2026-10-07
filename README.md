@@ -126,6 +126,25 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Irregular Pulse**: `On` indicates that an irregular heart rhythm was detected.
   - **Improper Position**: `On` indicates the device was not at heart level (wrist models).
   - **Connection**: `On` while Home Assistant is actively communicating with the monitor.
+- **Scales** get the same diagnostic sensors, plus:
+  - **Weight (kg)** and **Measurement Timestamp**
+  - **Height** (number entity, under *Configuration*): your height in cm, used for BMI. Enter a value from `100` to `220` cm (0.1 cm steps); `0` clears it. It is stored in Home Assistant only and restored after a restart; nothing is written to the scale.
+  - **BMI (kg/m²)** and **BMI Category (WHO)**, on weight-only scales such as the HN-300T2. Both are computed from the latest weight and the Height entity, and stay `unknown` until both are set. Their attributes show the `weight_kg` and `height_cm` used. Changing the Weight sensor's display unit does not affect them.
+
+## BMI Categories (WHO)
+
+The **BMI Category** sensor uses the **WHO adult** bands on the BMI rounded to one decimal (the value the BMI sensor shows).
+
+| Category | BMI (kg/m²) |
+| :--- | :--- |
+| **Underweight** | < 18.5 |
+| **Normal** | 18.5 – 24.9 |
+| **Overweight** | 25.0 – 29.9 |
+| **Obesity class 1** | 30.0 – 34.9 |
+| **Obesity class 2** | 35.0 – 39.9 |
+| **Obesity class 3** | ≥ 40.0 |
+
+> BMI and these bands are adult screening criteria, not a diagnosis. They do not apply to children and teenagers or during pregnancy, and they misjudge very muscular people such as athletes.
 
 ## Blood Pressure Categories (ACC/AHA)
 

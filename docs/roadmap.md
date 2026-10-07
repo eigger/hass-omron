@@ -42,6 +42,7 @@ settings_mirror ──────┘                                           
 | `bls.py` | Blood Pressure Measurement (0x2A35) decode |
 | `devices.py` / `device_catalog.py` / `model_aliases.py` | Profile schema, the per-model catalog, name aliases |
 | `record_parsers.py` | Pure record decoders |
+| `body_metrics.py` | BMI and its WHO adult category for weight scales (pure) |
 
 HA side: `__init__.py` (setup, poll wrapper, advertisement callback),
 `config_flow.py`, `session_handoff.py` (parking an open session between the
