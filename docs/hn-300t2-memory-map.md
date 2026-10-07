@@ -1,5 +1,7 @@
 # HN-300T2 memory map (beta, #233)
 
+Other scales (HBF body-composition family): [body-composition-scales-notes.md](body-composition-scales-notes.md).
+
 Reconstructed from a Bluetooth capture of the vendor app reading the scale
 (102.8 kg at 2026-10-06 18:58:39). Same FE4A stack, token unlock and WLD1.0
 memory protocol as the HEM-716BT2 cuff; only the record and the checks differ.
