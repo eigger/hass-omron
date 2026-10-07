@@ -78,7 +78,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def __init__(
         self,
-        device_model: str = DEFAULT_DEVICE_MODEL,
+        device_model: str | None = None,
         user_aliases: dict[int, str] | None = None,
         get_tz: Callable[[], dt.tzinfo] | None = None,
     ) -> None:
@@ -89,8 +89,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._get_tz = get_tz
         self.last_service_info: BluetoothServiceInfoBleak | None = None
         self.pending = True
-        self._device_model = device_model
-        self._device_config: DeviceConfig = get_device_config(device_model)
+        # Until a model is chosen (discovery in the config flow) the device is
+        # only known to be an Omron, so its title does not name a kind.
+        self._model_chosen = device_model is not None
+        self._device_model = device_model or DEFAULT_DEVICE_MODEL
+        self._device_config: DeviceConfig = get_device_config(self._device_model)
         self._driver = OmronDeviceDriver(self._device_config)
         self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
@@ -156,6 +159,7 @@ class OmronBluetoothDeviceData(BluetoothData):
     @device_model.setter
     def device_model(self, model: str) -> None:
         """Set the device model and update internal config."""
+        self._model_chosen = True
         self._device_model = model
         self._device_config = get_device_config(model)
         self._driver = OmronDeviceDriver(self._device_config)
@@ -712,7 +716,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         normalized_address = service_info.address.replace(":", "")
         identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address
 
-        if not self._device_config.is_blood_pressure:
+        if not self._model_chosen:
+            self.set_title(f"{manufacturer} {identifier}")
+            self.set_device_type("Blood Pressure Monitor")
+        elif not self._device_config.is_blood_pressure:
             self.set_title(f"{manufacturer} Scale {identifier}")
             self.set_device_type("Scale")
         else:
