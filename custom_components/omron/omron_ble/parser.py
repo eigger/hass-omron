@@ -91,7 +91,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.pending = True
         # Until a model is chosen (discovery in the config flow) the device is
         # only known to be an Omron, so its title does not name a kind.
-        self._model_chosen = device_model is not None
+        self._model_chosen = bool(device_model)
         self._device_model = device_model or DEFAULT_DEVICE_MODEL
         self._device_config: DeviceConfig = get_device_config(self._device_model)
         self._driver = OmronDeviceDriver(self._device_config)
