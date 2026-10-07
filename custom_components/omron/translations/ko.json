@@ -326,6 +326,12 @@
             }
           }
         }
+      },
+      "weight": {
+        "name": "체중"
+      },
+      "weight_user": {
+        "name": "체중 ({user})"
       }
     },
     "binary_sensor": {

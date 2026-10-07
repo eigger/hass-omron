@@ -336,6 +336,12 @@
             }
           }
         }
+      },
+      "weight": {
+        "name": "Waga"
+      },
+      "weight_user": {
+        "name": "Waga ({user})"
       }
     },
     "binary_sensor": {

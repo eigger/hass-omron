@@ -266,3 +266,35 @@ def parse_classic_vital_24_heartguide(
         record["datetime"] = None
     return record
 
+
+def parse_weight_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
+    """16-byte weight-scale record (HN-300T2).
+
+    Byte layout:
+      [0:2]   weight in 0.05 kg steps (0xFFFF means empty)
+      [2:8]   year-2000, month, day, hour, minute, second
+      [9:11]  sequence number
+    """
+    if len(data) < 16:
+        raise ValueError("record too short")
+    raw_weight = int.from_bytes(bytes(data[0:2]), endianness)
+    if raw_weight == 0xFFFF:
+        raise ValueError("record slot is empty")
+
+    record: dict[str, Any] = {
+        "weight": round(raw_weight * 0.05, 2),
+        "_record_id": int.from_bytes(bytes(data[9:11]), endianness),
+    }
+    try:
+        record["datetime"] = datetime.datetime(
+            2000 + int(data[2]),
+            int(data[3]),
+            int(data[4]),
+            int(data[5]),
+            int(data[6]),
+            min(int(data[7]), 59),
+        )
+    except ValueError:
+        # Keep record usable for slot-based latest selection.
+        record["datetime"] = None
+    return record

@@ -17,6 +17,10 @@
     {
       "local_name": "HEM-*",
       "connectable": true
+    },
+    {
+      "local_name": "HN-3*",
+      "connectable": true
     }
   ],
   "codeowners": [
@@ -32,5 +36,5 @@
   "requirements": [
     "blesession>=0.9.0"
   ],
-  "version": "3.5.0"
+  "version": "4.0.0-beta.1"
 }

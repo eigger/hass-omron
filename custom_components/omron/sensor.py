@@ -28,13 +28,17 @@ from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothProcessorEntity,
 )
 from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
     EntityCategory,
     SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    UnitOfMass,
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util.unit_conversion import MassConverter
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
@@ -153,6 +157,18 @@ SENSOR_DESCRIPTIONS = {
             "hypertensive_crisis",
         ],
         icon="mdi:clipboard-pulse-outline",
+    ),
+
+    # Weight (scales)
+    (
+        OmronExtendedSensorDeviceClass.WEIGHT,
+        "kg",
+    ): SensorEntityDescription(
+        key=f"{OmronExtendedSensorDeviceClass.WEIGHT}_kg",
+        device_class=SensorDeviceClass.WEIGHT,
+        native_unit_of_measurement=UnitOfMass.KILOGRAMS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
     ),
 
     # Timestamp (datetime object)
@@ -477,9 +493,26 @@ class OmronBluetoothSensorEntity(
 
         if last_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE, None):
             return
-        self._restored_native_value = self._parse_restored_state_string(
-            str(last_state.state)
+        self._restored_native_value = self._restored_value(
+            str(last_state.state), last_state.attributes
         )
+
+    def _restored_value(self, state_str: str, attributes: Any) -> Any:
+        """Native value for a recorded state, undoing the user's display unit."""
+        restored = self._parse_restored_state_string(state_str)
+        shown_unit = attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+        native_unit = self.entity_description.native_unit_of_measurement
+        if (
+            self.entity_description.device_class == SensorDeviceClass.WEIGHT
+            and isinstance(restored, (int, float))
+            and shown_unit
+            and shown_unit != native_unit
+        ):
+            try:
+                return MassConverter.convert(restored, shown_unit, native_unit)
+            except HomeAssistantError:
+                return None
+        return restored
 
     def _resolve_user_id_from_key(self) -> str:
         """Resolve user_id from sensor key using aliases or numeric suffix."""
