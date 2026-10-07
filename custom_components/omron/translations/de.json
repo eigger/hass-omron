@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Gewicht ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI-Kategorie (WHO)",
+        "state": {
+          "underweight": "Untergewicht",
+          "normal": "Normalgewicht",
+          "overweight": "Übergewicht",
+          "obesity_class_1": "Adipositas Grad 1",
+          "obesity_class_2": "Adipositas Grad 2",
+          "obesity_class_3": "Adipositas Grad 3"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Gerätename"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Körpergröße"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "Die Körpergröße muss 0 (zum Löschen) oder zwischen {min} und {max} cm liegen."
     }
   }
 }

@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Peso ({user})"
+      },
+      "bmi": {
+        "name": "IMC"
+      },
+      "bmi_category": {
+        "name": "Categoría de IMC (OMS)",
+        "state": {
+          "underweight": "Bajo peso",
+          "normal": "Normal",
+          "overweight": "Sobrepeso",
+          "obesity_class_1": "Obesidad clase 1",
+          "obesity_class_2": "Obesidad clase 2",
+          "obesity_class_3": "Obesidad clase 3"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Apodo del dispositivo"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Altura"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "La altura debe ser 0 (para borrarla) o estar entre {min} y {max} cm."
     }
   }
 }

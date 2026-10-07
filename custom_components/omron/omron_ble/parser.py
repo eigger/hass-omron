@@ -38,7 +38,13 @@ from .const import (
     ExtendedBinarySensorDeviceClass,
 )
 from .time_sync import async_sync_device_time, async_sync_eeprom_time
-from .devices import HostPairingMode, DeviceConfig, get_device_config, resolve_profile_model_id
+from .devices import (
+    DeviceConfig,
+    HostPairingMode,
+    MeasurementKind,
+    get_device_config,
+    resolve_profile_model_id,
+)
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
@@ -150,6 +156,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         if new is not None and new != self.transport_credential:
             self.transport_credential = new
             self.pending_credential = new
+
+    @property
+    def measurement_kind(self) -> MeasurementKind:
+        """What the configured profile measures (blood pressure, weight, ...)."""
+        return self._device_config.measurement_kind
 
     @property
     def device_model(self) -> str:

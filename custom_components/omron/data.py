@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING, Any
 
 from blesession import SessionReports
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from sensor_state_data import SensorUpdate
+from sensor_state_data import DeviceKey, SensorUpdate
+
+from .const import DOMAIN
+from .omron_ble.devices import MeasurementKind
 
 if TYPE_CHECKING:
     from .coordinator import OmronBluetoothProcessorCoordinator
@@ -47,6 +50,9 @@ class OmronRuntimeData:
     # Set while a BLE session runs and until its report is recorded; the
     # Duration sensor hides its attributes meanwhile.
     session_report_pending: bool = False
+    # Height per user slot (1-based) from the Height number entity, in cm.
+    # None means cleared; a slot that is absent has not reported yet.
+    heights_cm: dict[int, float | None] = field(default_factory=dict)
 
     @property
     def identifier(self) -> str:
@@ -65,3 +71,28 @@ class OmronRuntimeData:
     def entity_unique_id(self, suffix: str) -> str:
         """``{model}_{last4}_{suffix}``, the id poll-backed entities already use."""
         return f"{self.model_slug}_{self.identifier}_{suffix}"
+
+    @property
+    def measurement_kind(self) -> MeasurementKind:
+        """What the configured profile measures."""
+        return self.device_data.measurement_kind
+
+    @property
+    def is_scale(self) -> bool:
+        """Whether the profile is a scale (weight or body composition)."""
+        return self.measurement_kind != MeasurementKind.BLOOD_PRESSURE
+
+    @property
+    def is_weight_only_scale(self) -> bool:
+        """A scale that reports weight alone, so BMI is derived here."""
+        return self.measurement_kind == MeasurementKind.WEIGHT
+
+    @property
+    def weight_device_key(self) -> DeviceKey:
+        """Poll key of the weight sensor (single-user scales)."""
+        return DeviceKey(key="weight", device_id=None)
+
+
+def signal_height_updated(entry_id: str) -> str:
+    """Dispatcher signal sent when an entry's Height value changes."""
+    return f"{DOMAIN}_{entry_id}_height_updated"

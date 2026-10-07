@@ -72,7 +72,7 @@ def test_unknown_key_is_left_alone() -> None:
 
 def test_translation_files_share_entity_keys_and_user_placeholder() -> None:
     loaded = [json.loads(path.read_text(encoding="utf-8"))["entity"] for path in _STRING_FILES]
-    for domain in ("sensor", "binary_sensor", "button", "text"):
+    for domain in ("sensor", "binary_sensor", "button", "number", "text"):
         key_sets = [set(doc[domain]) for doc in loaded]
         assert all(keys == key_sets[0] for keys in key_sets), domain
     for doc in loaded:
@@ -84,3 +84,20 @@ def test_translation_files_share_entity_keys_and_user_placeholder() -> None:
         for key, spec in doc["binary_sensor"].items():
             if key.endswith("_user"):
                 assert "{user}" in spec["name"]
+
+
+def test_translation_files_share_the_bmi_strings() -> None:
+    docs = [json.loads(path.read_text(encoding="utf-8")) for path in _STRING_FILES]
+    for doc in docs:
+        category = doc["entity"]["sensor"]["bmi_category"]
+        assert set(category["state"]) == {
+            "underweight",
+            "normal",
+            "overweight",
+            "obesity_class_1",
+            "obesity_class_2",
+            "obesity_class_3",
+        }
+        assert set(doc["entity"]["number"]) == {"height"}
+        message = doc["exceptions"]["height_out_of_range"]["message"]
+        assert "{min}" in message and "{max}" in message

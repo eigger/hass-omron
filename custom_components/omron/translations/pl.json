@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Waga ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "Kategoria BMI (WHO)",
+        "state": {
+          "underweight": "Niedowaga",
+          "normal": "Waga prawidłowa",
+          "overweight": "Nadwaga",
+          "obesity_class_1": "Otyłość I stopnia",
+          "obesity_class_2": "Otyłość II stopnia",
+          "obesity_class_3": "Otyłość III stopnia"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Nazwa urządzenia"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Wzrost"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "Wzrost musi wynosić 0 (aby wyczyścić) lub mieścić się w zakresie od {min} do {max} cm."
     }
   }
 }

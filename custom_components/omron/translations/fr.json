@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Poids ({user})"
+      },
+      "bmi": {
+        "name": "IMC"
+      },
+      "bmi_category": {
+        "name": "Catégorie d'IMC (OMS)",
+        "state": {
+          "underweight": "Insuffisance pondérale",
+          "normal": "Normal",
+          "overweight": "Surpoids",
+          "obesity_class_1": "Obésité classe 1",
+          "obesity_class_2": "Obésité classe 2",
+          "obesity_class_3": "Obésité classe 3"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Surnom de l’appareil"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Taille"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "La taille doit être 0 (pour l'effacer) ou comprise entre {min} et {max} cm."
     }
   }
 }

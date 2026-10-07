@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "體重 ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI 分類 (WHO)",
+        "state": {
+          "underweight": "體重過輕",
+          "normal": "正常",
+          "overweight": "過重",
+          "obesity_class_1": "肥胖 I 級",
+          "obesity_class_2": "肥胖 II 級",
+          "obesity_class_3": "肥胖 III 級"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "裝置暱稱"
       }
+    },
+    "number": {
+      "height": {
+        "name": "身高"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "身高必須為 0(清除)或介於 {min} 到 {max} 公分之間。"
     }
   }
 }

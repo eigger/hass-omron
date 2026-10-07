@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from datetime import datetime
 
 import datetime as dt
-from typing import Any
+from typing import Any, Self
 from sensor_state_data import (
     DeviceKey,
     SensorDeviceClass as OmronSensorDeviceClass,
@@ -41,11 +42,15 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import MassConverter
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
-from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
+from .data import signal_height_updated
 from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
     apply_translated_entity_name,
@@ -54,6 +59,7 @@ from .entity_helpers import (
     hass_device_info_with_ble_connection,
     preserved_passive_unique_id,
 )
+from .omron_ble.body_metrics import BMI_CATEGORIES, classify_bmi, compute_bmi
 from .types import OmronConfigEntry
 
 # Values stored before measurement_type became a translation key.
@@ -350,6 +356,16 @@ async def async_setup_entry(
             OmronFailureCountSensorEntity(entry, runtime.failure_count_coordinator),
         ]
     )
+
+    # Weight-only scales: BMI from the weight and the Height entity. Body
+    # composition scales report their own BMI.
+    if runtime.is_weight_only_scale:
+        async_add_entities(
+            [
+                OmronBmiSensorEntity(entry, poll_coordinator),
+                OmronBmiCategorySensorEntity(entry, poll_coordinator),
+            ]
+        )
 
 
 class OmronAdvertisementSensorEntity(
@@ -761,3 +777,166 @@ class OmronLastReadoutSensorEntity(
         return DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, self._address)},
         )
+
+
+# User slot the BMI sensors follow; scales served today keep one user.
+_BMI_SLOT = 1
+
+
+@dataclass
+class BmiExtraStoredData(ExtraStoredData):
+    """Inputs of the last BMI, so it comes back before the next poll."""
+
+    weight_kg: float | None
+    height_cm: float | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, restored: dict[str, Any]) -> Self | None:
+        try:
+            return cls(restored["weight_kg"], restored["height_cm"])
+        except (KeyError, TypeError):
+            return None
+
+
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+class _OmronBmiBase(
+    OmronCoordinatorEntity[SensorUpdate],
+    RestoreEntity,
+    SensorEntity,
+):
+    """BMI derived from the polled weight (kg) and the Height entity (cm).
+
+    The weight comes from the poll coordinator in its native kg, so neither a
+    display unit on the Weight sensor nor a disabled Weight sensor changes it.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[SensorUpdate],
+    ) -> None:
+        super().__init__(entry, coordinator)
+        self._restored_weight_kg: float | None = None
+        self._restored_height_cm: float | None = None
+        # True once the Height entity has published, from then on it is the
+        # only source of the height.
+        self._height_reported = False
+
+    @property
+    def available(self) -> bool:
+        """Unknown, not unavailable, while an input is missing."""
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                signal_height_updated(self._entry.entry_id),
+                self._handle_height_update,
+            )
+        )
+        if (extra := await self.async_get_last_extra_data()) is not None:
+            if (stored := BmiExtraStoredData.from_dict(extra.as_dict())) is not None:
+                self._restored_weight_kg = _as_float(stored.weight_kg)
+                self._restored_height_cm = _as_float(stored.height_cm)
+        if _BMI_SLOT in self._runtime.heights_cm:
+            self._height_reported = True
+
+    @callback
+    def _handle_height_update(self) -> None:
+        self._height_reported = True
+        self.async_write_ha_state()
+
+    @property
+    def _weight_kg(self) -> float | None:
+        data = self.coordinator.data
+        if data is not None:
+            value = data.entity_values.get(self._runtime.weight_device_key)
+            if value is not None and (weight := _as_float(value.native_value)) is not None:
+                return weight
+        return self._restored_weight_kg
+
+    @property
+    def _height_cm(self) -> float | None:
+        if self._height_reported or _BMI_SLOT in self._runtime.heights_cm:
+            return _as_float(self._runtime.heights_cm.get(_BMI_SLOT))
+        if self._height_entity_disabled():
+            return None
+        return self._restored_height_cm
+
+    def _height_entity_disabled(self) -> bool:
+        registry = er.async_get(self.hass)
+        entity_id = registry.async_get_entity_id(
+            "number", DOMAIN, self._runtime.entity_unique_id("height")
+        )
+        if entity_id is None:
+            return False
+        registry_entry = registry.async_get(entity_id)
+        return registry_entry is not None and registry_entry.disabled
+
+    @property
+    def _bmi(self) -> float | None:
+        return compute_bmi(self._weight_kg, self._height_cm)
+
+    @property
+    def extra_restore_state_data(self) -> BmiExtraStoredData:
+        return BmiExtraStoredData(self._weight_kg, self._height_cm)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"weight_kg": self._weight_kg, "height_cm": self._height_cm}
+
+
+class OmronBmiSensorEntity(_OmronBmiBase):
+    """Body mass index, kg/m²."""
+
+    # No device class: HA would offer unit conversion for it.
+    _attr_translation_key = "bmi"
+    _attr_native_unit_of_measurement = "kg/m²"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:human"
+
+    def __init__(
+        self,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[SensorUpdate],
+    ) -> None:
+        super().__init__(entry, coordinator)
+        self._attr_unique_id = self._runtime.entity_unique_id("bmi")
+
+    @property
+    def native_value(self) -> float | None:
+        return self._bmi
+
+
+class OmronBmiCategorySensorEntity(_OmronBmiBase):
+    """WHO adult BMI category."""
+
+    _attr_translation_key = "bmi_category"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(BMI_CATEGORIES)
+    _attr_icon = "mdi:clipboard-text-outline"
+
+    def __init__(
+        self,
+        entry: OmronConfigEntry,
+        coordinator: DataUpdateCoordinator[SensorUpdate],
+    ) -> None:
+        super().__init__(entry, coordinator)
+        self._attr_unique_id = self._runtime.entity_unique_id("bmi_category")
+
+    @property
+    def native_value(self) -> str | None:
+        return classify_bmi(self._bmi)

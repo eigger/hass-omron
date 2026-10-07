@@ -332,6 +332,20 @@
       },
       "weight_user": {
         "name": "체중 ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI 분류 (WHO)",
+        "state": {
+          "underweight": "저체중",
+          "normal": "정상",
+          "overweight": "과체중",
+          "obesity_class_1": "비만 1단계",
+          "obesity_class_2": "비만 2단계",
+          "obesity_class_3": "비만 3단계"
+        }
       }
     },
     "binary_sensor": {
@@ -384,6 +398,16 @@
       "device_alias": {
         "name": "기기 별칭"
       }
+    },
+    "number": {
+      "height": {
+        "name": "키"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "키는 0(지우기) 또는 {min}~{max} cm 사이여야 합니다."
     }
   }
 }

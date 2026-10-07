@@ -342,6 +342,20 @@
       },
       "weight_user": {
         "name": "Gewicht ({user})"
+      },
+      "bmi": {
+        "name": "BMI"
+      },
+      "bmi_category": {
+        "name": "BMI-categorie (WHO)",
+        "state": {
+          "underweight": "Ondergewicht",
+          "normal": "Normaal",
+          "overweight": "Overgewicht",
+          "obesity_class_1": "Obesitas klasse 1",
+          "obesity_class_2": "Obesitas klasse 2",
+          "obesity_class_3": "Obesitas klasse 3"
+        }
       }
     },
     "binary_sensor": {
@@ -394,6 +408,16 @@
       "device_alias": {
         "name": "Apparaatnaam"
       }
+    },
+    "number": {
+      "height": {
+        "name": "Lengte"
+      }
+    }
+  },
+  "exceptions": {
+    "height_out_of_range": {
+      "message": "De lengte moet 0 (om te wissen) of tussen {min} en {max} cm zijn."
     }
   }
 }

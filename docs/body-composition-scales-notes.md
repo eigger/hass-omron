@@ -139,8 +139,12 @@ HBF scales fill is not known.
   the notification order above.
 - Entities: weight, BMI, body fat, visceral fat, skeletal muscle, BMR, with the
   composition entities left unavailable when the scale reports them as absent.
-- Where the user's height, birth date and sex come from: an options flow per user
-  slot is the natural place.
+- Where the user's birth date and sex come from: an options flow per user slot is
+  the natural place. Height already has a home: the per-slot **Height** number
+  entity (cm, `runtime.heights_cm[slot]`) that weight scales use for BMI, so
+  `write_user_profile` can later take the height from it. A body-composition
+  scale reports its own BMI, so it gets the Height entity but not the derived
+  BMI sensors.
 
 ## What the HN-300T2 work already provides
 
