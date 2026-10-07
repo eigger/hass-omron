@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -13,6 +16,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from custom_components.omron.data import signal_height_updated
 from custom_components.omron.omron_ble.const import ExtendedSensorDeviceClass
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
@@ -234,22 +238,24 @@ async def test_bmi_still_works_with_the_weight_sensor_disabled(
     await _unload(hass, entry)
 
 
+def _height_extra(value: float) -> dict:
+    return {
+        "native_max_value": 220,
+        "native_min_value": 0,
+        "native_step": 0.1,
+        "native_unit_of_measurement": "cm",
+        "native_value": value,
+    }
+
+
 async def test_bmi_and_height_are_restored(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
+    """The Height entity wins over the height the BMI sensor saved itself."""
     mock_restore_cache_with_extra_data(
         hass,
         [
-            (
-                State(HEIGHT_ID, "175.0"),
-                {
-                    "native_max_value": 220,
-                    "native_min_value": 0,
-                    "native_step": 0.1,
-                    "native_unit_of_measurement": "cm",
-                    "native_value": 175.0,
-                },
-            ),
+            (State(HEIGHT_ID, "180.0"), _height_extra(180.0)),
             (State(BMI_ID, "22.9"), {"weight_kg": 70.0, "height_cm": 175.0}),
             (State(CATEGORY_ID, "normal"), {"weight_kg": 70.0, "height_cm": 175.0}),
         ],
@@ -258,14 +264,67 @@ async def test_bmi_and_height_are_restored(
     _preregister(hass, entry)
     await _setup(hass, entry)
 
-    assert hass.states.get(HEIGHT_ID).state == "175.0"
-    assert entry.runtime_data.heights_cm == {1: 175.0}
-    assert hass.states.get(BMI_ID).state == "22.9"
+    assert hass.states.get(HEIGHT_ID).state == "180.0"
+    assert entry.runtime_data.heights_cm == {1: 180.0}
+    # 70 / 1.80^2 = 21.6, not the 22.9 the BMI sensor stored with 175 cm.
+    bmi = hass.states.get(BMI_ID)
+    assert bmi.state == "21.6"
+    assert bmi.attributes["weight_kg"] == 70.0
+    assert bmi.attributes["height_cm"] == 180.0
     assert hass.states.get(CATEGORY_ID).state == "normal"
 
     # A fresh weight replaces the restored one.
     await _push_weight(hass, entry, 61.3)
-    assert hass.states.get(BMI_ID).state == "20.0"
+    assert hass.states.get(BMI_ID).state == "18.9"
+    assert hass.states.get(CATEGORY_ID).state == "normal"
+
+    await _unload(hass, entry)
+
+
+async def test_a_height_signal_after_the_bmi_sensor_is_added_wins(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """BMI comes up first on its own restored height, then follows the signal."""
+    mock_restore_cache_with_extra_data(
+        hass,
+        [
+            (State(BMI_ID, "22.9"), {"weight_kg": 70.0, "height_cm": 175.0}),
+            (State(CATEGORY_ID, "normal"), {"weight_kg": 70.0, "height_cm": 175.0}),
+        ],
+    )
+    entry = _entry(hass, "HN-300T2")
+    _preregister(hass, entry)
+
+    async def _no_height_yet(hass, entry, async_add_entities) -> None:
+        return None
+
+    # Hold the Height entity back so the BMI sensors are added without it.
+    with patch(
+        "custom_components.omron.number.async_setup_entry", _no_height_yet
+    ):
+        await _setup(hass, entry)
+
+    runtime = entry.runtime_data
+    assert runtime.heights_cm == {}
+    assert hass.states.get(BMI_ID).state == "22.9"
+    assert hass.states.get(BMI_ID).attributes["height_cm"] == 175.0
+
+    # The Height entity reports later.
+    runtime.heights_cm[1] = 180.0
+    async_dispatcher_send(hass, signal_height_updated(entry.entry_id))
+    await hass.async_block_till_done()
+
+    bmi = hass.states.get(BMI_ID)
+    assert bmi.state == "21.6"
+    assert bmi.attributes["height_cm"] == 180.0
+    assert hass.states.get(CATEGORY_ID).state == "normal"
+
+    # And a cleared height clears the BMI rather than falling back to 175.
+    runtime.heights_cm[1] = None
+    async_dispatcher_send(hass, signal_height_updated(entry.entry_id))
+    await hass.async_block_till_done()
+    assert hass.states.get(BMI_ID).state == "unknown"
+    assert hass.states.get(CATEGORY_ID).state == "unknown"
 
     await _unload(hass, entry)
 
@@ -299,16 +358,7 @@ async def test_an_out_of_range_restored_height_is_dropped(
     mock_restore_cache_with_extra_data(
         hass,
         [
-            (
-                State(HEIGHT_ID, "50.0"),
-                {
-                    "native_max_value": 220,
-                    "native_min_value": 0,
-                    "native_step": 0.1,
-                    "native_unit_of_measurement": "cm",
-                    "native_value": 50.0,
-                },
-            ),
+            (State(HEIGHT_ID, "50.0"), _height_extra(50.0)),
         ],
     )
     entry = _entry(hass, "HN-300T2")
