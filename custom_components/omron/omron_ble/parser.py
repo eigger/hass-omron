@@ -790,7 +790,9 @@ class OmronBluetoothDeviceData(BluetoothData):
             # one is pushed ahead of it so each gets its own state change.
             backlog = records[:-1] if outcome.complete else records
             for record in backlog:
-                self._update_measurement_sensors(record, user=user, multi_user=True)
+                self._update_measurement_sensors(
+                    record, user=user, multi_user=self._device_config.num_users > 1
+                )
                 update = self._finish_update()
                 # Seeded, still-empty entries of the other users would blank
                 # their sensors for this one state change.
@@ -822,13 +824,19 @@ class OmronBluetoothDeviceData(BluetoothData):
             "sequence": record.get("sequence"),
             "measured_at": aware.isoformat() if isinstance(aware, dt.datetime) else None,
             "device_time": measured.isoformat() if isinstance(measured, dt.datetime) else None,
-            "sys": record.get("sys"),
-            "dia": record.get("dia"),
-            "bpm": record.get("bpm"),
-            "irregular_pulse": bool(record["ihb"]) if "ihb" in record else None,
-            "body_movement": bool(record["mov"]) if "mov" in record else None,
-            "cuff_loose": bool(record["cuff"]) if "cuff" in record else None,
-            "improper_position": bool(record["pos"]) if "pos" in record else None,
+            **(
+                {
+                    "sys": record.get("sys"),
+                    "dia": record.get("dia"),
+                    "bpm": record.get("bpm"),
+                    "irregular_pulse": bool(record["ihb"]) if "ihb" in record else None,
+                    "body_movement": bool(record["mov"]) if "mov" in record else None,
+                    "cuff_loose": bool(record["cuff"]) if "cuff" in record else None,
+                    "improper_position": bool(record["pos"]) if "pos" in record else None,
+                }
+                if self._device_config.is_blood_pressure
+                else {"weight": record.get("weight")}
+            ),
         }
 
     async def _poll_device_readout(
@@ -885,8 +893,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             eeprom_record_decoded = False
             if multi_user_mode:
                 latest_by_user = await self._driver.get_latest_records_per_user(session)
-                if memory_session_active and self.history_last_seq is not None:
-                    await self._collect_stored_history(session, trace)
                 eeprom_record_decoded = bool(latest_by_user)
                 if not latest_by_user and self._device_config.is_blood_pressure:
                     # Diagnostic only: the classic EEPROM index/full-scan path found
@@ -972,6 +978,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                             merged["user"] = 1
                         record = merged
 
+
+            # Before the latest record is published below: the older ones go out
+            # first, each as its own update.
+            if memory_session_active and self.history_last_seq is not None:
+                await self._collect_stored_history(session, trace)
 
             if multi_user_mode:
                 if latest_by_user:

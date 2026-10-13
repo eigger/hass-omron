@@ -202,12 +202,25 @@ def test_profile_without_the_field_does_nothing():
     assert _sync(cuff, {1: 1}) == {}
 
 
-def test_only_the_7361t_opts_in():
-    opted = {
-        m for m in ("HEM-7361T", "HEM-7342T", "HEM-7380T1", "HEM-7155T")
-        if get_device_config(m).supports_stored_record_sync
-    }
-    assert opted == {"HEM-7361T"}
+OPTED_IN = {
+    "HEM-7361T", "HEM-7342T", "HEM-7155T", "HEM-7155T-K4", "HEM-1026T2",
+    "HEM-7153JT", "HEM-7150T", "HEM-7157T", "HEM-7151T", "HEM-7142T2",
+}
+
+
+def test_only_the_verified_blood_pressure_profiles_opt_in():
+    from custom_components.omron.omron_ble.device_catalog import CANONICAL_DEVICE_PROFILES
+
+    opted = {m for m, c in CANONICAL_DEVICE_PROFILES.items() if c.supports_stored_record_sync}
+    assert opted == OPTED_IN
+    for model in opted:
+        config = CANONICAL_DEVICE_PROFILES[model]
+        layout = config.index_pointer_layout
+        # The 16-bit counter is read little-endian from bytes 8-9 / 12-13;
+        # a big-endian profile needs its own check against a real dump first.
+        assert layout["endianness"] == "little" and config.is_blood_pressure
+        offsets = [u.get("latest_sequence_offset") for u in layout["users"]]
+        assert offsets == [8, 12][: len(offsets)]
 
 
 def test_sequence_field_outside_the_index_region_is_rejected():
@@ -359,3 +372,22 @@ def test_parser_history_failure_is_forgiven():
     asyncio.run(data._collect_stored_history(MagicMock(), trace))
     trace.forgive.assert_called_once_with("history")
     assert data.pending_history is None and data.history_updates == []
+
+
+def test_single_user_profile_publishes_backlog_without_a_user_suffix():
+    from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    data = OmronBluetoothDeviceData(device_model="HEM-7142T2")
+    data.history_last_seq = {1: 1}
+    records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121)]
+    data._driver.get_records_since = AsyncMock(
+        return_value={1: StoredUserRecords(next_seq=3, index_seq=3, records=records)}
+    )
+    trace = MagicMock()
+    trace.timed.return_value.__enter__ = MagicMock()
+    trace.timed.return_value.__exit__ = MagicMock(return_value=False)
+    asyncio.run(data._collect_stored_history(MagicMock(), trace))
+    assert len(data.history_updates) == 1
+    keys = {k.key for k in data.history_updates[0].entity_values}
+    assert "blood_pressure_systolic" in keys

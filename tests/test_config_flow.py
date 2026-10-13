@@ -312,7 +312,7 @@ async def test_options_flow_offers_stored_record_sync_only_where_supported(
     from custom_components.omron.const import CONF_SYNC_STORED_RECORDS
 
     entry = MockConfigEntry(
-        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: "HEM-7155T"}
+        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: "HEM-7322T"}
     )
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
