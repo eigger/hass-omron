@@ -115,18 +115,6 @@ def test_nothing_new_reads_only_the_index():
     assert cuff.reads == [INDEX_ADDR]
 
 
-def test_following_the_counter_without_reading_records():
-    cuff = Cuff(_config(), newest=(53, 7))
-    driver = OmronDeviceDriver(cuff.config)
-    transport = OmronDeviceSession(MagicMock(), cuff.config)
-    transport.memory.read_memory_range = AsyncMock(side_effect=cuff.memory)
-    out = asyncio.run(
-        driver.get_records_since(transport, {1: 40, 2: 7}, max_reads=30, read_records=False)
-    )
-    assert out[1].records == [] and out[1].next_seq == 53 and out[1].lost == 0
-    assert cuff.reads == [INDEX_ADDR]
-
-
 def test_new_records_come_back_oldest_first_with_one_read_each():
     cuff = Cuff(_config(), newest=(53, 7))
     out = _sync(cuff, {1: 50, 2: 7})
@@ -585,28 +573,6 @@ def test_failed_poll_pushes_nothing_and_saves_nothing(monkeypatch):
     store.async_save.assert_not_called()
 
 
-def test_counter_going_back_while_the_option_is_off_still_restarts_shown():
-    from custom_components.omron.omron_ble.driver import StoredUserRecords
-
-    cuff = Cuff(_config(), newest=(3, 3))
-    driver = OmronDeviceDriver(cuff.config)
-    transport = OmronDeviceSession(MagicMock(), cuff.config)
-    transport.memory.read_memory_range = AsyncMock(side_effect=cuff.memory)
-    out = asyncio.run(
-        driver.get_records_since(transport, {1: 500, 2: 3}, max_reads=30, read_records=False)
-    )
-    assert out[1].rebased and out[1].next_seq == 3 and out[1].records == []
-
-    data, _ = _parser_with({})
-    data.history_shown = {1: 500}
-    _collect(data, out)
-    assert data.pending_history["shown"][1] == 3
-    data.history_shown.update(data.pending_history["shown"])
-    records = [_stored(1, n, n, 100 + n) for n in (4, 5, 6)]
-    _collect(data, {1: StoredUserRecords(next_seq=6, index_seq=6, records=records)})
-    assert len(data.history_updates) == 2
-
-
 def test_an_unchanged_position_is_not_rewritten():
     store = MagicMock()
     store.async_save = AsyncMock()
@@ -618,3 +584,47 @@ def test_an_unchanged_position_is_not_rewritten():
     ):
         asyncio.run(history.async_publish_history(hass, entry))
     store.async_save.assert_not_called()
+
+
+# --- switching it on and off --------------------------------------------------
+
+
+def _setup(supported, enabled, stored=None):
+    data = SimpleNamespace(history_last_seq=None, history_shown={})
+    store = MagicMock()
+    store.async_load = AsyncMock(return_value=stored)
+    store.async_remove = AsyncMock()
+    with patch.object(history, "_store", return_value=store):
+        asyncio.run(
+            history.async_setup_history(
+                MagicMock(), "e1", data, supported=supported, enabled=enabled
+            )
+        )
+    return data, store
+
+
+def test_off_leaves_the_parser_alone_and_drops_the_saved_position():
+    data, store = _setup(True, False, {"last_seq": {"1": 5}, "shown": {"1": 5}})
+    assert data.history_last_seq is None and data.history_shown == {}
+    store.async_load.assert_not_called()
+    store.async_remove.assert_awaited_once()
+
+
+def test_on_loads_the_saved_position():
+    data, store = _setup(True, True, {"last_seq": {"1": 5}, "shown": {"1": 4}})
+    assert data.history_last_seq == {1: 5} and data.history_shown == {1: 4}
+    store.async_remove.assert_not_called()
+
+
+def test_unsupported_profiles_are_never_touched():
+    data, store = _setup(False, True)
+    assert data.history_last_seq is None
+    store.async_load.assert_not_called()
+    store.async_remove.assert_not_called()
+
+
+def test_a_parser_does_nothing_for_history_until_the_host_asks():
+    from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+
+    data = OmronBluetoothDeviceData(device_model="HEM-7361T")
+    assert data.history_last_seq is None
