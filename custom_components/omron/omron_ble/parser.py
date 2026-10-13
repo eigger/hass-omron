@@ -129,6 +129,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.history_publish: bool = False
         self.pending_history: dict[str, Any] | None = None
         self.history_updates: list[SensorUpdate] = []
+        # Per user, the cuff counter of the newest record a poll has shown, so
+        # a drain that spans polls never moves the sensors back.
+        self.history_shown: dict[int, int] = {}
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -760,6 +763,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         self, session: OmronDeviceSession, trace: SessionTrace
     ) -> None:
         """Read the records stored since the host's last sync (#234)."""
+        # A retried readout comes through here again; start clean so its
+        # findings replace the failed attempt's instead of adding to them.
+        self.pending_history = None
+        self.history_updates = []
         try:
             with trace.timed("history"):
                 found = await self._driver.get_records_since(
@@ -776,7 +783,14 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not found:
             return
         events: list[dict[str, Any]] = []
+        updates: list[SensorUpdate] = []
         next_seq: dict[int, int] = {}
+        shown: dict[int, int] = {}
+        # TruRead profiles store a session as three raw readings that the poll
+        # shows as their average; raw states would mix with the averages.
+        states_wanted = not (
+            self._device_config.index_pointer_layout or {}
+        ).get("truread_sequence")
         for user, outcome in sorted(found.items()):
             next_seq[user] = outcome.next_seq
             if outcome.lost:
@@ -786,9 +800,23 @@ class OmronBluetoothDeviceData(BluetoothData):
                     outcome.lost, user,
                 )
             records = outcome.records
-            # The poll publishes the cuff's newest record itself; every older
-            # one is pushed ahead of it so each gets its own state change.
-            backlog = records[:-1] if outcome.complete else records
+            if records:
+                # The poll shows the cuff's newest record itself.
+                shown[user] = outcome.index_seq
+            # Every other record newer than what an earlier poll already
+            # showed is pushed ahead of it, each as its own state change; the
+            # rest (a drain that carries on, or the newest one itself) only
+            # get their event.
+            last_shown = self.history_shown.get(user)
+            backlog = [
+                r for r in records
+                if states_wanted
+                and r["sequence"] != outcome.index_seq
+                and (
+                    last_shown is None
+                    or 0 < ((r["sequence"] - last_shown) & 0xFFFF) < 0x8000
+                )
+            ]
             for record in backlog:
                 self._update_measurement_sensors(
                     record, user=user, multi_user=self._device_config.num_users > 1
@@ -796,7 +824,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                 update = self._finish_update()
                 # Seeded, still-empty entries of the other users would blank
                 # their sensors for this one state change.
-                self.history_updates.append(
+                updates.append(
                     dataclasses.replace(
                         update,
                         entity_values={
@@ -812,7 +840,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             events.extend(self._history_event(user, rec) for rec in records)
         events.sort(key=lambda e: (e["measured_at"] or "", e["user"], e["sequence"]))
         trace.note(history_reads=len(events))
-        self.pending_history = {"next_seq": next_seq, "events": events}
+        self.history_updates = updates
+        self.pending_history = {"next_seq": next_seq, "events": events, "shown": shown}
 
     def _history_event(self, user: int, record: dict[str, Any]) -> dict[str, Any]:
         """Event payload for one stored record."""

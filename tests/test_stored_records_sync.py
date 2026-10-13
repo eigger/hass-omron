@@ -253,7 +253,9 @@ def test_sequence_field_outside_the_index_region_is_rejected():
 
 
 def _entry_and_hass(pending, last_seq=None):
-    device_data = SimpleNamespace(pending_history=pending, history_last_seq=last_seq)
+    device_data = SimpleNamespace(
+        pending_history=pending, history_last_seq=last_seq, history_shown={}
+    )
     entry = SimpleNamespace(
         entry_id="e1",
         runtime_data=SimpleNamespace(address="AA:BB:CC:DD:EE:FF", device_data=device_data),
@@ -269,6 +271,7 @@ def test_publish_fires_oldest_first_then_saves_the_position():
     pending = {
         "next_seq": {1: 3},
         "events": [{"user": 1, "sequence": 2}, {"user": 1, "sequence": 3}],
+        "shown": {1: 3},
     }
     hass, entry, device_data = _entry_and_hass(pending, {2: 9})
     hass.bus.async_fire.side_effect = lambda name, data: order.append(("fire", data["sequence"]))
@@ -280,6 +283,7 @@ def test_publish_fires_oldest_first_then_saves_the_position():
     assert order == [("fire", 2), ("fire", 3), ("save", {"last_seq": {"2": 9, "1": 3}})]
     assert device_data.history_last_seq == {2: 9, 1: 3}
     assert device_data.pending_history is None
+    assert device_data.history_shown == {1: 3}
     assert hass.bus.async_fire.call_args.args[0] == "omron_measurement"
     assert hass.bus.async_fire.call_args.args[1]["device_id"] == "dev"
 
@@ -412,3 +416,63 @@ def test_single_user_profile_publishes_backlog_without_a_user_suffix():
     assert len(data.history_updates) == 1
     keys = {k.key for k in data.history_updates[0].entity_values}
     assert "blood_pressure_systolic" in keys
+
+
+def _collect(data, outcome):
+    trace = MagicMock()
+    trace.timed.return_value.__enter__ = MagicMock()
+    trace.timed.return_value.__exit__ = MagicMock(return_value=False)
+    data._driver.get_records_since = AsyncMock(return_value=outcome)
+    asyncio.run(data._collect_stored_history(MagicMock(), trace))
+
+
+def test_a_retried_readout_does_not_double_the_backlog():
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121), _stored(1, 4, 3, 125)]
+    outcome = {1: StoredUserRecords(next_seq=4, index_seq=4, records=records)}
+    data, _ = _parser_with(outcome)
+    _collect(data, outcome)
+    _collect(data, outcome)
+    assert len(data.history_updates) == 2
+    assert len(data.pending_history["events"]) == 3
+
+
+def test_a_drain_spanning_polls_never_moves_the_sensors_back():
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    data, _ = _parser_with({})
+    # Poll 1: the cuff is at 45 but only 41-43 were read; they get states and
+    # the poll then shows 45.
+    first = [_stored(1, n, n, 100 + n) for n in (41, 42, 43)]
+    _collect(data, {1: StoredUserRecords(next_seq=43, index_seq=45, records=first, complete=False)})
+    assert len(data.history_updates) == 3
+    data.history_shown.update(data.pending_history["shown"])
+    assert data.history_shown == {1: 45}
+    # Poll 2 finishes the drain: 44 is behind what is already shown, so it
+    # only gets its event; 45 is the poll's own.
+    second = [_stored(1, n, n, 100 + n) for n in (44, 45)]
+    _collect(data, {1: StoredUserRecords(next_seq=45, index_seq=45, records=second)})
+    assert data.history_updates == []
+    assert [e["sequence"] for e in data.pending_history["events"]] == [44, 45]
+
+
+def test_an_unreadable_newest_record_does_not_hide_the_one_before_it():
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121)]
+    data, _ = _parser_with({})
+    _collect(data, {1: StoredUserRecords(next_seq=4, index_seq=4, records=records, lost=1)})
+    assert len(data.history_updates) == 2
+
+
+def test_truread_profiles_get_events_only():
+    from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    data = OmronBluetoothDeviceData(device_model="HEM-7342T")
+    data.history_last_seq = {1: 1}
+    records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121), _stored(1, 4, 3, 125)]
+    _collect(data, {1: StoredUserRecords(next_seq=4, index_seq=4, records=records)})
+    assert data.history_updates == []
+    assert len(data.pending_history["events"]) == 3

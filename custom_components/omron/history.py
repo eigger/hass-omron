@@ -101,6 +101,7 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
         {"last_seq": {str(user): seq for user, seq in last_seq.items()}}
     )
     device_data.history_last_seq = last_seq
+    device_data.history_shown.update(pending.get("shown", {}))
     if pending["events"]:
         _LOGGER.debug(
             "Published %d stored measurement(s) for %s",
