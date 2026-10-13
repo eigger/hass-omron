@@ -605,3 +605,16 @@ def test_counter_going_back_while_the_option_is_off_still_restarts_shown():
     records = [_stored(1, n, n, 100 + n) for n in (4, 5, 6)]
     _collect(data, {1: StoredUserRecords(next_seq=6, index_seq=6, records=records)})
     assert len(data.history_updates) == 2
+
+
+def test_an_unchanged_position_is_not_rewritten():
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    pending = {"next_seq": {1: 5}, "events": [], "shown": {1: 5}}
+    hass, entry, device_data = _entry_and_hass(pending, {1: 5})
+    device_data.history_shown = {1: 5}
+    with patch.object(history, "_store", return_value=store), patch.object(
+        history.dr, "async_get"
+    ):
+        asyncio.run(history.async_publish_history(hass, entry))
+    store.async_save.assert_not_called()
