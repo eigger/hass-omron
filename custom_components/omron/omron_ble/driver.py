@@ -677,13 +677,6 @@ class OmronDeviceDriver:
                 results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
                 continue
             new = (index_seq - last) & 0xFFFF
-            if not read_records:
-                _LOGGER.debug(
-                    "User%d [%s]: record sync off, following the counter only",
-                    user, self._config.model,
-                )
-                results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
-                continue
             if new == 0:
                 results[user] = StoredUserRecords(next_seq=last, index_seq=index_seq)
                 continue
@@ -698,6 +691,13 @@ class OmronDeviceDriver:
                 results[user] = StoredUserRecords(
                     next_seq=index_seq, index_seq=index_seq, rebased=True
                 )
+                continue
+            if not read_records:
+                _LOGGER.debug(
+                    "User%d [%s]: record sync off, following the counter only",
+                    user, self._config.model,
+                )
+                results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
                 continue
             latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
             if latest_slot is None:

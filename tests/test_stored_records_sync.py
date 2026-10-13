@@ -304,6 +304,9 @@ def test_first_poll_saves_the_baseline_without_events():
     ):
         asyncio.run(history.async_publish_history(hass, entry))
     hass.bus.async_fire.assert_not_called()
+    store.async_save.assert_awaited_once_with(
+        {"last_seq": {"1": 1643, "2": 13}, "shown": {}}
+    )
     assert device_data.history_last_seq == {1: 1643, 2: 13}
 
 
@@ -580,3 +583,25 @@ def test_failed_poll_pushes_nothing_and_saves_nothing(monkeypatch):
         asyncio.run(omron_init.async_poll_data(hass, entry))
     assert calls == [] and data.history_last_seq == {}
     store.async_save.assert_not_called()
+
+
+def test_counter_going_back_while_the_option_is_off_still_restarts_shown():
+    from custom_components.omron.omron_ble.driver import StoredUserRecords
+
+    cuff = Cuff(_config(), newest=(3, 3))
+    driver = OmronDeviceDriver(cuff.config)
+    transport = OmronDeviceSession(MagicMock(), cuff.config)
+    transport.memory.read_memory_range = AsyncMock(side_effect=cuff.memory)
+    out = asyncio.run(
+        driver.get_records_since(transport, {1: 500, 2: 3}, max_reads=30, read_records=False)
+    )
+    assert out[1].rebased and out[1].next_seq == 3 and out[1].records == []
+
+    data, _ = _parser_with({})
+    data.history_shown = {1: 500}
+    _collect(data, out)
+    assert data.pending_history["shown"][1] == 3
+    data.history_shown.update(data.pending_history["shown"])
+    records = [_stored(1, n, n, 100 + n) for n in (4, 5, 6)]
+    _collect(data, {1: StoredUserRecords(next_seq=6, index_seq=6, records=records)})
+    assert len(data.history_updates) == 2
