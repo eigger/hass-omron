@@ -47,7 +47,7 @@ from .const import (
 )
 from .data import OmronRuntimeData
 from .history import (
-    async_load_last_sequences,
+    async_load_history_state,
     async_publish_history,
     async_push_history_updates,
     async_remove_history,
@@ -707,7 +707,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Where the stored-record sync stopped; empty on the first run, which
     # makes the first poll only note the cuff's counter.
     if get_device_config(device_model).supports_stored_record_sync:
-        data.history_last_seq = await async_load_last_sequences(hass, entry.entry_id)
+        data.history_last_seq, data.history_shown = await async_load_history_state(
+            hass, entry.entry_id
+        )
         # Off still follows the cuff's counter on every poll, so turning it
         # back on starts from there instead of replaying what piled up; it
         # only skips reading and publishing the records.

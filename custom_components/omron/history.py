@@ -35,23 +35,29 @@ def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
     return Store(hass, STORE_VERSION, f"{DOMAIN}.history_{entry_id}")
 
 
-async def async_load_last_sequences(
+def _int_map(raw: Any) -> dict[int, int]:
+    """``{"1": 5}`` from the Store back to ``{1: 5}``, dropping anything odd."""
+    result: dict[int, int] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            try:
+                result[int(key)] = int(value)
+            except (TypeError, ValueError):
+                continue
+    return result
+
+
+async def async_load_history_state(
     hass: HomeAssistant, entry_id: str
-) -> dict[int, int]:
-    """Last cuff sequence handled per user (1-based); empty before the first sync."""
+) -> tuple[dict[int, int], dict[int, int]]:
+    """Per user (1-based): the last cuff sequence handled, and the newest one shown.
+
+    Both are empty before the first sync.
+    """
     stored = await _store(hass, entry_id).async_load()
     if not isinstance(stored, dict):
-        return {}
-    raw = stored.get("last_seq")
-    if not isinstance(raw, dict):
-        return {}
-    result: dict[int, int] = {}
-    for key, value in raw.items():
-        try:
-            result[int(key)] = int(value)
-        except (TypeError, ValueError):
-            continue
-    return result
+        return {}, {}
+    return _int_map(stored.get("last_seq")), _int_map(stored.get("shown"))
 
 
 async def async_remove_history(hass: HomeAssistant, entry_id: str) -> None:
@@ -97,11 +103,15 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     # After the events, so a crash in between replays them (at least once)
     # instead of dropping them.
     last_seq = {**(device_data.history_last_seq or {}), **pending["next_seq"]}
+    shown = {**device_data.history_shown, **pending.get("shown", {})}
     await _store(hass, entry.entry_id).async_save(
-        {"last_seq": {str(user): seq for user, seq in last_seq.items()}}
+        {
+            "last_seq": {str(user): seq for user, seq in last_seq.items()},
+            "shown": {str(user): seq for user, seq in shown.items()},
+        }
     )
     device_data.history_last_seq = last_seq
-    device_data.history_shown.update(pending.get("shown", {}))
+    device_data.history_shown = shown
     if pending["events"]:
         _LOGGER.debug(
             "Published %d stored measurement(s) for %s",

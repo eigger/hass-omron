@@ -800,8 +800,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                     outcome.lost, user,
                 )
             records = outcome.records
-            if records:
-                # The poll shows the cuff's newest record itself.
+            if records or outcome.rebased:
+                # The poll shows the cuff's newest record itself. After a
+                # rebase the old position means nothing, so restart from here.
                 shown[user] = outcome.index_seq
             # Every other record newer than what an earlier poll already
             # showed is pushed ahead of it, each as its own state change; the
