@@ -166,6 +166,27 @@ The **Blood Pressure Category** sensor classifies readings according to the **AC
 - **Changing a name** later under **Configure** re-creates sensors for that profile slot (new `entity_id`, new long-term statistics for those entities).
 - **Last value after restart**: non-diagnostic measurement sensors restore their last recorded state from Home Assistant so they can show the previous reading when the cuff is off or not yet polled. The **Connection** binary sensor still reflects whether a poll connection is active. Stale readings are possible if the device has not synced—use the connection sensor and timestamps as context.
 
+## Measurements taken between polls
+
+A poll normally surfaces only the newest reading. On the models listed below, the integration also reads the measurements stored since the previous poll, so taking three readings between two polls no longer loses two of them.
+
+- Each older reading is published, oldest first, as its own state change of the measurement sensors (the **Measurement Timestamp** sensor carries the cuff's time for each). The state history shows them at poll time, not at the time of the reading.
+- Every reading, including the newest, is also fired as an `omron_measurement` event, which keeps the exact time. Use it in automations or to record readings yourself:
+
+  | Field | Meaning |
+  |---|---|
+  | `device_id`, `address` | the device |
+  | `user`, `user_alias` | profile slot (1-based) and its display name |
+  | `sequence` | the cuff's running record number; use it to ignore a repeated event |
+  | `measured_at` | time of the reading with your time zone applied |
+  | `device_time` | the cuff's own clock reading, unmodified |
+  | `sys`, `dia`, `bpm` | the reading |
+  | `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position` | status flags |
+
+- Setting this up (or turning it on) never replays what is already in the cuff: it starts from the next reading. Up to 30 readings per user are read per poll; a longer backlog is read over the next polls. Readings the cuff overwrote before a poll can no longer be recovered, and a warning says how many.
+- It is **off by default**. Turn it on under **Configure** with **Publish every measurement stored since the last poll** (the option only appears for the models below). While it is off, polls only follow the cuff's counter, so turning it on starts from the current reading.
+- Models: HEM-7361T, HEM-7342T, HEM-7155T, HEM-7155T-K4, HEM-1026T2, HEM-7153JT, HEM-7150T, HEM-7157T, HEM-7151T, HEM-7142T2, HEM-6161T, HEM-6231T, HEM-7530T, HEM-7136T and HEM-6232T. Only the HEM-7361T was checked against a real index dump; for the others the counter position comes from the manufacturer's memory map, so report a problem with a debug log (`Index block` and `record counter` lines). On the HEM-7342T a TruRead set arrives as its three individual readings in the events only; the sensors show the set's average. Models whose cuff keeps no record counter, and scales, are not covered yet.
+
 ## Troubleshooting
 
 **[Troubleshooting](docs/troubleshooting.md)** — how to read the **Last Failure** and

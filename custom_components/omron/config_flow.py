@@ -49,6 +49,7 @@ from .session_handoff import (
 from .const import (
     CONF_BINDKEY,
     CONF_DEVICE_MODEL,
+    CONF_SYNC_STORED_RECORDS,
     CONF_TRANSPORT_CREDENTIAL,
     CONF_USER_ALIASES,
     DOMAIN,
@@ -137,6 +138,13 @@ def _options_init_schema(
             vol.Coerce(int), vol.Range(min=0, max=86400)
         ),
     }
+    if cfg.supports_stored_record_sync:
+        sync_default = bool(
+            user_input.get(CONF_SYNC_STORED_RECORDS, False)
+            if user_input is not None
+            else entry.options.get(CONF_SYNC_STORED_RECORDS, False)
+        )
+        fields[vol.Required(CONF_SYNC_STORED_RECORDS, default=sync_default)] = bool
     if cfg.num_users > 1:
         raw_aliases = entry.options.get(
             CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
@@ -764,6 +772,10 @@ class OmronOptionsFlowHandler(OptionsFlow):
             out: dict[str, Any] = {
                 CONF_SCAN_INTERVAL: user_input[CONF_SCAN_INTERVAL],
             }
+            if cfg.supports_stored_record_sync:
+                out[CONF_SYNC_STORED_RECORDS] = bool(
+                    user_input.get(CONF_SYNC_STORED_RECORDS, False)
+                )
             if cfg.num_users > 1:
                 resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
                 if not _user_aliases_are_unique(resolved):
