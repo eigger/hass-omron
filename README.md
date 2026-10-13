@@ -37,9 +37,11 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7530T** | BP7900/Complete | Upper Arm | ✅ |
 | **HEM-7600T** |	BP7000/EVOLV	| Upper Arm	| ✅ |
 | **HN-300T2** | HN-300T2 | Scale (weight, BMI) | ✅ |
+| **HBF-222T** | VIVA / BCM-500 | Scale (weight, body composition, stored history) | 🧪 |
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
+> HBF-222T support is experimental until pairing, reconnects and measurement history are confirmed on real hardware.
 
 ## ⚠️ Warning: Conflict with Official App
 **Omron blood pressure monitors only support one paired device at a time.**
@@ -125,6 +127,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
   - **Connection**: `On` while Home Assistant is actively communicating with the monitor.
 - **Scales** get the same diagnostic sensors, plus:
   - **Weight (kg)** and **Measurement Timestamp**
+  - **HBF-222T body composition**: body fat, skeletal muscle, visceral fat level, basal metabolic rate and the BMI reported by the scale. Composition sensors remain unknown when the scale has no composition result for a reading; the on-scale user profile must already be configured.
   - **Height** (number entity, under *Configuration*): your height in cm, used for BMI. Enter a value from `100` to `220` cm (0.1 cm steps); `0` clears it. It is stored in Home Assistant only and restored after a restart; nothing is written to the scale.
   - **BMI (kg/m²)** and **BMI Category (WHO)**, on weight-only scales such as the HN-300T2. Both are computed from the latest weight and the Height entity, and stay `unknown` until both are set. Their attributes show the `weight_kg` and `height_cm` used. Changing the Weight sensor's display unit does not affect them.
 

@@ -21,6 +21,10 @@
     {
       "local_name": "HN-3*",
       "connectable": true
+    },
+    {
+      "local_name": "HBF-*",
+      "connectable": true
     }
   ],
   "codeowners": [

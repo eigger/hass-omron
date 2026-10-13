@@ -24,6 +24,7 @@ from .record_parsers import (
     parse_classic_vital_16_6401_family,
     parse_classic_vital_24_heartguide,
     parse_weight_16,
+    parse_hbf_32,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class ConnectType(StrEnum):
     WLD3_0 = "WLD3.0"
     WLD4_0 = "WLD4.0"
     WLS3_0 = "WLS3.0"
+    WLC3_0 = "WLC3.0"
 
 
 class MeasurementKind(StrEnum):
@@ -88,6 +90,7 @@ class RecordParser(StrEnum):
     CLASSIC_VITAL_14_6232_FAMILY = "classic_vital_14_6232_family"
     CLASSIC_VITAL_24_HEARTGUIDE = "classic_vital_24_heartguide"
     WEIGHT_16 = "weight_16"
+    HBF_32 = "hbf_32"
 
 
 class TimeSyncLayout(StrEnum):
@@ -241,6 +244,8 @@ class DeviceConfig:
     # avoided the churn, its comment recording that this family rejects a
     # pairing request (0xff 0x26) when the unlock CCCD is dropped and re-added.
     keep_notify_subscriptions: bool = False
+    # HBF scales require RX0 before unlock and RX1–RX3 after unlock.
+    staged_classic_notifications: bool = False
     # Hold an auto-confirming BlueZ agent registered across the connect
     # without calling Pair() ourselves. For profiles where the cuff drives
     # security with its own Security Request: BlueZ 5.72+ leaves the Just
@@ -456,7 +461,7 @@ class DeviceConfig:
         fallback profile, which would name a device we did not identify. Logs
         keep ``model`` either way, so a report still shows what was resolved.
         """
-        if self.model.upper().startswith(("HEM-", "HN-")):
+        if self.model.upper().startswith(("HEM-", "HN-", "HBF-")):
             return self.model
         alias = MODEL_NUMBER_ALIASES.get(self.model)
         if alias:
@@ -474,7 +479,11 @@ class DeviceConfig:
     def supports_stored_record_sync(self) -> bool:
         """Whether the index layout carries a per-user record counter."""
         users = (self.index_pointer_layout or {}).get("users", [])
-        return any(u.get("latest_sequence_offset") is not None for u in users)
+        return any(
+            u.get("latest_sequence_offset") is not None
+            or u.get("sequence_source") == "record_id"
+            for u in users
+        )
 
     @property
     def num_users(self) -> int:
@@ -512,6 +521,7 @@ class DeviceConfig:
             RecordParser.CLASSIC_VITAL_14_6232_FAMILY: parse_classic_vital_14_6232_family,
             RecordParser.CLASSIC_VITAL_24_HEARTGUIDE: parse_classic_vital_24_heartguide,
             RecordParser.WEIGHT_16: parse_weight_16,
+            RecordParser.HBF_32: parse_hbf_32,
         }
         parser = parser_map.get(self.record_parser)
         if parser is None:
@@ -619,7 +629,10 @@ def get_supported_model_stats() -> dict[str, int]:
     }
 
 
-_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+|(?<![A-Z0-9])HN-[A-Z0-9_.-]+)", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(
+    r"(HEM-[A-Z0-9_.-]+|HBF-[A-Z0-9_.-]+|(?<![A-Z0-9])HN-[A-Z0-9_.-]+)",
+    re.IGNORECASE,
+)
 # Decoration the carton adds over the app's own listing: a HEM-7188T1-LEO
 # reports "X2+ Connect" where the app says "X2+".
 _NAME_DECORATION_RE = re.compile(

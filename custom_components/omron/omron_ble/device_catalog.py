@@ -1441,4 +1441,42 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HN-300T2_JT_TW-BK",
         ),
     ),
+    # HBF-222T / VIVA body-composition scale. Record and cursor layout are
+    # decoded from the existing HBF protocol notes; profile writing remains
+    # deliberately disabled until HA has age and sex inputs for each user.
+    "HBF-222T": DeviceConfig(
+        model="HBF-222T",
+        connect_type=ConnectType.WLC3_0,
+        measurement_kind=MeasurementKind.BODY_COMPOSITION,
+        unlock_mode=UnlockMode.CLASSIC_KEY,
+        endianness=Endianness.BIG,
+        user_start_addresses=[0x02C0, 0x06A0, 0x0A80, 0x0E60],
+        per_user_records_count=[30, 30, 30, 30],
+        record_byte_size=0x20,
+        transmission_block_size=0x30,
+        settings_read_address=0x01A0,
+        index_pointer_layout={
+            "index_region_byte_size": 0x08,
+            "endianness": "little",
+            "backtrack_slots": 29,
+            "users": [
+                {
+                    "write_cursor_offset": idx,
+                    "cursor_width": 1,
+                    "write_cursor_mask": 0x3F,
+                    "cursor_parity": "even",
+                    "clear_value": 0x80,
+                    "slot_index_min": 0,
+                    "slot_index_max": 29,
+                    "slot_index_bias": -1,
+                    "sequence_source": "record_id",
+                }
+                for idx in range(4)
+            ],
+        },
+        record_parser=RecordParser.HBF_32,
+        staged_classic_notifications=True,
+        keep_notify_subscriptions=True,
+        equivalent_model_ids=("HBF-222T_E", "BCM-500", "VIVA"),
+    ),
 }

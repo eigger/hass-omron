@@ -72,6 +72,11 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
 
     # Weight (scales)
     WEIGHT = "weight"
+    BODY_FAT = "body_fat"
+    SKELETAL_MUSCLE = "skeletal_muscle"
+    VISCERAL_FAT = "visceral_fat"
+    BASAL_METABOLIC_RATE = "basal_metabolic_rate"
+    BODY_COMPOSITION_BMI = "body_composition_bmi"
 
 
 class ExtendedBinarySensorDeviceClass(BaseDeviceClass):

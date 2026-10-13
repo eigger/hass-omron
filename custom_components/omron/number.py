@@ -33,7 +33,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Add the Height entity for scales; blood-pressure monitors get none."""
-    if not entry.runtime_data.is_scale:
+    if not entry.runtime_data.is_weight_only_scale:
         return
     async_add_entities([OmronHeightNumberEntity(entry, _SLOT)])
 

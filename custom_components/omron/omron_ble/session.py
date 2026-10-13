@@ -15,6 +15,7 @@ from blesession import (
     Notifications,
     WriteTimeout,
     probe_link,
+    start_notify_with_recovery,
     stop_notify_best_effort,
 )
 from blesession.link import LinkInfo
@@ -594,16 +595,32 @@ class OmronDeviceSession:
             # Match pairing flow: briefly prime RX notify so stacks that require
             # a security request trigger can establish encrypted notify reliably.
             # Entered first, so it is released last.
-            try:
-                await subscriptions.enter_async_context(
-                    Notifications(
-                        self._client,
-                        self._config.rx_channel_uuids[0],
-                        settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+            if self._config.staged_classic_notifications:
+                try:
+                    await self._ensure_services_cache()
+                    self.memory._rebuild_notify_handle_index_map()
+                    rx0 = self._config.rx_channel_uuids[0]
+                    await start_notify_with_recovery(
+                        self._client, rx0, self.memory._on_notify_channel_data
                     )
-                )
-            except Exception as exc:
-                _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
+                    self.memory._notify_subscribed_uuids.add(rx0)
+                    await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX0 pre-notify prime failed: %s", exc)
+                    raise ConnectionError(
+                        f"Could not enable the first memory notification channel: {exc}"
+                    ) from exc
+            else:
+                try:
+                    await subscriptions.enter_async_context(
+                        Notifications(
+                            self._client,
+                            self._config.rx_channel_uuids[0],
+                            settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+                        )
+                    )
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
 
             self._debug_ble_link("unlock_before_notify")
             try:

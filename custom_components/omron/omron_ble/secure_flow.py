@@ -89,6 +89,9 @@ async def prepare_secure_token(session, timeout: float) -> None:
             session._config.rx_channel_uuids[0],
             session.memory._on_notify_channel_data,
         )
+        session.memory._notify_subscribed_uuids.add(
+            session._config.rx_channel_uuids[0]
+        )
         session.memory._notify_subscribed = True
         await start_notify_with_recovery(
             session._client, ASYNC_NOTICE_UUID, async_notice,

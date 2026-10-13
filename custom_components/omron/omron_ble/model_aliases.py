@@ -34,6 +34,9 @@ config-flow dropdown, which stays on the HEM designations.
 from __future__ import annotations
 
 MODEL_NUMBER_ALIASES: dict[str, str] = {
+    "Omron VIVA": "HBF-222T",
+    "VIVA": "HBF-222T",
+    "Omron BCM-500": "HBF-222T",
     "BP300": "HEM-7320T-ZV",
     "BP4350": "HEM-6232T-Z",
     "BP5150": "HEM-7142T2-ZAZ",

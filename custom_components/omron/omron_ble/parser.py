@@ -77,7 +77,7 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
     return out
 
 # Local-name prefixes of Omron model codes: cuffs and scales.
-_OMRON_MODEL_PREFIXES = ("HEM-", "HN-3")
+_OMRON_MODEL_PREFIXES = ("HEM-", "HN-3", "HBF-")
 
 _RACP_SETTLE_S = 0.5
 _RACP_MEASUREMENT_TIMEOUT_S = 3.0
@@ -223,6 +223,16 @@ class OmronBluetoothDeviceData(BluetoothData):
 
     def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
+        if self._device_config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+            return (
+                ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
+                ("body_fat", "%", sensor_classes.BODY_FAT, "Body Fat"),
+                ("skeletal_muscle", "%", sensor_classes.SKELETAL_MUSCLE, "Skeletal Muscle"),
+                ("visceral_fat", None, sensor_classes.VISCERAL_FAT, "Visceral Fat Level"),
+                ("basal_metabolic_rate", "kcal/day", sensor_classes.BASAL_METABOLIC_RATE, "Basal Metabolic Rate"),
+                ("body_composition_bmi", "kg/m²", sensor_classes.BODY_COMPOSITION_BMI, "BMI"),
+                ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+            )
         if not self._device_config.is_blood_pressure:
             return (
                 ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
@@ -286,6 +296,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if OMRON_MANUFACTURER_ID in md:
             self._parse_omron_msd(md[OMRON_MANUFACTURER_ID])
 
+        name = (service_info.name or "").strip()
         # Check if any known Omron service UUID is present
         for uuid in DISCOVERABLE_PARENT_SERVICE_UUIDS:
             if uuid in service_info.service_uuids:
@@ -300,7 +311,6 @@ class OmronBluetoothDeviceData(BluetoothData):
             return
 
         # Fallback: device name (align with manifest bluetooth local_name matchers)
-        name = (service_info.name or "").strip()
         if name:
             if "omron" in name.lower():
                 self._setup_device_info(service_info)
@@ -570,6 +580,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                 record.get("datetime"),
                 record.get("user"),
                 record.get("weight"),
+                record.get("body_fat"),
+                record.get("skeletal_muscle"),
+                record.get("visceral_fat"),
+                record.get("basal_metabolic_rate"),
+                record.get("bmi"),
             )
         return (
             record.get("datetime"),
@@ -596,6 +611,18 @@ class OmronBluetoothDeviceData(BluetoothData):
                 key_suffix,
                 name_suffix,
             )
+            if self._device_config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+                for key, record_key, unit, device_class, name in (
+                    ("body_fat", "body_fat", "%", ExtendedSensorDeviceClass.BODY_FAT, "Body Fat"),
+                    ("skeletal_muscle", "skeletal_muscle", "%", ExtendedSensorDeviceClass.SKELETAL_MUSCLE, "Skeletal Muscle"),
+                    ("visceral_fat", "visceral_fat", None, ExtendedSensorDeviceClass.VISCERAL_FAT, "Visceral Fat Level"),
+                    ("basal_metabolic_rate", "basal_metabolic_rate", "kcal/day", ExtendedSensorDeviceClass.BASAL_METABOLIC_RATE, "Basal Metabolic Rate"),
+                    ("body_composition_bmi", "bmi", "kg/m²", ExtendedSensorDeviceClass.BODY_COMPOSITION_BMI, "BMI"),
+                ):
+                    self._publish_measurement_sensor(
+                        key, unit, record.get(record_key), device_class, name,
+                        key_suffix, name_suffix,
+                    )
             self._publish_measurement_timestamp(record, key_suffix, name_suffix)
             return
         sys_val, dia_val, bpm_val = self._publish_primary_measurements(
@@ -863,7 +890,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "improper_position": bool(record["pos"]) if "pos" in record else None,
                 }
                 if self._device_config.is_blood_pressure
-                else {"weight": record.get("weight")}
+                else {
+                    "weight": record.get("weight"),
+                    "body_fat": record.get("body_fat"),
+                    "skeletal_muscle": record.get("skeletal_muscle"),
+                    "visceral_fat": record.get("visceral_fat"),
+                    "basal_metabolic_rate": record.get("basal_metabolic_rate"),
+                    "bmi": record.get("bmi"),
+                }
             ),
         }
 
