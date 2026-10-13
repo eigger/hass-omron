@@ -126,7 +126,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         # the latest, oldest first, for the host to push before the poll's
         # own result.
         self.history_last_seq: dict[int, int] | None = None
-        self.history_publish: bool = True
+        self.history_publish: bool = False
         self.pending_history: dict[str, Any] | None = None
         self.history_updates: list[SensorUpdate] = []
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}

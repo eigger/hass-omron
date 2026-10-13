@@ -140,9 +140,9 @@ def _options_init_schema(
     }
     if cfg.supports_stored_record_sync:
         sync_default = bool(
-            user_input.get(CONF_SYNC_STORED_RECORDS, True)
+            user_input.get(CONF_SYNC_STORED_RECORDS, False)
             if user_input is not None
-            else entry.options.get(CONF_SYNC_STORED_RECORDS, True)
+            else entry.options.get(CONF_SYNC_STORED_RECORDS, False)
         )
         fields[vol.Required(CONF_SYNC_STORED_RECORDS, default=sync_default)] = bool
     if cfg.num_users > 1:
@@ -774,7 +774,7 @@ class OmronOptionsFlowHandler(OptionsFlow):
             }
             if cfg.supports_stored_record_sync:
                 out[CONF_SYNC_STORED_RECORDS] = bool(
-                    user_input.get(CONF_SYNC_STORED_RECORDS, True)
+                    user_input.get(CONF_SYNC_STORED_RECORDS, False)
                 )
             if cfg.num_users > 1:
                 resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)

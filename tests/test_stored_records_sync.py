@@ -151,6 +151,28 @@ def test_wrap_across_the_ring_end():
     assert _seqs(out) == [99, 100, 101, 102]
 
 
+def test_big_endian_counter_word_uses_its_low_sixteen_bits():
+    config = _config()
+    config.index_pointer_layout["endianness"] = "big"
+    cuff = Cuff(config, newest=(0, 0))
+    driver = OmronDeviceDriver(config)
+    transport = OmronDeviceSession(MagicMock(), config)
+    index = bytearray(0x10)
+    index[0:2] = (6).to_bytes(2, "big")  # cursor: next slot 6 -> newest slot 5
+    index[8:12] = (0xC0000000 | 6).to_bytes(4, "big")  # flags set, counter 6
+
+    async def memory(addr, size, block=0x10):
+        if addr == INDEX_ADDR:
+            return index
+        slot = (addr - BASE[0]) // SIZE
+        return _record(slot + 1, slot + 1)
+
+    transport.memory.read_memory_range = AsyncMock(side_effect=memory)
+    out = asyncio.run(driver.get_records_since(transport, {1: 4}, max_reads=30))
+    assert out[1].index_seq == 6 and _seqs(out) == [5, 6]
+    del cuff
+
+
 def test_sixteen_bit_counter_wrap():
     cuff = Cuff(_config(), newest=(0x0002, 0))
     cuff.newest[0] = 0x10002  # slots keep counting; the field stores 16 bits
@@ -205,10 +227,11 @@ def test_profile_without_the_field_does_nothing():
 OPTED_IN = {
     "HEM-7361T", "HEM-7342T", "HEM-7155T", "HEM-7155T-K4", "HEM-1026T2",
     "HEM-7153JT", "HEM-7150T", "HEM-7157T", "HEM-7151T", "HEM-7142T2",
+    "HEM-6161T", "HEM-6231T", "HEM-6231T_Z", "HEM-7530T", "HEM-7136T", "HEM-6232T",
 }
 
 
-def test_only_the_verified_blood_pressure_profiles_opt_in():
+def test_only_the_listed_blood_pressure_profiles_opt_in():
     from custom_components.omron.omron_ble.device_catalog import CANONICAL_DEVICE_PROFILES
 
     opted = {m for m, c in CANONICAL_DEVICE_PROFILES.items() if c.supports_stored_record_sync}
@@ -216,9 +239,7 @@ def test_only_the_verified_blood_pressure_profiles_opt_in():
     for model in opted:
         config = CANONICAL_DEVICE_PROFILES[model]
         layout = config.index_pointer_layout
-        # The 16-bit counter is read little-endian from bytes 8-9 / 12-13;
-        # a big-endian profile needs its own check against a real dump first.
-        assert layout["endianness"] == "little" and config.is_blood_pressure
+        assert config.is_blood_pressure
         offsets = [u.get("latest_sequence_offset") for u in layout["users"]]
         assert offsets == [8, 12][: len(offsets)]
 

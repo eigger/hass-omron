@@ -396,7 +396,7 @@ class DeviceConfig:
             if seq_offset is None:
                 continue
             index_size = int(self.index_pointer_layout.get("index_region_byte_size", 0))
-            if int(seq_offset) < 0 or int(seq_offset) + 2 > index_size:
+            if int(seq_offset) < 0 or int(seq_offset) + 4 > index_size:
                 raise ValueError(
                     "Invalid profile config for %s: the latest sequence field at "
                     "%d lies outside the %d-byte index region"

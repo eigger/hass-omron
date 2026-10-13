@@ -332,10 +332,10 @@ async def test_options_flow_offers_stored_record_sync_only_where_supported(
     on = await hass.config_entries.options.async_configure(
         result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
     )
-    assert on["data"][CONF_SYNC_STORED_RECORDS] is True
+    assert on["data"][CONF_SYNC_STORED_RECORDS] is False  # off by default
     result = await hass.config_entries.options.async_init(supported.entry_id)
-    off = await hass.config_entries.options.async_configure(
+    enabled = await hass.config_entries.options.async_configure(
         result["flow_id"],
-        user_input={CONF_SCAN_INTERVAL: 300, CONF_SYNC_STORED_RECORDS: False},
+        user_input={CONF_SCAN_INTERVAL: 300, CONF_SYNC_STORED_RECORDS: True},
     )
-    assert off["data"][CONF_SYNC_STORED_RECORDS] is False
+    assert enabled["data"][CONF_SYNC_STORED_RECORDS] is True

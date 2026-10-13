@@ -440,8 +440,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
-                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
+                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1, "latest_sequence_offset": 0x0C},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_6232_FAMILY,
@@ -500,7 +500,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
             ],
         },
         # bit-packed record layout (confirmed from HEM-6161T-RU; byte-aligned
@@ -539,7 +539,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 29, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
@@ -569,7 +569,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
@@ -598,7 +598,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
@@ -624,7 +624,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "index_region_byte_size": 0x10,
             "endianness": "big",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1},
+                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 89, "slot_index_bias": -1, "latest_sequence_offset": 0x08},
             ],
         },
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,

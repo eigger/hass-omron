@@ -654,15 +654,34 @@ class OmronDeviceDriver:
             if seq_offset is None or idx >= len(record_addresses):
                 continue
             user = idx + 1
-            index_seq = int.from_bytes(
-                index_bytes[seq_offset:seq_offset + 2], ptr_endian, signed=False
+            # A 32-bit word in the index's byte order: the counter is its low
+            # 16 bits, the two above them are overflow/full flags.
+            index_seq = (
+                int.from_bytes(
+                    index_bytes[seq_offset:seq_offset + 4], ptr_endian, signed=False
+                )
+                & 0xFFFF
+            )
+            _LOGGER.debug(
+                "User%d [%s]: record counter word=%s -> seq=%d (last handled: %s)",
+                user, self._config.model,
+                bytes(index_bytes[seq_offset:seq_offset + 4]).hex(),
+                index_seq, last_seq_by_user.get(user),
             )
             last = last_seq_by_user.get(user)
             if last is None:
+                _LOGGER.debug(
+                    "User%d [%s]: first sync, taking seq=%d as the baseline",
+                    user, self._config.model, index_seq,
+                )
                 results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
                 continue
             new = (index_seq - last) & 0xFFFF
             if not read_records:
+                _LOGGER.debug(
+                    "User%d [%s]: record sync off, following the counter only",
+                    user, self._config.model,
+                )
                 results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
                 continue
             if new == 0:
@@ -690,6 +709,12 @@ class OmronDeviceDriver:
             )
             lost = max(new - record_count, 0)
             to_read = new - lost
+            _LOGGER.debug(
+                "User%d [%s]: %d new record(s) since seq %d, newest slot=%d, "
+                "ring=%d, lost=%d, reading %d of %d (max_reads=%d)",
+                user, self._config.model, new, last, latest_slot, record_count,
+                lost, min(to_read, max_reads), to_read, max_reads,
+            )
             outcome = StoredUserRecords(next_seq=last, index_seq=index_seq, lost=lost)
             outcome.next_seq = (last + lost) & 0xFFFF
             base_addr = int(record_addresses[idx])
@@ -711,6 +736,11 @@ class OmronDeviceDriver:
                     outcome.complete = False
                     break
                 outcome.next_seq = (outcome.next_seq + 1) & 0xFFFF
+                _LOGGER.debug(
+                    "User%d [%s] seq=%d slot=%d addr=0x%04X raw=%s",
+                    user, self._config.model, outcome.next_seq, slot, addr,
+                    bytes(raw).hex(),
+                )
                 try:
                     parsed = self._config.parse_record(bytes(raw))
                     parsed["_slot_index"] = slot
@@ -718,6 +748,11 @@ class OmronDeviceDriver:
                 except Exception:
                     plausible = False
                 if not plausible:
+                    _LOGGER.debug(
+                        "User%d [%s] seq=%d slot=%d unreadable or implausible; "
+                        "counted as lost",
+                        user, self._config.model, outcome.next_seq, slot,
+                    )
                     outcome.lost += 1
                     continue
                 record_id = parsed.get("_record_id")
@@ -736,6 +771,12 @@ class OmronDeviceDriver:
                 outcome.records.append(record)
             if outcome.next_seq != index_seq:
                 outcome.complete = False
+            _LOGGER.debug(
+                "User%d [%s]: synced %d record(s), next seq=%d, cuff seq=%d, "
+                "lost=%d, complete=%s",
+                user, self._config.model, len(outcome.records), outcome.next_seq,
+                index_seq, outcome.lost, outcome.complete,
+            )
             results[user] = outcome
         return results
 

@@ -711,7 +711,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         # Off still follows the cuff's counter on every poll, so turning it
         # back on starts from there instead of replaying what piled up; it
         # only skips reading and publishing the records.
-        data.history_publish = bool(entry.options.get(CONF_SYNC_STORED_RECORDS, True))
+        data.history_publish = bool(entry.options.get(CONF_SYNC_STORED_RECORDS, False))
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
