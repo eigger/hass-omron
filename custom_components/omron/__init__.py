@@ -47,7 +47,7 @@ from .const import (
 )
 from .data import OmronRuntimeData
 from .history import (
-    async_load_history_state,
+    async_setup_history,
     async_publish_history,
     async_push_history_updates,
     async_remove_history,
@@ -602,13 +602,18 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             runtime.readout_coordinator.async_set_updated_data(
                 runtime.device_data.last_readout_at
             )
-            await async_push_history_updates(
-                poll_coordinator,
-                runtime.device_data.history_updates,
-                _merge_poll_sensor_update,
-            )
-            runtime.device_data.history_updates = []
-            await async_publish_history(hass, entry)
+            # Not once the entry is being unloaded or reloaded: a reload that
+            # switched the sync off has dropped the saved position, and this
+            # poll must not write it back.
+            async with runtime.history_lock:
+                if not runtime.unloading:
+                    await async_push_history_updates(
+                        poll_coordinator,
+                        runtime.device_data.history_updates,
+                        _merge_poll_sensor_update,
+                    )
+                    runtime.device_data.history_updates = []
+                    await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)
@@ -704,16 +709,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 address,
             )
 
-    # Where the stored-record sync stopped; empty on the first run, which
-    # makes the first poll only note the cuff's counter.
-    if get_device_config(device_model).supports_stored_record_sync:
-        data.history_last_seq, data.history_shown = await async_load_history_state(
-            hass, entry.entry_id
-        )
-        # Off still follows the cuff's counter on every poll, so turning it
-        # back on starts from there instead of replaying what piled up; it
-        # only skips reading and publishing the records.
-        data.history_publish = bool(entry.options.get(CONF_SYNC_STORED_RECORDS, False))
+    await async_setup_history(
+        hass,
+        entry.entry_id,
+        data,
+        supported=get_device_config(device_model).supports_stored_record_sync,
+        enabled=bool(entry.options.get(CONF_SYNC_STORED_RECORDS, False)),
+    )
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
@@ -844,6 +846,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bo
     """Unload a config entry."""
     runtime = entry.runtime_data
     runtime.unloading = True
+    # A poll that is pushing stored records or saving the position finishes
+    # first; later ones see the flag and skip.
+    async with runtime.history_lock:
+        pass
     # HA normally cancels entry background tasks after this function returns,
     # which is too late: a pairing task could park a new link after cleanup.
     background_tasks = set(runtime.background_tasks)

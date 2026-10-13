@@ -60,6 +60,30 @@ async def async_load_history_state(
     return _int_map(stored.get("last_seq")), _int_map(stored.get("shown"))
 
 
+async def async_setup_history(
+    hass: HomeAssistant,
+    entry_id: str,
+    device_data,
+    *,
+    supported: bool,
+    enabled: bool,
+) -> None:
+    """Switch the parser's stored-record sync on or off for this entry.
+
+    Off leaves the parser untouched, so a poll does exactly what it did before
+    the feature existed. The saved position is dropped, so turning it on later
+    starts from the cuff's counter instead of replaying what piled up.
+    """
+    if not supported:
+        return
+    if enabled:
+        device_data.history_last_seq, device_data.history_shown = (
+            await async_load_history_state(hass, entry_id)
+        )
+    else:
+        await async_remove_history(hass, entry_id)
+
+
 async def async_remove_history(hass: HomeAssistant, entry_id: str) -> None:
     """Forget the sync position of a removed entry."""
     await _store(hass, entry_id).async_remove()
@@ -104,7 +128,7 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     # instead of dropping them.
     last_seq = {**(device_data.history_last_seq or {}), **pending["next_seq"]}
     shown = {**device_data.history_shown, **pending.get("shown", {})}
-    # Most polls change nothing (no new record, or the option is off); do not
+    # Most polls change nothing (no new record); do not
     # rewrite the file for those.
     if last_seq != device_data.history_last_seq or shown != device_data.history_shown:
         await _store(hass, entry.entry_id).async_save(

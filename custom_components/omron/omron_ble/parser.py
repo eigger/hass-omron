@@ -126,7 +126,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         # the latest, oldest first, for the host to push before the poll's
         # own result.
         self.history_last_seq: dict[int, int] | None = None
-        self.history_publish: bool = False
         self.pending_history: dict[str, Any] | None = None
         self.history_updates: list[SensorUpdate] = []
         # Per user, the cuff counter of the newest record a poll has shown, so
@@ -773,7 +772,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                     session,
                     dict(self.history_last_seq or {}),
                     max_reads=HISTORY_MAX_READS,
-                    read_records=self.history_publish,
                 )
         except Exception as exc:
             trace.forgive("history")
