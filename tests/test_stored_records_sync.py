@@ -273,8 +273,13 @@ def test_publish_fires_oldest_first_then_saves_the_position():
     with patch.object(history, "_store", return_value=store), patch.object(
         history.dr, "async_get"
     ) as registry:
-        registry.return_value.async_get_device.return_value = SimpleNamespace(id="dev")
+        registry.return_value.async_get_device_by_connection.return_value = (
+            SimpleNamespace(id="dev")
+        )
         asyncio.run(history.async_publish_history(hass, entry))
+    registry.return_value.async_get_device_by_connection.assert_called_once_with(
+        (history.CONNECTION_BLUETOOTH, entry.runtime_data.address), entry.entry_id
+    )
     assert order[:2] == [("fire", 2), ("fire", 3)]
     assert device_data.history_last_seq == {2: 9, 1: 3}
     assert device_data.pending_history is None
@@ -282,6 +287,17 @@ def test_publish_fires_oldest_first_then_saves_the_position():
     assert order[-1] == ("save", {"last_seq": {"2": 9, "1": 3}, "shown": {"1": 3}})
     assert hass.bus.async_fire.call_args.args[0] == "omron_measurement"
     assert hass.bus.async_fire.call_args.args[1]["device_id"] == "dev"
+
+
+def test_publish_uses_legacy_device_lookup_on_older_home_assistant():
+    pending = {"next_seq": {}, "events": [], "shown": {}}
+    hass, entry, _ = _entry_and_hass(pending, {})
+    registry = SimpleNamespace(async_get_device=MagicMock(return_value=None))
+    with patch.object(history.dr, "async_get", return_value=registry):
+        asyncio.run(history.async_publish_history(hass, entry))
+    registry.async_get_device.assert_called_once_with(
+        connections={(history.CONNECTION_BLUETOOTH, entry.runtime_data.address)}
+    )
 
 
 def test_publish_without_findings_does_nothing():
