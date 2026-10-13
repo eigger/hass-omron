@@ -602,13 +602,17 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             runtime.readout_coordinator.async_set_updated_data(
                 runtime.device_data.last_readout_at
             )
-            await async_push_history_updates(
-                poll_coordinator,
-                runtime.device_data.history_updates,
-                _merge_poll_sensor_update,
-            )
-            runtime.device_data.history_updates = []
-            await async_publish_history(hass, entry)
+            # Not once the entry is being unloaded or reloaded: a reload that
+            # switched the sync off has dropped the saved position, and this
+            # poll must not write it back.
+            if not getattr(runtime, "unloading", False):
+                await async_push_history_updates(
+                    poll_coordinator,
+                    runtime.device_data.history_updates,
+                    _merge_poll_sensor_update,
+                )
+                runtime.device_data.history_updates = []
+                await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)

@@ -128,7 +128,7 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     # instead of dropping them.
     last_seq = {**(device_data.history_last_seq or {}), **pending["next_seq"]}
     shown = {**device_data.history_shown, **pending.get("shown", {})}
-    # Most polls change nothing (no new record, or the option is off); do not
+    # Most polls change nothing (no new record); do not
     # rewrite the file for those.
     if last_seq != device_data.history_last_seq or shown != device_data.history_shown:
         await _store(hass, entry.entry_id).async_save(

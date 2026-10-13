@@ -623,8 +623,48 @@ def test_unsupported_profiles_are_never_touched():
     store.async_remove.assert_not_called()
 
 
-def test_a_parser_does_nothing_for_history_until_the_host_asks():
+def _readout(history_last_seq):
     from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+    from custom_components.omron.omron_ble import parser as parser_module
+    from custom_components.omron.omron_ble.session_trace import SessionTrace
 
     data = OmronBluetoothDeviceData(device_model="HEM-7361T")
-    assert data.history_last_seq is None
+    data.history_last_seq = history_last_seq
+    data._driver.write_user_profile = AsyncMock()
+    data._driver.get_latest_records_per_user = AsyncMock(return_value={})
+    data._driver.get_records_since = AsyncMock(return_value={})
+    session = MagicMock()
+    session.trace = SessionTrace()
+    session.memory.commit_pairing_registration = AsyncMock()
+    client = MagicMock()
+    client.services.get_characteristic.return_value = None
+    with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
+        asyncio.run(
+            data._poll_device_readout(
+                session, client, SimpleNamespace(address="AA:BB"), memory_session_active=True
+            )
+        )
+    return data
+
+
+def test_a_readout_reads_no_history_until_the_host_asks():
+    data = _readout(None)
+    data._driver.get_records_since.assert_not_called()
+    assert data.pending_history is None and data.history_updates == []
+
+
+def test_a_readout_reads_history_once_the_host_asks():
+    data = _readout({})
+    data._driver.get_records_since.assert_awaited_once()
+
+
+def test_a_poll_that_started_before_a_reload_does_not_write_the_position_back(monkeypatch):
+    data = _PollingData()
+    omron_init, hass, entry, calls = _poll_harness(monkeypatch, data)
+    entry.runtime_data.unloading = True
+    store = MagicMock()
+    store.async_save = AsyncMock()
+    with patch.object(history, "_store", return_value=store), patch.object(history.dr, "async_get"):
+        asyncio.run(omron_init.async_poll_data(hass, entry))
+    assert calls == [] and data.history_last_seq == {}
+    store.async_save.assert_not_called()
