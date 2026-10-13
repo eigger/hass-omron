@@ -216,6 +216,7 @@ OPTED_IN = {
     "HEM-7361T", "HEM-7342T", "HEM-7155T", "HEM-7155T-K4", "HEM-1026T2",
     "HEM-7153JT", "HEM-7150T", "HEM-7157T", "HEM-7151T", "HEM-7142T2",
     "HEM-6161T", "HEM-6231T", "HEM-6231T_Z", "HEM-7530T", "HEM-7136T", "HEM-6232T",
+    "HBF-222T",
 }
 
 
@@ -227,6 +228,12 @@ def test_only_the_listed_blood_pressure_profiles_opt_in():
     for model in opted:
         config = CANONICAL_DEVICE_PROFILES[model]
         layout = config.index_pointer_layout
+        if model == "HBF-222T":
+            assert not config.is_blood_pressure
+            assert [user.get("sequence_source") for user in layout["users"]] == [
+                "record_id"
+            ] * 4
+            continue
         assert config.is_blood_pressure
         offsets = [u.get("latest_sequence_offset") for u in layout["users"]]
         assert offsets == [8, 12][: len(offsets)]

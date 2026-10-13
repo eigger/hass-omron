@@ -1477,6 +1477,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser=RecordParser.HBF_32,
         staged_classic_notifications=True,
         keep_notify_subscriptions=True,
-        equivalent_model_ids=("HBF-222T_E", "BCM-500", "VIVA"),
+        equivalent_model_ids=("HBF-222T_E",),
     ),
 }

@@ -148,6 +148,12 @@ class MemoryProtocol:
 
     async def _subscribe_notify_channels(self) -> None:
         """Enable notifications on all RX channels."""
+        if self._notify_subscribed:
+            _LOGGER.debug(
+                "RX notify subscribe skipped (already flagged) model=%s",
+                self._config.model,
+            )
+            return
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
@@ -184,7 +190,7 @@ class MemoryProtocol:
             return
         for uuid in self._config.rx_channel_uuids:
             await stop_notify_best_effort(self._client, uuid)
-        self._notify_subscribed_uuids.clear()
+        getattr(self, "_notify_subscribed_uuids", set()).clear()
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -703,7 +709,9 @@ class MemoryProtocol:
     @traced("memory_close")
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
-        if not self._memory_session_active and not self._memory_session_start_attempted:
+        if not self._memory_session_active and not getattr(
+            self, "_memory_session_start_attempted", False
+        ):
             return
 
         try:

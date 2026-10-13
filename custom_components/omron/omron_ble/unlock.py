@@ -185,9 +185,6 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         )
         rx_notify_primed = True
         if keep_notify:
-            session.memory._notify_subscribed_uuids.add(
-                session._config.rx_channel_uuids[0]
-            )
             session.memory._notify_subscribed = True
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
     except asyncio.CancelledError:
