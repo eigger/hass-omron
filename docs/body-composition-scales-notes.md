@@ -49,22 +49,22 @@ Bit-packed, bit 0 is the most significant bit of byte 0.
 
 | Field | Bits | Encoding |
 | :--- | :--- | :--- |
-| weight | 0-11 | / 10, kg |
-| body fat | 17-26 | / 10, % |
-| visceral fat | 28-32 | integer |
-| basal metabolic rate | 33-44 | kcal |
-| skeletal muscle | 49-58 | / 10, % |
-| year | 58-64 | + 2000 |
-| BMI | 64-74 | / 10 |
-| minute | 74-80 | |
-| month | 92-96 | |
-| day | 96-101 | |
-| hour | 101-106 | |
+| weight | 0-11 | × 0.05, kg |
+| body fat | 16-25 | / 10, % |
+| visceral fat | 27-31 | integer |
+| basal metabolic rate | 32-43 | kcal |
+| skeletal muscle | 48-57 | / 10, % |
+| year | 58-63 | + 2000 |
+| BMI | 64-73 | / 10 |
+| minute | 74-79 | |
+| month | 92-95 | |
+| day | 96-100 | |
+| hour | 101-105 | |
 | counter | bytes 24-25 | u16 big-endian, per profile |
 | weight, second copy | 208-219 | same encoding as weight |
 
-- 59 records were cross-checked against the cloud history of the same weigh-ins
-  and matched to 0.1 kg and the minute.
+- 59 records were cross-checked against cloud history; the #239 VIVA capture
+  additionally confirms the 0.05 kg weight step and composition field offsets.
 - No seconds in the record; timestamps have one-minute resolution.
 - The second copy of the weight is the only per-record integrity check; drop the
   record when the two differ.
@@ -78,9 +78,9 @@ Bit-packed, bit 0 is the most significant bit of byte 0.
 
 **Unverified:** one report reads the weight of the HBF scales as a
 12-bit big-endian field at byte offset 26, low 4 bits dropped, in 0.05 kg steps.
-That disagrees with the table above (0.1 kg steps from bit 0), and with its
-48-byte vs 32-byte record sizes it may describe a different model. Settle it
-against a real dump before writing a parser.
+The 0.05 kg step matches the HBF-222T capture, but the reported offset and
+48-byte record size differ from this 32-byte model. It may describe another
+model; settle its layout against a model-specific dump before writing a parser.
 
 The implementation uses the cross-checked 32-byte HBF-222T layout above. The
 other reported layout is not selected without model-specific evidence.

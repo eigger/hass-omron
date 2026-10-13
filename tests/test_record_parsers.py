@@ -10,7 +10,49 @@ import pytest
 from custom_components.omron.omron_ble.record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_14_bitpacked,
+    parse_hbf_32,
 )
+
+
+class TestParseHbf32:
+    def test_viva_record_matches_reported_omron_connect_values(self):
+        # User1 [HBF-222T] slot=24 from the #239 sanitized debug log.
+        raw = bytes.fromhex(
+            "a06c5b948a6c401a6327503a6d290e1f"
+            "1255324612b4c0000019a060ffff9e61"
+        )
+
+        record = parse_hbf_32(raw, "big")
+
+        assert record["weight"] == 128.3
+        assert record["body_fat"] == 36.6
+        assert record["skeletal_muscle"] == 25.6
+        assert record["visceral_fat"] == 20
+        assert record["basal_metabolic_rate"] == 2214
+        assert record["bmi"] == 39.6
+        assert record["datetime"] == datetime.datetime(2026, 10, 13, 20, 39)
+        assert record["_record_id"] == 25
+
+    def test_body_composition_fields_keep_their_high_bit(self):
+        raw = bytearray.fromhex(
+            "a06c5b948a6c401a6327503a6d290e1f"
+            "1255324612b4c0000019a060ffff9e61"
+        )
+
+        def set_field(start_bit: int, bit_size: int, value: int) -> None:
+            record_value = int.from_bytes(raw, "big")
+            shift = len(raw) * 8 - start_bit - bit_size
+            mask = (1 << bit_size) - 1
+            record_value = (record_value & ~(mask << shift)) | (value << shift)
+            raw[:] = record_value.to_bytes(len(raw), "big")
+
+        set_field(16, 10, 550)
+        set_field(48, 10, 450)
+
+        record = parse_hbf_32(raw, "big")
+
+        assert record["body_fat"] == 55.0
+        assert record["skeletal_muscle"] == 45.0
 
 
 class TestParseClassicVital14:
