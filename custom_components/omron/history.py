@@ -112,9 +112,14 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     if pending is None:
         return
     device_data.pending_history = None
-    device = dr.async_get(hass).async_get_device_by_connection(
-        (CONNECTION_BLUETOOTH, entry.runtime_data.address)
-    )
+    registry = dr.async_get(hass)
+    connection = (CONNECTION_BLUETOOTH, entry.runtime_data.address)
+    if hasattr(registry, "async_get_device_by_connection"):
+        device = registry.async_get_device_by_connection(connection, entry.entry_id)
+    else:
+        # Home Assistant added the entry-scoped lookup after our minimum
+        # supported version (2025.12.0).
+        device = registry.async_get_device(connections={connection})
     for event in pending["events"]:
         hass.bus.async_fire(
             EVENT_MEASUREMENT,
