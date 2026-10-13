@@ -115,6 +115,18 @@ def test_nothing_new_reads_only_the_index():
     assert cuff.reads == [INDEX_ADDR]
 
 
+def test_following_the_counter_without_reading_records():
+    cuff = Cuff(_config(), newest=(53, 7))
+    driver = OmronDeviceDriver(cuff.config)
+    transport = OmronDeviceSession(MagicMock(), cuff.config)
+    transport.memory.read_memory_range = AsyncMock(side_effect=cuff.memory)
+    out = asyncio.run(
+        driver.get_records_since(transport, {1: 40, 2: 7}, max_reads=30, read_records=False)
+    )
+    assert out[1].records == [] and out[1].next_seq == 53 and out[1].lost == 0
+    assert cuff.reads == [INDEX_ADDR]
+
+
 def test_new_records_come_back_oldest_first_with_one_read_each():
     cuff = Cuff(_config(), newest=(53, 7))
     out = _sync(cuff, {1: 50, 2: 7})

@@ -615,6 +615,7 @@ class OmronDeviceDriver:
         last_seq_by_user: dict[int, int],
         *,
         max_reads: int,
+        read_records: bool = True,
     ) -> dict[int, StoredUserRecords]:
         """Read the records stored since each user's ``last_seq``.
 
@@ -623,7 +624,9 @@ class OmronDeviceDriver:
         read and ``next_seq`` is the cuff's current counter, so setting the
         integration up never replays the memory. Reads are bounded by
         ``max_reads`` per user, oldest first, so a long backlog drains over
-        several polls instead of one long link.
+        several polls instead of one long link. With ``read_records`` off only
+        the counter is followed: no record is read, and ``next_seq`` is the
+        cuff's current counter.
         """
         layout = self._config.index_pointer_layout
         if (
@@ -659,6 +662,9 @@ class OmronDeviceDriver:
                 results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
                 continue
             new = (index_seq - last) & 0xFFFF
+            if not read_records:
+                results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
+                continue
             if new == 0:
                 results[user] = StoredUserRecords(next_seq=last, index_seq=index_seq)
                 continue

@@ -707,14 +707,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
     # Where the stored-record sync stopped; empty on the first run, which
     # makes the first poll only note the cuff's counter.
     if get_device_config(device_model).supports_stored_record_sync:
-        if entry.options.get(CONF_SYNC_STORED_RECORDS, True):
-            data.history_last_seq = await async_load_last_sequences(
-                hass, entry.entry_id
-            )
-        else:
-            # Off: forget the position, so turning it back on starts from the
-            # cuff's counter instead of replaying what piled up meanwhile.
-            await async_remove_history(hass, entry.entry_id)
+        data.history_last_seq = await async_load_last_sequences(hass, entry.entry_id)
+        # Off still follows the cuff's counter on every poll, so turning it
+        # back on starts from there instead of replaying what piled up; it
+        # only skips reading and publishing the records.
+        data.history_publish = bool(entry.options.get(CONF_SYNC_STORED_RECORDS, True))
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
