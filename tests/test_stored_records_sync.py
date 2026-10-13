@@ -507,6 +507,8 @@ def _poll_harness(monkeypatch, device_data):
         address="AA:BB:CC:DD:EE:FF",
         session_lock=asyncio.Lock(),
         force_poll_after_lock=False,
+        history_lock=asyncio.Lock(),
+        unloading=False,
         device_data=device_data,
         poll_coordinator=coordinator,
         readout_coordinator=SimpleNamespace(async_set_updated_data=lambda v: None),
@@ -668,3 +670,30 @@ def test_a_poll_that_started_before_a_reload_does_not_write_the_position_back(mo
         asyncio.run(omron_init.async_poll_data(hass, entry))
     assert calls == [] and data.history_last_seq == {}
     store.async_save.assert_not_called()
+
+
+def test_unload_waits_for_a_poll_that_is_saving_the_position(monkeypatch):
+    import custom_components.omron as omron_init
+
+    runtime = SimpleNamespace(
+        address="AA:BB:CC:DD:EE:FF",
+        unloading=False,
+        history_lock=asyncio.Lock(),
+        background_tasks=set(),
+        pending_forced_transfer_task=None,
+    )
+    entry = SimpleNamespace(runtime_data=runtime)
+    hass = MagicMock()
+    hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    monkeypatch.setattr(omron_init, "discard_handoff_session", AsyncMock())
+    monkeypatch.setattr(omron_init, "discard_probe_session", AsyncMock())
+
+    async def scenario():
+        async with runtime.history_lock:
+            unload = asyncio.create_task(omron_init.async_unload_entry(hass, entry))
+            for _ in range(5):
+                await asyncio.sleep(0)
+            assert runtime.unloading and not unload.done()
+        assert await unload is True
+
+    asyncio.run(scenario())

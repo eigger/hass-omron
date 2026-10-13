@@ -39,6 +39,9 @@ class OmronRuntimeData:
     failure_count_coordinator: DataUpdateCoordinator[int]
     session_reports: SessionReports
     session_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Held while a poll pushes its stored records and saves the position, so an
+    # unload can wait for that to finish instead of racing its Store write.
+    history_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     last_attempt_time: float = 0.0
     pending_forced_transfer: bool = False
     pending_forced_transfer_baseline: Any = None

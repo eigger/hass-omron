@@ -605,14 +605,15 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             # Not once the entry is being unloaded or reloaded: a reload that
             # switched the sync off has dropped the saved position, and this
             # poll must not write it back.
-            if not getattr(runtime, "unloading", False):
-                await async_push_history_updates(
-                    poll_coordinator,
-                    runtime.device_data.history_updates,
-                    _merge_poll_sensor_update,
-                )
-                runtime.device_data.history_updates = []
-                await async_publish_history(hass, entry)
+            async with runtime.history_lock:
+                if not runtime.unloading:
+                    await async_push_history_updates(
+                        poll_coordinator,
+                        runtime.device_data.history_updates,
+                        _merge_poll_sensor_update,
+                    )
+                    runtime.device_data.history_updates = []
+                    await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)
@@ -845,6 +846,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bo
     """Unload a config entry."""
     runtime = entry.runtime_data
     runtime.unloading = True
+    # A poll that is pushing stored records or saving the position finishes
+    # first; later ones see the flag and skip.
+    async with runtime.history_lock:
+        pass
     # HA normally cancels entry background tasks after this function returns,
     # which is too late: a pairing task could park a new link after cleanup.
     background_tasks = set(runtime.background_tasks)
