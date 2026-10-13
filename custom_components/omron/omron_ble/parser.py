@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import datetime as dt
 import logging
 from collections.abc import Callable
@@ -51,6 +52,10 @@ from .session_trace import SessionTrace
 from .util import slugify_for_entity_key
 
 _LOGGER = logging.getLogger(__name__)
+
+# Stored records read per user in one poll. The rest wait for the next poll,
+# which keeps the link short when a cuff has a long backlog.
+HISTORY_MAX_READS = 30
 
 # The pairing registration is two writes and only the second may be repeated;
 # one retry lets a failed clock write land without redoing the head.
@@ -113,6 +118,16 @@ class OmronBluetoothDeviceData(BluetoothData):
         # establishes a new one so the entry can be updated after the poll.
         self.transport_credential: bytes | None = None
         self.pending_credential: bytes | None = None
+        # Stored-record sync (#234). The host sets ``history_last_seq`` (per
+        # user, the last cuff sequence it has handled) to turn it on; a poll
+        # then leaves its findings in ``pending_history`` for the host to
+        # publish and persist, and the host advances ``history_last_seq``.
+        # ``history_updates`` holds one SensorUpdate per record older than
+        # the latest, oldest first, for the host to push before the poll's
+        # own result.
+        self.history_last_seq: dict[int, int] | None = None
+        self.pending_history: dict[str, Any] | None = None
+        self.history_updates: list[SensorUpdate] = []
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -740,6 +755,80 @@ class OmronBluetoothDeviceData(BluetoothData):
         self.set_device_manufacturer(manufacturer)
         self.pending = False
 
+    async def _collect_stored_history(
+        self, session: OmronDeviceSession, trace: SessionTrace
+    ) -> None:
+        """Read the records stored since the host's last sync (#234)."""
+        try:
+            with trace.timed("history"):
+                found = await self._driver.get_records_since(
+                    session,
+                    dict(self.history_last_seq or {}),
+                    max_reads=HISTORY_MAX_READS,
+                )
+        except Exception as exc:
+            trace.forgive("history")
+            trace.note(history_error=str(exc) or type(exc).__name__)
+            _LOGGER.debug("Stored-record read failed: %s", exc)
+            return
+        if not found:
+            return
+        events: list[dict[str, Any]] = []
+        next_seq: dict[int, int] = {}
+        for user, outcome in sorted(found.items()):
+            next_seq[user] = outcome.next_seq
+            if outcome.lost:
+                _LOGGER.warning(
+                    "%d stored measurement(s) for user %d were overwritten or "
+                    "unreadable before they could be synced",
+                    outcome.lost, user,
+                )
+            records = outcome.records
+            # The poll publishes the cuff's newest record itself; every older
+            # one is pushed ahead of it so each gets its own state change.
+            backlog = records[:-1] if outcome.complete else records
+            for record in backlog:
+                self._update_measurement_sensors(record, user=user, multi_user=True)
+                update = self._finish_update()
+                # Seeded, still-empty entries of the other users would blank
+                # their sensors for this one state change.
+                self.history_updates.append(
+                    dataclasses.replace(
+                        update,
+                        entity_values={
+                            k: v for k, v in update.entity_values.items()
+                            if v.native_value is not None
+                        },
+                        binary_entity_values={
+                            k: v for k, v in update.binary_entity_values.items()
+                            if v.native_value is not None
+                        },
+                    )
+                )
+            events.extend(self._history_event(user, rec) for rec in records)
+        events.sort(key=lambda e: (e["measured_at"] or "", e["user"], e["sequence"]))
+        trace.note(history_reads=len(events))
+        self.pending_history = {"next_seq": next_seq, "events": events}
+
+    def _history_event(self, user: int, record: dict[str, Any]) -> dict[str, Any]:
+        """Event payload for one stored record."""
+        measured = record.get("datetime")
+        aware = self._ensure_aware_datetime(measured)
+        return {
+            "user": user,
+            "user_alias": self._user_aliases.get(user),
+            "sequence": record.get("sequence"),
+            "measured_at": aware.isoformat() if isinstance(aware, dt.datetime) else None,
+            "device_time": measured.isoformat() if isinstance(measured, dt.datetime) else None,
+            "sys": record.get("sys"),
+            "dia": record.get("dia"),
+            "bpm": record.get("bpm"),
+            "irregular_pulse": bool(record["ihb"]) if "ihb" in record else None,
+            "body_movement": bool(record["mov"]) if "mov" in record else None,
+            "cuff_loose": bool(record["cuff"]) if "cuff" in record else None,
+            "improper_position": bool(record["pos"]) if "pos" in record else None,
+        }
+
     async def _poll_device_readout(
         self,
         session: OmronDeviceSession,
@@ -794,6 +883,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             eeprom_record_decoded = False
             if multi_user_mode:
                 latest_by_user = await self._driver.get_latest_records_per_user(session)
+                if memory_session_active and self.history_last_seq is not None:
+                    await self._collect_stored_history(session, trace)
                 eeprom_record_decoded = bool(latest_by_user)
                 if not latest_by_user and self._device_config.is_blood_pressure:
                     # Diagnostic only: the classic EEPROM index/full-scan path found
@@ -1041,6 +1132,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         """
         async with self._poll_guard:
             self._events_updates.clear()
+            self.pending_history = None
+            self.history_updates = []
             # This poll's own breakdown. An adopted session already carries the
             # pairing session's trace; the link is copied across and the stages
             # are swapped, so what this poll publishes matches its own duration.

@@ -41,10 +41,17 @@ from homeassistant.helpers.update_coordinator import (
 from .const import (
     BLE_SESSION_TIMEOUT_SECONDS,
     CONF_DEVICE_MODEL,
+    CONF_SYNC_STORED_RECORDS,
     CONF_TRANSPORT_CREDENTIAL,
     DOMAIN,
 )
 from .data import OmronRuntimeData
+from .history import (
+    async_load_last_sequences,
+    async_publish_history,
+    async_push_history_updates,
+    async_remove_history,
+)
 from .util import aliases_dict_from_entry
 from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
@@ -595,6 +602,13 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             runtime.readout_coordinator.async_set_updated_data(
                 runtime.device_data.last_readout_at
             )
+            await async_push_history_updates(
+                poll_coordinator,
+                runtime.device_data.history_updates,
+                _merge_poll_sensor_update,
+            )
+            runtime.device_data.history_updates = []
+            await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)
@@ -689,6 +703,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 "re-add the device while it is in pairing mode",
                 address,
             )
+
+    # Where the stored-record sync stopped; empty on the first run, which
+    # makes the first poll only note the cuff's counter.
+    if get_device_config(device_model).supports_stored_record_sync:
+        if entry.options.get(CONF_SYNC_STORED_RECORDS, True):
+            data.history_last_seq = await async_load_last_sequences(
+                hass, entry.entry_id
+            )
+        else:
+            # Off: forget the position, so turning it back on starts from the
+            # cuff's counter instead of replaying what piled up meanwhile.
+            await async_remove_history(hass, entry.entry_id)
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
@@ -808,6 +834,11 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
         )
         return
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
+    """Drop the stored-record sync position with the entry."""
+    await async_remove_history(hass, entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

@@ -11,6 +11,9 @@ BLE_SESSION_TIMEOUT_SECONDS: Final = 180
 CONF_BINDKEY: Final = "bindkey"
 CONF_DEVICE_MODEL: Final = "device_model"
 CONF_USER_ALIASES: Final = "user_aliases"
+# Publish every measurement stored since the last poll (#234); on by default
+# for the profiles that support it.
+CONF_SYNC_STORED_RECORDS: Final = "sync_stored_records"
 # Application-layer credential for profiles whose transport keeps its own
 # key (UnlockMode.SECURE_SESSION). Stored hex-encoded; only the entry that
 # established it can use it, so it never leaves this device's entry data.

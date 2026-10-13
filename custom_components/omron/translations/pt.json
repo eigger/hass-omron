@@ -78,6 +78,7 @@
         "description": "De quanto em quanto o Home Assistant deve consultar o tensiómetro por novas medições (60–86400 segundos). Um valor mais baixo gasta mais bateria da braçadeira. Com 0 a consulta agendada fica desativada. As braçadeiras que sinalizam uma transferência pendente continuam a ser lidas sozinhas; as restantes só atualizam com o botão de atualizar dados.\n\n**Lugares de perfil neste dispositivo:** {num_users}. Se houver mais do que um, defina abaixo um nome a mostrar por lugar (predefinições user1, user2, …). Mudar o nome de um lugar cria novas entidades de sensor para esse lugar.",
         "data": {
           "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)",
+          "sync_stored_records": "Publicar todas as medições guardadas desde a última consulta",
           "user_alias_1": "Nome do utilizador 1",
           "user_alias_2": "Nome do utilizador 2",
           "user_alias_3": "Nome do utilizador 3",

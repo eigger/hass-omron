@@ -391,6 +391,17 @@ class DeviceConfig:
                     "the %d-byte index region"
                     % (self.model, self.pairing_registration.slot_offset, index_size)
                 )
+        for user_layout in (self.index_pointer_layout or {}).get("users", []):
+            seq_offset = user_layout.get("latest_sequence_offset")
+            if seq_offset is None:
+                continue
+            index_size = int(self.index_pointer_layout.get("index_region_byte_size", 0))
+            if int(seq_offset) < 0 or int(seq_offset) + 2 > index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the latest sequence field at "
+                    "%d lies outside the %d-byte index region"
+                    % (self.model, int(seq_offset), index_size)
+                )
         if self.measurement_completion is not None:
             # Same reasoning as the registration above: where the completion
             # byte lands is fixed by the catalog, so a profile that puts it
@@ -458,6 +469,12 @@ class DeviceConfig:
     def is_blood_pressure(self) -> bool:
         """Whether this profile measures blood pressure."""
         return self.measurement_kind == MeasurementKind.BLOOD_PRESSURE
+
+    @property
+    def supports_stored_record_sync(self) -> bool:
+        """Whether the index layout carries a per-user record counter."""
+        users = (self.index_pointer_layout or {}).get("users", [])
+        return any(u.get("latest_sequence_offset") is not None for u in users)
 
     @property
     def num_users(self) -> int:

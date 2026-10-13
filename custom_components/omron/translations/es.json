@@ -78,6 +78,7 @@
         "description": "Cada cuánto debe Home Assistant consultar el tensiómetro en busca de lecturas nuevas (60–86400 segundos). Un valor menor gasta más batería del manguito. Con 0 se desactiva la consulta programada. Los manguitos que avisan de una transferencia pendiente se siguen leyendo solos; los demás solo se actualizan con el botón de actualizar datos.\n\n**Ranuras de perfil en este dispositivo:** {num_users}. Si hay más de una, indique abajo un nombre para cada ranura (predeterminados user1, user2, …). Cambiar el nombre de una ranura crea nuevas entidades de sensor para esa ranura.",
         "data": {
           "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)",
+          "sync_stored_records": "Publicar todas las mediciones guardadas desde la última consulta",
           "user_alias_1": "Nombre del usuario 1",
           "user_alias_2": "Nombre del usuario 2",
           "user_alias_3": "Nombre del usuario 3",

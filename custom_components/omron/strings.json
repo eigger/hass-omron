@@ -78,6 +78,7 @@
         "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff. Set 0 to turn scheduled polling off. Cuffs that signal a pending transfer are still read on their own; the others update only when you press Refresh Data.\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
         "data": {
           "scan_interval": "Update Interval (seconds, 0 = off)",
+          "sync_stored_records": "Publish every measurement stored since the last poll",
           "user_alias_1": "User 1 name",
           "user_alias_2": "User 2 name",
           "user_alias_3": "User 3 name",

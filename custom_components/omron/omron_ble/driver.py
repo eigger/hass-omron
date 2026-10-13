@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import logging
 from collections.abc import Collection
+from dataclasses import dataclass, field
 from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
@@ -22,6 +23,24 @@ WEIGHT_RANGE_KG = (1.0, 300.0)
 # A TruRead session takes roughly 3 x (measure + 60 s rest); anything wider
 # than this is two separate sessions.
 TRUREAD_SESSION_WINDOW = dt.timedelta(minutes=15)
+
+
+@dataclass
+class StoredUserRecords:
+    """What one user's stored records yielded since the last sync.
+
+    ``records`` run oldest first. ``next_seq`` is the sequence the caller
+    should persist once it has handled them: it trails the cuff's own counter
+    when the read was cut short, so the next poll resumes where this one
+    stopped.
+    """
+
+    next_seq: int
+    index_seq: int
+    records: list[dict[str, Any]] = field(default_factory=list)
+    lost: int = 0
+    rebased: bool = False
+    complete: bool = True
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
@@ -589,6 +608,151 @@ class OmronDeviceDriver:
             return None
         user, record = selected
         return self._finalize_public_latest_record(record, user)
+
+    async def get_records_since(
+        self,
+        transport: OmronDeviceSession,
+        last_seq_by_user: dict[int, int],
+        *,
+        max_reads: int,
+    ) -> dict[int, StoredUserRecords]:
+        """Read the records stored since each user's ``last_seq``.
+
+        Only users whose index layout carries ``latest_sequence_offset`` take
+        part. A user with no ``last_seq`` yet is only baselined: nothing is
+        read and ``next_seq`` is the cuff's current counter, so setting the
+        integration up never replays the memory. Reads are bounded by
+        ``max_reads`` per user, oldest first, so a long backlog drains over
+        several polls instead of one long link.
+        """
+        layout = self._config.index_pointer_layout
+        if (
+            layout is None
+            or self._config.settings_read_address is None
+            or self._config.record_byte_size <= 0
+        ):
+            return {}
+        user_layouts = layout.get("users", [])
+        index_region_byte_size = int(layout.get("index_region_byte_size", 0))
+        if not any(u.get("latest_sequence_offset") is not None for u in user_layouts):
+            return {}
+        record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
+        record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
+        record_step = int(layout.get("record_step", record_byte_size))
+        ptr_endian = str(layout.get("endianness", self._config.endianness))
+        index_bytes = await transport.memory.read_memory_range(
+            self._config.settings_read_address,
+            index_region_byte_size,
+            self._config.transmission_block_size,
+        )
+        results: dict[int, StoredUserRecords] = {}
+        for idx, user_cfg in enumerate(user_layouts):
+            seq_offset = user_cfg.get("latest_sequence_offset")
+            if seq_offset is None or idx >= len(record_addresses):
+                continue
+            user = idx + 1
+            index_seq = int.from_bytes(
+                index_bytes[seq_offset:seq_offset + 2], ptr_endian, signed=False
+            )
+            last = last_seq_by_user.get(user)
+            if last is None:
+                results[user] = StoredUserRecords(next_seq=index_seq, index_seq=index_seq)
+                continue
+            new = (index_seq - last) & 0xFFFF
+            if new == 0:
+                results[user] = StoredUserRecords(next_seq=last, index_seq=index_seq)
+                continue
+            if new >= 0x8000:
+                # The counter went backwards: memory was cleared or the cuff
+                # swapped. Start over from here rather than guess.
+                _LOGGER.warning(
+                    "User%d [%s]: record counter moved back (%d -> %d); "
+                    "resuming from the cuff's current counter",
+                    user, self._config.model, last, index_seq,
+                )
+                results[user] = StoredUserRecords(
+                    next_seq=index_seq, index_seq=index_seq, rebased=True
+                )
+                continue
+            latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+            if latest_slot is None:
+                continue
+            pointer_min = int(user_cfg.get("slot_index_min", 0))
+            record_count = (
+                int(user_cfg.get("slot_index_max", self._config.per_user_records_count[idx] - 1))
+                - pointer_min + 1
+            )
+            lost = max(new - record_count, 0)
+            to_read = new - lost
+            outcome = StoredUserRecords(next_seq=last, index_seq=index_seq, lost=lost)
+            outcome.next_seq = (last + lost) & 0xFFFF
+            base_addr = int(record_addresses[idx])
+            previous_id: int | None = None
+            for k in range(min(to_read, max_reads)):
+                slot = latest_slot - (to_read - 1 - k)
+                while slot < pointer_min:
+                    slot += record_count
+                addr = base_addr + (slot - pointer_min) * record_step
+                try:
+                    raw = await transport.memory.read_memory_range(
+                        addr, record_byte_size, self._config.transmission_block_size
+                    )
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d addr=0x%04X history read failed: %s",
+                        user, self._config.model, slot, addr, exc,
+                    )
+                    outcome.complete = False
+                    break
+                outcome.next_seq = (outcome.next_seq + 1) & 0xFFFF
+                try:
+                    parsed = self._config.parse_record(bytes(raw))
+                    parsed["_slot_index"] = slot
+                    plausible = self._is_record_plausible(parsed)
+                except Exception:
+                    plausible = False
+                if not plausible:
+                    outcome.lost += 1
+                    continue
+                record_id = parsed.get("_record_id")
+                if (
+                    previous_id is not None
+                    and record_id is not None
+                    and record_id != (previous_id + 1) & 0xFFFF
+                ):
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d record id %s does not follow %s",
+                        user, self._config.model, slot, record_id, previous_id,
+                    )
+                previous_id = record_id
+                record = self._finalize_public_latest_record(parsed, user)
+                record["sequence"] = outcome.next_seq
+                outcome.records.append(record)
+            if outcome.next_seq != index_seq:
+                outcome.complete = False
+            results[user] = outcome
+        return results
+
+    def _latest_slot(
+        self,
+        idx: int,
+        user_cfg: dict,
+        index_bytes: bytes | bytearray,
+        ptr_endian: str,
+    ) -> int | None:
+        """Slot the user's write cursor points at (the newest record)."""
+        offset = int(user_cfg.get("write_cursor_offset", -1))
+        if offset < 0 or offset + 2 > len(index_bytes):
+            return None
+        raw = int.from_bytes(index_bytes[offset:offset + 2], ptr_endian, signed=False)
+        pointer_min = int(user_cfg.get("slot_index_min", 0))
+        pointer_max = int(
+            user_cfg.get("slot_index_max", self._config.per_user_records_count[idx] - 1)
+        )
+        corrected = (raw & int(user_cfg.get("write_cursor_mask", 0xFF))) + int(
+            user_cfg.get("slot_index_bias", -1)
+        )
+        return self._wrap_pointer_to_range(corrected, pointer_min, pointer_max)
 
     @staticmethod
     def _wrap_pointer_to_range(pointer: int, pointer_min: int, pointer_max: int) -> int | None:

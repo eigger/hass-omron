@@ -304,3 +304,38 @@ async def test_options_flow_checks_the_interval_before_aliases(
         },
     )
     assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+
+
+async def test_options_flow_offers_stored_record_sync_only_where_supported(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    from custom_components.omron.const import CONF_SYNC_STORED_RECORDS
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: "HEM-7155T"}
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert CONF_SYNC_STORED_RECORDS not in result["data_schema"].schema
+    done = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+    )
+    assert CONF_SYNC_STORED_RECORDS not in done["data"]
+
+    supported = MockConfigEntry(
+        domain=DOMAIN, unique_id="11:22:33:44:55:66",
+        data={CONF_DEVICE_MODEL: "HEM-7361T"},
+    )
+    supported.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(supported.entry_id)
+    assert CONF_SYNC_STORED_RECORDS in {str(k) for k in result["data_schema"].schema}
+    on = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+    )
+    assert on["data"][CONF_SYNC_STORED_RECORDS] is True
+    result = await hass.config_entries.options.async_init(supported.entry_id)
+    off = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_SCAN_INTERVAL: 300, CONF_SYNC_STORED_RECORDS: False},
+    )
+    assert off["data"][CONF_SYNC_STORED_RECORDS] is False
