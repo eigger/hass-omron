@@ -318,7 +318,8 @@ def parse_hbf_32(data: bytes | bytearray, _endianness: str) -> dict[str, Any]:
     duplicate_weight = field(208, 12)
     if weight_raw != duplicate_weight:
         raise ValueError("HBF record weight copies do not match")
-    weight = round(weight_raw / 10, 1)
+    # HBF-222T stores weight in 0.05 kg steps (not 0.1 kg steps).
+    weight = round(weight_raw * 0.05, 2)
     if not 2 <= weight <= 300:
         raise ValueError("HBF record weight is outside a plausible range")
 
@@ -336,14 +337,14 @@ def parse_hbf_32(data: bytes | bytearray, _endianness: str) -> dict[str, Any]:
         value = field(start_bit, bit_size)
         return round(value / 10, 1) if value else None
 
-    visceral = field(28, 5)
-    bmr = field(33, 12)
+    visceral = field(27, 5)
+    bmr = field(32, 12)
     record: dict[str, Any] = {
         "weight": weight,
-        "body_fat": optional_scaled(17, 10),
+        "body_fat": optional_scaled(16, 10),
         "visceral_fat": visceral or None,
         "basal_metabolic_rate": bmr or None,
-        "skeletal_muscle": optional_scaled(49, 10),
+        "skeletal_muscle": optional_scaled(48, 10),
         "bmi": optional_scaled(64, 10),
         "datetime": measured_at,
         "_record_id": int.from_bytes(data[24:26], "big"),
