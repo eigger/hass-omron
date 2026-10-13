@@ -112,8 +112,8 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     if pending is None:
         return
     device_data.pending_history = None
-    device = dr.async_get(hass).async_get_device(
-        connections={(CONNECTION_BLUETOOTH, entry.runtime_data.address)}
+    device = dr.async_get(hass).async_get_device_by_connection(
+        (CONNECTION_BLUETOOTH, entry.runtime_data.address)
     )
     for event in pending["events"]:
         hass.bus.async_fire(

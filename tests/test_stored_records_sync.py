@@ -273,7 +273,9 @@ def test_publish_fires_oldest_first_then_saves_the_position():
     with patch.object(history, "_store", return_value=store), patch.object(
         history.dr, "async_get"
     ) as registry:
-        registry.return_value.async_get_device.return_value = SimpleNamespace(id="dev")
+        registry.return_value.async_get_device_by_connection.return_value = (
+            SimpleNamespace(id="dev")
+        )
         asyncio.run(history.async_publish_history(hass, entry))
     assert order[:2] == [("fire", 2), ("fire", 3)]
     assert device_data.history_last_seq == {2: 9, 1: 3}
