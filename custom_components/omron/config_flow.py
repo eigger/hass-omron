@@ -309,7 +309,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             if inferred is not None:
                 inferred_model = inferred
             else:
-                # If we cannot infer from name (e.g. BLESmart_...), actively connect to the device to read Model Number
+                # If we cannot infer from the advertised model name, actively connect to read Model Number.
                 ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
                 if ble_device:
                     # Keep the link: on WLD3.0 cuffs this read is where the

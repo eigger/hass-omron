@@ -42,6 +42,11 @@ _TRANSLATED_NAME_BASES: tuple[str, ...] = (
     "invalid_time",
     "shock_index",
     "heart_rate",
+    "body_composition_bmi",
+    "basal_metabolic_rate",
+    "skeletal_muscle",
+    "visceral_fat",
+    "body_fat",
     "cuff_fit",
     "weight",
 )
@@ -60,6 +65,11 @@ _USER_NAME_BASES = frozenset({
     "body_movement",
     "shock_index",
     "heart_rate",
+    "body_composition_bmi",
+    "basal_metabolic_rate",
+    "skeletal_muscle",
+    "visceral_fat",
+    "body_fat",
     "cuff_fit",
     "weight",
 })

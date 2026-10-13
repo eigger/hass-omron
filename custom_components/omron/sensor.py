@@ -176,6 +176,38 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=1,
     ),
+    (OmronExtendedSensorDeviceClass.BODY_FAT, "%"): SensorEntityDescription(
+        key="body_fat_percent",
+        native_unit_of_measurement="%",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:human",
+        suggested_display_precision=1,
+    ),
+    (OmronExtendedSensorDeviceClass.SKELETAL_MUSCLE, "%"): SensorEntityDescription(
+        key="skeletal_muscle_percent",
+        native_unit_of_measurement="%",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:arm-flex",
+        suggested_display_precision=1,
+    ),
+    (OmronExtendedSensorDeviceClass.VISCERAL_FAT, None): SensorEntityDescription(
+        key="visceral_fat_level",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:chart-donut",
+    ),
+    (OmronExtendedSensorDeviceClass.BASAL_METABOLIC_RATE, "kcal/day"): SensorEntityDescription(
+        key="basal_metabolic_rate_kcal_day",
+        native_unit_of_measurement="kcal/day",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:fire",
+    ),
+    (OmronExtendedSensorDeviceClass.BODY_COMPOSITION_BMI, "kg/m²"): SensorEntityDescription(
+        key="body_composition_bmi_kg_m2",
+        native_unit_of_measurement="kg/m²",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:human-male-height",
+        suggested_display_precision=1,
+    ),
 
     # Timestamp (datetime object)
     (
@@ -576,9 +608,43 @@ class OmronBluetoothSensorEntity(
             sensor_value = sensor_update.entity_values.get(self._device_key)
             if sensor_value is not None and sensor_value.native_value is not None:
                 return self._coerce_native_value(sensor_value.native_value)
+            if (
+                sensor_value is not None
+                and getattr(
+                    getattr(self._omron_device_data, "_device_config", None),
+                    "measurement_kind",
+                    None,
+                )
+                == "body_composition"
+                and self._has_current_measurement_timestamp(sensor_update)
+            ):
+                return None
         if self._restored_native_value is not None:
             return self._coerce_native_value(self._restored_native_value)
         return None
+
+    def _has_current_measurement_timestamp(self, sensor_update: SensorUpdate) -> bool:
+        """Whether this update contains the timestamp paired with this value."""
+        key = str(self._device_key.key)
+        base_keys = (
+            "body_composition_bmi",
+            "body_fat",
+            "skeletal_muscle",
+            "visceral_fat",
+            "basal_metabolic_rate",
+        )
+        base_key = next((item for item in base_keys if key.startswith(item)), None)
+        if base_key is None:
+            return False
+        suffix = key[len(base_key):]
+        for device_key, value in sensor_update.entity_values.items():
+            if (
+                device_key.device_id == self._device_key.device_id
+                and str(device_key.key) == f"measurement_timestamp{suffix}"
+                and value.native_value is not None
+            ):
+                return True
+        return False
 
     @property
     def available(self) -> bool:

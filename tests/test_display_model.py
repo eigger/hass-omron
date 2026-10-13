@@ -49,12 +49,12 @@ def test_an_unknown_name_is_not_renamed_to_the_fallback_profile():
     assert config.display_model == "SOME-UNLISTED-THING"
 
 
-def test_every_catalog_name_displays_as_hem():
-    """카탈로그에서 고를 수 있는 이름은 전부 HEM-(체중계는 HN-) 로 표시돼야 한다."""
+def test_every_catalog_name_displays_in_its_model_family():
+    """Catalog model names retain their HEM, HN, or HBF family prefix."""
     off_convention = []
     for name in sorted(set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)):
         shown = get_device_config(name).display_model
-        if not shown.upper().startswith(("HEM-", "HN-")):
+        if not shown.upper().startswith(("HEM-", "HN-", "HBF-")):
             off_convention.append((name, shown))
     assert not off_convention, off_convention
 

@@ -357,6 +357,36 @@
           "obesity_class_2": "肥満 2 度",
           "obesity_class_3": "肥満 3 度"
         }
+      },
+      "body_fat": {
+        "name": "Body Fat"
+      },
+      "body_fat_user": {
+        "name": "Body Fat ({user})"
+      },
+      "skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "skeletal_muscle_user": {
+        "name": "Skeletal Muscle ({user})"
+      },
+      "visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "visceral_fat_user": {
+        "name": "Visceral Fat Level ({user})"
+      },
+      "basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "basal_metabolic_rate_user": {
+        "name": "Basal Metabolic Rate ({user})"
+      },
+      "body_composition_bmi": {
+        "name": "BMI"
+      },
+      "body_composition_bmi_user": {
+        "name": "BMI ({user})"
       }
     },
     "binary_sensor": {

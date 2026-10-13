@@ -378,12 +378,27 @@ def test_every_two_user_profile_reads_user2_from_the_same_offset():
     for name, config in CANONICAL_DEVICE_PROFILES.items():
         layout = config.index_pointer_layout or {}
         users = layout.get("users") or []
-        if len(users) < 2:
+        if len(users) < 2 or any(user.get("cursor_width", 2) != 2 for user in users):
             continue
         assert users[0]["write_cursor_offset"] == 0x00, name
         assert users[1]["write_cursor_offset"] == 0x02, name
         assert users[0]["unread_counter_offset"] == 0x04, name
         assert users[1]["unread_counter_offset"] == 0x06, name
+
+
+def test_hbf_scale_has_four_byte_cursors():
+    config = get_device_config("HBF-222T")
+    users = config.index_pointer_layout["users"]
+    assert [user["write_cursor_offset"] for user in users] == [0, 1, 2, 3]
+    assert all(user["cursor_width"] == 1 for user in users)
+
+
+def test_viva_retail_name_resolves_through_alias_not_catalog_variant():
+    from custom_components.omron.omron_ble.devices import MODEL_VARIANT_MAP
+    from custom_components.omron.omron_ble.model_aliases import MODEL_NUMBER_ALIASES
+
+    assert "VIVA" not in MODEL_VARIANT_MAP
+    assert MODEL_NUMBER_ALIASES["VIVA"] == "HBF-222T"
 
 
 def test_the_peer_close_window_covers_the_captured_delay():

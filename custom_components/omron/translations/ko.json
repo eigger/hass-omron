@@ -347,6 +347,36 @@
           "obesity_class_2": "비만 2단계",
           "obesity_class_3": "비만 3단계"
         }
+      },
+      "body_fat": {
+        "name": "체지방률"
+      },
+      "body_fat_user": {
+        "name": "체지방률 ({user})"
+      },
+      "skeletal_muscle": {
+        "name": "골격근량"
+      },
+      "skeletal_muscle_user": {
+        "name": "골격근량 ({user})"
+      },
+      "visceral_fat": {
+        "name": "내장지방 레벨"
+      },
+      "visceral_fat_user": {
+        "name": "내장지방 레벨 ({user})"
+      },
+      "basal_metabolic_rate": {
+        "name": "기초대사량"
+      },
+      "basal_metabolic_rate_user": {
+        "name": "기초대사량 ({user})"
+      },
+      "body_composition_bmi": {
+        "name": "BMI"
+      },
+      "body_composition_bmi_user": {
+        "name": "BMI ({user})"
       }
     },
     "binary_sensor": {

@@ -634,7 +634,11 @@ class OmronDeviceDriver:
             return {}
         user_layouts = layout.get("users", [])
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
-        if not any(u.get("latest_sequence_offset") is not None for u in user_layouts):
+        if not any(
+            u.get("latest_sequence_offset") is not None
+            or u.get("sequence_source") == "record_id"
+            for u in user_layouts
+        ):
             return {}
         record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
         record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
@@ -648,21 +652,54 @@ class OmronDeviceDriver:
         results: dict[int, StoredUserRecords] = {}
         for idx, user_cfg in enumerate(user_layouts):
             seq_offset = user_cfg.get("latest_sequence_offset")
-            if seq_offset is None or idx >= len(record_addresses):
+            sequence_in_record = user_cfg.get("sequence_source") == "record_id"
+            if (seq_offset is None and not sequence_in_record) or idx >= len(record_addresses):
                 continue
             user = idx + 1
-            # A 32-bit word in the index's byte order: the counter is its low
-            # 16 bits, the two above them are overflow/full flags.
-            index_seq = (
-                int.from_bytes(
-                    index_bytes[seq_offset:seq_offset + 4], ptr_endian, signed=False
+            latest_slot: int | None = None
+            if sequence_in_record:
+                cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
+                cursor_width = int(user_cfg.get("cursor_width", 2))
+                cursor_word = int.from_bytes(
+                    index_bytes[cursor_offset:cursor_offset + cursor_width], ptr_endian
+                ) if 0 <= cursor_offset and cursor_offset + cursor_width <= len(index_bytes) else None
+                clear_value = user_cfg.get("clear_value")
+                if clear_value is not None and cursor_word == int(clear_value):
+                    continue
+                latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+                if latest_slot is None:
+                    continue
+                logical_slot = latest_slot - int(user_cfg.get("slot_index_min", 0))
+                address = int(record_addresses[idx]) + logical_slot * record_step
+                try:
+                    latest_raw = await transport.memory.read_memory_range(
+                        address, record_byte_size, self._config.transmission_block_size
+                    )
+                    latest_record = self._config.parse_record(bytes(latest_raw))
+                    index_seq = int(latest_record["_record_id"]) & 0xFFFF
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "User%d [%s]: could not read the newest record counter: %s",
+                        user, self._config.model, exc,
+                    )
+                    continue
+            else:
+                # A 32-bit word in the index's byte order: the counter is its low
+                # 16 bits, the two above them are overflow/full flags.
+                index_seq = (
+                    int.from_bytes(
+                        index_bytes[seq_offset:seq_offset + 4], ptr_endian, signed=False
+                    )
+                    & 0xFFFF
                 )
-                & 0xFFFF
-            )
             _LOGGER.debug(
                 "User%d [%s]: record counter word=%s -> seq=%d (last handled: %s)",
                 user, self._config.model,
-                bytes(index_bytes[seq_offset:seq_offset + 4]).hex(),
+                (
+                    bytes(index_bytes[seq_offset:seq_offset + 4]).hex()
+                    if seq_offset is not None
+                    else latest_record["_record_id"].to_bytes(2, "big").hex()
+                ),
                 index_seq, last_seq_by_user.get(user),
             )
             last = last_seq_by_user.get(user)
@@ -689,7 +726,8 @@ class OmronDeviceDriver:
                     next_seq=index_seq, index_seq=index_seq, rebased=True
                 )
                 continue
-            latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+            if latest_slot is None:
+                latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
             if latest_slot is None:
                 continue
             pointer_min = int(user_cfg.get("slot_index_min", 0))
@@ -779,9 +817,12 @@ class OmronDeviceDriver:
     ) -> int | None:
         """Slot the user's write cursor points at (the newest record)."""
         offset = int(user_cfg.get("write_cursor_offset", -1))
-        if offset < 0 or offset + 2 > len(index_bytes):
+        cursor_width = int(user_cfg.get("cursor_width", 2))
+        if offset < 0 or offset + cursor_width > len(index_bytes):
             return None
-        raw = int.from_bytes(index_bytes[offset:offset + 2], ptr_endian, signed=False)
+        raw = int.from_bytes(
+            index_bytes[offset:offset + cursor_width], ptr_endian, signed=False
+        )
         pointer_min = int(user_cfg.get("slot_index_min", 0))
         pointer_max = int(
             user_cfg.get("slot_index_max", self._config.per_user_records_count[idx] - 1)
@@ -829,7 +870,8 @@ class OmronDeviceDriver:
         if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
             return [], False
         write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
-        if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
+        cursor_width = int(user_cfg.get("cursor_width", 2))
+        if write_cursor_offset < 0 or write_cursor_offset + cursor_width > len(index_bytes):
             _LOGGER.debug(
                 "User%d [%s]: write_cursor_offset=0x%02X invalid (index_bytes len=%d), skipping",
                 idx + 1, self._config.model, write_cursor_offset, len(index_bytes),
@@ -837,7 +879,7 @@ class OmronDeviceDriver:
             return [], False
 
         raw_pointer = int.from_bytes(
-            index_bytes[write_cursor_offset:write_cursor_offset + 2],
+            index_bytes[write_cursor_offset:write_cursor_offset + cursor_width],
             ptr_endian,
             signed=False,
         )

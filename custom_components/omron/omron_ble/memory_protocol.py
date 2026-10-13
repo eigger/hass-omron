@@ -85,6 +85,7 @@ class MemoryProtocol:
     def reset(self) -> None:
         """Drop reply and registration progress. The reply Event is cleared, not replaced."""
         self._notify_subscribed = False
+        self._notify_subscribed_uuids: set[str] = set()
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
@@ -94,6 +95,7 @@ class MemoryProtocol:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
+        self._memory_session_start_attempted = False
         # A pairing session commits its registration once per link. The two
         # writes are tracked apart: the head write steps the cuff's transfer
         # count and must never repeat, the clock write can be redone.
@@ -152,19 +154,24 @@ class MemoryProtocol:
                 self._config.model,
             )
             return
-
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
+            if uuid in self._notify_subscribed_uuids:
+                continue
             await start_notify_with_recovery(
                 self._client,
                 uuid,
                 self._on_notify_channel_data,
             )
+            self._notify_subscribed_uuids.add(uuid)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
-        self._notify_subscribed = True
+        self._notify_subscribed = all(
+            uuid in self._notify_subscribed_uuids
+            for uuid in self._config.rx_channel_uuids
+        )
         self._debug_ble_link("after_rx_subscribe")
 
     async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
@@ -183,6 +190,7 @@ class MemoryProtocol:
             return
         for uuid in self._config.rx_channel_uuids:
             await stop_notify_best_effort(self._client, uuid)
+        getattr(self, "_notify_subscribed_uuids", set()).clear()
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -536,6 +544,7 @@ class MemoryProtocol:
             await self._subscribe_notify_channels()
             # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
             start_cmd = bytearray.fromhex("0800000000100018")
+            self._memory_session_start_attempted = True
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
@@ -550,6 +559,18 @@ class MemoryProtocol:
             self._memory_session_active = False
             self._host._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
+            if self._memory_session_start_attempted and self._config.staged_classic_notifications:
+                try:
+                    stop_cmd = bytearray.fromhex("080f000000000007")
+                    async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                        await self._write_command_and_wait_reply(stop_cmd)
+                except Exception as stop_exc:
+                    _LOGGER.debug(
+                        "Best-effort memory session end failed for %s: %s",
+                        self.address, stop_exc,
+                    )
+                finally:
+                    self._memory_session_start_attempted = False
             await self._unsubscribe_notify_channels(force=True)
             raise
 
@@ -688,7 +709,9 @@ class MemoryProtocol:
     @traced("memory_close")
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
-        if not self._memory_session_active:
+        if not self._memory_session_active and not getattr(
+            self, "_memory_session_start_attempted", False
+        ):
             return
 
         try:
@@ -704,6 +727,7 @@ class MemoryProtocol:
                 )
         finally:
             self._memory_session_active = False
+            self._memory_session_start_attempted = False
             await self._unsubscribe_notify_channels()
             _LOGGER.debug("Memory session closed for %s", self.address)
 
