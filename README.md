@@ -37,7 +37,7 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7530T** | BP7900/Complete | Upper Arm | ✅ |
 | **HEM-7600T** |	BP7000/EVOLV	| Upper Arm	| ✅ |
 | **HN-300T2** | HN-300T2 | Scale (weight, BMI) | ✅ |
-| **HBF-222T** | VIVA / BCM-500 | Scale (weight, body composition, stored history) | 🧪 |
+| **HBF-222T** | VIVA / BCM-500 | Scale (weight, body composition, stored history) | ✅ |
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
