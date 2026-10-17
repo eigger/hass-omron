@@ -49,7 +49,7 @@ bluetooth_proxy:
 ## 중요 제한사항
 
 - **Omron 혈압계는 한 번에 한 기기와만 페어링됩니다.** 공식 Omron Connect 앱과 페어링했다면 휴대폰 Bluetooth 설정에서 먼저 연결을 해제해야 합니다.
-- `bluetooth_proxy`는 반드시 `active: true`여야 합니다. 프록시 설정·추천 기기·연결 문제 확인 순서는 [공통 Bluetooth 안내](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md), 모델별 조건과 진단은 [문제 해결](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions)(영어)을 참고하세요.
+- `bluetooth_proxy`는 반드시 `active: true`여야 합니다. 프록시 설정·추천 기기·연결 문제 확인 순서는 [Bluetooth 프록시 설정](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.ko.md), 모델별 조건과 진단은 [문제 해결](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions)(영어)을 참고하세요.
 - 표에 없는 모델은 정식 검증되지 않았습니다. 문제가 있으면 디버그 로그와 함께 이슈로 알려 주세요.
 
 ## 문서
