@@ -14,16 +14,16 @@
 | 중앙 현황표 | 미등록 — 반영할 내용: 진행 중, 부분 채택, 실제 HA 로딩 테스트 전환 남음 |
 | 지원 최소 HA | 2025.12.0 (hacs.json) — 변경 없음 |
 | profile / 테스트 경로 | integration / ha, `tests/components/omron/` |
-| 채택 판정 | 이관 진행 중 (부분 채택) |
+| 채택 판정 | 부분 채택 — 필수 TODO(위 항목)와 예외 1건 남음 |
 
 ## 검증 환경
 
 | 축 / 상태 | 통합 커밋 | Python / HA / 플러그인 | 대상 패키지 | 명령·결과 | 미검증 범위 |
 |---|---|---|---|---|---|
-| 로컬 current / PASS | 696e5d1 | 3.14.5 / HA 2026.9.3 / 0.13.366 | blesession 0.9.0 | `ruff check .`, `ruff format --check .` 통과, `pytest tests/components/omron` 599 passed, `pip check` 이상 없음 | |
-| CI current / PASS | df7b9bc | 3.14 / 2026.9.3 / 0.13.366 | blesession 최신 | `current / Python 3.14 / ha / current` pass (run 39038527931) | 696e5d1의 재실행 결과는 아래 |
-| CI 최소 라이브러리 / PASS | df7b9bc | 3.14 / 2026.9.3 / 0.13.366 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass (같은 run) | |
-| CI 최소 HA 2025.12.0 / TODO | 696e5d1 | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | df7b9bc에서 `minimum-ha`가 fail(동기 테스트 591개가 plugin의 `enable_event_loop_debug`에서 오류). conftest에서 fixture를 덮어써 수정, 696e5d1 CI 결과 대기. 로컬에서는 실행하지 않음 | 최소 HA 로컬 미실행 |
+| 로컬 current / PASS | 43af360 | 3.14.5 / HA 2026.9.3 / 0.13.366 | blesession 0.9.0 | `ruff check .`, `ruff format --check .` 통과, `pytest tests/components/omron` 599 passed, `pip check` 이상 없음 | |
+| CI current / PASS | 43af360 | 3.14 / 2026.9.3 / 0.13.366 | blesession 최신 | `current / Python 3.14 / ha / current` pass (run 39039311253) | |
+| CI 최소 라이브러리 / PASS | 43af360 | 3.14 / 2026.9.3 / 0.13.366 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass (run 39039311253) | |
+| CI 최소 HA 2025.12.0 / PASS | 43af360 | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | `minimum-ha / Python 3.13 / ha / current` pass (run 39039311253). 이전 실패 원인: plugin의 event loop fixture, dbus-fast 3.1.2의 `MessageBus.__init__` 소켓, probatio 미설치 — 테스트 수정으로 해결 | 최소 HA 로컬 미실행 |
 
 ## 항목
 
@@ -42,10 +42,10 @@
 | TEST-08 | PASS | 58개 test 모듈을 `tests/components/omron/`로 이동, 599 passed |
 | TEST-02, TEST-03, TEST-09 | EXCEPTION | `hass` 사용 모듈은 약 11개, 약 23개는 소스·AST 검증. STANDARDS.md 예외 |
 | TEST-01, TEST-06, TEST-07 | TODO | 기능별 회귀 범위 점검 안 함 |
-| TEST-04, HACS-01(최소 검증) | TODO | 최소 HA 검증 환경 행 참조. 696e5d1 CI 통과 후 PASS |
+| TEST-04, HACS-01(최소 검증) | PASS | `minimum-ha` job이 HA 2025.12.0(expected-ha-version 검증)에서 599개 통과, 43af360 |
 | TEST-05, DEP-02, DEP-05 | PASS | `current / … / minimum`에서 blesession==0.9.0 설치(공통 install.py가 설치값 검증)·테스트 통과 |
 | DEP-01, DEP-06 | PASS | manifest requirements=blesession, dependencies=bluetooth_adapters, 테스트 requirements 분리 |
-| DEP-07, CI-06 | PASS | 공통 install.py가 `pip check`·HA 구성요소(bluetooth, bluetooth_adapters, usb) requirements를 설치, ruff 0.17.1 고정(requirements_lint.txt). current 계열 job 통과. `minimum-ha`는 위 TODO |
+| DEP-07, CI-06 | PASS | 공통 install.py가 `pip check`·HA 구성요소(bluetooth, bluetooth_adapters, usb) requirements를 설치, ruff 0.17.1 고정(requirements_lint.txt). current·minimum-ha job 통과 |
 | DEP-03, DEP-04, CI-09, CI-10 | TODO | 공통 dependency-update 호출(`update_dependencies.yml`)로 전환. 실행·dry-run 비교는 미실시 |
 | DEP-08 | TODO | 이번 변경에 의존성 추가 없음. 업데이트 PR 시 확인 |
 | HACS-01(구조), HACS-02 | PASS | 루트 README/LICENSE/hacs.json 존재 |
@@ -53,7 +53,7 @@
 | HACS-06 | TODO | 미점검 |
 | CI-01, CI-02 | PASS | Tests/Validate/Update dependencies가 공통 workflow 호출, push(master)·PR·dispatch·schedule |
 | CI-03, CI-05 | PASS | 호출 workflow permissions·concurrency, 공통 workflow의 SHA 고정·persist-credentials false·timeout |
-| CI-04, CI-07, CI-12 | TODO | 필수 `ha` 테스트 job 구성은 완료, 최소 HA job 통과 대기. 체크 이름이 current/minimum-ha/validate로 변경, master에 branch protection 없음(gh api 404) |
+| CI-04, CI-07, CI-12 | PASS | 필수 `ha` 테스트 job(current, minimum-ha)과 lint가 43af360에서 통과. 체크 이름이 current/minimum-ha/validate로 변경, master에 branch protection 없음(gh api 404) |
 | CI-08 | TODO | 비신뢰 입력·secrets 경계 미점검 |
 | DOC-01, DOC-06 | TODO | 상세 참조는 docs/entities.md로 분리, CONTRIBUTING 추가. README에 오류별 대응·Important Notice YAML이 남아 있어 완전 분리는 미완 |
 | DOC-02 | PASS | README.md 영어 / README.ko.md 한국어 상호 링크, 기존 내용 보존, 문서 목록 동일 |
@@ -64,6 +64,5 @@
 
 ## 남은 작업
 
-1. 696e5d1 CI 결과 확인(최소 HA 통과 시 TEST-04 갱신).
-2. `hass` fixture·config entry 기반 테스트 확대(TEST-02/03/09 예외 해소, 별도 PR).
-3. 의존성 업데이트 workflow 첫 실행 확인, 중앙 표 갱신.
+1. `hass` fixture·config entry 기반 테스트 확대(TEST-02/03/09 예외 해소, 별도 PR).
+2. 의존성 업데이트 workflow 첫 실행 확인, 중앙 표 갱신.
