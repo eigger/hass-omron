@@ -8,7 +8,7 @@
 |---|---|
 | 리포 / 기본 브랜치 | eigger/hass-omron / master |
 | domain / 구현 경로 | omron / custom_components/omron |
-| 채택 PR / 커밋 | [#249](https://github.com/eigger/hass-omron/pull/249) (`7856739`), [#251](https://github.com/eigger/hass-omron/pull/251) (`08cc7fb`), `f9cfc8a`, `2e6d405` |
+| 채택 PR / 커밋 | [#249](https://github.com/eigger/hass-omron/pull/249) (`7856739`), [#251](https://github.com/eigger/hass-omron/pull/251) (`08cc7fb`), `f9cfc8a`, `2e6d405`, `d34ab1b`, `2ae7b74`, `aaf60f1` |
 | 검토한 표준 SHA / 검토일 | ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870 (공통 workflow 호출 SHA와 동일) / 2026-10-18 |
 | 조율 / 구현 / 독립 리뷰·검증 | 조율 `root` / 구현 `omron_implementation` / 독립 리뷰·검증 `omron_review` |
 | 중앙 현황표 | 등록 완료 (`docs/adoption-status.md` `hass-omron` 행) |
@@ -20,10 +20,10 @@
 
 | 축 / 상태 | 통합 커밋 | Python / HA / 플러그인 | 대상 패키지 | 명령·결과 | 미검증 범위 |
 |---|---|---|---|---|---|
-| 로컬 current / PASS | `2e6d405` | 3.14.5 / HA 2026.9.3 / 0.13.366 | blesession 0.9.0 | `ruff check .`, `ruff format --check .` 통과, `pytest tests/components/omron` 606 passed, `pip check` 이상 없음, `check_repository.py`·`sync_badges.py --check` 통과 | 실물 BLE 기기 |
-| CI current / PASS | `2e6d405` | 3.14 / 2026.10.2 / 0.13.373 | blesession 최신 | `current / Python 3.14 / ha / current` 및 `Validate` (`hacs`, `hassfest`) pass | 실물 BLE 기기 |
-| CI 최소 라이브러리 / PASS | `2e6d405` | 3.14 / 2026.10.2 / 0.13.373 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass | 실물 BLE 기기 |
-| CI 최소 HA 2025.12.0 / PASS | `2e6d405` | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | `minimum-ha / Python 3.13 / ha / current` pass | 최소 HA 로컬 미실행(CI에서 검증), 실물 BLE 기기 |
+| 로컬 current / PASS | `aaf60f1` | 3.14.5 / HA 2026.9.3 / 0.13.366 | blesession 0.9.0 | `ruff check .`, `ruff format --check .` 통과, `pytest tests/components/omron` 606 passed, `pip check` 이상 없음, `check_repository.py`·`sync_badges.py --check` 통과 | 실물 BLE 기기 |
+| CI current / PASS | `aaf60f1` | 3.14 / 2026.10.2 / 0.13.373 | blesession 최신 | `current / Python 3.14 / ha / current` 및 `Validate` (`hacs`, `hassfest`) pass (Tests run 39048112945, Validate run 39048112957) | 실물 BLE 기기 |
+| CI 최소 라이브러리 / PASS | `aaf60f1` | 3.14 / 2026.10.2 / 0.13.373 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass (Tests run 39048112945) | 실물 BLE 기기 |
+| CI 최소 HA 2025.12.0 / PASS | `aaf60f1` | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | `minimum-ha / Python 3.13 / ha / current` pass (Tests run 39048112945) | 최소 HA 로컬 미실행(CI에서 검증), 실물 BLE 기기 |
 
 ## 항목
 
