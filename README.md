@@ -72,6 +72,7 @@ Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or E
 - When using a Bluetooth proxy, it is strongly recommended to **keep the scan interval at its default value**.  
   Changing these values may cause issues with Bluetooth data transmission.
 - **bluetooth_proxy:** must always have **active: true**.
+- Shared proxy setup, recommended devices and the connection-problem checklist (Korean): [Bluetooth proxy guide](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md). Model-specific wake/pairing conditions and diagnostics are in [Troubleshooting](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions).
 
   Example (recommended configuration with default values):
 

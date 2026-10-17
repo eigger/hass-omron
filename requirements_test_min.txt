@@ -1,7 +1,7 @@
-# Minimum-support test environment (Home Assistant 2025.12.0, Python 3.13).
-# The plugin version is resolved by pip against constraints/homeassistant-min.txt;
-# it pins homeassistant exactly, so the resolved plugin matches the minimum HA.
-pytest-homeassistant-custom-component
+# Minimum-support test environment: Home Assistant 2025.12.0 on Python 3.13.
+# 0.13.298 is the plugin release that installs homeassistant 2025.12.0
+# (verified by the minimum-ha CI job's expected-ha-version check).
+pytest-homeassistant-custom-component==0.13.298
 pytest-timeout==2.4.0
 bluetooth-sensor-state-data==1.9.0
 sensor-state-data==2.20.0
