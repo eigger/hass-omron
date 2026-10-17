@@ -130,7 +130,7 @@ async def test_blood_pressure_entry_loads_every_platform(
     assert device.manufacturer == "Omron"
     assert device.model == BP_MODEL
     assert device.name == f"{BP_MODEL} EEFF"
-    assert entry.entry_id in device.config_entries
+    assert (CONNECTION_BLUETOOTH, ADDRESS) in device.connections
 
     await _unload(hass, entry)
 
