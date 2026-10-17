@@ -37,12 +37,14 @@ A custom integration for Home Assistant to connect and poll data directly from O
 | **HEM-7382T1** | BP5465 | Upper Arm | ✅ |
 | **HEM-7530T** | BP7900/Complete | Upper Arm | ✅ |
 | **HEM-7600T** |	BP7000/EVOLV	| Upper Arm	| ✅ |
-| **HN-300T2** | HN-300T2 | Scale (weight, BMI) | ✅ |
-| **HBF-222T** | VIVA / BCM-500 | Scale (weight, body composition, stored history) | ✅ |
+| **HN-300T2** | HN-300T2 | Scale | ✅ |
+| **HBF-222T** | VIVA / BCM-500 | Scale | ✅ |
+
+- **HN-300T2**: weight and BMI calculated from your configured height.
+- **HBF-222T**: weight, body composition, scale-reported BMI, and stored measurement history.
 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
-> HBF-222T support is experimental until pairing, reconnects and measurement history are confirmed on real hardware.
 
 ## ⚠️ Warning: Conflict with Official App
 **Omron blood pressure monitors only support one paired device at a time.**
