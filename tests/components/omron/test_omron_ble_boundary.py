@@ -37,6 +37,7 @@ def test_omron_ble_imports_standalone_without_homeassistant_or_parent() -> None:
     code = f"""
 import importlib
 import importlib.abc
+import importlib.util
 import sys
 
 class Blocker(importlib.abc.MetaPathFinder):
@@ -46,12 +47,21 @@ class Blocker(importlib.abc.MetaPathFinder):
             or fullname.startswith("homeassistant.")
             or fullname == "blesession.hass"
             or fullname.startswith("blesession.hass.")
+            or fullname == "custom_components"
+            or fullname.startswith("custom_components.")
         ):
             raise ImportError(f"Forbidden import: {{fullname}}")
         return None
 
 sys.meta_path.insert(0, Blocker())
-sys.path.insert(0, {str(OMRON_BLE_DIR.parent)!r})
+spec = importlib.util.spec_from_file_location(
+    "omron_ble",
+    {str(OMRON_BLE_DIR / "__init__.py")!r},
+    submodule_search_locations=[{str(OMRON_BLE_DIR)!r}],
+)
+pkg = importlib.util.module_from_spec(spec)
+sys.modules["omron_ble"] = pkg
+spec.loader.exec_module(pkg)
 
 for name in {MODULE_NAMES!r}:
     importlib.import_module(f"omron_ble.{{name}}")
