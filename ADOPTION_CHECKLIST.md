@@ -40,7 +40,7 @@
 | HA-09 | TODO | BLE 경계·proxy 경로 점검 안 함 |
 | HA-10 | TODO | 최소 blesession 환경은 CI에서 통과했으나 API 경계 검토는 미실시 |
 | TEST-08 | PASS | 58개 test 모듈을 `tests/components/omron/`로 이동, 599 passed |
-| TEST-02, TEST-03, TEST-09 | EXCEPTION | `hass` 사용 모듈은 약 11개, 약 23개는 소스·AST 검증. STANDARDS.md 예외 |
+| TEST-02, TEST-03, TEST-09 | EXCEPTION (축소) | `hass` 사용 모듈 11→13개: `test_entry_platforms.py`(BP·체중계 실제 entry setup/플랫폼 5종/상태·레지스트리/unload·reload·remove)와 `test_entry_lifecycle_behavior.py`(데드라인·unload 취소 동작 테스트 9개, 대응 AST 테스트 6개 제거; 데드라인 제거 변이로 실패 확인). 소스·AST 사용 모듈 23개는 그대로. 로컬 current(Py 3.14, HA 2026.9.3) 609 passed, ruff 0.17.1 통과. 최소 HA(3.13/2025.12.0)는 로컬 미설치 → PR의 `minimum-ha` job 결과로 확인 필요. STANDARDS.md 예외 참조 |
 | TEST-01, TEST-06, TEST-07 | TODO | 기능별 회귀 범위 점검 안 함 |
 | TEST-04, HACS-01(최소 검증) | PASS | `minimum-ha` job이 HA 2025.12.0(expected-ha-version 검증)에서 599개 통과, 43af360 |
 | TEST-05, DEP-02, DEP-05 | PASS | `current / … / minimum`에서 blesession==0.9.0 설치(공통 install.py가 설치값 검증)·테스트 통과 |
@@ -64,5 +64,5 @@
 
 ## 남은 작업
 
-1. `hass` fixture·config entry 기반 테스트 확대(TEST-02/03/09 예외 해소, 별도 PR).
+1. 남은 소스·AST 테스트 모듈(23개)을 동작 테스트로 교체해 TEST-02/03/09 예외 해소(후속 PR).
 2. 의존성 업데이트 workflow 첫 실행 확인, 중앙 표 갱신.

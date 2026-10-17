@@ -20,4 +20,4 @@
 
 | 규칙 ID | 이유 | 담당자 | 재검토 조건 |
 |---|---|---|---|
-| TEST-02, TEST-03, TEST-09 | 58개 test 모듈 중 `hass` fixture·config entry를 쓰는 모듈은 약 11개뿐이고, 약 23개는 소스 텍스트·AST·`inspect.getsource`로 구조를 검증하며 나머지는 프로토콜 단위 테스트(HA 미기동). 코어 stub(`sys.modules` 치환)은 없음. 실제 HA 로딩 테스트 확대는 별도 작업 | @eigger | 실제 HA 로딩 테스트 확대 PR |
+| TEST-02, TEST-03, TEST-09 | 60개 test 모듈 중 `hass` fixture·실제 config entry를 쓰는 모듈은 13개(`test_entry_platforms.py`, `test_entry_lifecycle_behavior.py` 추가). 두 모듈은 혈압계(HEM-7155T)·체중계(HN-300T2) 항목의 실제 setup → sensor/binary_sensor/button/text/number 로딩·상태·레지스트리, unload/reload/remove 정리, 광고·페어링 버튼·폴 데드라인과 unload 취소를 검증하고 BLE 경계(GATT 호출)만 대체한다. 남은 예외: 23개 모듈이 여전히 소스 텍스트·AST·`inspect.getsource`를 (일부) 사용하고(예: 폴 `CancelledError` 비삼킴·초기 폴 순서·bp5465 계약), 나머지는 프로토콜 단위 테스트(HA 미기동). 코어 stub(`sys.modules` 치환)은 없음 | @eigger | 남은 AST/소스 텍스트 모듈을 동작 테스트로 교체하는 후속 PR |
