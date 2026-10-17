@@ -28,7 +28,7 @@ from custom_components.omron import async_poll_data, process_service_info
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 # Format 0x03 status byte: 0x04 = invalid time, 0x08 = pairing mode.

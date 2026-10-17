@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 
-from poll_fakes import (
+from tests.components.omron.poll_fakes import (
     FakeSession,
     Hang,
     ble_device,

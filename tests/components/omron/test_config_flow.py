@@ -27,8 +27,11 @@ from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.model_aliases import AMBIGUOUS_MODEL_NAMES
 
-from bt import service_info
-from test_model_selection_default import _MODEL_STEPS, _string_files
+from tests.components.omron.bt import service_info
+from tests.components.omron.test_model_selection_default import (
+    _MODEL_STEPS,
+    _string_files,
+)
 
 ADDRESS = "AA:BB:CC:DD:EE:11"
 # Step ids whose placeholders were checked. Compared with ``_MODEL_STEPS``

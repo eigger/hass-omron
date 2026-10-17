@@ -27,7 +27,7 @@ from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.entity_helpers import preserved_passive_unique_id
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 MODEL = "HEM-7155T"

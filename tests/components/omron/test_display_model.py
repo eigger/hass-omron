@@ -22,7 +22,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID

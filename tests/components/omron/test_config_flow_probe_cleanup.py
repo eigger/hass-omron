@@ -18,7 +18,7 @@ import custom_components.omron.config_flow as config_flow
 from custom_components.omron.const import DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 ADDRESS = "AA:BB:CC:DD:EE:22"
 _QUIET_MSD = bytes([0x01, 0x00, 0x00, 0x00])

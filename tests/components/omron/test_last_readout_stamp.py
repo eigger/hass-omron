@@ -30,7 +30,12 @@ from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 from custom_components.omron.omron_ble import parser as parser_module
 from custom_components.omron.omron_ble.session_trace import SessionTrace
 
-from poll_fakes import ADDRESS, FakeSession, ble_device, parser_with_session
+from tests.components.omron.poll_fakes import (
+    ADDRESS,
+    FakeSession,
+    ble_device,
+    parser_with_session,
+)
 
 _RECORD = {
     "datetime": dt.datetime(2026, 9, 18, 21, 54),

@@ -18,7 +18,7 @@ from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.data import OmronRuntimeData
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 # Format 0x01, forced-transfer bit (0x40), no registered users.

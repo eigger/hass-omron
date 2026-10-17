@@ -24,7 +24,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 import custom_components.omron.config_flow as config_flow
 from custom_components.omron import (
     _persist_transport_credential,

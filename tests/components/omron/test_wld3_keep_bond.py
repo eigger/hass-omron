@@ -50,7 +50,7 @@ from custom_components.omron.omron_ble.devices import (
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.session_handoff import stash_probe_session
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 ADDRESS = "AA:BB:CC:DD:EE:33"
 _BLUEZ_DETAILS = {"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_33"}

@@ -39,7 +39,7 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.omron import async_poll_data
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 
-from poll_fakes import (
+from tests.components.omron.poll_fakes import (
     ADDRESS,
     FakeSession,
     ble_device,

@@ -20,7 +20,9 @@ from custom_components.omron.omron_ble.devices import (
 )
 
 _VENDOR = json.loads(
-    (Path(__file__).parent / "eeprom_time_offsets.json").read_text(encoding="utf-8")
+    (Path(__file__).parent / "fixtures" / "eeprom_time_offsets.json").read_text(
+        encoding="utf-8"
+    )
 )
 
 _WINDOW_START = {

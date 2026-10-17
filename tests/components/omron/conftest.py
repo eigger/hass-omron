@@ -1,32 +1,30 @@
-"""Test configuration.
-
-Protocol tests import ``omron_ble`` and do not start Home Assistant.
-Integration tests request the ``hass`` fixture; only those enable this
-custom component.
-"""
+"""Omron integration domain fixtures."""
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
+from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from tests.components.omron.bt import service_info
+
+DEFAULT_ADDRESS = "AA:BB:CC:DD:EE:FF"
+DEFAULT_MODEL = "HEM-7155T"
 
 
-@pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(request: pytest.FixtureRequest) -> None:
-    """Let Home Assistant load custom_components/omron when a test uses ``hass``."""
-    if "hass" in request.fixturenames:
-        request.getfixturevalue("enable_custom_integrations")
+@pytest.fixture
+def omron_service_info() -> BluetoothServiceInfoBleak:
+    """Return a default Omron BluetoothServiceInfoBleak advertisement."""
+    return service_info(address=DEFAULT_ADDRESS, name="BLESmart_0000011F000000000000")
 
 
-@pytest.fixture(autouse=True)
-async def enable_event_loop_debug() -> None:
-    """Enable event loop debug mode on the running loop.
-
-    Overrides the plugin fixture of the same name. The pytest-homeassistant-
-    custom-component release for the minimum Home Assistant (2025.12) calls
-    ``asyncio.get_event_loop()`` from a synchronous fixture, which raises
-    "There is no current event loop" for this suite's synchronous protocol
-    tests. Newer plugin releases use the running loop exactly like this.
-    """
-    asyncio.get_running_loop().set_debug(True)
+@pytest.fixture
+def omron_config_entry() -> MockConfigEntry:
+    """Return an unadded MockConfigEntry for a default Omron cuff."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DEFAULT_ADDRESS,
+        title=f"{DEFAULT_MODEL} EEFF",
+        data={CONF_DEVICE_MODEL: DEFAULT_MODEL},
+    )

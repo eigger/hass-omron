@@ -40,7 +40,7 @@ from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.session_handoff import stash_handoff_session
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 
 class _FakeSession:

@@ -28,7 +28,7 @@ from custom_components.omron.const import DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.devices import infer_model_id_from_local_name
 
-from bt import service_info
+from tests.components.omron.bt import service_info
 
 _CONFIG_FLOW = (
     Path(__file__).resolve().parents[3]
