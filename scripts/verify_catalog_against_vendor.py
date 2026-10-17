@@ -227,6 +227,7 @@ def bp_block_indices(ven):
 
 
 CLOCK_OFFSET_IN_WINDOW = {
+    "eeprom_time_at_8": 8,
     "eeprom_time_modern_offset8": 8,
     "eeprom_time_classic_offset8": 8,
     "eeprom_time_linear_10": 2,
