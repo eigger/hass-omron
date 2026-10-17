@@ -1,0 +1,2 @@
+# Exact minimum Home Assistant declared in hacs.json (do not raise without approval).
+homeassistant==2025.12.0

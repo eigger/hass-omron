@@ -21,7 +21,7 @@
 | 축 | 통합 커밋 | Python / HA / 플러그인 | 대상 패키지 | 명령·결과 | 미검증 범위 |
 |---|---|---|---|---|---|
 | 현재 / PASS | 601ad6a + 미커밋 변경 | 3.14.5 / HA 2026.9.3 / pytest-homeassistant-custom-component 0.13.366 (로컬 venv) | blesession 0.9.0 | `ruff check custom_components/` 통과, `pytest tests/` 599 passed, `pip check` 이상 없음 | 원격 CI 미실행 |
-| 정확한 최소 HA 2025.12.0 / TODO | 미확인 | 미확인 | 미확인 | 미실행 | 전체 |
+| 정확한 최소 HA 2025.12.0 / TODO | 이 브랜치 | 3.13 / 2025.12.0 / 플러그인은 resolver 결정 | blesession>=0.9.0 | 로컬 미실행(CI에서 검증 예정) | 원격 CI 결과 대기 |
 | 정확한 최소 라이브러리 (blesession 0.9.0 하한) / TODO | 미확인 | 미확인 | 미확인 | 로컬은 우연히 0.9.0이 설치됨, 별도 최소 환경으로는 미검증 | 전체 |
 
 ## 항목
@@ -39,7 +39,7 @@
 | TEST-08 | PASS | 58개 test 모듈을 `tests/components/omron/`로 이동 (git mv), `pytest` 599 passed (Python 3.14, HA 2026.9.3) |
 | TEST-02, TEST-03, TEST-09 | EXCEPTION | conftest가 homeassistant/bleak를 MagicMock으로 치환. STANDARDS.md 예외 |
 | TEST-01, TEST-06, TEST-07 | TODO | 미점검 (599 passed는 확인) |
-| TEST-04, HACS-01 | EXCEPTION | 최소 HA job 없음 |
+| TEST-04, HACS-01 | TODO | `test-min-ha` job 추가(Python 3.13, constraints/homeassistant-min.txt, HA 버전 일치 검증). 원격 CI 결과 확인 전까지 PASS 아님 |
 | TEST-05, HA-10, DEP-02, DEP-05 | TODO | 최소 blesession 별도 환경 없음 |
 | DEP-01, DEP-06 | PASS | manifest requirements=blesession, dependencies=bluetooth_adapters, 테스트 requirements 분리 |
 | DEP-07, CI-06 | TODO | CI에 `pip check` 없음, ruff 미고정(`tests.yml`), pip 호출 분산. 로컬 `pip check`만 통과 |
@@ -64,6 +64,6 @@
 ## 남은 작업
 
 1. conftest의 HA MagicMock 치환을 실제 HA fixture·config entry 로딩 테스트로 전환(별도 PR).
-2. 최소 HA 2025.12.0 / 최소 blesession 검증 job, CI에 `pip check`·ruff 고정.
+2. 원격 CI에서 test-min-ha 결과 확인 및 최소 blesession 검증 job, CI에 `pip check`·ruff 고정.
 3. 공통 workflow·dependency-update 전환, DOC-07 Bluetooth 문서 연결.
 4. 원격 CI 확인, 중앙 표 갱신, 리뷰 지적 재검증.

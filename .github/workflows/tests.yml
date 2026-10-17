@@ -42,7 +42,7 @@ jobs:
       matrix:
         # pytest-homeassistant-custom-component 0.13.366 installs Home Assistant
         # 2026.9, which requires Python >= 3.14.2, so this job cannot run on 3.13.
-        # hacs.json minimum is 2025.12.0. The suite does not execute on that floor.
+        # The hacs.json minimum (2025.12.0) is tested by the test-min-ha job.
         python-version: ["3.14"]
 
     steps:
@@ -62,6 +62,43 @@ jobs:
           pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/omron/manifest.json'))['requirements']))")
           python scripts/ha_component_requirements.py bluetooth usb > requirements_ha.txt
           pip install -r requirements_ha.txt
+
+      - name: Run tests
+        run: python -m pytest tests/components/omron/ -v --timeout 120
+
+  test-min-ha:
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies (minimum Home Assistant)
+        run: |
+          pip install --upgrade pip
+          pip install -c constraints/homeassistant-min.txt -r requirements_test_min.txt
+          pip install $(python -c "import json; print(' '.join(json.load(open('custom_components/omron/manifest.json'))['requirements']))")
+          python scripts/ha_component_requirements.py bluetooth usb > requirements_ha.txt
+          pip install -c constraints/homeassistant-min.txt -r requirements_ha.txt
+          pip check
+
+      - name: Verify installed Home Assistant is the declared minimum
+        run: |
+          python - <<'PY'
+          import json
+          from importlib.metadata import version
+          minimum = json.load(open("hacs.json"))["homeassistant"]
+          installed = version("homeassistant")
+          print("homeassistant", installed, "minimum", minimum)
+          assert installed == minimum, (installed, minimum)
+          PY
 
       - name: Run tests
         run: python -m pytest tests/components/omron/ -v --timeout 120

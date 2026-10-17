@@ -8,6 +8,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Keep the minimum-support environment fixed.
+    exclude-paths:
+      - requirements_test_min.txt
+      - constraints/homeassistant-min.txt
     groups:
       home-assistant-tests:
         patterns:
