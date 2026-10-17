@@ -341,3 +341,27 @@ async def test_failed_poll_surfaces_as_update_failed(
             await async_poll_data(hass, entry)
     assert runtime.session_lock.locked() is False
     await _unload(hass, entry)
+
+
+async def test_unload_cancels_a_forced_transfer_drain_waiting_on_the_lock(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """The latched forced-transfer drain is entry-owned: unload cancels it while
+    it waits for the session lock, and it is tracked with the other tasks."""
+    entry = await _setup(hass)
+    runtime = entry.runtime_data
+    await runtime.session_lock.acquire()
+    try:
+        # Format 0x01, forced-transfer bit (0x40), no registered users.
+        _advertise(entry, bytes([0x01, 0x40, 0x00, 0x00]))
+        task = runtime.pending_forced_transfer_task
+        assert task is not None and not task.done()
+        assert task in runtime.background_tasks
+
+        await _unload(hass, entry)
+    finally:
+        runtime.session_lock.release()
+
+    assert task.cancelled()
+    assert runtime.pending_forced_transfer_task is None
+    assert not runtime.background_tasks
