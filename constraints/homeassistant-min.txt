@@ -1,2 +1,4 @@
 # Exact minimum Home Assistant declared in hacs.json (do not raise without approval).
 homeassistant==2025.12.0
+# aiodns 3.x (pinned by HA 2025.12.0) is incompatible with pycares>=5.
+pycares<5
