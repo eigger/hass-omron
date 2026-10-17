@@ -5,6 +5,7 @@ flags. They are not seeded: a startup ``False`` would overwrite a restored
 ``on`` and would show a cuff that has never advertised as off.
 RSSI follows processor availability so a stale dBm is not recorded.
 """
+
 from __future__ import annotations
 
 import ast
@@ -20,7 +21,10 @@ def _parse(relative_path: str) -> ast.Module:
 
 def _find_function(tree: ast.AST, name: str):
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
     raise AssertionError(f"{name} not found")
 
@@ -47,7 +51,11 @@ class TestAdvertisementBinarySensors:
             if isinstance(node, ast.ClassDef)
             and node.name == "OmronAdvertisementBinarySensorEntity"
         )
-        available = next(node for node in entity.body if isinstance(node, ast.FunctionDef) and node.name == "available")
+        available = next(
+            node
+            for node in entity.body
+            if isinstance(node, ast.FunctionDef) and node.name == "available"
+        )
         body = ast.unparse(available)
         assert "isinstance" in body
         assert "bool" in body
@@ -57,7 +65,8 @@ class TestAdvertisementBinarySensors:
         entity = next(
             node
             for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == "OmronAdvertisementSensorEntity"
+            if isinstance(node, ast.ClassDef)
+            and node.name == "OmronAdvertisementSensorEntity"
         )
         methods = {
             node.name
@@ -68,7 +77,9 @@ class TestAdvertisementBinarySensors:
 
     def test_rssi_converter_keeps_int(self):
         tree = _parse("sensor.py")
-        fn = _find_function(tree, "advertisement_sensor_update_to_bluetooth_data_update")
+        fn = _find_function(
+            tree, "advertisement_sensor_update_to_bluetooth_data_update"
+        )
         assert not any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -108,7 +119,9 @@ class TestAdvertisementBinarySensors:
                 and any(child is pushes[0] for child in ast.walk(node))
             ):
                 guarded = True
-        assert guarded, "cached-advertisement push must be inside `if last_service_info is not None`"
+        assert guarded, (
+            "cached-advertisement push must be inside `if last_service_info is not None`"
+        )
 
     def test_preserved_unique_id_matches_the_poll_entity_formula(self):
         """device_id is None for MSD flags and RSSI, so the slug is none_<key>."""
@@ -117,10 +130,16 @@ class TestAdvertisementBinarySensors:
         fn = next(
             node
             for node in tree.body
-            if isinstance(node, ast.FunctionDef) and node.name == "preserved_passive_unique_id"
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "preserved_passive_unique_id"
         )
         namespace: dict = {}
-        exec(compile(ast.Module(body=[fn], type_ignores=[]), "entity_helpers.py", "exec"), namespace)
+        exec(
+            compile(
+                ast.Module(body=[fn], type_ignores=[]), "entity_helpers.py", "exec"
+            ),
+            namespace,
+        )
         preserved_passive_unique_id = namespace["preserved_passive_unique_id"]
         assert (
             preserved_passive_unique_id(

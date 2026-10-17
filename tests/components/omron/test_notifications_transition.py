@@ -25,7 +25,10 @@ _CTS = "00001805-0000-1000-8000-00805f9b34fb"
 @pytest.fixture(autouse=True)
 def _fast_waits(monkeypatch):
     for module, names in (
-        (parser_module, ("_RACP_SETTLE_S", "_RACP_MEASUREMENT_TIMEOUT_S", "_RACP_DONE_TIMEOUT_S")),
+        (
+            parser_module,
+            ("_RACP_SETTLE_S", "_RACP_MEASUREMENT_TIMEOUT_S", "_RACP_DONE_TIMEOUT_S"),
+        ),
         (time_sync, ("_CTS_SETTLE_S", "_CTS_NOTIFY_TIMEOUT_S")),
     ):
         for name in names:

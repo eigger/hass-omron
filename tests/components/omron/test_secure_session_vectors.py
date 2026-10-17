@@ -3,6 +3,7 @@
 No real credentials, device access, or medical records are used.
 These vectors do not establish end-to-end HA or other-model compatibility.
 """
+
 import unittest
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
@@ -21,7 +22,9 @@ class X2SecureVectors(unittest.TestCase):
     def peer_packet(self, counter=1, payload=b"synthetic-response"):
         count = counter.to_bytes(4, "little")
         sealed = AESCCM(bytes(range(16)), tag_length=8).encrypt(
-            count + b"\x00" + bytes(range(8)), payload, count,
+            count + b"\x00" + bytes(range(8)),
+            payload,
+            count,
         )
         return b"\xc0" + count + sealed
 
@@ -50,7 +53,9 @@ class X2SecureVectors(unittest.TestCase):
         session.state = session.STATE_CHALLENGE_REQ_SENT
         session.enc_own_challenge = bytes(range(16, 32))
         sealed = AESCCM(session.session_key, tag_length=8).encrypt(
-            bytes(5) + bytes(range(8)), bytes(36), bytes(4),
+            bytes(5) + bytes(range(8)),
+            bytes(36),
+            bytes(4),
         )
         with self.assertRaisesRegex(ValueError, "challenge mismatch"):
             session.process_challenge_resp(b"\xf0\x86" + sealed)
@@ -64,7 +69,9 @@ class X2SecureVectors(unittest.TestCase):
         peer_challenge = bytes(range(64, 80))
         frame = session.build_challenge_req(b"\xf0\x85" + peer_challenge + peer_salt)
         nonce = bytes(4) + b"\x80" + peer_salt[8:12] + session.enc_own_salt[8:12]
-        plaintext = AESCCM(session.session_key, tag_length=8).decrypt(nonce, frame[2:], bytes(4))
+        plaintext = AESCCM(session.session_key, tag_length=8).decrypt(
+            nonce, frame[2:], bytes(4)
+        )
         self.assertEqual(plaintext[:32], peer_challenge + bytes(16))
 
     def test_transport_has_five_byte_header(self):
@@ -75,6 +82,8 @@ class X2SecureVectors(unittest.TestCase):
         plaintext = b"synthetic-vector"
         counter = b"\x01\x00\x00\x00"
         ciphertext = AESCCM(session.session_key, tag_length=8).encrypt(
-            counter + b"\x80" + bytes(range(8)), plaintext, counter,
+            counter + b"\x80" + bytes(range(8)),
+            plaintext,
+            counter,
         )
         self.assertEqual(session.encrypt(plaintext), b"\xc0" + counter + ciphertext)

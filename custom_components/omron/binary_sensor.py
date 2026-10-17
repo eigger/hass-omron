@@ -8,7 +8,9 @@ from sensor_state_data import (
     SensorUpdate,
 )
 
-from .omron_ble.const import ExtendedBinarySensorDeviceClass as OmronExtendedBinarySensorDeviceClass
+from .omron_ble.const import (
+    ExtendedBinarySensorDeviceClass as OmronExtendedBinarySensorDeviceClass,
+)
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -42,11 +44,13 @@ from .entity_helpers import (
 from .types import OmronConfigEntry
 
 # Advertisement MSD flags — live on the PassiveBluetooth processor (ble-esl pattern).
-ADVERTISEMENT_BINARY_DEVICE_CLASSES = frozenset({
-    OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
-    OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
-    OmronExtendedBinarySensorDeviceClass.PAIRING_MODE,
-})
+ADVERTISEMENT_BINARY_DEVICE_CLASSES = frozenset(
+    {
+        OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER,
+        OmronExtendedBinarySensorDeviceClass.INVALID_TIME,
+        OmronExtendedBinarySensorDeviceClass.PAIRING_MODE,
+    }
+)
 
 # Measurement status flags from a successful GATT readout — poll coordinator.
 POLL_BINARY_SENSOR_DESCRIPTIONS = {
@@ -204,7 +208,9 @@ async def async_setup_entry(
         )
     )
 
-    def _build_new_entities(sensor_update: SensorUpdate | None) -> list[BinarySensorEntity]:
+    def _build_new_entities(
+        sensor_update: SensorUpdate | None,
+    ) -> list[BinarySensorEntity]:
         if sensor_update is None:
             return []
         new_entities: list[BinarySensorEntity] = []
@@ -216,7 +222,9 @@ async def async_setup_entry(
             if description is None:
                 continue
             sensor_value = sensor_update.binary_entity_values.get(device_key)
-            sensor_name = sensor_value.name if sensor_value is not None else str(device_key.key)
+            sensor_name = (
+                sensor_value.name if sensor_value is not None else str(device_key.key)
+            )
             new_entities.append(
                 OmronBluetoothBinarySensorEntity(
                     entry=entry,
@@ -248,9 +256,7 @@ async def async_setup_entry(
 
 
 class OmronAdvertisementBinarySensorEntity(
-    PassiveBluetoothProcessorEntity[
-        OmronPassiveBluetoothDataProcessor[bool | None]
-    ],
+    PassiveBluetoothProcessorEntity[OmronPassiveBluetoothDataProcessor[bool | None]],
     BinarySensorEntity,
 ):
     """Binary sensor fed by Omron manufacturer advertisement flags."""

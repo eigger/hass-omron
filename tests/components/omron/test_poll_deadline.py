@@ -13,6 +13,7 @@ HA 재시작 전까지 통합이 죽는다.
    은 마감 시각에 태스크를 딱 한 번만 취소하므로, 그 CancelledError 를 삼키면
    루프가 다음 무경계 대기로 넘어가고 다시 발동할 데드라인이 남지 않는다.
 """
+
 import ast
 from pathlib import Path
 
@@ -101,8 +102,12 @@ class TestCancellationEscapesPoll:
                 name
                 for name in _caught_names(node)
                 if name
-                in ("BaseException", "<bare except>", "CancelledError",
-                    "asyncio.CancelledError")
+                in (
+                    "BaseException",
+                    "<bare except>",
+                    "CancelledError",
+                    "asyncio.CancelledError",
+                )
             ]
 
         assert not swallowed, (

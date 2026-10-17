@@ -1,4 +1,5 @@
 """Config-flow procedures: the model-number probe and the pairing itself."""
+
 from __future__ import annotations
 
 import logging
@@ -31,9 +32,7 @@ async def async_fetch_device_model_number(
     """
     # Model is unknown here; a placeholder profile is enough because
     # read_model_number() only uses the standard DIS characteristic.
-    session = OmronDeviceSession(
-        ble_device, get_device_config(DEFAULT_DEVICE_MODEL)
-    )
+    session = OmronDeviceSession(ble_device, get_device_config(DEFAULT_DEVICE_MODEL))
     try:
         await session.connect()
     except Exception as exc:

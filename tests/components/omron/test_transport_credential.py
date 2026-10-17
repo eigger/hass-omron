@@ -8,6 +8,7 @@
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 통합 계층은 실행할 수
 없어 (test_stale_bond_guard.py 와 같은 이유) 그쪽은 AST 로 검사한다.
 """
+
 import ast
 import asyncio
 from pathlib import Path
@@ -74,9 +75,9 @@ class TestSettingsMirrorLayout:
         없다 — 그것도 기기 메모리를 이미 한 번 쓴 뒤에.
         """
         for index_size, time_sync in (
-            (0x08, [0x10, 0x20]),   # 인덱스 영역이 레코드보다 작은 배치
-            (0x18, [0x2C, 0x3C]),   # HEM-7188T1-LEO
-            (0x40, [0x2C, 0x3C]),   # 인덱스 영역이 훨씬 큰 배치
+            (0x08, [0x10, 0x20]),  # 인덱스 영역이 레코드보다 작은 배치
+            (0x18, [0x2C, 0x3C]),  # HEM-7188T1-LEO
+            (0x40, [0x2C, 0x3C]),  # 인덱스 영역이 훨씬 큰 배치
         ):
             cfg = SimpleNamespace(
                 model="synthetic",
@@ -89,7 +90,8 @@ class TestSettingsMirrorLayout:
             assert layout.clock_read_size >= layout.clock_write_size
             # 실제로 만들어봐야 의미가 있다: 주소만 검사하면 이 버그를 놓친다.
             block = clock_block(
-                bytes(layout.clock_read_size), datetime(2026, 9, 6, 12, 30, 45),
+                bytes(layout.clock_read_size),
+                datetime(2026, 9, 6, 12, 30, 45),
                 layout.clock_write_size,
             )
             assert len(block) == layout.clock_write_size
@@ -97,7 +99,9 @@ class TestSettingsMirrorLayout:
     def test_the_checksum_sits_at_the_end_of_the_record(self):
         """체크섬 위치를 14 로 박아두면 16바이트 레코드에서만 우연히 맞는다."""
         for size in (16, 20, 24):
-            block = clock_block(bytes(range(size)), datetime(2026, 9, 6, 12, 30, 45), size)
+            block = clock_block(
+                bytes(range(size)), datetime(2026, 9, 6, 12, 30, 45), size
+            )
             assert block[size - 2] == sum(block[: size - 2]) & 0xFF
         # #67 캡처의 실제 레코드로 규칙 자체를 고정한다.
         captured = bytes.fromhex("c8a80000010000001a06110f1806cf00")
@@ -238,7 +242,10 @@ class TestCredentialRoundTrip:
         tree = ast.parse(source)
         listener = None
         for node in ast.walk(tree):
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "update_listener":
+            if (
+                isinstance(node, ast.AsyncFunctionDef)
+                and node.name == "update_listener"
+            ):
                 listener = node
         assert listener is not None, "update_listener 를 찾지 못했다"
         body = ast.unparse(listener)
@@ -250,7 +257,10 @@ class TestCredentialRoundTrip:
 
         persist = None
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_persist_transport_credential":
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "_persist_transport_credential"
+            ):
                 persist = node
         assert persist is not None
         marked = ast.unparse(persist)
@@ -274,7 +284,10 @@ class TestCredentialRoundTrip:
         tree = ast.parse(source)
         fn = None
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == "_persist_transport_credential":
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "_persist_transport_credential"
+            ):
                 fn = node
         assert fn is not None, "_persist_transport_credential 을 찾지 못했다"
         body = ast.unparse(fn)

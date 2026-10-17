@@ -17,6 +17,7 @@ measurement completion (``OmronDeviceDriver.complete_measurement_readout``),
 which stamps the clock record the same way at the end of an ordinary poll on
 the profiles that acknowledge a readout (#190).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -104,5 +105,7 @@ def slot_checksum(slot: bytes, size: int = 10) -> int:
     the #67 and #175 captures carries.
     """
     if size < 10 or len(slot) < size:
-        raise ValueError(f"A profile slot is at least 10 bytes, got {len(slot)} of {size}")
+        raise ValueError(
+            f"A profile slot is at least 10 bytes, got {len(slot)} of {size}"
+        )
     return sum(slot[: size - 2]) & 0xFF

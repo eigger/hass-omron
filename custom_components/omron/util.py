@@ -7,7 +7,6 @@ from homeassistant.config_entries import ConfigEntry
 from .const import CONF_USER_ALIASES
 
 
-
 def aliases_dict_from_entry(entry: ConfigEntry) -> dict[int, str]:
     """Load per-device-user display labels from config entry (1-based indices)."""
     raw = entry.options.get(CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES))

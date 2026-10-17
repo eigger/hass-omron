@@ -8,6 +8,7 @@
 그 차이를 모르고 순서를 "고치면" 아래 기기들의 시간 동기가 조용히 깨진다 —
 EEPROM 디코드가 실패하고 CTS 로 넘어가므로 증상이 안 보인다.
 """
+
 import datetime
 
 import pytest

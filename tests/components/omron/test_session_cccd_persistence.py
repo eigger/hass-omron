@@ -20,6 +20,7 @@
 본드된 클라이언트별로 보존하게 하고, 작은 스택은 그것을 본드 레코드에 함께
 담는 경우가 흔하다.
 """
+
 import asyncio
 
 from bleak.exc import BleakError
@@ -259,9 +260,7 @@ def test_the_unlock_subscribe_stays_on_the_recovery_path():
 
     from custom_components.omron.omron_ble.unlock import _token_unlock
 
-    tree = ast.parse(
-        textwrap.dedent(inspect.getsource(_token_unlock))
-    )
+    tree = ast.parse(textwrap.dedent(inspect.getsource(_token_unlock)))
     direct: list[str] = []
     recovered: list[str] = []
     notifications: list[str] = []
@@ -271,11 +270,16 @@ def test_the_unlock_subscribe_stays_on_the_recovery_path():
         first = ast.unparse(node.args[0]) if node.args else ""
         if isinstance(node.func, ast.Attribute) and node.func.attr == "start_notify":
             direct.append(first)
-        elif isinstance(node.func, ast.Name) and node.func.id == "start_notify_with_recovery":
+        elif (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "start_notify_with_recovery"
+        ):
             if len(node.args) >= 2:
                 recovered.append(ast.unparse(node.args[1]))
         elif isinstance(node.func, ast.Name) and node.func.id == "Notifications":
-            recover = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}.get("recover")
+            recover = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}.get(
+                "recover"
+            )
             if len(node.args) >= 2 and recover == "True":
                 notifications.append(ast.unparse(node.args[1]))
 
@@ -303,7 +307,9 @@ def test_reset_releases_a_held_unlock_channel_instead_of_stopping_it_twice():
 
     target._unlock_stack = _Stack()
     target._unlock_channel = object()
-    target.release_unlock_channel = OmronDeviceSession.release_unlock_channel.__get__(target)
+    target.release_unlock_channel = OmronDeviceSession.release_unlock_channel.__get__(
+        target
+    )
 
     asyncio.run(OmronDeviceSession.reset_session_state(target))
 

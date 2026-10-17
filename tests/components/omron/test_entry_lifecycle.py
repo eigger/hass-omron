@@ -1,4 +1,5 @@
 """Regression coverage for BLE work tied to Home Assistant entry lifetimes."""
+
 import ast
 from pathlib import Path
 from types import SimpleNamespace
@@ -113,7 +114,9 @@ def test_unload_cancels_and_waits_for_tasks_before_discarding_handoffs():
 def test_initial_poll_is_scheduled_after_platform_setup_without_blocking_setup():
     setup = next(
         node
-        for node in ast.parse((_COMPONENT / "__init__.py").read_text(encoding="utf-8")).body
+        for node in ast.parse(
+            (_COMPONENT / "__init__.py").read_text(encoding="utf-8")
+        ).body
         if isinstance(node, ast.AsyncFunctionDef) and node.name == "async_setup_entry"
     )
     listener_pos = forward_pos = schedule_pos = None
@@ -125,9 +128,8 @@ def test_initial_poll_is_scheduled_after_platform_setup_without_blocking_setup()
             listener_pos = node.lineno
         elif call == "hass.config_entries.async_forward_entry_setups":
             forward_pos = node.lineno
-        elif (
-            call == "_create_entry_background_task"
-            and any("_run_initial_poll" in ast.unparse(arg) for arg in node.args)
+        elif call == "_create_entry_background_task" and any(
+            "_run_initial_poll" in ast.unparse(arg) for arg in node.args
         ):
             schedule_pos = node.lineno
 

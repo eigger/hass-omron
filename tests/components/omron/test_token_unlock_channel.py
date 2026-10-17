@@ -16,8 +16,6 @@ from custom_components.omron.omron_ble.unlock import _token_unlock
 RX = "test-rx"
 
 
-
-
 def _session(client):
     held = []
     session = SimpleNamespace(
@@ -75,7 +73,7 @@ async def test_a_kept_token_unlock_hands_the_unlock_subscription_to_the_session(
     assert session._unlocked
     assert UNLOCK in client.subscribed, "a kept subscription must stay enabled"
     assert RX in client.subscribed
-    (stack, channel), = session.held
+    ((stack, channel),) = session.held
     await stack.aclose()  # the session's release
     assert UNLOCK not in client.subscribed
 

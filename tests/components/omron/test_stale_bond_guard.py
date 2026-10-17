@@ -14,19 +14,27 @@ AuthenticationFailed 는 두 가지를 뜻할 수 있다.
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴 수 없어
 (test_poll_deadline.py 와 같은 이유) AST 로 검사한다.
 """
+
 import ast
 from pathlib import Path
 
-_OMRON_BLE = Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
+_OMRON_BLE = (
+    Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
+)
 _SESSION = _OMRON_BLE / "session.py"
 _BLUEZ = _OMRON_BLE / "bluez.py"
 
 
 def _find_function(tree: ast.AST, name: str):
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
-    raise AssertionError(f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것")
+    raise AssertionError(
+        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+    )
 
 
 def _enclosing_ifs(fn: ast.AST, target_lineno: int) -> list[ast.If]:
@@ -53,7 +61,9 @@ def test_the_bond_is_only_removed_when_one_exists():
     assert removals, "_pair_os_bonding 이 본드를 지우지 않는다 — 테스트가 낡았다"
 
     for call in removals:
-        guards = " ".join(ast.unparse(node.test) for node in _enclosing_ifs(fn, call.lineno))
+        guards = " ".join(
+            ast.unparse(node.test) for node in _enclosing_ifs(fn, call.lineno)
+        )
         assert "had_bond" in guards, (
             "본드 제거가 had_bond 검사 안에 있지 않다. 본드가 없는데 지우면 "
             "페어링 창을 버린다 (#92)."

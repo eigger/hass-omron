@@ -26,12 +26,7 @@ def test_bls_missing_pressure_or_pulse_does_not_become_a_number():
     assert parsed["bpm"] is None
 
     # A pressure sentinel means the notification carries no usable reading.
-    invalid_pressure = (
-        bytes([0x00])
-        + _sfloat(0x07FF)
-        + _sfloat(80)
-        + _sfloat(90)
-    )
+    invalid_pressure = bytes([0x00]) + _sfloat(0x07FF) + _sfloat(80) + _sfloat(90)
     assert _parse_bp_measurement(invalid_pressure) is None
 
 

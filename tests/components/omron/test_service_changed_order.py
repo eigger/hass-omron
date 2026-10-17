@@ -21,6 +21,7 @@
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴 수 없어
 (test_poll_deadline.py 와 같은 이유) AST 로 검사한다.
 """
+
 import ast
 from pathlib import Path
 
@@ -34,7 +35,11 @@ def _call_order(fn: ast.AST, names: set[str]) -> list[str]:
         if not isinstance(node, ast.Call):
             continue
         target = node.func
-        name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", None)
+        name = (
+            target.attr
+            if isinstance(target, ast.Attribute)
+            else getattr(target, "id", None)
+        )
         if name in names:
             found.append((node.lineno, node.col_offset, name))
     return [name for _l, _c, name in sorted(found)]
@@ -42,13 +47,20 @@ def _call_order(fn: ast.AST, names: set[str]) -> list[str]:
 
 def _find_function(tree: ast.AST, name: str):
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
-    raise AssertionError(f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것")
+    raise AssertionError(
+        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+    )
 
 
 def test_the_bond_comes_before_the_service_changed_subscribe():
-    tree = ast.parse((_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8"))
+    tree = ast.parse(
+        (_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8")
+    )
     fn = _find_function(tree, "async_pair_and_sync_device")
 
     order = _call_order(fn, {"pair", "subscribe_service_changed"})
@@ -60,7 +72,9 @@ def test_the_bond_comes_before_the_service_changed_subscribe():
 
 def test_the_subscribe_still_precedes_the_vendor_traffic():
     """앱도 벤더 CCCD 보다 먼저 쓴다 — 본딩 뒤, 벤더 앞."""
-    tree = ast.parse((_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8"))
+    tree = ast.parse(
+        (_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8")
+    )
     fn = _find_function(tree, "async_pair_and_sync_device")
 
     order = _call_order(fn, {"subscribe_service_changed", "async_sync_device_time"})

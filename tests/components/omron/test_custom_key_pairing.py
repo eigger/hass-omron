@@ -12,6 +12,7 @@ Works 확인이 무응답으로 남아 커프가 링크를 끊었다(이슈 #125
     에이전트를 가로채면 안 된다 — ``_connect_once`` 주석 참고).
   * 링크가 끊긴 상태면 재시도를 접고 원인이 드러나는 에러를 낸다.
 """
+
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -133,9 +134,7 @@ def test_proxy_custom_key_pairing_does_not_register_agent(
     ``pair()`` 는 config flow 뿐 아니라 페어링 모드 광고를 볼 때마다 폴링
     경로(parser.py)에서도 호출되므로 이 구분이 특히 중요하다.
     """
-    session = _custom_key_session(
-        FakeBLEDevice(PROXY_DEVICE_DETAILS), FakeClient()
-    )
+    session = _custom_key_session(FakeBLEDevice(PROXY_DEVICE_DETAILS), FakeClient())
 
     asyncio.run(session.pair())
 
@@ -202,7 +201,10 @@ def test_unlock_subscribe_still_retries_while_connected(monkeypatch):
 
     assert "was not found" in str(excinfo.value)
     # RX notify 1회 + 언락 구독 10회(aggressive_gatt_timing).
-    assert len(client.start_notify_calls) == 1 + unlock_module._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
+    assert (
+        len(client.start_notify_calls)
+        == 1 + unlock_module._PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE
+    )
 
 
 async def _noop_refresh(client):
@@ -223,10 +225,7 @@ def test_bluez_device_path_reads_the_client_and_the_device():
     """
     path = "/org/bluez/hci0/dev_00_5F_BF_F4_43_D1"
     assert bluez._bluez_device_path(FakeClient(device_path=path)) == path
-    assert (
-        bluez._bluez_device_path(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS))
-        == path
-    )
+    assert bluez._bluez_device_path(FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS)) == path
     # 프록시 링크에는 어느 쪽에도 경로가 없다.
     assert bluez._bluez_device_path(FakeClient()) is None
     assert bluez._bluez_device_path(FakeBLEDevice(PROXY_DEVICE_DETAILS)) is None
@@ -260,9 +259,7 @@ def test_pairing_error_names_both_failures(monkeypatch):
             if len(self.start_notify_calls) > 1:
                 self.is_connected = False
             raise Exception(
-                "rx failed"
-                if len(self.start_notify_calls) == 1
-                else "unlock failed"
+                "rx failed" if len(self.start_notify_calls) == 1 else "unlock failed"
             )
 
     client = _DiesOnUnlock(connected=True)

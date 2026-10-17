@@ -5,6 +5,7 @@ empty by the index path, but ``get_all_records`` read every user anyway.
 On a cuff that refuses reads in an unregistered user's region (#197) the
 whole scan died there and took the users that do read with it.
 """
+
 import asyncio
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock
@@ -33,8 +34,22 @@ def _config() -> DeviceConfig:
             "index_region_byte_size": 0x18,
             "endianness": "little",
             "users": [
-                {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
-                {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                {
+                    "write_cursor_offset": 0x00,
+                    "unread_counter_offset": 0x04,
+                    "write_cursor_mask": 0xFF,
+                    "slot_index_min": 0,
+                    "slot_index_max": 99,
+                    "slot_index_bias": -1,
+                },
+                {
+                    "write_cursor_offset": 0x02,
+                    "unread_counter_offset": 0x06,
+                    "write_cursor_mask": 0xFF,
+                    "slot_index_min": 0,
+                    "slot_index_max": 99,
+                    "slot_index_bias": -1,
+                },
             ],
         },
     )
@@ -74,7 +89,7 @@ def _driver_and_transport(*, user2_error: Exception | None = None):
             if user2_error is not None:
                 raise user2_error
             return bytearray(b"\xff" * size)
-        return user1_region[addr - USER1_BASE:addr - USER1_BASE + size]
+        return user1_region[addr - USER1_BASE : addr - USER1_BASE + size]
 
     transport.memory.read_memory_range = AsyncMock(side_effect=fake_read)
     return driver, transport, reads
@@ -186,8 +201,16 @@ class TestLatestPerUserFallback:
         driver, transport, _ = _driver_and_transport(
             user2_error=ConnectionError("Failed to receive response after 4 retries")
         )
-        indexed_user1 = {"sys": 130, "dia": 85, "bpm": 66, "datetime": dt.datetime(2026, 9, 21, 11, 45, 0), "user": 1}
-        driver._get_latest_via_index = AsyncMock(return_value=({1: indexed_user1}, set()))
+        indexed_user1 = {
+            "sys": 130,
+            "dia": 85,
+            "bpm": 66,
+            "datetime": dt.datetime(2026, 9, 21, 11, 45, 0),
+            "user": 1,
+        }
+        driver._get_latest_via_index = AsyncMock(
+            return_value=({1: indexed_user1}, set())
+        )
 
         latest = asyncio.run(driver.get_latest_records_per_user(transport))
 

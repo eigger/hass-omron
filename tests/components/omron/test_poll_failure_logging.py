@@ -18,6 +18,7 @@ settle-drop 은 전자인데 ``BleakError`` 로 던져지고 있었다. ``BleakE
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴 수 없어
 (test_stale_bond_guard.py 와 같은 이유) AST 로 검사한다.
 """
+
 import ast
 from pathlib import Path
 
@@ -28,9 +29,14 @@ _PARSER = _COMPONENT / "omron_ble" / "parser.py"
 
 def _function(path: Path, name: str):
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
-    raise AssertionError(f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것")
+    raise AssertionError(
+        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+    )
 
 
 def test_a_settle_drop_is_a_connection_error():
@@ -73,7 +79,8 @@ def test_a_failed_poll_still_returns_the_last_values():
     assert tries, "async_poll 에 try 가 없다"
     outermost = min(tries, key=lambda node: node.lineno)
     handled = {
-        ast.unparse(h.type) if h.type is not None else "bare" for h in outermost.handlers
+        ast.unparse(h.type) if h.type is not None else "bare"
+        for h in outermost.handlers
     }
     assert "Exception" in handled, "가장 바깥 try 가 예외를 삼키지 않는다"
     # 반환은 핸들러 뒤, try 바깥에 있어야 실패한 폴도 캐시를 돌려준다.

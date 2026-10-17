@@ -1,4 +1,5 @@
 """Regression tests for BLE resources during cancellation and teardown."""
+
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -86,12 +87,15 @@ def test_failed_connect_releases_session_pairing_agent(monkeypatch):
 
     monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
     monkeypatch.setattr(session_module, "is_local_adapter", lambda _device: True)
-    monkeypatch.setattr(session_module, "establish_connection_with_bond_settle", fail_connect)
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", fail_connect
+    )
 
     session = OmronDeviceSession(
         SimpleNamespace(address="AA:BB:CC:DD:EE:FF"),
         get_device_config("HEM-7188T1-LEO"),
     )
+
     # Replace the stack opened by connect with a sentinel whose release is visible.
     class Stack:
         async def enter_async_context(self, context):

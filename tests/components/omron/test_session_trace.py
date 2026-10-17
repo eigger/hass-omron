@@ -5,6 +5,7 @@
 RSSI, 경로 수)와 한 줄 진단(``likely_cause``)을 붙여 Duration / Last Failure
 센서의 속성으로 내보낸다.
 """
+
 import asyncio
 from types import SimpleNamespace
 
@@ -183,8 +184,16 @@ class TestBuildSessionReport:
         )
 
         assert list(report) == [
-            "operation", "success", "via", "via_type", "rssi", "paths",
-            "connect_s", "readout_s", "connect_attempts", "records",
+            "operation",
+            "success",
+            "via",
+            "via_type",
+            "rssi",
+            "paths",
+            "connect_s",
+            "readout_s",
+            "connect_attempts",
+            "records",
         ]
         assert report["success"] is True
         assert report["via"] == "proxy-bedroom (AA:BB)"
@@ -225,7 +234,9 @@ class TestBuildSessionReport:
         assert report["paths"] == 1
         assert report["connect_attempts"] == 3
 
-    def test_a_write_that_never_returned_is_reported_as_the_adapter_not_the_cuff(self, radio):
+    def test_a_write_that_never_returned_is_reported_as_the_adapter_not_the_cuff(
+        self, radio
+    ):
         """WriteTimeout 은 어느 단계에서 나든 프록시/어댑터가 멈춘 것이다.
 
         언락 단계라고 "다시 페어링하라"고 하면 틀린 안내가 된다.
@@ -295,7 +306,10 @@ class TestBuildSessionReport:
         trace = SessionTrace()
         trace.fail("connect")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace=trace,
+            None,
+            ADDRESS,
+            operation="poll",
+            trace=trace,
             exc=TimeoutError("Timeout waiting for connect response"),
         )
         assert report["error"] == "Timeout waiting for connect response"
@@ -328,7 +342,11 @@ class TestBuildSessionReport:
 class TestLikelyCause:
     def test_a_sleeping_cuff_is_called_normal(self):
         cause = session_report.cuff_cause(
-            "connect", None, "Failed to connect after 4 attempt(s): timed out", {}, "poll"
+            "connect",
+            None,
+            "Failed to connect after 4 attempt(s): timed out",
+            {},
+            "poll",
         )
         assert "normal state" in cause
 
@@ -350,7 +368,12 @@ class TestLikelyCause:
             ("auth", "unlock", "Unlock failed: pairing key mismatch", "phone app"),
             ("auth", "unlock", "No stored transport credential", "re-add"),
             ("auth", "unlock", "PIN or Key Missing", "bond"),
-            ("auth", "memory_open", "Device rejected memory session open", "readout session"),
+            (
+                "auth",
+                "memory_open",
+                "Device rejected memory session open",
+                "readout session",
+            ),
             ("transfer", "readout", "disconnected", "record memory"),
             ("finish", "memory_close", "no reply", "records were read"),
         ],
@@ -361,7 +384,9 @@ class TestLikelyCause:
     def test_a_failure_only_the_library_names_is_left_to_it(self):
         """프록시 슬롯 고갈처럼 모든 BLE 기기가 공유하는 실패는 라이브러리 문장이다."""
         assert (
-            session_report.cuff_cause("connect", None, "no free slot on proxy", {}, "poll")
+            session_report.cuff_cause(
+                "connect", None, "no free slot on proxy", {}, "poll"
+            )
             is None
         )
 
@@ -373,7 +398,10 @@ class TestSharedCauseKeys:
         trace = SessionTrace()
         trace.fail("connect")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace=trace,
+            None,
+            ADDRESS,
+            operation="poll",
+            trace=trace,
             exc=ConnectFailed("No free slot on the proxy"),
         )
         assert "slot" in report["likely_cause"]
@@ -384,7 +412,10 @@ class TestSharedCauseKeys:
         trace = SessionTrace()
         trace.fail("unlock")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace=trace,
+            None,
+            ADDRESS,
+            operation="poll",
+            trace=trace,
             exc=ConnectionError("Unlock failed: pairing key mismatch"),
         )
         assert "phone app" in report["likely_cause"]
@@ -394,7 +425,11 @@ class TestSharedCauseKeys:
         trace = SessionTrace()
         trace.fail("device_info")
         report = session_report.build_session_report(
-            None, ADDRESS, operation="poll", trace=trace, exc=RuntimeError("odd"),
+            None,
+            ADDRESS,
+            operation="poll",
+            trace=trace,
+            exc=RuntimeError("odd"),
         )
         assert report["likely_cause"] == session_report._NO_STAGE_CAUSE
         assert "likely_cause_key" not in report
@@ -460,8 +495,12 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(ConnectionError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
-                    entry_data.device_data.last_session_trace = {"failed_stage": "connect"}
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "poll"
+                ):
+                    entry_data.device_data.last_session_trace = {
+                        "failed_stage": "connect"
+                    }
                     raise ConnectionError("cuff asleep")
 
         asyncio.run(scenario())
@@ -486,9 +525,13 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(ConnectionError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "poll"
+                ):
                     raise ConnectionError("first")
-            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+            async with session_handoff.omron_poll_ble_telemetry(
+                None, entry_data, "poll"
+            ):
                 entry_data.device_data.last_session_trace = {"records": 1}
 
         asyncio.run(scenario())
@@ -499,7 +542,9 @@ class TestTelemetry:
         assert len(entry_data.failure_coordinator.values) == 1
         assert entry_data.failure_count_coordinator.data == 1
 
-    def test_the_report_lands_before_the_final_duration_update(self, monkeypatch, plain_report):
+    def test_the_report_lands_before_the_final_duration_update(
+        self, monkeypatch, plain_report
+    ):
         """Duration 의 마지막 갱신이 엔티티 상태(속성 포함)를 쓴다 — 그 전에 있어야 한다."""
         entry_data = _runtime()
         seen: list[object] = []
@@ -512,7 +557,9 @@ class TestTelemetry:
         entry_data.duration_coordinator = Duration()
 
         async def scenario():
-            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+            async with session_handoff.omron_poll_ble_telemetry(
+                None, entry_data, "poll"
+            ):
                 pass
 
         asyncio.run(scenario())
@@ -538,7 +585,9 @@ class TestTelemetry:
         entry_data.duration_coordinator = Duration()
 
         async def scenario():
-            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+            async with session_handoff.omron_poll_ble_telemetry(
+                None, entry_data, "poll"
+            ):
                 assert len(writes) == 1  # 시작 0.0 쓰기만, 티커는 아직
                 # 한 번 양보해 티커의 첫 tick 이 실제로 상태를 쓰게 한다.
                 await asyncio.sleep(0)
@@ -563,7 +612,9 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(RuntimeError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "pairing"):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "pairing"
+                ):
                     raise RuntimeError("no device")
 
         asyncio.run(scenario())
@@ -575,10 +626,14 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(asyncio.CancelledError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "poll"
+                ):
                     raise asyncio.CancelledError()
 
-        entry_data.session_reports.record({"operation": "poll", "success": True, "connect_s": 1.0})
+        entry_data.session_reports.record(
+            {"operation": "poll", "success": True, "connect_s": 1.0}
+        )
         asyncio.run(scenario())
         # 취소는 record 하지 않는다: 슬롯도 카운터도 그대로.
         assert entry_data.session_reports.last["connect_s"] == 1.0
@@ -612,7 +667,9 @@ class TestTelemetry:
         entry_data = _runtime()
 
         async def scenario():
-            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+            async with session_handoff.omron_poll_ble_telemetry(
+                None, entry_data, "poll"
+            ):
                 pass
 
         asyncio.run(scenario())
@@ -625,13 +682,18 @@ class TestTelemetry:
         async def scenario():
             for message in ("one", "two"):
                 with pytest.raises(ConnectionError):
-                    async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                    async with session_handoff.omron_poll_ble_telemetry(
+                        None, entry_data, "poll"
+                    ):
                         raise ConnectionError(message)
 
         asyncio.run(scenario())
         assert entry_data.failure_count_coordinator.values == [1, 2]
         assert entry_data.session_reports.failures == 2
-        assert entry_data.failure_coordinator.data is entry_data.session_reports.last_failure_at
+        assert (
+            entry_data.failure_coordinator.data
+            is entry_data.session_reports.last_failure_at
+        )
 
     def test_unbinding_stops_the_failure_sensors(self, plain_report):
         entry_data = _runtime()
@@ -639,7 +701,9 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(ConnectionError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "poll"
+                ):
                     raise ConnectionError("x")
 
         asyncio.run(scenario())
@@ -657,7 +721,9 @@ class TestTelemetry:
 
         async def scenario():
             with pytest.raises(ConnectionError):
-                async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "poll"):
+                async with session_handoff.omron_poll_ble_telemetry(
+                    None, entry_data, "poll"
+                ):
                     trace = SessionTrace()
                     trace.fail("unlock")
                     entry_data.device_data.last_session_trace = trace
@@ -683,11 +749,16 @@ class TestTelemetry:
         entry_data = _runtime()
 
         async def scenario():
-            async with session_handoff.omron_poll_ble_telemetry(None, entry_data, "pairing"):
+            async with session_handoff.omron_poll_ble_telemetry(
+                None, entry_data, "pairing"
+            ):
                 pass
 
         asyncio.run(scenario())
-        assert entry_data.session_reports.last == {"operation": "pairing", "success": True}
+        assert entry_data.session_reports.last == {
+            "operation": "pairing",
+            "success": True,
+        }
         assert entry_data.failure_count_coordinator.values == []
 
 
@@ -729,9 +800,13 @@ class TestPollTrace:
         from custom_components.omron.omron_ble.session import OmronDeviceSession
 
         async def _refuse(ble_device, name, **kwargs):
-            raise ConnectionError("dropped during the post-connect settle on all 3 attempt(s)")
+            raise ConnectionError(
+                "dropped during the post-connect settle on all 3 attempt(s)"
+            )
 
-        monkeypatch.setattr(session_module, "establish_connection_with_bond_settle", _refuse)
+        monkeypatch.setattr(
+            session_module, "establish_connection_with_bond_settle", _refuse
+        )
         monkeypatch.setattr(session_module, "is_local_adapter", lambda device: False)
         ble_device = SimpleNamespace(address=ADDRESS, details={"source": "AA:BB"})
         session = OmronDeviceSession(ble_device, get_device_config("HEM-7155T"))
@@ -745,7 +820,9 @@ class TestPollTrace:
         assert "connect" in trace.timings
         assert "adopted_link" not in trace.facts
 
-    def test_a_connect_that_fails_every_attempt_still_names_the_radio(self, monkeypatch):
+    def test_a_connect_that_fails_every_attempt_still_names_the_radio(
+        self, monkeypatch
+    ):
         """settle 드롭으로 세 번 다 실패해도 어느 라디오를 몇 번 시도했는지는 남아야 한다."""
         from custom_components.omron.omron_ble import connection as connection_module
         from custom_components.omron.omron_ble.devices import get_device_config
@@ -794,7 +871,9 @@ class TestPollTrace:
 
         monkeypatch.setattr(connection_module, "establish_connection", _connect)
         monkeypatch.setattr(connection_module.asyncio, "sleep", _no_sleep)
-        monkeypatch.setattr(connection_module, "_connection_source", lambda _d: "unknown")
+        monkeypatch.setattr(
+            connection_module, "_connection_source", lambda _d: "unknown"
+        )
         monkeypatch.setattr(connection_module, "is_local_adapter", lambda device: False)
         ble_device = SimpleNamespace(address=ADDRESS, details={})
         session = OmronDeviceSession(ble_device, get_device_config("HEM-7155T"))
@@ -807,7 +886,9 @@ class TestPollTrace:
         from custom_components.omron.omron_ble.devices import get_device_config
         from custom_components.omron.omron_ble.session import OmronDeviceSession
 
-        session = OmronDeviceSession(SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T"))
+        session = OmronDeviceSession(
+            SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T")
+        )
         session._client = SimpleNamespace(is_connected=True, services=[])
 
         async def _no_service():
@@ -821,7 +902,13 @@ class TestPollTrace:
         target = _ParserSelf(session)
 
         with pytest.raises(ConnectionError, match="Required service"):
-            asyncio.run(_async_poll()(target, SimpleNamespace(address=ADDRESS), preconnected_session=session))
+            asyncio.run(
+                _async_poll()(
+                    target,
+                    SimpleNamespace(address=ADDRESS),
+                    preconnected_session=session,
+                )
+            )
 
         assert target.last_session_trace.failed_stage == "services"
         cause = session_report.cuff_cause(
@@ -834,7 +921,9 @@ class TestPollTrace:
         from custom_components.omron.omron_ble.devices import get_device_config
         from custom_components.omron.omron_ble.session import OmronDeviceSession
 
-        session = OmronDeviceSession(SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T"))
+        session = OmronDeviceSession(
+            SimpleNamespace(address=ADDRESS), get_device_config("HEM-7155T")
+        )
         session._client = SimpleNamespace(is_connected=True, services=[])
         session.trace.link = LinkInfo(via="AA:BB", source="AA:BB")
         session.trace.note(connect_attempts=2)
@@ -853,7 +942,11 @@ class TestPollTrace:
 
         with pytest.raises(ConnectionError, match="Required service"):
             asyncio.run(
-                _async_poll()(target, SimpleNamespace(address=ADDRESS), preconnected_session=session)
+                _async_poll()(
+                    target,
+                    SimpleNamespace(address=ADDRESS),
+                    preconnected_session=session,
+                )
             )
 
         trace = target.last_session_trace
@@ -861,7 +954,9 @@ class TestPollTrace:
         assert trace.failed_stage == "services"
         assert trace.link is not None and trace.link.via == "AA:BB"
         assert trace.facts["connect_attempts"] == 2
-        assert "pair" not in trace.timings, "페어링 세션의 단계가 폴의 것으로 나오면 안 된다"
+        assert "pair" not in trace.timings, (
+            "페어링 세션의 단계가 폴의 것으로 나오면 안 된다"
+        )
 
 
 # ── 세션 종료 ───────────────────────────────────────────────────────────────

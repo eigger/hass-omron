@@ -1,4 +1,5 @@
 """devices.py / device_catalog.py 단위 테스트."""
+
 from custom_components.omron.omron_ble.const import DEFAULT_DEVICE_MODEL
 from custom_components.omron.omron_ble.devices import (
     ConnectType,
@@ -202,7 +203,9 @@ class TestCatalogResolution:
         assert cfg_6410.settings_write_address == 0x0170
         assert cfg_6410.index_pointer_layout["users"][0]["write_cursor_mask"] == 0x3FFF
         assert cfg_6410.index_pointer_layout["users"][0]["write_cursor_offset"] == 0x06
-        assert cfg_6410.index_pointer_layout["users"][0]["unread_counter_offset"] == 0x0E
+        assert (
+            cfg_6410.index_pointer_layout["users"][0]["unread_counter_offset"] == 0x0E
+        )
 
     def test_additional_equivalent_models_resolved(self):
         assert resolve_profile_model_id("HEM-7280T-D") == "HEM-7322T"
@@ -421,6 +424,4 @@ def test_a_retail_name_is_not_also_a_catalog_id():
 
     catalog_ids = set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)
     shadowed = sorted(catalog_ids & set(MODEL_NUMBER_ALIASES))
-    assert not shadowed, (
-        f"소매명이 카탈로그 id 로도 등록돼 별칭이 가려진다: {shadowed}"
-    )
+    assert not shadowed, f"소매명이 카탈로그 id 로도 등록돼 별칭이 가려진다: {shadowed}"

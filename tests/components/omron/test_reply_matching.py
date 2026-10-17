@@ -12,6 +12,7 @@
 리포터 로그(2.7.8-beta.15): ``Memory attempt 1/2/3 failed with late/
 address-mismatched replies``. 재시도해도 매번 이전 응답을 소비했다.
 """
+
 import asyncio
 
 from custom_components.omron.omron_ble.devices import get_device_config
@@ -28,7 +29,11 @@ def _crc(frame: bytearray) -> bytearray:
 
 
 def _read_cmd(address: int, length: int) -> bytearray:
-    cmd = bytearray([8, 0x01, 0x00]) + address.to_bytes(2, "big") + bytes([length, 0x00, 0x00])
+    cmd = (
+        bytearray([8, 0x01, 0x00])
+        + address.to_bytes(2, "big")
+        + bytes([length, 0x00, 0x00])
+    )
     return _crc(cmd)
 
 
@@ -82,7 +87,9 @@ def test_a_late_reply_for_another_address_does_not_end_the_wait():
     s = _Session()
     s.expect(_read_cmd(0x0E3C, 16))
 
-    assert _fed(s, _read_reply(0x0010, 16)) is False, "직전 명령의 응답을 소비하면 안 된다"
+    assert _fed(s, _read_reply(0x0010, 16)) is False, (
+        "직전 명령의 응답을 소비하면 안 된다"
+    )
     assert s._last_reply_memory_address is None
 
 

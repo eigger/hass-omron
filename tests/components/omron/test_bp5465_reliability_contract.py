@@ -40,8 +40,8 @@ def test_poll_coordinator_errors_are_not_converted_to_cached_success():
     assert "return poll_coordinator.data" not in timeout_block.group(1)
 
     generic_block = re.search(
-        r'except Exception as err:\n'
-        r'\s+# Preserve the previous coordinator data(.*?)(?=\n    finally:)',
+        r"except Exception as err:\n"
+        r"\s+# Preserve the previous coordinator data(.*?)(?=\n    finally:)",
         source,
         re.S,
     )
@@ -74,10 +74,7 @@ def test_parser_propagates_real_poll_failures():
 def test_required_service_and_fallback_readout_fail_closed():
     source = PARSER.read_text(encoding="utf-8")
 
-    assert (
-        "raise ConnectionError("
-        in source
-    )
+    assert "raise ConnectionError(" in source
 
     fallback = re.search(
         r"except Exception as fallback_exc:(.*?)(?=\n                    else:)",
@@ -89,7 +86,6 @@ def test_required_service_and_fallback_readout_fail_closed():
     assert "raise" in fallback.group(1)
 
 
-
 def test_forced_transfer_marker_is_consumed_before_device_lookup():
     source = INIT.read_text(encoding="utf-8")
 
@@ -97,7 +93,9 @@ def test_forced_transfer_marker_is_consumed_before_device_lookup():
     poll_end = source.index("\nasync def async_setup_entry(", poll_start)
     poll_source = source[poll_start:poll_end]
 
-    marker_pos = poll_source.index("force_poll_after_lock = runtime.force_poll_after_lock")
+    marker_pos = poll_source.index(
+        "force_poll_after_lock = runtime.force_poll_after_lock"
+    )
     device_lookup_pos = poll_source.index(
         "device = async_ble_device_from_address(hass, address)"
     )

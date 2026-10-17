@@ -8,6 +8,7 @@ HEM-7382T1-AZAZ 이고, 스스로를 HEM-7140T1 이라 부르는 기기는 HEM-7
 
 표는 OMRON connect 안드로이드 앱이 들고 있는 기기 목록에서 뽑았다.
 """
+
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )

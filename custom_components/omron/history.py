@@ -77,9 +77,10 @@ async def async_setup_history(
     if not supported:
         return
     if enabled:
-        device_data.history_last_seq, device_data.history_shown = (
-            await async_load_history_state(hass, entry_id)
-        )
+        (
+            device_data.history_last_seq,
+            device_data.history_shown,
+        ) = await async_load_history_state(hass, entry_id)
     else:
         await async_remove_history(hass, entry_id)
 
@@ -147,5 +148,6 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     if pending["events"]:
         _LOGGER.debug(
             "Published %d stored measurement(s) for %s",
-            len(pending["events"]), entry.entry_id,
+            len(pending["events"]),
+            entry.entry_id,
         )

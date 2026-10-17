@@ -198,7 +198,9 @@ def parse_classic_vital_16_6401_family(
         # Map status flags to existing integration keys.
         "ihb": flags & 0x03,
         "mov": (flags >> 2) & 0x03,
-        "datetime": datetime.datetime(year_off + 2000, month, day, hour, minute, second),
+        "datetime": datetime.datetime(
+            year_off + 2000, month, day, hour, minute, second
+        ),
     }
     return record
 

@@ -13,6 +13,7 @@ Last Readout 센서는 그 구분을 위해 존재한다. 따라서 스탬프는
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제 인스턴스를 만들 수
 없어(test_poll_deadline.py 와 같은 이유) AST 로 검사한다.
 """
+
 import ast
 from pathlib import Path
 
@@ -43,9 +44,14 @@ def _assignments_to_attr(tree: ast.AST) -> list[ast.stmt]:
 
 def _find_function(tree: ast.AST, name: str):
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
-    raise AssertionError(f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것")
+    raise AssertionError(
+        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+    )
 
 
 class TestLastReadoutStamp:

@@ -86,11 +86,14 @@ def _session_lock_for(hass: HomeAssistant, address: str) -> asyncio.Lock:
     locks = hass.data.setdefault(DOMAIN, {}).setdefault("_session_locks", {})
     return locks.setdefault(address, asyncio.Lock())
 
+
 # When a poll fails mid-flight, keep measurement history but drop stale RSSI
 # unless this poll refreshed it (avoids showing outdated diagnostics).
-_STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
-    SSDSensorDeviceClass.SIGNAL_STRENGTH,
-})
+_STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset(
+    {
+        SSDSensorDeviceClass.SIGNAL_STRENGTH,
+    }
+)
 _STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset()
 
 
@@ -368,11 +371,7 @@ def process_service_info(
 
     # Trigger sync only for explicit device flags. A poll coordinator being present
     # is not itself a reason to connect on every advertisement.
-    is_sync_needed = (
-        is_pairing
-        or is_invalid_time
-        or is_forced_transfer
-    )
+    is_sync_needed = is_pairing or is_invalid_time or is_forced_transfer
     if not is_sync_needed:
         return update
 

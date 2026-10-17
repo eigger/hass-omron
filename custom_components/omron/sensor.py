@@ -79,7 +79,6 @@ _LEGACY_BP_CATEGORIES = {
 # Poll-backed measurement sensors. RSSI is advertisement-only (see below).
 SENSOR_DESCRIPTIONS = {
     # ---- Blood Pressure / Heart Rate (primary sensors) ----
-
     # Blood Pressure System (mmHg)
     (
         OmronExtendedSensorDeviceClass.BLOOD_PRESSURE_SYSTOLIC,
@@ -99,7 +98,6 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:heart-minus",
     ),
-
     # Heart Rate (beats per minute)
     (
         OmronExtendedSensorDeviceClass.HEART_RATE,
@@ -164,7 +162,6 @@ SENSOR_DESCRIPTIONS = {
         ],
         icon="mdi:clipboard-pulse-outline",
     ),
-
     # Weight (scales)
     (
         OmronExtendedSensorDeviceClass.WEIGHT,
@@ -195,20 +192,25 @@ SENSOR_DESCRIPTIONS = {
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-donut",
     ),
-    (OmronExtendedSensorDeviceClass.BASAL_METABOLIC_RATE, "kcal/day"): SensorEntityDescription(
+    (
+        OmronExtendedSensorDeviceClass.BASAL_METABOLIC_RATE,
+        "kcal/day",
+    ): SensorEntityDescription(
         key="basal_metabolic_rate_kcal_day",
         native_unit_of_measurement="kcal/day",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:fire",
     ),
-    (OmronExtendedSensorDeviceClass.BODY_COMPOSITION_BMI, "kg/m²"): SensorEntityDescription(
+    (
+        OmronExtendedSensorDeviceClass.BODY_COMPOSITION_BMI,
+        "kg/m²",
+    ): SensorEntityDescription(
         key="body_composition_bmi_kg_m2",
         native_unit_of_measurement="kg/m²",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:human-male-height",
         suggested_display_precision=1,
     ),
-
     # Timestamp (datetime object)
     (
         OmronSensorDeviceClass.TIMESTAMP,
@@ -241,6 +243,7 @@ _ADVERTISEMENT_SENSOR_BY_KEY = {
     for description in ADVERTISEMENT_SENSOR_DESCRIPTIONS.values()
 }
 
+
 def hass_device_info(sensor_device_info, address: str | None = None):
     """Map SensorDeviceInfo to HA DeviceInfo (BLE connection + firmware fields)."""
     return hass_device_info_with_ble_connection(
@@ -248,7 +251,9 @@ def hass_device_info(sensor_device_info, address: str | None = None):
     )
 
 
-def _sensor_description_for_update(sensor_update: SensorUpdate, device_key: DeviceKey) -> SensorEntityDescription | None:
+def _sensor_description_for_update(
+    sensor_update: SensorUpdate, device_key: DeviceKey
+) -> SensorEntityDescription | None:
     """Map poll-backed sensor-state description to HA sensor description."""
     state_desc = sensor_update.entity_descriptions.get(device_key)
     if state_desc is None or state_desc.device_class is None:
@@ -354,7 +359,9 @@ async def async_setup_entry(
             if description is None:
                 continue
             sensor_value = sensor_update.entity_values.get(device_key)
-            sensor_name = sensor_value.name if sensor_value is not None else str(device_key.key)
+            sensor_name = (
+                sensor_value.name if sensor_value is not None else str(device_key.key)
+            )
             new_entities.append(
                 OmronBluetoothSensorEntity(
                     entry=entry,
@@ -527,12 +534,12 @@ class OmronBluetoothSensorEntity(
         if not device_id:
             device_id = self._resolve_user_id_from_key()
 
-        if not hasattr(self._omron_device_data, 'omron_extra_attributes'):
+        if not hasattr(self._omron_device_data, "omron_extra_attributes"):
             self._omron_device_data.omron_extra_attributes = {}
         if device_id not in self._omron_device_data.omron_extra_attributes:
             self._omron_device_data.omron_extra_attributes[device_id] = {}
 
-        for key in ['truread_details', 'measurement_type', 'improper_position']:
+        for key in ["truread_details", "measurement_type", "improper_position"]:
             if key in last_state.attributes:
                 value = last_state.attributes[key]
                 if key == "measurement_type":
@@ -566,12 +573,13 @@ class OmronBluetoothSensorEntity(
         """Resolve user_id from sensor key using aliases or numeric suffix."""
         key = str(self._device_key.key)
         # Reverse search using aliases (dynamic, works when names change)
-        aliases = getattr(self._omron_device_data, '_user_aliases', {})
+        aliases = getattr(self._omron_device_data, "_user_aliases", {})
         if aliases:
             from .omron_ble.util import (
                 slugify_for_entity_key,
                 user_alias_slug_from_entity_key,
             )
+
             alias_slug = user_alias_slug_from_entity_key(key)
             for u_idx, label in aliases.items():
                 slug = slugify_for_entity_key(label) or f"user{u_idx}"
@@ -579,10 +587,11 @@ class OmronBluetoothSensorEntity(
                     return f"user_{u_idx}"
         # Fallback: numeric suffix (_2, _user2)
         import re
-        match = re.search(r'_(?:user)?([0-9]+)$', key)
+
+        match = re.search(r"_(?:user)?([0-9]+)$", key)
         if match:
             return f"user_{match.group(1)}"
-        return 'user_1'
+        return "user_1"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
@@ -593,9 +602,11 @@ class OmronBluetoothSensorEntity(
             if not device_id:
                 device_id = self._resolve_user_id_from_key()
 
-            if hasattr(self._omron_device_data, 'omron_extra_attributes'):
+            if hasattr(self._omron_device_data, "omron_extra_attributes"):
                 if device_id in self._omron_device_data.omron_extra_attributes:
-                    attrs.update(self._omron_device_data.omron_extra_attributes[device_id])
+                    attrs.update(
+                        self._omron_device_data.omron_extra_attributes[device_id]
+                    )
         except Exception:
             pass
         return attrs if attrs else None
@@ -636,7 +647,7 @@ class OmronBluetoothSensorEntity(
         base_key = next((item for item in base_keys if key.startswith(item)), None)
         if base_key is None:
             return False
-        suffix = key[len(base_key):]
+        suffix = key[len(base_key) :]
         for device_key, value in sensor_update.entity_values.items():
             if (
                 device_key.device_id == self._device_key.device_id
@@ -929,7 +940,10 @@ class _OmronBmiBase(
         data = self.coordinator.data
         if data is not None:
             value = data.entity_values.get(self._runtime.weight_device_key)
-            if value is not None and (weight := _as_float(value.native_value)) is not None:
+            if (
+                value is not None
+                and (weight := _as_float(value.native_value)) is not None
+            ):
                 return weight
         return self._restored_weight_kg
 

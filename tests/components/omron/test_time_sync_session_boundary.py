@@ -14,9 +14,7 @@ async def test_retained_memory_session_skips_cts_after_eeprom_sync_fails(
     monkeypatch, pass_transport
 ):
     client = SimpleNamespace(is_connected=True)
-    transport = SimpleNamespace(
-        memory=SimpleNamespace(memory_session_active=False)
-    )
+    transport = SimpleNamespace(memory=SimpleNamespace(memory_session_active=False))
     config = SimpleNamespace(supports_eeprom_time_sync=True)
 
     async def failed_eeprom_sync(*args, **kwargs):

@@ -29,7 +29,9 @@ _STRING_FILES = (
 
 
 def test_single_user_key_has_no_placeholder() -> None:
-    key, placeholders = entity_name_translation("blood_pressure_systolic", {1: "홍길동"})
+    key, placeholders = entity_name_translation(
+        "blood_pressure_systolic", {1: "홍길동"}
+    )
     assert key == "blood_pressure_systolic"
     assert placeholders == {}
 
@@ -71,7 +73,9 @@ def test_unknown_key_is_left_alone() -> None:
 
 
 def test_translation_files_share_entity_keys_and_user_placeholder() -> None:
-    loaded = [json.loads(path.read_text(encoding="utf-8"))["entity"] for path in _STRING_FILES]
+    loaded = [
+        json.loads(path.read_text(encoding="utf-8"))["entity"] for path in _STRING_FILES
+    ]
     for domain in ("sensor", "binary_sensor", "button", "number", "text"):
         key_sets = [set(doc[domain]) for doc in loaded]
         assert all(keys == key_sets[0] for keys in key_sets), domain

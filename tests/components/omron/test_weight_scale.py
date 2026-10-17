@@ -4,6 +4,7 @@ The bytes come from a reporter's nRF Connect capture of the vendor app reading
 the scale: the index block at 0x01A0, the record it then fetched at 0x03F0 and
 the clock block it wrote back at 0x0248. The scale showed 102.8 kg at 18:58:39.
 """
+
 import asyncio
 import datetime
 from unittest.mock import AsyncMock, MagicMock
@@ -138,9 +139,12 @@ class TestClock:
 
     def test_the_block_we_write_is_the_one_the_app_wrote(self):
         layout = TimeSyncLayout.AT_0_CHECKSUM.value
-        assert bytes(
-            _encode_eeprom_time_payload(layout, bytearray(CLOCK_READ), CAPTURE_AT)
-        ) == CLOCK_WRITTEN
+        assert (
+            bytes(
+                _encode_eeprom_time_payload(layout, bytearray(CLOCK_READ), CAPTURE_AT)
+            )
+            == CLOCK_WRITTEN
+        )
 
     def test_the_pad_byte_is_written_back_as_read(self):
         layout = TimeSyncLayout.AT_0_CHECKSUM.value

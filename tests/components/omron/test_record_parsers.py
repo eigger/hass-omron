@@ -3,6 +3,7 @@
 바이트 문자열은 실기기 HA 디버그 로그에서 그대로 가져온 것으로, 로그에 함께
 찍힌 sys/dia/bpm/datetime 파싱 결과와 대조해 검증됐다 (HEM-7142T2, 2026-06-18).
 """
+
 import datetime
 
 import pytest
@@ -18,8 +19,7 @@ class TestParseHbf32:
     def test_viva_record_matches_reported_omron_connect_values(self):
         # User1 [HBF-222T] slot=24 from the #239 sanitized debug log.
         raw = bytes.fromhex(
-            "a06c5b948a6c401a6327503a6d290e1f"
-            "1255324612b4c0000019a060ffff9e61"
+            "a06c5b948a6c401a6327503a6d290e1f1255324612b4c0000019a060ffff9e61"
         )
 
         record = parse_hbf_32(raw, "big")
@@ -35,8 +35,7 @@ class TestParseHbf32:
 
     def test_body_composition_fields_keep_their_high_bit(self):
         raw = bytearray.fromhex(
-            "a06c5b948a6c401a6327503a6d290e1f"
-            "1255324612b4c0000019a060ffff9e61"
+            "a06c5b948a6c401a6327503a6d290e1f1255324612b4c0000019a060ffff9e61"
         )
 
         def set_field(start_bit: int, bit_size: int, value: int) -> None:
@@ -144,13 +143,15 @@ class TestParseClassicVital14Bitpacked:
 
 class TestParseClassicVital24Heartguide:
     def test_valid_heartguide_record(self):
-        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+        from custom_components.omron.omron_ble.record_parsers import (
+            parse_classic_vital_24_heartguide,
+        )
 
         raw = bytearray(24)
         raw[0] = 100  # sys: 100 + 25 = 125
-        raw[1] = 80   # dia: 80
-        raw[2] = 70   # bpm: 70
-        raw[3] = 26   # year: 2026
+        raw[1] = 80  # dia: 80
+        raw[2] = 70  # bpm: 70
+        raw[3] = 26  # year: 2026
         # flags1: hour=19, day=17, month=6, ihb=1, mov=1
         # -> 19 | (17<<5) | (6<<10) | (1<<14) | (1<<15) = 6707 | 16384 | 32768 = 55859 (0xDA33)
         raw[4:6] = (55859).to_bytes(2, "little")
@@ -170,7 +171,9 @@ class TestParseClassicVital24Heartguide:
         assert record["_record_id"] == 42
 
     def test_heartguide_error_code_rejected(self):
-        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+        from custom_components.omron.omron_ble.record_parsers import (
+            parse_classic_vital_24_heartguide,
+        )
 
         raw = bytearray(24)
         raw[0] = 100
@@ -180,19 +183,22 @@ class TestParseClassicVital24Heartguide:
             parse_classic_vital_24_heartguide(raw, endianness="little")
 
     def test_heartguide_empty_slot_rejected(self):
-        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+        from custom_components.omron.omron_ble.record_parsers import (
+            parse_classic_vital_24_heartguide,
+        )
 
         raw = bytes([0xFF] * 24)
         with pytest.raises(ValueError, match="record slot is empty"):
             parse_classic_vital_24_heartguide(raw, endianness="little")
 
     def test_heartguide_too_short_rejected(self):
-        from custom_components.omron.omron_ble.record_parsers import parse_classic_vital_24_heartguide
+        from custom_components.omron.omron_ble.record_parsers import (
+            parse_classic_vital_24_heartguide,
+        )
 
         raw = bytes(20)
         with pytest.raises(ValueError, match="record too short"):
             parse_classic_vital_24_heartguide(raw, endianness="little")
-
 
 
 def test_flags2_bit_13_is_not_decoded():

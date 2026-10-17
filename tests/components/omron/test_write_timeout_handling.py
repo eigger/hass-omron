@@ -11,7 +11,9 @@ from blesession.testing import FakeClient
 
 from custom_components.omron.omron_ble import session as session_module
 from custom_components.omron.omron_ble import unlock as unlock_module
-from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID as UNLOCK_UUID
+from custom_components.omron.omron_ble.const import (
+    UNLOCK_CHARACTERISTIC_UUID as UNLOCK_UUID,
+)
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 
@@ -21,7 +23,9 @@ class _UnlockClient(FakeClient):
 
     def __init__(self, reply: bytes | None) -> None:
         super().__init__()
-        self.on_write = None if reply is None else (lambda _c, _d: self.reply(reply, UNLOCK_UUID))
+        self.on_write = (
+            None if reply is None else (lambda _c, _d: self.reply(reply, UNLOCK_UUID))
+        )
 
 
 def _session(client) -> OmronDeviceSession:
@@ -49,7 +53,10 @@ async def test_classic_unlock_succeeds_and_releases_both_subscriptions():
     await session.unlock()
     assert session._unlocked
     assert client.subscribed == {}
-    assert [data[0] for _c, data, _r in client.writes] == [0x02, 0x01]  # aggressive profile: probe, then unlock
+    assert [data[0] for _c, data, _r in client.writes] == [
+        0x02,
+        0x01,
+    ]  # aggressive profile: probe, then unlock
 
 
 @pytest.mark.asyncio
@@ -83,6 +90,8 @@ async def test_a_hung_write_raises_write_timeout_naming_the_step():
     client = FakeClient()
     client.write_delay_s = 3600
     with pytest.raises(WriteTimeout) as raised:
-        await guarded_write(client, "uuid", b"\x01", step="unlock", response=True, timeout=0.01)
+        await guarded_write(
+            client, "uuid", b"\x01", step="unlock", response=True, timeout=0.01
+        )
     assert raised.value.step == "unlock"
     assert isinstance(raised.value, TimeoutError)

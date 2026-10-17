@@ -113,7 +113,9 @@ def _make_latch_harness(
     entry = SimpleNamespace(
         entry_id=entry_id,
         runtime_data=runtime,
-        async_create_background_task=lambda _hass, coro, _name: hass.async_create_task(coro),
+        async_create_background_task=lambda _hass, coro, _name: hass.async_create_task(
+            coro
+        ),
     )
 
     return SimpleNamespace(
@@ -233,10 +235,7 @@ def test_failed_delayed_forced_transfer_refresh_is_relatched():
 
         # Failure must not discard the measurement request.
         assert h.runtime.pending_forced_transfer is True
-        assert (
-            h.runtime.pending_forced_transfer_baseline
-            is current_readout
-        )
+        assert h.runtime.pending_forced_transfer_baseline is current_readout
 
         assert h.runtime.pending_forced_transfer_task is None
         assert h.runtime.force_poll_after_lock is False
@@ -324,9 +323,7 @@ def test_hard_poll_error_escapes_even_when_cached_data_exists(monkeypatch):
                 device,
                 preconnected_session=None,
             ):
-                raise RuntimeError(
-                    "synthetic hard BLE poll failure"
-                )
+                raise RuntimeError("synthetic hard BLE poll failure")
 
         session_lock = asyncio.Lock()
         runtime = SimpleNamespace(
@@ -397,9 +394,7 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
                 ble_device,
                 pairing_session=False,
             ):
-                raise connection_error_type(
-                    "synthetic BLE disconnect"
-                )
+                raise connection_error_type("synthetic BLE disconnect")
 
             def _finish_update(self):
                 self.finish_calls += 1
@@ -431,6 +426,7 @@ def test_parser_connection_error_escapes_instead_of_returning_finish_update():
         assert not target._poll_guard.locked()
 
     asyncio.run(scenario())
+
 
 def test_the_completion_offset_is_validated_when_the_profile_is_built():
     """커프에 닿기 전, 임포트 시점에 걸려야 한다."""

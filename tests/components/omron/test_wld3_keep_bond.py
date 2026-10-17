@@ -8,6 +8,7 @@
 페어링을 전혀 하지 않는다 — 커프가 연결 후 ~53ms 에 SMP Security
 Request 를 올리고, 폰은 이미 들고 있는 본드로 암호화를 재개한다.
 """
+
 import pytest
 
 from custom_components.omron.omron_ble.device_catalog import (
@@ -66,9 +67,9 @@ def test_connect_logs_the_path_that_owns_the_bond():
     """
     import pathlib
 
-    source = pathlib.Path(
-        "custom_components/omron/omron_ble/connection.py"
-    ).read_text(encoding="utf-8")
+    source = pathlib.Path("custom_components/omron/omron_ble/connection.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "def _connected_path" in source
     assert "advertised by source=%s, connected via " in source
@@ -154,7 +155,8 @@ def test_only_the_pairing_session_bonds_at_connect():
 
     from custom_components.omron.omron_ble.session import OmronDeviceSession
 
-    source = inspect.getsource(OmronDeviceSession.connect)
+    # Whitespace-normalised so the check survives code formatting (line wraps).
+    source = " ".join(inspect.getsource(OmronDeviceSession.connect).split())
     assert "self._pairing_session and self._config.pair_on_connect" in source, (
         "페어링 세션 여부로 걸러내지 않는다"
     )
@@ -180,9 +182,9 @@ def test_pairing_flows_are_the_ones_marked_as_pairing_sessions():
     flow = pathlib.Path("custom_components/omron/config_flow.py").read_text(
         encoding="utf-8"
     )
-    parser = pathlib.Path(
-        "custom_components/omron/omron_ble/parser.py"
-    ).read_text(encoding="utf-8")
+    parser = pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "OmronDeviceSession(ble_device, config, pairing_session=True)" in flow
     # async_retry_pairing 도 본드를 만드는 자리다.
@@ -240,7 +242,13 @@ def test_a_parked_probe_link_is_closed_when_the_entry_unloads():
 
 def test_the_single_attempt_throttle_did_not_spread():
     """한 번만 시도하는 제한은 캡처가 있는 두 프로필에만 남는다."""
-    for model in ("HEM-7376T1", "HEM-7377T1", "HEM-7155T-MW3", "HEM-7191T1", "HEM-7196T1"):
+    for model in (
+        "HEM-7376T1",
+        "HEM-7377T1",
+        "HEM-7155T-MW3",
+        "HEM-7191T1",
+        "HEM-7196T1",
+    ):
         assert get_device_config(model).connect_settle_attempts == 3, model
     for model in ("HEM-7386T1", "HEM-7380T1"):
         assert get_device_config(model).connect_settle_attempts == 1, model
@@ -312,7 +320,9 @@ def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
     # conftest 가 voluptuous 를 채우지 않으므로 import 하지 않고 파일로 읽는다.
     source = (
         Path(__file__).resolve().parents[3]
-        / "custom_components" / "omron" / "config_flow.py"
+        / "custom_components"
+        / "omron"
+        / "config_flow.py"
     ).read_text(encoding="utf-8")
     tree = ast.parse(source)
 

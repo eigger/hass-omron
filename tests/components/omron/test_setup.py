@@ -117,7 +117,12 @@ async def test_zero_interval_stops_scheduled_polls_but_not_manual_ones(
         "custom_components.omron.async_poll_data", new_callable=AsyncMock
     ) as poll:
         poll.return_value = SensorUpdate(
-            title=None, devices={}, entity_descriptions={}, entity_values={}, binary_entity_descriptions={}, binary_entity_values={}
+            title=None,
+            devices={},
+            entity_descriptions={},
+            entity_values={},
+            binary_entity_descriptions={},
+            binary_entity_values={},
         )
         assert await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()

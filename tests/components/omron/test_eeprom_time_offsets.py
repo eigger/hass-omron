@@ -10,6 +10,7 @@
 원시 스트림은 일부 기종군에서 16비트 워드마다 뒤집혀 있다. 그쪽은
 ``test_eeprom_time.py`` 의 실기 덤프가 고정한다 (#74, #38).
 """
+
 import json
 from pathlib import Path
 

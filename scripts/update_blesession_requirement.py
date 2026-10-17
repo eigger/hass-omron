@@ -49,7 +49,9 @@ def update_requirement(latest: Version) -> tuple[bool, str]:
 
     current = matches[0]
     requirement = Requirement(current)
-    lower_bounds = [specifier for specifier in requirement.specifier if specifier.operator == ">="]
+    lower_bounds = [
+        specifier for specifier in requirement.specifier if specifier.operator == ">="
+    ]
     if (
         len(lower_bounds) != 1
         or len(requirement.specifier) != 1

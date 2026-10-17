@@ -207,9 +207,7 @@ def test_completion_requires_an_active_memory_session():
 def test_cleanup_close_alone_never_writes_completion_mirrors():
     target = _CompletionTransport("BP5465")
 
-    asyncio.run(
-        MemoryProtocol.close_memory_session(target)
-    )
+    asyncio.run(MemoryProtocol.close_memory_session(target))
 
     assert target.reads == []
     assert target.writes == []
@@ -229,9 +227,7 @@ def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
 
     source = parser_path.read_text(encoding="utf-8")
 
-    start = source.index(
-        "    async def _poll_device_readout("
-    )
+    start = source.index("    async def _poll_device_readout(")
 
     end = source.index(
         "    async def async_poll(",
@@ -240,9 +236,7 @@ def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
 
     poll = source[start:end]
 
-    assert poll.count(
-        "await self._driver.complete_measurement_readout(session)"
-    ) == 1
+    assert poll.count("await self._driver.complete_measurement_readout(session)") == 1
 
     # 조건은 두 가지를 함께 요구한다: 메모리 세션이 열려 있고, 실제로 EEPROM
     # 레코드가 디코드됐을 것. 여기에 페어링 세션 제외가 더해진다 — 그 세션은
@@ -260,9 +254,7 @@ def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
         "await self._driver.complete_measurement_readout(session)"
     )
 
-    publication_at = poll.index(
-        "self._update_measurement_sensors("
-    )
+    publication_at = poll.index("self._update_measurement_sensors(")
 
     firmware_read_at = poll.index(
         "char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)"

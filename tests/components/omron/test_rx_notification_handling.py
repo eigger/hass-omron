@@ -1,4 +1,5 @@
 """OmronDeviceSession notification reassembly and frame validation unit tests."""
+
 from unittest.mock import MagicMock
 
 from custom_components.omron.omron_ble.devices import DeviceConfig
@@ -71,11 +72,11 @@ class TestRxNotificationHandling:
         # Control frame 81c0 (write response) with non-zero byte[5] and response code 0
         raw = bytearray([0x08, 0x81, 0xC0, 0x00, 0x00, 0x0A, 0x00])
         raw.append(_calc_crc(raw))
-        self.session.memory._expected_reply_packet_type = b"\x81\xC0"
+        self.session.memory._expected_reply_packet_type = b"\x81\xc0"
         self.session.memory._on_notify_channel_data(0, raw)
 
         assert self.session.memory._reply_ready.is_set()
-        assert self.session.memory._last_reply_packet_type == b"\x81\xC0"
+        assert self.session.memory._last_reply_packet_type == b"\x81\xc0"
         assert self.session.memory._last_reply_payload == b"\x00"
 
     def test_single_channel_declared_length_truncation_is_ignored(self):
@@ -95,7 +96,9 @@ class TestRxNotificationHandling:
 
     def test_truncated_frame_is_ignored_without_synthetic_ff(self):
         # Frame claims 16 bytes payload, but only 4 bytes are actually present
-        frame = bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 0xAA, 0xBB, 0xCC, 0xDD, 0x00])
+        frame = bytearray(
+            [24, 0x81, 0x00, 0x00, 0x98, 16, 0xAA, 0xBB, 0xCC, 0xDD, 0x00]
+        )
         frame.append(_calc_crc(frame))
         self.session.memory._expected_reply_packet_type = b"\x81\x00"
         self.session.memory._on_notify_channel_data(0, frame)
@@ -160,7 +163,10 @@ class TestRxNotificationHandling:
         session.memory._channel_fragments[1] = bytearray(b"\xde\xad\xbe\xef" * 4)
 
         # Receiving new start on channel 0 resets fragments
-        session.memory._on_notify_channel_data(10, bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]))
+        session.memory._on_notify_channel_data(
+            10,
+            bytearray([24, 0x81, 0x00, 0x00, 0x98, 16, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        )
 
         # Channel 1 should have been cleared when channel 0 arrived
         assert session.memory._channel_fragments[1] is None
@@ -182,5 +188,7 @@ class TestRxNotificationHandling:
 
         cmd = bytearray.fromhex("0801000098100081")
 
-        with pytest.raises(ConnectionError, match="Device rejected command 080100 .*code 0x03"):
+        with pytest.raises(
+            ConnectionError, match="Device rejected command 080100 .*code 0x03"
+        ):
             asyncio.run(self.session.memory._write_command_and_wait_reply(cmd))

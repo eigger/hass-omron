@@ -32,9 +32,7 @@ def _find_async_function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
     for node in ast.walk(tree):
         if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
             return node
-    raise AssertionError(
-        f"{name} not found — update this test if it was renamed"
-    )
+    raise AssertionError(f"{name} not found — update this test if it was renamed")
 
 
 def _find_method(
@@ -44,16 +42,13 @@ def _find_method(
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == class_name:
             return _find_async_function(node, method_name)
-    raise AssertionError(
-        f"{class_name} not found — update this test if it was renamed"
-    )
+    raise AssertionError(f"{class_name} not found — update this test if it was renamed")
 
 
 def _called_names(node: ast.AST) -> set[str]:
     return {
         ast.unparse(sub.func) for sub in ast.walk(node) if isinstance(sub, ast.Call)
     }
-
 
 
 class _FakeSession:
@@ -159,9 +154,7 @@ class TestPostPairingPoll:
                     TestPostPairingPoll.ADDRESS
                 )
 
-        asyncio.run(
-            run_post_pairing_poll(hass, self.ADDRESS, session, _Coordinator())
-        )
+        asyncio.run(run_post_pairing_poll(hass, self.ADDRESS, session, _Coordinator()))
 
         assert seen["parked"] is session, "the poll must see the parked link"
         assert session.events == ["release"]
@@ -372,9 +365,7 @@ class TestRepairEntryPointsCheckForAParkedSession:
         )
         assert body.index("poll_parked_session") < body.index(
             "runtime.device_data.async_retry_pairing"
-        ), (
-            "the check has to come before pairing, not after"
-        )
+        ), "the check has to come before pairing, not after"
 
     def test_auto_pairing_checks_before_pairing(self):
         fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
@@ -531,9 +522,9 @@ class TestCallSitesHandOffTheSession:
         """A handed-off session the poll never adopted only drops on reclaim."""
         fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
 
-        assert any(
-            name.endswith("reclaim_ownership") for name in _called_names(fn)
-        ), "aclose() does not disconnect while _owns_connection is False"
+        assert any(name.endswith("reclaim_ownership") for name in _called_names(fn)), (
+            "aclose() does not disconnect while _owns_connection is False"
+        )
 
     def test_unload_clears_a_parked_session(self):
         """Nothing adopts or closes a parked link once the entry is gone."""
@@ -560,9 +551,7 @@ class TestPostPairingPollIsNotDebounced:
         fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
         calls = _called_names(fn)
 
-        assert not any(
-            name.endswith("async_request_refresh") for name in calls
-        ), (
+        assert not any(name.endswith("async_request_refresh") for name in calls), (
             "async_request_refresh() can return before the poll runs, leaving "
             "the parked session unused. Use async_refresh(), as setup does."
         )
@@ -604,7 +593,9 @@ class TestSkippedPollKeepsTheSessionParked:
             node
             for node in ast.walk(fn)
             if isinstance(node, ast.AsyncWith)
-            and any("session_lock" in ast.unparse(item.context_expr) for item in node.items)
+            and any(
+                "session_lock" in ast.unparse(item.context_expr) for item in node.items
+            )
         ]
         assert locked_blocks, "expected the poll to run under session_lock"
 

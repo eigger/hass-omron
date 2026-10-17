@@ -72,7 +72,10 @@ _MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous"
 def _string_files() -> list[Path]:
     """strings.json plus every language file. A new translations/*.json is included."""
     component = _CONFIG_FLOW.parent
-    return [component / "strings.json", *sorted((component / "translations").glob("*.json"))]
+    return [
+        component / "strings.json",
+        *sorted((component / "translations").glob("*.json")),
+    ]
 
 
 def test_every_model_step_is_translated_everywhere() -> None:
@@ -87,8 +90,6 @@ def test_every_model_step_is_translated_everywhere() -> None:
 
 def test_each_model_step_id_has_a_handler() -> None:
     tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
-    handlers = {
-        n.name for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
-    }
+    handlers = {n.name for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)}
     for step_id in _MODEL_STEPS:
         assert f"async_step_{step_id}" in handlers, step_id

@@ -5,6 +5,7 @@ recorded anything, but the same word is also a live pointer (bit 15 flag +
 low byte wrapped to 0x00), so the driver reads the cursor slot once: all-0xFF
 confirms the user empty, a record means the pointer is live.
 """
+
 import asyncio
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock
@@ -29,8 +30,24 @@ class TestEmptyUserClearValue:
                 "index_region_byte_size": 0x10,
                 "endianness": "little",
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
-                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                        "clear_value": 0x8000,
+                    },
+                    {
+                        "write_cursor_offset": 0x02,
+                        "unread_counter_offset": 0x06,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                        "clear_value": 0x8000,
+                    },
                 ],
             },
         )
@@ -61,7 +78,9 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01  # some non-FF data
             return rec
 
-        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(
+            side_effect=fake_read_memory_range
+        )
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -86,8 +105,24 @@ class TestEmptyUserClearValue:
                 "index_region_byte_size": 0x08,
                 "endianness": "big",
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
-                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1, "clear_value": 0x8000},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                        "clear_value": 0x8000,
+                    },
+                    {
+                        "write_cursor_offset": 0x02,
+                        "unread_counter_offset": 0x06,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                        "clear_value": 0x8000,
+                    },
                 ],
             },
         )
@@ -114,7 +149,9 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01
             return rec
 
-        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(
+            side_effect=fake_read_memory_range
+        )
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -137,8 +174,22 @@ class TestEmptyUserClearValue:
                 "index_region_byte_size": 0x10,
                 "endianness": "little",
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
-                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 59, "slot_index_bias": -1},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                    },
+                    {
+                        "write_cursor_offset": 0x02,
+                        "unread_counter_offset": 0x06,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 59,
+                        "slot_index_bias": -1,
+                    },
                 ],
             },
         )
@@ -162,7 +213,9 @@ class TestEmptyUserClearValue:
             rec[0] = 0x01
             return rec
 
-        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(
+            side_effect=fake_read_memory_range
+        )
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -191,8 +244,22 @@ class TestEmptyUserClearValue:
                 "endianness": "little",
                 "truread_sequence": True,
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
-                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 99,
+                        "slot_index_bias": -1,
+                    },
+                    {
+                        "write_cursor_offset": 0x02,
+                        "unread_counter_offset": 0x06,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 99,
+                        "slot_index_bias": -1,
+                    },
                 ],
             },
         )
@@ -203,7 +270,9 @@ class TestEmptyUserClearValue:
         transport.unlock = AsyncMock()
 
         index_bytes = bytearray(0x18)
-        index_bytes[0:2] = b"\x00\x80"  # User 1: live cursor that collides with clear_value
+        index_bytes[0:2] = (
+            b"\x00\x80"  # User 1: live cursor that collides with clear_value
+        )
         index_bytes[2:4] = b"\x00\x80"  # User 2: genuinely unrecorded
 
         def record(sys, dia, bpm, when, pos):
@@ -232,7 +301,9 @@ class TestEmptyUserClearValue:
                 return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
             return bytearray(b"\xff" * 16)
 
-        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(
+            side_effect=fake_read_memory_range
+        )
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -240,9 +311,15 @@ class TestEmptyUserClearValue:
 
         assert 1 not in empty_users
         assert records[1]["measurement_type"] == "truread_average"
-        assert (records[1]["sys"], records[1]["dia"], records[1]["bpm"]) == (119, 85, 72)
+        assert (records[1]["sys"], records[1]["dia"], records[1]["bpm"]) == (
+            119,
+            85,
+            72,
+        )
         # The live pointer runs the normal probe: 99 → 98 → 97.
-        assert [a for a in read_calls if 0x01C4 <= a < 0x0804] == [0x01C4 + s * 16 for s in (99, 98, 97)]
+        assert [a for a in read_calls if 0x01C4 <= a < 0x0804] == [
+            0x01C4 + s * 16 for s in (99, 98, 97)
+        ]
         # User 2 is confirmed empty after one 0xFF read, no reach-back.
         assert 2 in empty_users
         assert [a for a in read_calls if a >= 0x0804] == [0x0804 + 99 * 16]
@@ -264,7 +341,14 @@ class TestEmptyUserClearValue:
                 "endianness": "little",
                 "backtrack_slots": 5,
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 99,
+                        "slot_index_bias": -1,
+                    },
                 ],
             },
         )
@@ -296,7 +380,9 @@ class TestEmptyUserClearValue:
                 return index_bytes
             return slots.get((addr - 0x01C4) // 16, bytearray(b"\xff" * 16))
 
-        transport.memory.read_memory_range = AsyncMock(side_effect=fake_read_memory_range)
+        transport.memory.read_memory_range = AsyncMock(
+            side_effect=fake_read_memory_range
+        )
 
         records, empty_users = asyncio.run(
             driver._get_latest_via_index(transport, return_all_users=True)
@@ -304,7 +390,9 @@ class TestEmptyUserClearValue:
 
         assert empty_users == set()
         assert records[1]["sys"] == 125
-        assert [a for a in read_calls if a >= 0x01C4] == [0x01C4 + s * 16 for s in (99, 98, 97)]
+        assert [a for a in read_calls if a >= 0x01C4] == [
+            0x01C4 + s * 16 for s in (99, 98, 97)
+        ]
 
 
 class TestUnreadableUserRegion:
@@ -328,8 +416,22 @@ class TestUnreadableUserRegion:
                 "endianness": "little",
                 "truread_sequence": True,
                 "users": [
-                    {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
-                    {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF, "slot_index_min": 0, "slot_index_max": 99, "slot_index_bias": -1},
+                    {
+                        "write_cursor_offset": 0x00,
+                        "unread_counter_offset": 0x04,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 99,
+                        "slot_index_bias": -1,
+                    },
+                    {
+                        "write_cursor_offset": 0x02,
+                        "unread_counter_offset": 0x06,
+                        "write_cursor_mask": 0xFF,
+                        "slot_index_min": 0,
+                        "slot_index_max": 99,
+                        "slot_index_bias": -1,
+                    },
                 ],
             },
         )
@@ -400,9 +502,7 @@ class TestUnreadableUserRegion:
         assert [a for a in reads if a >= 0x0804] == [0x0804 + 99 * 0x10]
 
     def test_readable_empty_region_still_confirmed(self):
-        (records, empty_users), _ = self._run(
-            self._config(), user2_read_error=None
-        )
+        (records, empty_users), _ = self._run(self._config(), user2_read_error=None)
 
         assert records[1]["measurement_type"] == "truread_average"
         assert empty_users == {2}
@@ -417,7 +517,7 @@ class TestUnreadableUserRegion:
         transport.unlock = AsyncMock()
 
         index_bytes = bytearray(0x18)
-        index_bytes[0:2] = b"\x00\x80"   # user 1 cursor == clear_value
+        index_bytes[0:2] = b"\x00\x80"  # user 1 cursor == clear_value
         index_bytes[2:4] = b"\x00\x80"
 
         state = {"user1_reads": 0}
@@ -471,7 +571,7 @@ class TestUnreadableUserRegion:
         transport.unlock = AsyncMock()
 
         index_bytes = bytearray(0x18)
-        index_bytes[0:2] = b"\x00\x40"   # live cursors for both users
+        index_bytes[0:2] = b"\x00\x40"  # live cursors for both users
         index_bytes[2:4] = b"\x00\x40"
 
         reads_per_region = {0x01C4: 0, 0x0804: 0}

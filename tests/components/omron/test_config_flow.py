@@ -206,7 +206,9 @@ async def test_a_shared_name_lists_the_models_it_covers(
     covered = AMBIGUOUS_MODEL_NAMES[_SHARED_NAME]
     assert placeholders["probed_model"] == _SHARED_NAME
     assert placeholders["candidate_count"] == str(len(covered))
-    assert placeholders["candidates"] == "\n".join(f"- **{model_id}**" for model_id in covered)
+    assert placeholders["candidates"] == "\n".join(
+        f"- **{model_id}**" for model_id in covered
+    )
     assert "do not read alike" in caplog.text
 
 
@@ -286,7 +288,8 @@ async def test_options_flow_checks_the_interval_before_aliases(
 ) -> None:
     """A multi-user model reports the bad interval, not the alias clash."""
     model = next(
-        m for m in config_flow.get_supported_models()
+        m
+        for m in config_flow.get_supported_models()
         if config_flow.get_device_config(m).num_users > 1
     )
     entry = MockConfigEntry(
@@ -323,7 +326,8 @@ async def test_options_flow_offers_stored_record_sync_only_where_supported(
     assert CONF_SYNC_STORED_RECORDS not in done["data"]
 
     supported = MockConfigEntry(
-        domain=DOMAIN, unique_id="11:22:33:44:55:66",
+        domain=DOMAIN,
+        unique_id="11:22:33:44:55:66",
         data={CONF_DEVICE_MODEL: "HEM-7361T"},
     )
     supported.add_to_hass(hass)

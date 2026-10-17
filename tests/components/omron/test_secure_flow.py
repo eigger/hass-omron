@@ -1,4 +1,5 @@
 """Session ordering/persistence gates; crypto wire vectors are tested separately."""
+
 import asyncio
 from datetime import datetime
 from types import SimpleNamespace
@@ -58,7 +59,9 @@ def make_session(pairing, close_code=b"\x00"):
         _token_unlock=AsyncMock(),
         memory=SimpleNamespace(
             open_memory_session=AsyncMock(),
-            read_memory_block=AsyncMock(side_effect=[bytes(range(44)), bytes(range(24))]),
+            read_memory_block=AsyncMock(
+                side_effect=[bytes(range(44)), bytes(range(24))]
+            ),
             write_memory_block=AsyncMock(),
             _last_reply_packet_type=None,
             _last_reply_payload=None,
@@ -77,8 +80,12 @@ def make_session(pairing, close_code=b"\x00"):
             if self.failure is not None:
                 raise self.failure
             events.append(packet)
-            return {b"\x70\x01": b"\xf0\x81", b"\x70\x05": b"\xf0\x85",
-                    b"\x70\x06": b"\xf0\x86", b"\xc0": b"\xc0"}[packet]
+            return {
+                b"\x70\x01": b"\xf0\x81",
+                b"\x70\x05": b"\xf0\x85",
+                b"\x70\x06": b"\xf0\x86",
+                b"\xc0": b"\xc0",
+            }[packet]
 
     async def close():
         session.memory._last_reply_packet_type = b"\x8f\x00"
@@ -90,10 +97,18 @@ def make_session(pairing, close_code=b"\x00"):
 
 
 def run(session, key=None):
-    with patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto), patch(
-        "custom_components.omron.omron_ble.secure_flow.prepare_secure_token", new_callable=AsyncMock
+    with (
+        patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto),
+        patch(
+            "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
+            new_callable=AsyncMock,
+        ),
     ):
-        return asyncio.run(establish_secure_session(session, stored_ltk=key, now=datetime(2026, 9, 6, 12, 30, 45)))
+        return asyncio.run(
+            establish_secure_session(
+                session, stored_ltk=key, now=datetime(2026, 9, 6, 12, 30, 45)
+            )
+        )
 
 
 def test_resume_never_pairs_or_writes_settings():
@@ -133,9 +148,12 @@ def test_failed_handshake_clears_partial_secure_session():
     session, _ = make_session(False)
 
     session._unlock_channel.failure = OSError("synthetic secure handshake failure")
-    with patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto), patch(
-        "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
-        new_callable=AsyncMock,
+    with (
+        patch("custom_components.omron.omron_ble.secure_flow.SecureSession", Crypto),
+        patch(
+            "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
+            new_callable=AsyncMock,
+        ),
     ):
         with pytest.raises(OSError, match="synthetic secure handshake failure"):
             asyncio.run(
@@ -161,6 +179,7 @@ def test_resume_without_key_is_rejected_before_io():
 def test_request_is_precomputed_before_token_preparation():
     for pairing in (True, False):
         events = []
+
         class TracedCrypto(Crypto):
             def build_pair_req(self):
                 events.append("pair_request")
@@ -174,11 +193,23 @@ def test_request_is_precomputed_before_token_preparation():
             events.append("token")
 
         session, _ = make_session(pairing)
-        with patch("custom_components.omron.omron_ble.secure_flow.SecureSession", TracedCrypto), patch(
-            "custom_components.omron.omron_ble.secure_flow.prepare_secure_token", prepared
+        with (
+            patch(
+                "custom_components.omron.omron_ble.secure_flow.SecureSession",
+                TracedCrypto,
+            ),
+            patch(
+                "custom_components.omron.omron_ble.secure_flow.prepare_secure_token",
+                prepared,
+            ),
         ):
-            asyncio.run(establish_secure_session(session, stored_ltk=None if pairing else bytes(16),
-                                     now=datetime(2026, 9, 6)))
+            asyncio.run(
+                establish_secure_session(
+                    session,
+                    stored_ltk=None if pairing else bytes(16),
+                    now=datetime(2026, 9, 6),
+                )
+            )
         assert events[:2] == ["pair_request" if pairing else "start_request", "token"]
 
 
@@ -213,7 +244,9 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch
             if uuid.lower() == control and self.held:
                 # BlueZ still holds the previous connection's subscription (#92).
                 self.held = False
-                raise BleakError("[org.bluez.Error.Failed] Failed to register notify session")
+                raise BleakError(
+                    "[org.bluez.Error.Failed] Failed to register notify session"
+                )
             await super().start_notify(uuid, handler)
 
         async def stop_notify(self, uuid):
@@ -257,15 +290,22 @@ def test_prepare_reads_then_subscribes_control_rx_async_before_token(monkeypatch
         subscribe,
     )
     asyncio.run(prepare_secure_token(session, 1))
-    assert events == [("read", "00002a26"), ("read", "00002a28"),
-                      ("cache", ""),
-                      ("notify", control), ("stop", control), ("notify", control),
-                      ("notify", "rx"),
-                      ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
-                      ("token", control)]
+    assert events == [
+        ("read", "00002a26"),
+        ("read", "00002a28"),
+        ("cache", ""),
+        ("notify", control),
+        ("stop", control),
+        ("notify", control),
+        ("notify", "rx"),
+        ("notify", "8858eb40-aee8-11e1-bb67-0002a5d5c51b"),
+        ("token", control),
+    ]
     assert session.memory._notify_subscribed
     assert session._unlock_channel is not None
-    assert control in client.subscribed, "the control subscription must stay for the exchange"
+    assert control in client.subscribed, (
+        "the control subscription must stay for the exchange"
+    )
 
 
 def test_a_token_that_never_comes_back_releases_the_control_subscription(monkeypatch):
@@ -297,9 +337,12 @@ def test_a_token_that_never_comes_back_releases_the_control_subscription(monkeyp
         hold_unlock_channel=lambda *_: pytest.fail("a failed token must not be held"),
     )
     monkeypatch.setattr(
-        "custom_components.omron.omron_ble.secure_flow.start_notify_with_recovery", subscribe
+        "custom_components.omron.omron_ble.secure_flow.start_notify_with_recovery",
+        subscribe,
     )
-    monkeypatch.setattr("custom_components.omron.omron_ble.secure_flow.asyncio.sleep", no_sleep)
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow.asyncio.sleep", no_sleep
+    )
     with pytest.raises(TimeoutError):
         asyncio.run(prepare_secure_token(session, 0.01))
     assert client.subscribed == {}

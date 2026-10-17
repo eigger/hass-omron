@@ -1,4 +1,5 @@
 """Omron device definitions and profile registry."""
+
 from __future__ import annotations
 
 import logging
@@ -158,7 +159,9 @@ class PairingRegistration:
             )
         for offset, width, idle in self.unread_clears:
             if width not in (1, 2):
-                raise ValueError(f"Unread counter at {offset}: width {width} is not 1 or 2")
+                raise ValueError(
+                    f"Unread counter at {offset}: width {width} is not 1 or 2"
+                )
             if idle >= 1 << (8 * width):
                 raise ValueError(
                     f"Unread counter at {offset}: idle value 0x{idle:X} does not fit "
@@ -434,7 +437,10 @@ class DeviceConfig:
             # whose record is shorter or ordered differently would pass the
             # check above and then fail on the clock write, after the index
             # mirror landed.
-            if clock_size < 16 or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8:
+            if (
+                clock_size < 16
+                or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8
+            ):
                 raise ValueError(
                     "Invalid profile config for %s: the measurement completion needs "
                     "a 16-byte %s clock record, not %d bytes of %s"
@@ -564,12 +570,12 @@ class DeviceConfig:
         return standard.lower() in advertised
 
 
-
 # Deliberately not at module top: device_catalog.py imports types (DeviceConfig,
 # UnlockMode, etc.) from this module, so importing it back at the top would be
 # circular. Safe here since everything device_catalog.py needs from this module
 # is already defined above.
 from .device_catalog import CANONICAL_DEVICE_PROFILES  # noqa: E402
+
 
 def _build_model_variant_map() -> dict[str, str]:
     idx: dict[str, str] = {}
@@ -603,7 +609,8 @@ def get_device_config(model: str) -> DeviceConfig:
         return replace(get_device_config(alias), model=model)
     _LOGGER.warning(
         "Unknown device model '%s', falling back to %s",
-        model, DEFAULT_DEVICE_MODEL,
+        model,
+        DEFAULT_DEVICE_MODEL,
     )
     config = CANONICAL_DEVICE_PROFILES[DEFAULT_DEVICE_MODEL]
     if config.model != model:
@@ -666,8 +673,13 @@ def _name_candidates(token: str) -> tuple[str, ...]:
     """Spellings of a reported name to try against the lookup tables."""
     normalised = normalise_reported_name(token)
     seen: list[str] = []
-    for cand in (token, normalised, token.upper(), normalised.upper(),
-                 token.replace(" ", "").upper()):
+    for cand in (
+        token,
+        normalised,
+        token.upper(),
+        normalised.upper(),
+        token.replace(" ", "").upper(),
+    ):
         if cand and cand not in seen:
             seen.append(cand)
     return tuple(seen)
@@ -735,4 +747,3 @@ def resolve_profile_model_id(model: str) -> str:
     if alias:
         return resolve_profile_model_id(alias)
     return DEFAULT_DEVICE_MODEL
-

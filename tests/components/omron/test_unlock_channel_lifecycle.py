@@ -30,7 +30,8 @@ async def _open(client, uuid=UNLOCK):
 
 def _session(client):
     session = OmronDeviceSession(
-        SimpleNamespace(address="AA:BB:CC:DD:EE:FF"), get_device_config("HEM-7188T1-LEO")
+        SimpleNamespace(address="AA:BB:CC:DD:EE:FF"),
+        get_device_config("HEM-7188T1-LEO"),
     )
     session._client = client
     session._debug_ble_link = lambda *_a: None
@@ -143,9 +144,11 @@ def _establish(session):
             session, stored_ltk=bytes(range(16)), now=datetime(2026, 9, 6), timeout=0.5
         )
 
-    with patch.object(secure_flow, "SecureSession", _Crypto), patch.object(
-        secure_flow, "start_notify_with_recovery", _noop_subscribe
-    ), patch.object(secure_flow.asyncio, "sleep", _no_sleep):
+    with (
+        patch.object(secure_flow, "SecureSession", _Crypto),
+        patch.object(secure_flow, "start_notify_with_recovery", _noop_subscribe),
+        patch.object(secure_flow.asyncio, "sleep", _no_sleep),
+    ):
         return asyncio.run(run())
 
 

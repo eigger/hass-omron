@@ -112,9 +112,7 @@ async def test_cancelled_unlock_bounds_a_hung_notify_cleanup(monkeypatch):
             started.set()
             await asyncio.Event().wait()
         except asyncio.CancelledError:
-            await stop_notify_best_effort(
-                HangingClient(), UNLOCK_CHARACTERISTIC_UUID
-            )
+            await stop_notify_best_effort(HangingClient(), UNLOCK_CHARACTERISTIC_UUID)
 
     task = asyncio.create_task(canceled_operation())
     await started.wait()

@@ -1,9 +1,14 @@
 """Exercise the actual driver callback with synthetic encrypted secure-session replies."""
+
 from unittest.mock import MagicMock
 
 from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
-from custom_components.omron.omron_ble.devices import DeviceConfig, HostPairingMode, UnlockMode
+from custom_components.omron.omron_ble.devices import (
+    DeviceConfig,
+    HostPairingMode,
+    UnlockMode,
+)
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble.secure_session import SecureSession
 
@@ -29,7 +34,9 @@ def make_session():
 def deliver(session, plaintext):
     counter = b"\x01\x00\x00\x00"
     encrypted = AESCCM(bytes(range(16)), tag_length=8).encrypt(
-        counter + b"\x00" + bytes(range(8)), plaintext, counter,
+        counter + b"\x00" + bytes(range(8)),
+        plaintext,
+        counter,
     )
     session.memory._on_notify_channel_data(0, bytearray(b"\xc0" + counter + encrypted))
 

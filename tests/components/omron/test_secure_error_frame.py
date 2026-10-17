@@ -5,6 +5,7 @@
 실기기(HEM-7188T1-LEO) 디버그 로그의 "Received Pairing Response (len=2): ff26"
 에서 그대로 가져왔다.
 """
+
 from custom_components.omron.omron_ble.secure_flow import _secure_error_frame_code
 
 

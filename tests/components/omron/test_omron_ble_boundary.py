@@ -1,10 +1,13 @@
 """omron_ble is the vendored library: no homeassistant, blesession.hass, or parent imports."""
+
 import ast
 from pathlib import Path
 
 import pytest
 
-OMRON_BLE = Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
+OMRON_BLE = (
+    Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
+)
 
 
 def _imports(path: Path):

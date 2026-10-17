@@ -1,4 +1,5 @@
 """Stored-record sync: every measurement taken between two polls (#234)."""
+
 import asyncio
 import datetime as dt
 from types import SimpleNamespace
@@ -7,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.omron import history
-from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness, get_device_config
+from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 
@@ -21,9 +22,14 @@ NOW = dt.datetime(2026, 9, 20, 9, 0, 0)
 def _config(seq_offsets=(0x08, 0x0C)) -> DeviceConfig:
     users = []
     for i, seq in enumerate(seq_offsets):
-        user = {"write_cursor_offset": 2 * i, "unread_counter_offset": 4 + 2 * i,
-                "write_cursor_mask": 0xFF, "slot_index_min": 0,
-                "slot_index_max": SLOTS - 1, "slot_index_bias": -1}
+        user = {
+            "write_cursor_offset": 2 * i,
+            "unread_counter_offset": 4 + 2 * i,
+            "write_cursor_mask": 0xFF,
+            "slot_index_min": 0,
+            "slot_index_max": SLOTS - 1,
+            "slot_index_bias": -1,
+        }
         if seq is not None:
             user["latest_sequence_offset"] = seq
         users.append(user)
@@ -35,7 +41,9 @@ def _config(seq_offsets=(0x08, 0x0C)) -> DeviceConfig:
         record_byte_size=SIZE,
         settings_read_address=INDEX_ADDR,
         index_pointer_layout={
-            "index_region_byte_size": 0x10, "endianness": "little", "users": users,
+            "index_region_byte_size": 0x10,
+            "endianness": "little",
+            "users": users,
         },
     )
 
@@ -74,8 +82,8 @@ class Cuff:
                 if newest is None:
                     continue
                 cursor = (self.slot_of(newest) + 1) % SLOTS
-                raw[2 * i:2 * i + 2] = cursor.to_bytes(2, "little")
-                raw[8 + 4 * i:10 + 4 * i] = (newest & 0xFFFF).to_bytes(2, "little")
+                raw[2 * i : 2 * i + 2] = cursor.to_bytes(2, "little")
+                raw[8 + 4 * i : 10 + 4 * i] = (newest & 0xFFFF).to_bytes(2, "little")
             return raw
         if self.fail_at is not None and len(self.reads) > self.fail_at:
             raise ConnectionError("link lost")
@@ -213,17 +221,34 @@ def test_profile_without_the_field_does_nothing():
 
 
 OPTED_IN = {
-    "HEM-7361T", "HEM-7342T", "HEM-7155T", "HEM-7155T-K4", "HEM-1026T2",
-    "HEM-7153JT", "HEM-7150T", "HEM-7157T", "HEM-7151T", "HEM-7142T2",
-    "HEM-6161T", "HEM-6231T", "HEM-6231T_Z", "HEM-7530T", "HEM-7136T", "HEM-6232T",
+    "HEM-7361T",
+    "HEM-7342T",
+    "HEM-7155T",
+    "HEM-7155T-K4",
+    "HEM-1026T2",
+    "HEM-7153JT",
+    "HEM-7150T",
+    "HEM-7157T",
+    "HEM-7151T",
+    "HEM-7142T2",
+    "HEM-6161T",
+    "HEM-6231T",
+    "HEM-6231T_Z",
+    "HEM-7530T",
+    "HEM-7136T",
+    "HEM-6232T",
     "HBF-222T",
 }
 
 
 def test_only_the_listed_blood_pressure_profiles_opt_in():
-    from custom_components.omron.omron_ble.device_catalog import CANONICAL_DEVICE_PROFILES
+    from custom_components.omron.omron_ble.device_catalog import (
+        CANONICAL_DEVICE_PROFILES,
+    )
 
-    opted = {m for m, c in CANONICAL_DEVICE_PROFILES.items() if c.supports_stored_record_sync}
+    opted = {
+        m for m, c in CANONICAL_DEVICE_PROFILES.items() if c.supports_stored_record_sync
+    }
     assert opted == OPTED_IN
     for model in opted:
         config = CANONICAL_DEVICE_PROFILES[model]
@@ -253,7 +278,9 @@ def _entry_and_hass(pending, last_seq=None):
     )
     entry = SimpleNamespace(
         entry_id="e1",
-        runtime_data=SimpleNamespace(address="AA:BB:CC:DD:EE:FF", device_data=device_data),
+        runtime_data=SimpleNamespace(
+            address="AA:BB:CC:DD:EE:FF", device_data=device_data
+        ),
     )
     hass = MagicMock()
     return hass, entry, device_data
@@ -269,10 +296,13 @@ def test_publish_fires_oldest_first_then_saves_the_position():
         "shown": {1: 3},
     }
     hass, entry, device_data = _entry_and_hass(pending, {2: 9})
-    hass.bus.async_fire.side_effect = lambda name, data: order.append(("fire", data["sequence"]))
-    with patch.object(history, "_store", return_value=store), patch.object(
-        history.dr, "async_get"
-    ) as registry:
+    hass.bus.async_fire.side_effect = lambda name, data: order.append(
+        ("fire", data["sequence"])
+    )
+    with (
+        patch.object(history, "_store", return_value=store),
+        patch.object(history.dr, "async_get") as registry,
+    ):
         registry.return_value.async_get_device_by_connection.return_value = (
             SimpleNamespace(id="dev")
         )
@@ -309,9 +339,12 @@ def test_publish_without_findings_does_nothing():
 def test_first_poll_saves_the_baseline_without_events():
     store = MagicMock()
     store.async_save = AsyncMock()
-    hass, entry, device_data = _entry_and_hass({"next_seq": {1: 1643, 2: 13}, "events": []}, {})
-    with patch.object(history, "_store", return_value=store), patch.object(
-        history.dr, "async_get"
+    hass, entry, device_data = _entry_and_hass(
+        {"next_seq": {1: 1643, 2: 13}, "events": []}, {}
+    )
+    with (
+        patch.object(history, "_store", return_value=store),
+        patch.object(history.dr, "async_get"),
     ):
         asyncio.run(history.async_publish_history(hass, entry))
     hass.bus.async_fire.assert_not_called()
@@ -328,17 +361,24 @@ def test_stored_state_loads_tolerantly():
     )
     with patch.object(history, "_store", return_value=store):
         assert asyncio.run(history.async_load_history_state(MagicMock(), "e1")) == (
-            {1: 5}, {1: 7},
+            {1: 5},
+            {1: 7},
         )
     store.async_load = AsyncMock(return_value=None)
     with patch.object(history, "_store", return_value=store):
-        assert asyncio.run(history.async_load_history_state(MagicMock(), "e1")) == ({}, {})
+        assert asyncio.run(history.async_load_history_state(MagicMock(), "e1")) == (
+            {},
+            {},
+        )
 
 
 def test_each_older_record_gets_its_own_state_change():
     coordinator = SimpleNamespace(data="d0")
     seen = []
-    coordinator.async_set_updated_data = lambda d: (seen.append(d), setattr(coordinator, "data", d))
+    coordinator.async_set_updated_data = lambda d: (
+        seen.append(d),
+        setattr(coordinator, "data", d),
+    )
     asyncio.run(
         history.async_push_history_updates(
             coordinator, ["u1", "u2"], lambda prev, new: f"{prev}+{new}"
@@ -364,9 +404,16 @@ def _parser_with(outcomes):
 
 def _stored(user, seq, minute, sys):
     return {
-        "user": user, "sequence": seq, "sys": sys, "dia": 80, "bpm": 60,
+        "user": user,
+        "sequence": seq,
+        "sys": sys,
+        "dia": 80,
+        "bpm": 60,
         "datetime": NOW.replace(hour=8) + dt.timedelta(minutes=minute),
-        "ihb": 0, "mov": 1, "cuff": 0, "pos": 0,
+        "ihb": 0,
+        "mov": 1,
+        "cuff": 0,
+        "pos": 0,
     }
 
 
@@ -374,20 +421,27 @@ def test_parser_turns_the_backlog_into_updates_and_events():
     from custom_components.omron.omron_ble.driver import StoredUserRecords
 
     records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121), _stored(1, 4, 3, 125)]
-    data, trace = _parser_with({1: StoredUserRecords(next_seq=4, index_seq=4, records=records)})
+    data, trace = _parser_with(
+        {1: StoredUserRecords(next_seq=4, index_seq=4, records=records)}
+    )
     asyncio.run(data._collect_stored_history(MagicMock(), trace))
 
     # The newest is the poll's own result; the two before it get an update each.
     assert len(data.history_updates) == 2
     systolic = [
-        next(v.native_value for k, v in u.entity_values.items() if k.key.startswith("blood_pressure_systolic"))
+        next(
+            v.native_value
+            for k, v in u.entity_values.items()
+            if k.key.startswith("blood_pressure_systolic")
+        )
         for u in data.history_updates
     ]
     assert systolic == [118, 121]
     # No other-user placeholder may ride along and blank that user's sensors.
     assert all(
         v.native_value is not None
-        for u in data.history_updates for v in u.entity_values.values()
+        for u in data.history_updates
+        for v in u.entity_values.values()
     )
     events = data.pending_history["events"]
     assert [e["sequence"] for e in events] == [2, 3, 4]
@@ -464,7 +518,14 @@ def test_a_drain_spanning_polls_never_moves_the_sensors_back():
     # Poll 1: the cuff is at 45 but only 41-43 were read; they get states and
     # the poll then shows 45.
     first = [_stored(1, n, n, 100 + n) for n in (41, 42, 43)]
-    _collect(data, {1: StoredUserRecords(next_seq=43, index_seq=45, records=first, complete=False)})
+    _collect(
+        data,
+        {
+            1: StoredUserRecords(
+                next_seq=43, index_seq=45, records=first, complete=False
+            )
+        },
+    )
     assert len(data.history_updates) == 3
     data.history_shown.update(data.pending_history["shown"])
     assert data.history_shown == {1: 45}
@@ -481,7 +542,9 @@ def test_an_unreadable_newest_record_does_not_hide_the_one_before_it():
 
     records = [_stored(1, 2, 1, 118), _stored(1, 3, 2, 121)]
     data, _ = _parser_with({})
-    _collect(data, {1: StoredUserRecords(next_seq=4, index_seq=4, records=records, lost=1)})
+    _collect(
+        data, {1: StoredUserRecords(next_seq=4, index_seq=4, records=records, lost=1)}
+    )
     assert len(data.history_updates) == 2
 
 
@@ -537,9 +600,13 @@ def _poll_harness(monkeypatch, device_data):
         readout_coordinator=SimpleNamespace(async_set_updated_data=lambda v: None),
     )
     entry = SimpleNamespace(entry_id="e1", runtime_data=runtime)
-    monkeypatch.setattr(omron_init, "async_ble_device_from_address", lambda h, a: object())
+    monkeypatch.setattr(
+        omron_init, "async_ble_device_from_address", lambda h, a: object()
+    )
     monkeypatch.setattr(omron_init, "adopt_handoff_session", lambda h, a: None)
-    monkeypatch.setattr(omron_init, "_merge_poll_sensor_update", lambda prev, new: f"{prev}+{new}")
+    monkeypatch.setattr(
+        omron_init, "_merge_poll_sensor_update", lambda prev, new: f"{prev}+{new}"
+    )
 
     @asynccontextmanager
     async def telemetry(hass, runtime, operation="poll"):
@@ -547,7 +614,9 @@ def _poll_harness(monkeypatch, device_data):
 
     monkeypatch.setattr(omron_init, "omron_poll_ble_telemetry", telemetry)
     hass = MagicMock()
-    hass.bus.async_fire.side_effect = lambda name, data: calls.append(("fire", data["sequence"]))
+    hass.bus.async_fire.side_effect = lambda name, data: calls.append(
+        ("fire", data["sequence"])
+    )
     return omron_init, hass, entry, calls
 
 
@@ -559,7 +628,8 @@ class _PollingData:
         self.fail = fail
         self.history_updates = ["u1", "u2"]
         self.pending_history = {
-            "next_seq": {1: 3}, "events": [{"user": 1, "sequence": 2}, {"user": 1, "sequence": 3}],
+            "next_seq": {1: 3},
+            "events": [{"user": 1, "sequence": 2}, {"user": 1, "sequence": 3}],
             "shown": {1: 3},
         }
         self.history_last_seq = {}
@@ -571,12 +641,17 @@ class _PollingData:
         return "latest"
 
 
-def test_poll_pushes_backlog_states_then_events_then_saves_then_returns_latest(monkeypatch):
+def test_poll_pushes_backlog_states_then_events_then_saves_then_returns_latest(
+    monkeypatch,
+):
     data = _PollingData()
     omron_init, hass, entry, calls = _poll_harness(monkeypatch, data)
     store = MagicMock()
     store.async_save = AsyncMock(side_effect=lambda d: calls.append(("save", d)))
-    with patch.object(history, "_store", return_value=store), patch.object(history.dr, "async_get"):
+    with (
+        patch.object(history, "_store", return_value=store),
+        patch.object(history.dr, "async_get"),
+    ):
         result = asyncio.run(omron_init.async_poll_data(hass, entry))
     assert calls[:2] == [("state", "d0+u1"), ("state", "d0+u1+u2")]
     assert calls[2:4] == [("fire", 2), ("fire", 3)]
@@ -592,7 +667,10 @@ def test_failed_poll_pushes_nothing_and_saves_nothing(monkeypatch):
     omron_init, hass, entry, calls = _poll_harness(monkeypatch, data)
     store = MagicMock()
     store.async_save = AsyncMock()
-    with patch.object(history, "_store", return_value=store), pytest.raises(UpdateFailed):
+    with (
+        patch.object(history, "_store", return_value=store),
+        pytest.raises(UpdateFailed),
+    ):
         asyncio.run(omron_init.async_poll_data(hass, entry))
     assert calls == [] and data.history_last_seq == {}
     store.async_save.assert_not_called()
@@ -604,8 +682,9 @@ def test_an_unchanged_position_is_not_rewritten():
     pending = {"next_seq": {1: 5}, "events": [], "shown": {1: 5}}
     hass, entry, device_data = _entry_and_hass(pending, {1: 5})
     device_data.history_shown = {1: 5}
-    with patch.object(history, "_store", return_value=store), patch.object(
-        history.dr, "async_get"
+    with (
+        patch.object(history, "_store", return_value=store),
+        patch.object(history.dr, "async_get"),
     ):
         asyncio.run(history.async_publish_history(hass, entry))
     store.async_save.assert_not_called()
@@ -666,7 +745,10 @@ def _readout(history_last_seq):
     with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
         asyncio.run(
             data._poll_device_readout(
-                session, client, SimpleNamespace(address="AA:BB"), memory_session_active=True
+                session,
+                client,
+                SimpleNamespace(address="AA:BB"),
+                memory_session_active=True,
             )
         )
     return data
@@ -683,13 +765,18 @@ def test_a_readout_reads_history_once_the_host_asks():
     data._driver.get_records_since.assert_awaited_once()
 
 
-def test_a_poll_that_started_before_a_reload_does_not_write_the_position_back(monkeypatch):
+def test_a_poll_that_started_before_a_reload_does_not_write_the_position_back(
+    monkeypatch,
+):
     data = _PollingData()
     omron_init, hass, entry, calls = _poll_harness(monkeypatch, data)
     entry.runtime_data.unloading = True
     store = MagicMock()
     store.async_save = AsyncMock()
-    with patch.object(history, "_store", return_value=store), patch.object(history.dr, "async_get"):
+    with (
+        patch.object(history, "_store", return_value=store),
+        patch.object(history.dr, "async_get"),
+    ):
         asyncio.run(omron_init.async_poll_data(hass, entry))
     assert calls == [] and data.history_last_seq == {}
     store.async_save.assert_not_called()

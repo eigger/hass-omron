@@ -5,11 +5,16 @@ the monitor displays only their average. The index probe has to reach back
 past the cursor to rebuild it, but only on models that opt in and only while
 the slots still count down 3 → 2 → 1.
 """
+
 import asyncio
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock
 
-from custom_components.omron.omron_ble.devices import DeviceConfig, Endianness, get_device_config
+from custom_components.omron.omron_ble.devices import (
+    DeviceConfig,
+    Endianness,
+    get_device_config,
+)
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 
@@ -43,10 +48,22 @@ def _config(truread: bool, users: int = 1) -> DeviceConfig:
         "index_region_byte_size": 0x18,
         "endianness": "little",
         "users": [
-            {"write_cursor_offset": 0x00, "unread_counter_offset": 0x04, "write_cursor_mask": 0xFF,
-             "slot_index_min": 0, "slot_index_max": SLOTS - 1, "slot_index_bias": -1},
-            {"write_cursor_offset": 0x02, "unread_counter_offset": 0x06, "write_cursor_mask": 0xFF,
-             "slot_index_min": 0, "slot_index_max": SLOTS - 1, "slot_index_bias": -1},
+            {
+                "write_cursor_offset": 0x00,
+                "unread_counter_offset": 0x04,
+                "write_cursor_mask": 0xFF,
+                "slot_index_min": 0,
+                "slot_index_max": SLOTS - 1,
+                "slot_index_bias": -1,
+            },
+            {
+                "write_cursor_offset": 0x02,
+                "unread_counter_offset": 0x06,
+                "write_cursor_mask": 0xFF,
+                "slot_index_min": 0,
+                "slot_index_max": SLOTS - 1,
+                "slot_index_bias": -1,
+            },
         ][:users],
     }
     if truread:
@@ -199,7 +216,9 @@ class TestTruReadIndexSequence:
 
     def test_session_window_boundary(self):
         start = NOW - dt.timedelta(hours=1)
-        inside, _ = _run(_config(True), 22, _session(20, start, dt.timedelta(minutes=15)))
+        inside, _ = _run(
+            _config(True), 22, _session(20, start, dt.timedelta(minutes=15))
+        )
         outside, _ = _run(
             _config(True), 22, _session(20, start, dt.timedelta(minutes=15, seconds=1))
         )
@@ -211,7 +230,9 @@ class TestTruReadIndexSequence:
         # get_latest_record() (single-user devices) takes the
         # return_all_users=False path and must reconstruct the average too.
         start = NOW - dt.timedelta(hours=1)
-        record, probed = _run(_config(True), 22, _session(20, start), return_all_users=False)
+        record, probed = _run(
+            _config(True), 22, _session(20, start), return_all_users=False
+        )
 
         assert record["measurement_type"] == "truread_average"
         assert (record["sys"], record["dia"], record["bpm"]) == (119, 85, 72)
@@ -235,8 +256,13 @@ class TestTruReadIndexSequence:
 class TestCatalogOptIn:
     def test_confirmed_models_opt_in(self):
         for model in ("HEM-7342T", "HEM-7380T1"):
-            assert get_device_config(model).index_pointer_layout.get("truread_sequence") is True
+            assert (
+                get_device_config(model).index_pointer_layout.get("truread_sequence")
+                is True
+            )
 
     def test_other_models_do_not(self):
         for model in ("HEM-7155T-MW3", "HEM-7142T2", "HEM-7361T", "HEM-9601T"):
-            assert not get_device_config(model).index_pointer_layout.get("truread_sequence")
+            assert not get_device_config(model).index_pointer_layout.get(
+                "truread_sequence"
+            )

@@ -20,6 +20,7 @@ WLD3.0 token-key 커프는 방금 만든 본드를 받아들이고도 다음 연
 conftest 가 homeassistant/bleak 를 MagicMock 으로 치환하므로 통합 계층은 AST 로,
 드라이버 메서드는 unbound 호출로 검사한다 (test_session_cccd_persistence.py 방식).
 """
+
 import ast
 import asyncio
 from datetime import datetime
@@ -44,9 +45,14 @@ _COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 def _function(path: Path, name: str):
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
             return node
-    raise AssertionError(f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것")
+    raise AssertionError(
+        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+    )
 
 
 def _session(config, *, pairing=True, memory_active=True, memory=None):
@@ -72,11 +78,11 @@ def _session(config, *, pairing=True, memory_active=True, memory=None):
         writes=writes,
     )
     # The two halves are methods of the real class; bind them onto the fake.
-    target._write_registration_head = (
-        lambda layout, reg: MemoryProtocol._write_registration_head(target, layout, reg)
+    target._write_registration_head = lambda layout, reg: (
+        MemoryProtocol._write_registration_head(target, layout, reg)
     )
-    target._write_registration_clock = (
-        lambda layout: MemoryProtocol._write_registration_clock(target, layout)
+    target._write_registration_clock = lambda layout: (
+        MemoryProtocol._write_registration_clock(target, layout)
     )
     return target
 
@@ -132,13 +138,13 @@ class TestTheWrite:
         """카운트가 +1 이면 8비트 합도 +1 — 그래서 +1 이 우연히 맞았다. 규칙을 고정."""
         cfg = get_device_config("HEM-7386T1")
         stale = bytearray(_populated_slot(5))
-        stale[8] = 0x00                                  # 읽은 체크섬이 틀려 있어도
+        stale[8] = 0x00  # 읽은 체크섬이 틀려 있어도
         memory = bytearray(0x400)
         memory[0x0010 : 0x0010 + 0x30] = _settings(0x1C, bytes(stale))
         target = _session(cfg, memory=bytes(memory))
         _commit(target)
         _, head = target.writes[0]
-        assert head[0x1C + 8] == slot_checksum(head[0x1C:])   # 쓸 때는 맞는 값
+        assert head[0x1C + 8] == slot_checksum(head[0x1C:])  # 쓸 때는 맞는 값
 
     def test_an_empty_slot_is_left_alone(self):
         """0xFFFF 로 시작하는 슬롯은 한 번도 쓰인 적이 없다. 올리면 채워진 척만 한다."""
@@ -149,7 +155,7 @@ class TestTheWrite:
         _commit(target)
         _, head = target.writes[0]
         assert head[0x1C : 0x1C + 10] == b"\xff" * 10
-        assert head[4:6] == b"\x00\x80"                       # 인덱스는 그래도 초기화
+        assert head[4:6] == b"\x00\x80"  # 인덱스는 그래도 초기화
 
     def test_the_clock_block_is_the_shared_one(self):
         cfg = get_device_config("HEM-7386T1")
@@ -158,9 +164,9 @@ class TestTheWrite:
         _, clock = target.writes[1]
         assert clock[4] & 0x01
         assert clock[14] == sum(clock[:14]) & 0xFF
-        assert clock_block(bytes(range(28)), datetime(2026, 9, 13, 8, 0, 0), 16)[8:14] == bytes(
-            (26, 9, 13, 8, 0, 0)
-        )
+        assert clock_block(bytes(range(28)), datetime(2026, 9, 13, 8, 0, 0), 16)[
+            8:14
+        ] == bytes((26, 9, 13, 8, 0, 0))
 
 
 class TestDerivedFromTheProfile:
@@ -232,17 +238,22 @@ class TestDerivedFromTheProfile:
             transmission_block_size=0x38,
             index_pointer_layout={"index_region_byte_size": 0x10},
         )
-        slot = bytes(range(1, 13)) + b"\x00\x00"         # 12 data bytes, checksum, pad
+        slot = bytes(range(1, 13)) + b"\x00\x00"  # 12 data bytes, checksum, pad
         memory = bytearray(0x400)
-        memory[0x0010 : 0x0010 + 0x2C] = bytes(range(0x10)) + slot + bytes(0x2C - 0x10 - 14)
+        memory[0x0010 : 0x0010 + 0x2C] = (
+            bytes(range(0x10)) + slot + bytes(0x2C - 0x10 - 14)
+        )
         target = _session(cfg, memory=bytes(memory))
         _commit(target)
         _, head = target.writes[0]
         assert len(head) == 0x10 + 14
         written = head[0x10 : 0x10 + 14]
-        assert int.from_bytes(written[4:8], "little") == int.from_bytes(slot[4:8], "little") + 1
+        assert (
+            int.from_bytes(written[4:8], "little")
+            == int.from_bytes(slot[4:8], "little") + 1
+        )
         assert written[12] == sum(written[:12]) & 0xFF
-        assert written[8:12] == slot[8:12]                  # +8 은 이제 데이터, 손대지 않음
+        assert written[8:12] == slot[8:12]  # +8 은 이제 데이터, 손대지 않음
 
     def test_the_driver_names_no_model(self):
         source = "".join(
@@ -256,19 +267,46 @@ class TestDerivedFromTheProfile:
         """같은 지오메트리라도 스트림 수는 다르다 — 7386T1 여덟, 7376T1 여섯."""
         seven = get_device_config("HEM-7386T1").pairing_registration
         assert seven.slot_offset == 0x1C
-        assert [o for o, _, _ in seven.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x16, 0x18, 0x19, 0x1B]
+        assert [o for o, _, _ in seven.unread_clears] == [
+            0x04,
+            0x06,
+            0x11,
+            0x13,
+            0x16,
+            0x18,
+            0x19,
+            0x1B,
+        ]
         assert get_device_config("HEM-7382T1-AZAZ").pairing_registration == seven
         for sibling in ("HEM-7376T1", "HEM-7377T1"):
             reg = get_device_config(sibling).pairing_registration
             assert reg.slot_offset == 0x1C
-            assert [o for o, _, _ in reg.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x19, 0x1B]
+            assert [o for o, _, _ in reg.unread_clears] == [
+                0x04,
+                0x06,
+                0x11,
+                0x13,
+                0x19,
+                0x1B,
+            ]
         eighty = get_device_config("HEM-7380T1").pairing_registration
         assert eighty.slot_offset == 0x18
-        assert [o for o, _, _ in eighty.unread_clears] == [0x04, 0x06, 0x11, 0x13, 0x15, 0x17]
+        assert [o for o, _, _ in eighty.unread_clears] == [
+            0x04,
+            0x06,
+            0x11,
+            0x13,
+            0x15,
+            0x17,
+        ]
         # 두 혈압 스트림만 2바이트, 나머지는 1바이트 유휴값.
         for reg in (seven, eighty):
-            assert {(w, v) for o, w, v in reg.unread_clears if o in (4, 6)} == {(2, 0x8000)}
-            assert {(w, v) for o, w, v in reg.unread_clears if o not in (4, 6)} == {(1, 0x80)}
+            assert {(w, v) for o, w, v in reg.unread_clears if o in (4, 6)} == {
+                (2, 0x8000)
+            }
+            assert {(w, v) for o, w, v in reg.unread_clears if o not in (4, 6)} == {
+                (1, 0x80)
+            }
             assert reg.slot_size == 10
 
     def test_a_profile_that_cannot_hold_its_registration_is_refused(self):
@@ -292,7 +330,7 @@ class TestDerivedFromTheProfile:
             base.update(over)
             return DeviceConfig(**base)
 
-        _profile()                                          # 정상 조합은 통과
+        _profile()  # 정상 조합은 통과
         with pytest.raises(ValueError, match="settings region is"):
             _profile(settings_time_sync_bytes=[0x10, 0x20])  # 영역 16 < 필요 38
         with pytest.raises(ValueError, match="overlaps"):
@@ -314,7 +352,9 @@ class TestDerivedFromTheProfile:
 
     def test_the_write_helpers_are_typed(self):
         """둘 다 Any 면 인자를 바꿔 넘겨도 런타임까지 안 걸린다."""
-        source = (_COMPONENT / "omron_ble" / "memory_protocol.py").read_text(encoding="utf-8")
+        source = (_COMPONENT / "omron_ble" / "memory_protocol.py").read_text(
+            encoding="utf-8"
+        )
         for sig in (
             "layout: SettingsMirrorLayout, registration: PairingRegistration",
             "_write_registration_clock(self, layout: SettingsMirrorLayout)",
@@ -350,7 +390,7 @@ class TestWhenItRuns:
 
         async def flaky(address, data, block_size):
             calls["n"] += 1
-            if calls["n"] == 2:                              # 첫 시계 쓰기만 실패
+            if calls["n"] == 2:  # 첫 시계 쓰기만 실패
                 raise TimeoutError("clock write")
             await real_write(address, data, block_size)
 
@@ -361,15 +401,19 @@ class TestWhenItRuns:
         assert target._pairing_registration_clock_done is False
         assert [a for a, _ in target.writes] == [0x0058]
 
-        assert _commit(target) is True                      # 시계만 다시
+        assert _commit(target) is True  # 시계만 다시
         assert [a for a, _ in target.writes] == [0x0058, 0x0088]
-        assert _commit(target) is False                     # 이제 둘 다 끝
+        assert _commit(target) is False  # 이제 둘 다 끝
 
     def test_a_session_reset_rearms_both_halves(self):
         """새 세션의 3회 재시도 루프는 reset 후 다시 돈다 — 등록도 다시 써야 한다."""
-        reset = _function(_COMPONENT / "omron_ble" / "session.py", "reset_session_state")
+        reset = _function(
+            _COMPONENT / "omron_ble" / "session.py", "reset_session_state"
+        )
         assert "memory.reset()" in ast.unparse(reset)
-        protocol_reset = _function(_COMPONENT / "omron_ble" / "memory_protocol.py", "reset")
+        protocol_reset = _function(
+            _COMPONENT / "omron_ble" / "memory_protocol.py", "reset"
+        )
         body = ast.unparse(protocol_reset)
         assert "_pairing_registration_head_done = False" in body
         assert "_pairing_registration_clock_done = False" in body
@@ -419,7 +463,9 @@ class TestWhenItRuns:
 
 class TestItNeverBlocksTheClose:
     def test_close_memory_session_has_no_registration_hook(self):
-        fn = _function(_COMPONENT / "omron_ble" / "memory_protocol.py", "close_memory_session")
+        fn = _function(
+            _COMPONENT / "omron_ble" / "memory_protocol.py", "close_memory_session"
+        )
         assert "registration" not in ast.unparse(fn).lower()
 
     def test_the_call_site_retries_so_the_split_is_reachable(self):
@@ -440,7 +486,9 @@ class TestItNeverBlocksTheClose:
             and node.lineno <= call.lineno <= getattr(node, "end_lineno", node.lineno)
             for node in ast.walk(fn)
         )
-        assert looped, "등록 호출이 한 번뿐이다 — 실패한 시계 쓰기를 다시 쓸 경로가 없다"
+        assert looped, (
+            "등록 호출이 한 번뿐이다 — 실패한 시계 쓰기를 다시 쓸 경로가 없다"
+        )
         # 루프가 있다는 것만으로는 부족하다: 한 번만 도는 루프도 루프다.
         from custom_components.omron.omron_ble.parser import _REGISTRATION_ATTEMPTS
 

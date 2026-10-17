@@ -9,6 +9,7 @@ Model Number String 으로 답하는 값이기도 하다. 모델명으로 프로
 BP5465 가 HEM-7382T1-AZAZ 인지 HEM-7388T1-AJF3 인지 카탈로그는 모른다. 그래서
 추측하지 않고 프로파일 키를 쓴다 — 실제로 아는 사실이고, 진짜 HEM 표기다.
 """
+
 from pathlib import Path
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
@@ -69,9 +70,9 @@ def test_the_device_name_path_reads_display_model():
     """
     import pathlib
 
-    source = pathlib.Path(
-        "custom_components/omron/omron_ble/parser.py"
-    ).read_text(encoding="utf-8")
+    source = pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text(
+        encoding="utf-8"
+    )
     head = source.split("def _setup_device_info(")[1]
     body = head.split("self.pending = False")[0]
 
@@ -96,5 +97,5 @@ def test_both_naming_paths_agree() -> None:
     assert "display_model" in init_src, (
         "the device registry entry is named from the raw model id again"
     )
-    assert 'model=display_model' in init_src
+    assert "model=display_model" in init_src
     assert 'name=f"{display_model} {identifier}"' in init_src

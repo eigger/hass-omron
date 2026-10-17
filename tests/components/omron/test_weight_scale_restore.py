@@ -1,6 +1,5 @@
 """A restored weight is the native kg value whatever unit the user displays."""
 
-
 import pytest
 
 from custom_components.omron.omron_ble.const import ExtendedSensorDeviceClass

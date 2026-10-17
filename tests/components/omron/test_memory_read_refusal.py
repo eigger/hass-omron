@@ -5,6 +5,7 @@ result code in byte 6 — the 8-byte shape `0x8f00` and the control frames
 already use. Read as truncated it never sets the reply, and the caller
 spends its whole retry budget waiting for data that already came back.
 """
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 

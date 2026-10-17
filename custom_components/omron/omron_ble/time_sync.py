@@ -75,7 +75,9 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
     cts_notify_ok = False
 
     try:
-        async with Notifications(client, CTS_CHARACTERISTIC_UUID, settle=_CTS_SETTLE_S) as cts_notifications:
+        async with Notifications(
+            client, CTS_CHARACTERISTIC_UUID, settle=_CTS_SETTLE_S
+        ) as cts_notifications:
             try:
                 cts_snapshot = await client.read_gatt_char(CTS_CHARACTERISTIC_UUID)
                 if cts_snapshot:
@@ -93,7 +95,9 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
                 )
 
             try:
-                cts_notify_payload = await cts_notifications.next(_CTS_NOTIFY_TIMEOUT_S, step="cts_notify")
+                cts_notify_payload = await cts_notifications.next(
+                    _CTS_NOTIFY_TIMEOUT_S, step="cts_notify"
+                )
                 cts_notify_ok = True
                 _LOGGER.debug(
                     "CTS notify received for %s before sync: %s",
@@ -119,7 +123,11 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
                 )
             else:
                 await guarded_write(
-                    client, CTS_CHARACTERISTIC_UUID, payload, step="time_sync", response=True
+                    client,
+                    CTS_CHARACTERISTIC_UUID,
+                    payload,
+                    step="time_sync",
+                    response=True,
                 )
                 _LOGGER.debug(
                     "Synced current time via CTS for %s: %s (notify_ok=%s)",
@@ -144,8 +152,11 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
 
                         lti_payload = bytes([tz_byte, dst_byte])
                         await guarded_write(
-                            client, LOCAL_TIME_INFO_UUID, lti_payload,
-                            step="time_sync", response=True,
+                            client,
+                            LOCAL_TIME_INFO_UUID,
+                            lti_payload,
+                            step="time_sync",
+                            response=True,
                         )
                         _LOGGER.debug(
                             "Local Time Info sync success for %s (tz_offset_15m=%d, dst=%d)",
@@ -255,7 +266,10 @@ async def async_sync_device_time(
 
     if config.supports_eeprom_time_sync:
         eeprom_success = await _sync_eeprom_with_session(
-            client, model, config, transport,
+            client,
+            model,
+            config,
+            transport,
             leave_memory_session_open=leave_memory_session_open,
         )
         if eeprom_success:
@@ -271,7 +285,10 @@ async def async_sync_device_time(
 
     if config.supports_eeprom_time_sync and not eeprom_success:
         eeprom_success = await _sync_eeprom_with_session(
-            client, model, config, transport,
+            client,
+            model,
+            config,
+            transport,
             leave_memory_session_open=leave_memory_session_open,
         )
 

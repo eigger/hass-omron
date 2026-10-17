@@ -299,9 +299,7 @@ async def test_a_height_signal_after_the_bmi_sensor_is_added_wins(
         return None
 
     # Hold the Height entity back so the BMI sensors are added without it.
-    with patch(
-        "custom_components.omron.number.async_setup_entry", _no_height_yet
-    ):
+    with patch("custom_components.omron.number.async_setup_entry", _no_height_yet):
         await _setup(hass, entry)
 
     runtime = entry.runtime_data
