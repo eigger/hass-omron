@@ -9,7 +9,7 @@ from pathlib import Path
 # Load the helper by path. Importing the integration package pulls in
 # Home Assistant and blesession, which this check does not need.
 _UTIL_PATH = (
-    Path(__file__).resolve().parents[1]
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "omron"
     / "omron_ble"
@@ -21,7 +21,7 @@ _util = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_util)
 entity_name_translation = _util.entity_name_translation
 
-_COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 _STRING_FILES = (
     _COMPONENT / "strings.json",
     *sorted((_COMPONENT / "translations").glob("*.json")),

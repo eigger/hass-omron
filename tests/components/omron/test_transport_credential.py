@@ -26,7 +26,7 @@ from custom_components.omron.omron_ble.settings_mirror import (
     clock_block,
 )
 
-_ROOT = Path(__file__).resolve().parent.parent
+_ROOT = Path(__file__).resolve().parents[3]
 _COMPONENT = _ROOT / "custom_components" / "omron"
 
 

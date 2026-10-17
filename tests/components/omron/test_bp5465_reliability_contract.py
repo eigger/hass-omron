@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[3]
 INIT = REPO / "custom_components" / "omron" / "__init__.py"
 PARSER = REPO / "custom_components" / "omron" / "omron_ble" / "parser.py"
 

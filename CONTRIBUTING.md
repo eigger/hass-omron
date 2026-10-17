@@ -13,7 +13,7 @@ python scripts/ha_component_requirements.py bluetooth usb > requirements_ha.txt 
 
 ```bash
 python -m ruff check custom_components/
-python -m pytest tests/ -v --timeout 120
+python -m pytest tests/components/omron/ -v --timeout 120
 ```
 
 Tests load the real Home Assistant through `pytest-homeassistant-custom-component`; only the Bluetooth/device boundary is mocked.

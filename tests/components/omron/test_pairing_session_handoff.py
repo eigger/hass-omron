@@ -21,7 +21,7 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
-_COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 
 def _parse(relative_path: str) -> ast.Module:

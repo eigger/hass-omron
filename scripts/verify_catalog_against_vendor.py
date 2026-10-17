@@ -13,7 +13,7 @@ import zipfile
 
 REPO, *VENDOR_ROOTS = sys.argv[1:]
 sys.path.insert(0, REPO)
-sys.path.insert(0, os.path.join(REPO, "tests"))
+sys.path.insert(0, os.path.join(REPO, "tests", "components", "omron"))
 import conftest  # noqa: E402, F401  (stubs homeassistant/bleak so the catalog imports)
 
 from custom_components.omron.omron_ble.device_catalog import CANONICAL_DEVICE_PROFILES  # noqa: E402

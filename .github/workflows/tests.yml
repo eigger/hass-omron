@@ -64,4 +64,4 @@ jobs:
           pip install -r requirements_ha.txt
 
       - name: Run tests
-        run: python -m pytest tests/ -v --timeout 120
+        run: python -m pytest tests/components/omron/ -v --timeout 120

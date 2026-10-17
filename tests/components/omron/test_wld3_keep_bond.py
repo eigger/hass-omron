@@ -311,7 +311,7 @@ def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
 
     # conftest 가 voluptuous 를 채우지 않으므로 import 하지 않고 파일로 읽는다.
     source = (
-        Path(__file__).resolve().parent.parent
+        Path(__file__).resolve().parents[3]
         / "custom_components" / "omron" / "config_flow.py"
     ).read_text(encoding="utf-8")
     tree = ast.parse(source)

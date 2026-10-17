@@ -24,7 +24,7 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴
 import ast
 from pathlib import Path
 
-_COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 
 def _call_order(fn: ast.AST, names: set[str]) -> list[str]:

@@ -2,7 +2,7 @@
 import ast
 from pathlib import Path
 
-_FLOW = Path(__file__).resolve().parent.parent / "custom_components" / "omron" / "config_flow.py"
+_FLOW = Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "config_flow.py"
 
 
 def _method(name: str) -> ast.AsyncFunctionDef | ast.FunctionDef:

@@ -88,7 +88,7 @@ def test_both_naming_paths_agree() -> None:
     기기 이름을 짓는다. 한쪽만 HEM 표기로 정규화하면 BP5465 로 설정한 커프가
     한 화면에서는 BP5465, 다른 화면에서는 HEM-7382T1-AZAZ 로 보인다.
     """
-    component = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+    component = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
     init_src = (component / "__init__.py").read_text(encoding="utf-8")
     parser_src = (component / "omron_ble" / "parser.py").read_text(encoding="utf-8")
 

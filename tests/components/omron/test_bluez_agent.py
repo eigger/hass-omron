@@ -44,7 +44,7 @@ def test_bluez_agent_interface_builds():
 def test_bluez_agent_no_future_annotations():
     """bluez_agent.py 에는 from __future__ import annotations 가 포함되지 않아야 한다."""
     agent_file = (
-        Path(__file__).resolve().parent.parent
+        Path(__file__).resolve().parents[3]
         / "custom_components"
         / "omron"
         / "omron_ble"

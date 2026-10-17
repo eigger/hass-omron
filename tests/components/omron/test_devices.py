@@ -332,7 +332,7 @@ class TestNoDeadConfigSurface:
 
         sources = (
             *pathlib.Path("custom_components/omron").rglob("*.py"),
-            *pathlib.Path("tests").rglob("*.py"),
+            *pathlib.Path("tests/components/omron").rglob("*.py"),
         )
         read_by = "".join(
             p.read_text(encoding="utf-8")

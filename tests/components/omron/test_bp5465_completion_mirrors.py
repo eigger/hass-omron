@@ -220,7 +220,7 @@ def test_cleanup_close_alone_never_writes_completion_mirrors():
 
 def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
     parser_path = (
-        pathlib.Path(__file__).resolve().parents[1]
+        pathlib.Path(__file__).resolve().parents[3]
         / "custom_components"
         / "omron"
         / "omron_ble"

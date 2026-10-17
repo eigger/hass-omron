@@ -17,7 +17,7 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴
 import ast
 from pathlib import Path
 
-_OMRON_BLE = Path(__file__).resolve().parent.parent / "custom_components" / "omron" / "omron_ble"
+_OMRON_BLE = Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
 _SESSION = _OMRON_BLE / "session.py"
 _BLUEZ = _OMRON_BLE / "bluez.py"
 

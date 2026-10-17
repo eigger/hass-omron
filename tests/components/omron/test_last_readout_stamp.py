@@ -16,7 +16,7 @@ conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제 인스턴
 import ast
 from pathlib import Path
 
-_COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 _ATTR = "_last_readout_at"
 

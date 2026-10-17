@@ -16,7 +16,7 @@ HA 재시작 전까지 통합이 죽는다.
 import ast
 from pathlib import Path
 
-_COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 
 def _parse(relative_path: str) -> ast.Module:

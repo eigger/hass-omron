@@ -39,7 +39,7 @@ from custom_components.omron.omron_ble.settings_mirror import (
     slot_checksum,
 )
 
-_COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "omron"
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 
 
 def _function(path: Path, name: str):

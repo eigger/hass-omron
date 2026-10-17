@@ -21,7 +21,7 @@ from pathlib import Path
 from custom_components.omron.omron_ble.devices import infer_model_id_from_local_name
 
 _CONFIG_FLOW = (
-    Path(__file__).resolve().parent.parent
+    Path(__file__).resolve().parents[3]
     / "custom_components"
     / "omron"
     / "config_flow.py"

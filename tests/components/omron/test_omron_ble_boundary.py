@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-OMRON_BLE = Path(__file__).resolve().parent.parent / "custom_components" / "omron" / "omron_ble"
+OMRON_BLE = Path(__file__).resolve().parents[3] / "custom_components" / "omron" / "omron_ble"
 
 
 def _imports(path: Path):

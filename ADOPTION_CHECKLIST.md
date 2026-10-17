@@ -13,7 +13,7 @@
 | 구현 / 독립 리뷰·검증 | 메인 세션 / Opus 서브 에이전트 1차 리뷰 완료(지적 반영 후 재검증 미실시) |
 | 중앙 현황표 | 미등록 — 반영할 내용: 진행 중, 부분 채택, 테스트 구조 이관 남음 |
 | 지원 최소 HA | 2025.12.0 (hacs.json) — 변경 없음 |
-| profile / 테스트 경로 | integration / ha, 현재 `tests/` |
+| profile / 테스트 경로 | integration / ha, `tests/components/omron/` |
 | 채택 판정 | 이관 진행 중 (부분 채택) |
 
 ## 검증 환경
@@ -36,8 +36,8 @@
 | HA-01, HA-13 | TODO | domain 일치 확인(manifest `omron`), Core 대응 구조 점검 안 함 |
 | HA-02 | PASS | manifest 키 순서(domain, name, 이후 알파벳) 확인 `custom_components/omron/manifest.json` |
 | HA-03~HA-12 | TODO | 이번 범위에서 코드 점검하지 않음 |
-| TEST-08 | EXCEPTION | `tests/` 유지 (58개 test 모듈) |
-| TEST-02, TEST-03, TEST-09 | TODO | 일부 테스트만 MockConfigEntry/enable_custom_integrations 사용, protocol 테스트는 HA 미기동. 범위 조사 필요 |
+| TEST-08 | PASS | 58개 test 모듈을 `tests/components/omron/`로 이동 (git mv), `pytest` 599 passed (Python 3.14, HA 2026.9.3) |
+| TEST-02, TEST-03, TEST-09 | EXCEPTION | conftest가 homeassistant/bleak를 MagicMock으로 치환. STANDARDS.md 예외 |
 | TEST-01, TEST-06, TEST-07 | TODO | 미점검 (599 passed는 확인) |
 | TEST-04, HACS-01 | EXCEPTION | 최소 HA job 없음 |
 | TEST-05, HA-10, DEP-02, DEP-05 | TODO | 최소 blesession 별도 환경 없음 |
@@ -63,7 +63,7 @@
 
 ## 남은 작업
 
-1. 테스트를 `tests/components/omron/`로 이관하고 실제 HA 로딩 테스트 범위 확대(별도 PR).
+1. conftest의 HA MagicMock 치환을 실제 HA fixture·config entry 로딩 테스트로 전환(별도 PR).
 2. 최소 HA 2025.12.0 / 최소 blesession 검증 job, CI에 `pip check`·ruff 고정.
 3. 공통 workflow·dependency-update 전환, DOC-07 Bluetooth 문서 연결.
 4. 원격 CI 확인, 중앙 표 갱신, 리뷰 지적 재검증.
