@@ -103,7 +103,7 @@ Three kinds of problem never reach the failure sensors, because the session did 
 
 ## Bluetooth proxy and model-specific conditions
 
-Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy guide (https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md) (Korean, checked 2026-10-17). The conditions below are specific to Omron monitors and scales:
+Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy guide](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md) (Korean, checked 2026-10-17). The conditions below are specific to Omron monitors and scales:
 
 - **Seeing the device is not the same as connecting to it.** Advertisements (discovery, RSSI) can arrive while the GATT connection, pairing or memory read still fails. Use the **Last Failure** `failed_stage` to tell them apart: `connect` is the link, `session`/`auth` are services and pairing, `transfer` is the record read.
 - **Wake / power.** The monitor switches its Bluetooth radio off to save battery. It connects briefly after a measurement; for pairing, hold the Bluetooth button until `-P-` blinks and submit while it is still blinking. Scales must be woken by stepping on them.
