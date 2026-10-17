@@ -60,6 +60,8 @@ bluetooth_proxy:
 - [문제 해결](docs/troubleshooting.md) (영어)
 - [Bluetooth 로그 수집](docs/capturing-bluetooth-logs.md) (영어)
 - [HEM-7374T1 노트](docs/hem-7374t1.md) (영어)
+- [체성분 체중계 노트](docs/body-composition-scales-notes.md) (영어)
+- [HN-300T2 메모리 맵](docs/hn-300t2-memory-map.md) (영어)
 - [로드맵](docs/roadmap.md) (영어)
 - [개발과 테스트](CONTRIBUTING.md) (영어)
 

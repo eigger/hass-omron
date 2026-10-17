@@ -16,7 +16,7 @@ python -m ruff check . && python -m ruff format --check .
 python -m pytest tests/components/omron/ -v --timeout 120
 ```
 
-Tests load the real Home Assistant through `pytest-homeassistant-custom-component`; only the Bluetooth/device boundary is mocked. CI uses the shared workflows from hass-repo-standards (`Tests`, `Validate`, `Update dependencies`).
+Integration tests load the real Home Assistant through `pytest-homeassistant-custom-component` (`hass` fixture); protocol tests run without starting Home Assistant, and some tests check source structure. See the exception in STANDARDS.md. CI uses the shared workflows from hass-repo-standards (`Tests`, `Validate`, `Update dependencies`).
 
 ## Verified environment
 

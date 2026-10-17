@@ -20,4 +20,4 @@
 
 | 규칙 ID | 이유 | 담당자 | 재검토 조건 |
 |---|---|---|---|
-| TEST-02, TEST-03, TEST-09 | `conftest.py`가 homeassistant/bleak를 MagicMock으로 치환하는 테스트가 다수(58개 test 모듈 중 일부만 실제 HA 사용). 실제 HA fixture 전환은 별도 작업 | @eigger | 실제 HA 로딩 테스트 확대 PR |
+| TEST-02, TEST-03, TEST-09 | 58개 test 모듈 중 `hass` fixture·config entry를 쓰는 모듈은 약 11개뿐이고, 약 23개는 소스 텍스트·AST·`inspect.getsource`로 구조를 검증하며 나머지는 프로토콜 단위 테스트(HA 미기동). 코어 stub(`sys.modules` 치환)은 없음. 실제 HA 로딩 테스트 확대는 별도 작업 | @eigger | 실제 HA 로딩 테스트 확대 PR |
