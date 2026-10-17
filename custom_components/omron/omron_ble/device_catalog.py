@@ -1129,6 +1129,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            # OMRON Plus 5.2.8 maps these China-market variants to the same
+            # WLD3.0 transport and settings/record layout; see docs/hem-7374t1.md.
+            "HEM-7374T1",
+            "HEM-7374T1-A2SHBK",
+            "HEM-7374T1-A2SHDS",
             "HEM-7380T",
             "HEM-7380T1-EBK",
             "HEM-7380T1-EOSL",
