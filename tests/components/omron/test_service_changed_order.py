@@ -17,67 +17,73 @@
 우리가 성공했던 실행들도 같은 순서였다 — pair_on_connect 가 연결 시점에
 본딩을 끝냈고 구독은 그 1~2초 뒤였다. #142 가 pair_on_connect 를 없앤 뒤
 구독이 pair() 앞에 남아 있으면, 한 번도 존재한 적 없는 순서가 된다.
-
-conftest 가 homeassistant/bleak 를 MagicMock 으로 치환해 실제로 돌릴 수 없어
-(test_poll_deadline.py 와 같은 이유) AST 로 검사한다.
 """
 
-import ast
-from pathlib import Path
+from types import SimpleNamespace
 
-_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
-
-
-def _call_order(fn: ast.AST, names: set[str]) -> list[str]:
-    """이름이 호출되는 순서 (소스 위치 기준)."""
-    found: list[tuple[int, int, str]] = []
-    for node in ast.walk(fn):
-        if not isinstance(node, ast.Call):
-            continue
-        target = node.func
-        name = (
-            target.attr
-            if isinstance(target, ast.Attribute)
-            else getattr(target, "id", None)
-        )
-        if name in names:
-            found.append((node.lineno, node.col_offset, name))
-    return [name for _l, _c, name in sorted(found)]
+from custom_components.omron.omron_ble import pairing as pairing_module
+from custom_components.omron.omron_ble.devices import get_device_config
+from custom_components.omron.omron_ble.pairing import async_pair_and_sync_device
 
 
-def _find_function(tree: ast.AST, name: str):
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == name
-        ):
-            return node
-    raise AssertionError(
-        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
+def _recording_session(model: str = "HEM-7386T1"):
+    events: list[str] = []
+    config = get_device_config(model)
+
+    async def verify_parent_service() -> bool:
+        events.append("verify_parent_service")
+        return True
+
+    async def pair() -> None:
+        events.append("pair")
+
+    async def subscribe_service_changed() -> None:
+        events.append("subscribe_service_changed")
+
+    session = SimpleNamespace(
+        address="C1:8D:32:97:D5:BB",
+        client=object(),
+        config=config,
+        verify_parent_service=verify_parent_service,
+        pair=pair,
+        subscribe_service_changed=subscribe_service_changed,
     )
+    return session, events
 
 
-def test_the_bond_comes_before_the_service_changed_subscribe():
-    tree = ast.parse(
-        (_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8")
-    )
-    fn = _find_function(tree, "async_pair_and_sync_device")
+async def test_the_bond_comes_before_the_service_changed_subscribe(monkeypatch):
+    session, events = _recording_session("HEM-7386T1")
 
-    order = _call_order(fn, {"pair", "subscribe_service_changed"})
-    assert order[:2] == ["pair", "subscribe_service_changed"], (
+    async def fake_sync(*_args, **_kwargs) -> None:
+        events.append("async_sync_device_time")
+
+    monkeypatch.setattr(pairing_module, "async_sync_device_time", fake_sync)
+
+    await async_pair_and_sync_device(session, "HEM-7386T1")
+
+    order = [e for e in events if e in {"pair", "subscribe_service_changed"}]
+    assert order == ["pair", "subscribe_service_changed"], (
         f"호출 순서가 {order} 다. Service Changed 는 본드된 클라이언트별로 "
         "보존되므로 pair() 뒤에 와야 한다."
     )
 
 
-def test_the_subscribe_still_precedes_the_vendor_traffic():
+async def test_the_subscribe_still_precedes_the_vendor_traffic(monkeypatch):
     """앱도 벤더 CCCD 보다 먼저 쓴다 — 본딩 뒤, 벤더 앞."""
-    tree = ast.parse(
-        (_COMPONENT / "omron_ble" / "pairing.py").read_text(encoding="utf-8")
-    )
-    fn = _find_function(tree, "async_pair_and_sync_device")
+    session, events = _recording_session("HEM-7386T1")
 
-    order = _call_order(fn, {"subscribe_service_changed", "async_sync_device_time"})
+    async def fake_sync(*_args, **_kwargs) -> None:
+        events.append("async_sync_device_time")
+
+    monkeypatch.setattr(pairing_module, "async_sync_device_time", fake_sync)
+
+    await async_pair_and_sync_device(session, "HEM-7386T1")
+
+    order = [
+        e
+        for e in events
+        if e in {"subscribe_service_changed", "async_sync_device_time"}
+    ]
     assert order == ["subscribe_service_changed", "async_sync_device_time"], (
         f"호출 순서가 {order} 다. 시간 동기(첫 벤더 트래픽) 보다 앞이어야 한다."
     )

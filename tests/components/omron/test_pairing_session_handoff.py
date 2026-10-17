@@ -10,45 +10,37 @@ poll reuses the same link, but the advertisement-triggered auto-pairing
 (__init__.py) and the Retry Pairing button (button.py) dropped the session and
 reconnected. These tests pin the missing wiring.
 
-conftest replaces homeassistant/bleak with MagicMock, so the classes involved
-cannot be instantiated (same constraint as test_poll_deadline.py). Pure
-helpers are therefore exercised at runtime and the call-site wiring is checked
-structurally with the AST.
+The helpers are exercised directly with a stand-in session; every call site
+(retry-pairing button, advertisement auto-session, config flow, poll, unload)
+runs inside a real Home Assistant with a loaded config entry, replacing only
+the BLE device boundary.
 """
 
-import ast
 import asyncio
-from pathlib import Path
+import contextlib
+from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
+import pytest
+from bleak.backends.device import BLEDevice
+from homeassistant.config_entries import SOURCE_BLUETOOTH, ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
+import custom_components.omron.config_flow as config_flow
+from custom_components.omron import async_poll_data, process_service_info
+from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
+from custom_components.omron.session_handoff import stash_handoff_session
 
-def _parse(relative_path: str) -> ast.Module:
-    return ast.parse((_COMPONENT / relative_path).read_text(encoding="utf-8"))
-
-
-def _find_async_function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f"{name} not found — update this test if it was renamed")
-
-
-def _find_method(
-    tree: ast.AST, class_name: str, method_name: str
-) -> ast.AsyncFunctionDef:
-    """Find a method within a named class: the name alone is ambiguous here."""
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            return _find_async_function(node, method_name)
-    raise AssertionError(f"{class_name} not found — update this test if it was renamed")
-
-
-def _called_names(node: ast.AST) -> set[str]:
-    return {
-        ast.unparse(sub.func) for sub in ast.walk(node) if isinstance(sub, ast.Call)
-    }
+from bt import service_info
 
 
 class _FakeSession:
@@ -350,190 +342,394 @@ class TestParkedSessionMustStillBeConnected:
         assert hass.data[DOMAIN]["_setup_sessions"] == {}
 
 
+ADDRESS = "AA:BB:CC:DD:EE:FF"
+# Format 0x03 status byte: 0x04 = invalid time, 0x08 = pairing mode.
+_INVALID_TIME = bytes([0x03, 0x04, 0x00, 0x00, 0x00])
+_PAIRING_MODE = bytes([0x03, 0x08, 0x00, 0x00, 0x00])
+
+
+async def _setup(hass: HomeAssistant) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title="HEM-7155T EEFF",
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    # Let the setup-time poll finish so the task set holds only what a test starts.
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+    async with asyncio.timeout(5):
+        while entry.runtime_data.background_tasks:
+            await asyncio.sleep(0.01)
+    return entry
+
+
+def _parked(hass: HomeAssistant) -> dict:
+    return hass.data.get(DOMAIN, {}).get("_setup_sessions", {})
+
+
+async def _unload(hass: HomeAssistant, entry: MockConfigEntry) -> None:
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+def _advertise(entry: MockConfigEntry, payload: bytes) -> None:
+    entry.runtime_data.last_attempt_time = 0.0  # past the cooldown
+    process_service_info(
+        entry,
+        service_info(
+            ADDRESS,
+            name="HEM-7155T",
+            manufacturer_data={OMRON_MANUFACTURER_ID: payload},
+        ),
+    )
+
+
+async def _advertisement_session_done(entry: MockConfigEntry) -> None:
+    tasks = set(entry.runtime_data.background_tasks)
+    assert tasks, "the advertisement did not start a session task"
+    async with asyncio.timeout(5):
+        await asyncio.wait(tasks)
+
+
+class _Probe:
+    """Stands in for the poll coordinator's refresh and records what it saw."""
+
+    def __init__(self, hass: HomeAssistant, runtime) -> None:
+        self.hass = hass
+        self.runtime = runtime
+        self.calls = 0
+        self.parked_at_poll = None
+        self.lock_held_at_poll = None
+
+    async def __call__(self) -> None:
+        self.calls += 1
+        self.parked_at_poll = _parked(self.hass).get(ADDRESS)
+        self.lock_held_at_poll = self.runtime.session_lock.locked()
+
+
+@contextlib.contextmanager
+def _ble_boundary(hass: HomeAssistant, entry: MockConfigEntry, *, paired=None):
+    """Replace the radio: a visible device, a pairing that yields ``paired``."""
+    runtime = entry.runtime_data
+    device = BLEDevice(ADDRESS, "HEM-7155T", {})
+    probe = _Probe(hass, runtime)
+    pairing = AsyncMock(return_value=paired)
+    sync_time = AsyncMock()
+    with (
+        patch("custom_components.omron.SETTLE_DELAY_SECONDS", 0),
+        patch(
+            "custom_components.omron.button.async_ble_device_from_address",
+            return_value=device,
+        ),
+        patch.object(runtime.poll_coordinator, "async_refresh", probe),
+        patch.object(runtime.device_data, "async_retry_pairing", pairing),
+        patch.object(runtime.device_data, "async_sync_time", sync_time),
+    ):
+        yield SimpleNamespace(probe=probe, pairing=pairing, sync_time=sync_time)
+
+
+async def _press_retry_pairing(hass: HomeAssistant) -> None:
+    await hass.services.async_call(
+        "button",
+        "press",
+        {"entity_id": "button.hem_7155t_eeff_retry_pairing"},
+        blocking=True,
+    )
+
+
 class TestRepairEntryPointsCheckForAParkedSession:
     """Both paths that pair must consult the parked session first."""
 
-    def test_retry_pairing_button_checks_before_pairing(self):
-        fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
-        )
-        body = ast.unparse(fn)
+    async def test_retry_pairing_button_polls_the_parked_link_instead_of_pairing(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
+        entry = await _setup(hass)
+        parked = _FakeSession()
+        await stash_handoff_session(hass, ADDRESS, parked)
 
-        assert "poll_parked_session" in body, (
+        with _ble_boundary(hass, entry) as ble:
+            await _press_retry_pairing(hass)
+
+        assert not ble.pairing.await_count, (
             "pressing Retry Pairing while a link is parked would open a second "
             "BLE connection to the same cuff"
         )
-        assert body.index("poll_parked_session") < body.index(
-            "runtime.device_data.async_retry_pairing"
-        ), "the check has to come before pairing, not after"
+        assert ble.probe.calls == 1
+        # The poll it triggers needs session_lock to adopt the parked session,
+        # so the check has to run outside the lock.
+        assert ble.probe.lock_held_at_poll is False
+        await _unload(hass, entry)
 
-    def test_auto_pairing_checks_before_pairing(self):
-        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
-        body = ast.unparse(fn)
+    @pytest.mark.parametrize(
+        ("payload", "device_call"),
+        [(_PAIRING_MODE, "pairing"), (_INVALID_TIME, "sync_time")],
+        ids=["auto_pairing", "time_sync"],
+    )
+    async def test_advertisement_session_polls_the_parked_link_instead(
+        self,
+        hass: HomeAssistant,
+        enable_bluetooth: None,
+        payload: bytes,
+        device_call: str,
+    ) -> None:
+        """async_sync_time opens its own link too, so the time-sync advert must
+        not put a second one on the cuff just as pairing would."""
+        entry = await _setup(hass)
+        runtime = entry.runtime_data
+        await stash_handoff_session(hass, ADDRESS, _FakeSession())
 
-        assert "poll_parked_session" in body
-        assert body.index("poll_parked_session") < body.index("async_retry_pairing")
+        with _ble_boundary(hass, entry) as ble:
+            _advertise(entry, payload)
+            await _advertisement_session_done(entry)
 
-    def test_check_also_covers_the_time_sync_path(self):
-        """async_sync_time opens its own link, so an invalid_time advert would
-        put a second one on the cuff just as pairing would."""
-        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
-        body = ast.unparse(fn)
-
-        assert body.index("poll_parked_session") < body.index("async_sync_time"), (
-            "the guard must run before the time-sync branch too"
-        )
-        guards = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.If)
-            and "poll_parked_session" in ast.unparse(node.test)
-        ]
-        assert guards, "expected the parked-session guard to be a plain if"
-        assert "is_pairing" not in ast.unparse(guards[0].test), (
-            "gating on is_pairing leaves the time-sync path unguarded"
-        )
-
-    def test_auto_pairing_seeds_the_cooldown_when_it_bails_out(self):
-        """Returning early without seeding it respawns this task on every
-        advertisement in a burst."""
-        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
-
-        guards = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.If)
-            and "poll_parked_session" in ast.unparse(node.test)
-        ]
-        assert "last_attempt_time" in ast.unparse(guards[0])
-
-    def test_check_runs_outside_the_session_lock(self):
-        """The poll it triggers needs session_lock to adopt the parked
-        session, so holding the lock here would make that poll skip."""
-        fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
-        )
-
-        calls = _called_names(fn)
-        assert "session_lock.acquire" in calls
-        assert "session_lock.release" in calls
-        assert "poll_parked_session" in calls
-        call_lines = {
-            ast.unparse(node.func): node.lineno
-            for node in ast.walk(fn)
-            if isinstance(node, ast.Call)
-        }
-        assert call_lines["poll_parked_session"] < call_lines["session_lock.acquire"]
+        assert getattr(ble, device_call).await_count == 0
+        assert ble.probe.calls == 1
+        assert ble.probe.lock_held_at_poll is False
+        # Bailing out seeds the cooldown, or every advertisement in a burst
+        # would respawn the session task.
+        assert runtime.last_attempt_time > 0.0
+        await _unload(hass, entry)
 
 
 class TestRetryPairingReturnsSession:
     """async_retry_pairing must hand the link over, not close it."""
 
-    def test_returns_the_session_instead_of_none(self):
-        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_retry_pairing")
+    @staticmethod
+    def _parser_and_session(session):
+        from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 
-        assert fn.returns is not None and "OmronDeviceSession" in ast.unparse(
-            fn.returns
-        ), "async_retry_pairing must return the live session"
+        data = OmronBluetoothDeviceData(device_model="HEM-7155T")
+        data._open_session = lambda ble_device, pairing_session=False: session
+        return data
 
-        returned = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.Return) and node.value is not None
-        ]
-        assert returned, (
-            "without a returned session the callers have no link to hand off, "
-            "which puts the reconnect-after-pairing behaviour back"
+    @staticmethod
+    def _pairing_session(**overrides):
+        from custom_components.omron.omron_ble.session_trace import SessionTrace
+
+        events: list[str] = []
+
+        class _Session:
+            trace = SessionTrace()
+            client = object()
+            new_credential = None
+
+            async def connect(self):
+                events.append("connect")
+
+            async def verify_parent_service(self):
+                return True
+
+            async def pair(self):
+                events.append("pair")
+
+            async def refresh_services(self):
+                events.append("refresh_services")
+
+            async def aclose(self):
+                events.append("aclose")
+
+            def publish_link_to(self, trace):
+                pass
+
+        session = _Session()
+        for name, value in overrides.items():
+            setattr(session, name, value)
+        return session, events
+
+    async def test_returns_the_open_session_with_the_memory_session_left_open(
+        self,
+    ) -> None:
+        session, events = self._pairing_session()
+        data = self._parser_and_session(session)
+        ble_device = BLEDevice(ADDRESS, "HEM-7155T", {})
+
+        with patch(
+            "custom_components.omron.omron_ble.parser.async_sync_device_time",
+            AsyncMock(),
+        ) as sync:
+            returned = await data.async_retry_pairing(ble_device)
+
+        assert returned is session, "the callers have no link to hand off otherwise"
+        assert "aclose" not in events
+        assert sync.await_args.kwargs["leave_memory_session_open"] is True
+
+    async def test_ownership_is_released_by_the_parking_helper_not_here(self) -> None:
+        released = []
+        session, _ = self._pairing_session(
+            release_for_handoff=lambda: released.append(True)
         )
-        assert not any(
-            "release_for_handoff" in ast.unparse(node.value) for node in returned
-        ), (
-            "ownership is released in stash_handoff_session(); releasing here "
-            "too means a caller that never parks the session is handed a link "
-            "its aclose() will not close"
+        data = self._parser_and_session(session)
+
+        with patch(
+            "custom_components.omron.omron_ble.parser.async_sync_device_time",
+            AsyncMock(),
+        ):
+            await data.async_retry_pairing(BLEDevice(ADDRESS, "HEM-7155T", {}))
+
+        assert not released, (
+            "a caller that never parks the session would be handed a link its "
+            "aclose() will not close"
         )
 
-    def test_leaves_the_memory_session_open_for_the_poll(self):
-        """The readout session stays open so the poll can read on the same link."""
-        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_retry_pairing")
+    async def test_closes_the_session_and_reraises_when_pairing_fails(self) -> None:
+        async def refuse():
+            raise ConnectionError("bond refused")
 
-        keywords = [
-            kw
-            for node in ast.walk(fn)
-            if isinstance(node, ast.Call)
-            for kw in node.keywords
-            if kw.arg == "leave_memory_session_open"
-        ]
-        assert keywords, "async_sync_device_time needs leave_memory_session_open"
-        assert any(
-            isinstance(kw.value, ast.Constant) and kw.value.value is True
-            for kw in keywords
-        )
+        session, events = self._pairing_session(pair=refuse)
+        data = self._parser_and_session(session)
 
-    def test_closes_the_session_when_pairing_fails(self):
-        """A failed pairing must drop the link instead of leaking it."""
-        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_retry_pairing")
+        with pytest.raises(ConnectionError, match="bond refused"):
+            await data.async_retry_pairing(BLEDevice(ADDRESS, "HEM-7155T", {}))
 
-        handlers = [
-            node for node in ast.walk(fn) if isinstance(node, ast.ExceptHandler)
-        ]
-        closing = [h for h in handlers if "aclose" in ast.unparse(h)]
-        assert closing, "the failure path must call session.aclose()"
-        assert any(
-            any(isinstance(sub, ast.Raise) for sub in ast.walk(h)) for h in closing
-        ), "the original error must be re-raised after cleanup"
+        assert events[-1] == "aclose"
 
 
 class TestCallSitesHandOffTheSession:
     """Every path that pairs must hand the session to the poll that follows."""
 
-    def test_auto_pairing_hands_off_the_session(self):
-        fn = _find_async_function(_parse("__init__.py"), "_run_advertisement_session")
+    async def test_auto_pairing_hands_off_the_session(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
+        entry = await _setup(hass)
+        paired = _FakeSession()
 
-        assert "run_post_pairing_poll" in _called_names(fn), (
+        with _ble_boundary(hass, entry, paired=paired) as ble:
+            _advertise(entry, _PAIRING_MODE)
+            await _advertisement_session_done(entry)
+
+        assert ble.probe.calls == 1
+        assert ble.probe.parked_at_poll is paired, (
             "dropping the session here makes the follow-up poll reconnect, and "
             "a PER_SESSION cuff refuses that second connect"
         )
+        assert paired.events == ["release"]
+        _parked(hass).pop(ADDRESS, None)
+        await _unload(hass, entry)
 
-    def test_retry_pairing_button_hands_off_the_session(self):
-        fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
-        )
+    async def test_retry_pairing_button_hands_off_the_session_and_seeds_cooldown(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
+        entry = await _setup(hass)
+        runtime = entry.runtime_data
+        runtime.last_attempt_time = 0.0
+        paired = _FakeSession()
 
-        assert "run_post_pairing_poll" in _called_names(fn)
+        with _ble_boundary(hass, entry, paired=paired) as ble:
+            await _press_retry_pairing(hass)
 
-    def test_retry_pairing_button_seeds_the_advert_cooldown(self):
-        """Without this an advert can start an auto-session that takes the BLE
-        lock between pairing and the poll, so the poll skips and the fresh
-        link goes unused. Setup seeds the same cooldown for the same reason."""
-        fn = _find_method(
-            _parse("button.py"), "OmronRetryPairingButtonEntity", "_async_retry_pairing"
-        )
+        assert ble.probe.calls == 1
+        assert ble.probe.parked_at_poll is paired
+        assert ble.probe.lock_held_at_poll is False
+        # Without the seed an advert could start an auto-session that takes the
+        # lock between pairing and the poll, so the poll would skip.
+        assert runtime.last_attempt_time > 0.0
+        _parked(hass).pop(ADDRESS, None)
+        await _unload(hass, entry)
 
-        assert "last_attempt_time" in ast.unparse(fn)
+    async def test_config_flow_parks_the_session_through_the_shared_helper(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
+        paired = _FakeSession()
 
-    def test_config_flow_uses_the_shared_helper(self):
-        """All three paths share one helper so the wiring cannot drift apart."""
-        fn = _find_async_function(_parse("config_flow.py"), "_async_do_pairing")
+        class _FlowSession(_FakeSession):
+            def __init__(self, *args, **kwargs) -> None:
+                super().__init__()
+                self.new_credential = None
 
-        assert "stash_handoff_session" in _called_names(fn)
+            async def connect(self) -> None:
+                self.events.append("connect")
 
-    def test_poll_cleanup_reclaims_ownership_before_closing(self):
+            def __new__(cls, *args, **kwargs):
+                return paired
+
+        paired.new_credential = None
+        paired.connect = AsyncMock()
+        with (
+            patch.object(config_flow, "OmronDeviceSession", _FlowSession),
+            patch.object(config_flow, "async_pair_and_sync_device", AsyncMock()),
+            patch.object(
+                config_flow,
+                "async_ble_device_from_address",
+                return_value=BLEDevice(ADDRESS, "HEM-7155T", {}),
+            ),
+            patch("custom_components.omron.async_poll_data", AsyncMock()),
+        ):
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": SOURCE_BLUETOOTH},
+                data=service_info(
+                    ADDRESS,
+                    name="HEM-7155T",
+                    manufacturer_data={OMRON_MANUFACTURER_ID: bytes([0x01, 0, 0, 0])},
+                ),
+            )
+            while result["type"] is FlowResultType.FORM:
+                step = result["step_id"]
+                user_input = (
+                    {CONF_DEVICE_MODEL: "HEM-7155T"} if step == ("select_model") else {}
+                )
+                if step == "user_aliases":
+                    user_input = {}
+                result = await hass.config_entries.flow.async_configure(
+                    result["flow_id"], user_input=user_input
+                )
+            assert result["type"] is FlowResultType.CREATE_ENTRY
+            await hass.async_block_till_done()
+
+            assert paired.events[:2] == ["connect", "release"] or (
+                "release" in paired.events
+            )
+            assert "release" in paired.events, "ownership is released when parking"
+            assert _parked(hass).get(ADDRESS) is paired
+
+            _parked(hass).pop(ADDRESS, None)
+            (entry,) = hass.config_entries.async_entries(DOMAIN)
+            await hass.config_entries.async_unload(entry.entry_id)
+
+    async def test_poll_cleanup_reclaims_ownership_before_closing(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
         """A handed-off session the poll never adopted only drops on reclaim."""
-        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
+        entry = await _setup(hass)
+        parked = _FakeSession()
+        await stash_handoff_session(hass, ADDRESS, parked)
 
-        assert any(name.endswith("reclaim_ownership") for name in _called_names(fn)), (
-            "aclose() does not disconnect while _owns_connection is False"
-        )
+        @contextlib.asynccontextmanager
+        async def _refuses(*args, **kwargs):
+            raise RuntimeError("telemetry unavailable")
+            yield
 
-    def test_unload_clears_a_parked_session(self):
+        with (
+            patch(
+                "custom_components.omron.async_ble_device_from_address",
+                return_value=BLEDevice(ADDRESS, "HEM-7155T", {}),
+            ),
+            patch("custom_components.omron.omron_poll_ble_telemetry", _refuses),
+        ):
+            with pytest.raises(UpdateFailed):
+                await async_poll_data(hass, entry)
+
+        # aclose() does not disconnect while ownership is released.
+        assert parked.events == ["release", "reclaim", "aclose"]
+        assert ADDRESS not in _parked(hass)
+        await _unload(hass, entry)
+
+    async def test_unload_clears_a_parked_session(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
         """Nothing adopts or closes a parked link once the entry is gone."""
-        fn = _find_async_function(_parse("__init__.py"), "async_unload_entry")
+        entry = await _setup(hass)
+        parked = _FakeSession()
+        await stash_handoff_session(hass, ADDRESS, parked)
 
-        assert "discard_handoff_session" in _called_names(fn), (
-            "a session parked for a poll that never came would keep its BLE "
-            "link past the unload"
-        )
+        await _unload(hass, entry)
+
+        assert parked.events == ["release", "reclaim", "aclose"]
+        assert ADDRESS not in _parked(hass)
 
 
 class TestPostPairingPollIsNotDebounced:
@@ -542,93 +738,125 @@ class TestPostPairingPollIsNotDebounced:
     async_request_refresh() goes through a 10 s debouncer: when a refresh
     fired recently it schedules the poll and returns *without* running it.
     Pressing Refresh Data and then Retry Pairing lands squarely in that
-    window. The forced-transfer path in _run_advertisement_session deliberately uses
-    the debounced call, so this invariant is pinned on the shared helper
-    rather than on the call sites.
+    window.
     """
 
     def test_helper_polls_without_the_debouncer(self):
-        fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
-        calls = _called_names(fn)
+        from custom_components.omron.session_handoff import run_post_pairing_poll
 
-        assert not any(name.endswith("async_request_refresh") for name in calls), (
-            "async_request_refresh() can return before the poll runs, leaving "
-            "the parked session unused. Use async_refresh(), as setup does."
-        )
-        assert any(name.endswith("async_refresh") for name in calls), (
-            "parking the session is only useful if a poll actually runs"
+        ran = []
+
+        class _DebouncedCoordinator:
+            async def async_request_refresh(self) -> None:
+                return  # scheduled for later, nothing ran
+
+            async def async_refresh(self) -> None:
+                ran.append(True)
+
+        asyncio.run(
+            run_post_pairing_poll(
+                _fake_hass(),
+                "AA:BB:CC:DD:EE:FF",
+                _FakeSession(),
+                _DebouncedCoordinator(),
+            )
         )
 
-    def test_helper_does_not_discard_the_session(self):
-        """A normal skipped poll preserves the handoff; only cancellation cleans it."""
-        fn = _find_async_function(_parse("session_handoff.py"), "run_post_pairing_poll")
-
-        assert "discard_handoff_session" in _called_names(fn)
-        cancellation_handler = next(
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.ExceptHandler)
-            and ast.unparse(node.type) == "asyncio.CancelledError"
-        )
-        assert "discard_handoff_session" in ast.unparse(cancellation_handler)
+        assert ran, "the poll must run now, not be left to a debouncer"
 
 
 class TestSkippedPollKeepsTheSessionParked:
     """Bailing out before connecting must not consume the parked session."""
 
-    def test_session_is_adopted_only_inside_the_lock(self):
-        """Adopting at the top of the poll would hand the bail-out paths (no
-        device, session lock held) a link they close without ever using."""
-        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
+    @pytest.mark.parametrize("skip", ["no_device", "lock_held"])
+    async def test_skipped_scheduled_poll_leaves_the_link_parked(
+        self, hass: HomeAssistant, enable_bluetooth: None, skip: str
+    ) -> None:
+        """Adopting at the top of the poll would hand the bail-out paths a link
+        they close without ever using."""
+        entry = await _setup(hass)
+        runtime = entry.runtime_data
+        parked = _FakeSession()
+        await stash_handoff_session(hass, ADDRESS, parked)
+        device = BLEDevice(ADDRESS, "HEM-7155T", {})
+        poll = AsyncMock()
 
-        adopting = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.Call)
-            and ast.unparse(node.func) == "adopt_handoff_session"
-        ]
-        assert adopting, "the poll must take the parked session explicitly"
+        with (
+            patch(
+                "custom_components.omron.async_ble_device_from_address",
+                return_value=None if skip == "no_device" else device,
+            ),
+            patch.object(runtime.device_data, "async_poll", poll),
+        ):
+            if skip == "lock_held":
+                await runtime.session_lock.acquire()
+            try:
+                await async_poll_data(hass, entry)
+            finally:
+                if skip == "lock_held":
+                    runtime.session_lock.release()
 
-        locked_blocks = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.AsyncWith)
-            and any(
-                "session_lock" in ast.unparse(item.context_expr) for item in node.items
-            )
-        ]
-        assert locked_blocks, "expected the poll to run under session_lock"
+        poll.assert_not_awaited()
+        assert _parked(hass).get(ADDRESS) is parked
+        assert "aclose" not in parked.events
+        await _unload(hass, entry)
 
-        inside = {
-            id(call)
-            for block in locked_blocks
-            for call in ast.walk(block)
-            if isinstance(call, ast.Call)
-        }
-        assert all(id(call) in inside for call in adopting), (
-            "adopt_handoff_session() runs before the bail-out guards, so a "
-            "skipped poll closes the pairing link instead of leaving it for "
-            "the retry"
-        )
+    async def test_poll_adopts_the_parked_link_once_it_holds_the_lock(
+        self, hass: HomeAssistant, enable_bluetooth: None
+    ) -> None:
+        entry = await _setup(hass)
+        parked = _FakeSession()
+        await stash_handoff_session(hass, ADDRESS, parked)
+        poll = AsyncMock(return_value=entry.runtime_data.device_data._finish_update())
 
-    def test_stale_handed_off_session_is_closed_not_leaked(self):
+        with (
+            patch(
+                "custom_components.omron.async_ble_device_from_address",
+                return_value=BLEDevice(ADDRESS, "HEM-7155T", {}),
+            ),
+            patch.object(entry.runtime_data.device_data, "async_poll", poll),
+        ):
+            await async_poll_data(hass, entry)
+
+        assert poll.await_args.kwargs["preconnected_session"] is parked
+        assert ADDRESS not in _parked(hass)
+        await _unload(hass, entry)
+
+    async def test_stale_handed_off_session_is_closed_not_leaked(self) -> None:
         """A parked link that dropped must be closed before connecting fresh."""
-        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_poll")
+        from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 
-        adoption = [
-            node
-            for node in ast.walk(fn)
-            if isinstance(node, ast.If)
-            and "preconnected_session" in ast.unparse(node.test)
-            and "is_connected" in ast.unparse(node.test)
-        ]
-        assert adoption, "expected the is_connected guard around adoption"
+        class _Stop(Exception):
+            pass
 
-        fallback = "\n".join(ast.unparse(stmt) for stmt in adoption[0].orelse)
-        assert "aclose" in fallback, (
-            "declining a stale handed-off session without closing it leaves "
-            "the link half-open while the poll opens a second connection"
-        )
-        assert "reclaim_ownership" in fallback, (
-            "aclose() does not disconnect while _owns_connection is False"
-        )
+        class _Fresh:
+            trace = None
+
+            async def __aenter__(self):
+                raise _Stop
+
+            async def __aexit__(self, *exc_info) -> bool:
+                return False
+
+            def publish_link_to(self, trace) -> None:
+                return None
+
+        dropped = _FakeSession(connected=False)
+        dropped._pairing_session = False
+        opened = []
+        data = OmronBluetoothDeviceData(device_model="HEM-7155T")
+
+        def _open(ble_device, pairing_session=False):
+            opened.append(pairing_session)
+            return _Fresh()
+
+        data._open_session = _open
+
+        with pytest.raises(_Stop):
+            await data.async_poll(
+                BLEDevice(ADDRESS, "HEM-7155T", {}), preconnected_session=dropped
+            )
+
+        # aclose() does not disconnect while ownership is released.
+        assert dropped.events == ["reclaim", "aclose"]
+        assert opened == [False], "a fresh connection replaces the dropped link"

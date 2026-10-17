@@ -6,96 +6,86 @@ bleak 의 BlueZ 백엔드는 read/write/notify D-Bus 호출에 타임아웃을 �
 Refresh Data / 광고 트리거가 "lock held" 로 조용히 빠져나간다. 로그도 안 남고
 HA 재시작 전까지 통합이 죽는다.
 
-이를 막는 두 불변조건을 소스 구조 수준에서 고정한다:
+이를 막는 두 불변조건을 실제 코드를 돌려 고정한다:
 
-1. async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싼다.
+1. async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싼다
+   (``test_entry_lifecycle_behavior.py`` 의 ``test_poll_has_a_deadline_*`` 가
+   실제 설정 항목으로 검증한다).
 2. async_poll 의 예외 핸들러는 CancelledError 를 삼키지 않는다. asyncio.timeout
    은 마감 시각에 태스크를 딱 한 번만 취소하므로, 그 CancelledError 를 삼키면
    루프가 다음 무경계 대기로 넘어가고 다시 발동할 데드라인이 남지 않는다.
 """
 
-import ast
-from pathlib import Path
+from __future__ import annotations
 
-_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
+import asyncio
 
-
-def _parse(relative_path: str) -> ast.Module:
-    return ast.parse((_COMPONENT / relative_path).read_text(encoding="utf-8"))
-
-
-def _find_async_function(tree: ast.AST, name: str) -> ast.AsyncFunctionDef:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == name:
-            return node
-    raise AssertionError(
-        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 함께 갱신할 것"
-    )
+from poll_fakes import (
+    FakeSession,
+    Hang,
+    ble_device,
+    parser_with_session,
+    raising,
+)
 
 
-def _caught_names(handler: ast.ExceptHandler) -> list[str]:
-    if handler.type is None:
-        return ["<bare except>"]
-    caught = (
-        handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-    )
-    return [ast.unparse(node) for node in caught]
+def test_poll_timeout_constant_is_positive():
+    from custom_components.omron import POLL_TIMEOUT_SECONDS
+
+    assert POLL_TIMEOUT_SECONDS > 0
 
 
-class TestPollDeadline:
-    """예약 폴은 반드시 유한 시간 안에 session_lock 을 돌려줘야 한다."""
-
-    def test_poll_timeout_constant_is_positive(self):
-        tree = _parse("__init__.py")
-        assignments = [
-            node.value
-            for node in tree.body
-            if isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name) and target.id == "POLL_TIMEOUT_SECONDS"
-                for target in node.targets
-            )
-        ]
-        assert assignments, "POLL_TIMEOUT_SECONDS 상수가 모듈 최상단에 있어야 한다"
-        value = assignments[0]
-        if isinstance(value, ast.Name) and value.id == "BLE_SESSION_TIMEOUT_SECONDS":
-            const_tree = _parse("const.py")
-            value = next(
-                node.value
-                for node in const_tree.body
-                if isinstance(node, ast.AnnAssign)
-                and isinstance(node.target, ast.Name)
-                and node.target.id == value.id
-            )
-        assert ast.literal_eval(value) > 0
+async def _cancel_and_expect_it_to_escape(data, hang: Hang) -> None:
+    task = asyncio.create_task(data.async_poll(ble_device()))
+    async with asyncio.timeout(5):
+        await hang.started.wait()
+    task.cancel()
+    done, _pending = await asyncio.wait([task], timeout=2)
+    if not done:
+        hang.release()
+        task.cancel()
+        await asyncio.wait([task], timeout=1)
+        raise AssertionError(
+            f"async_poll swallowed the deadline's cancellation and went on to "
+            f"another wait ({hang.starts} starts)"
+        )
+    assert task.cancelled()
 
 
 class TestCancellationEscapesPoll:
     """데드라인이 보낸 취소는 async_poll 밖으로 빠져나가야 한다."""
 
-    def test_async_poll_does_not_swallow_cancellation(self):
-        fn = _find_async_function(_parse("omron_ble/parser.py"), "async_poll")
+    async def test_during_the_service_check(self):
+        hang = Hang()
+        session = FakeSession(has_service=hang)
+        await _cancel_and_expect_it_to_escape(parser_with_session(session), hang)
 
-        swallowed: list[str] = []
-        for node in ast.walk(fn):
-            if not isinstance(node, ast.ExceptHandler):
-                continue
-            # 다시 raise 하는 핸들러는 취소가 그대로 전파되므로 문제없다.
-            if any(isinstance(stmt, ast.Raise) for stmt in ast.walk(node)):
-                continue
-            swallowed += [
-                name
-                for name in _caught_names(node)
-                if name
-                in (
-                    "BaseException",
-                    "<bare except>",
-                    "CancelledError",
-                    "asyncio.CancelledError",
-                )
-            ]
+    async def test_during_a_memory_session_open_attempt(self, monkeypatch):
+        """The retry loop must not take the cancellation for a failed attempt."""
+        from custom_components.omron.omron_ble import parser as parser_module
 
-        assert not swallowed, (
-            f"async_poll 이 {swallowed} 을(를) 삼키고 계속 진행한다. "
-            "CancelledError 를 삼키면 폴 데드라인이 무력화된다 — Exception 으로 좁힐 것."
-        )
+        real_sleep = asyncio.sleep
+
+        async def fast_sleep(_delay):
+            await real_sleep(0)
+
+        monkeypatch.setattr(parser_module.asyncio, "sleep", fast_sleep)
+        hang = Hang()
+        session = FakeSession(unlock_steps=[hang])
+        await _cancel_and_expect_it_to_escape(parser_with_session(session), hang)
+        assert session.unlock_calls == 1
+
+    async def test_during_the_fallback_readout(self, monkeypatch):
+        from custom_components.omron.omron_ble import parser as parser_module
+
+        real_sleep = asyncio.sleep
+
+        async def fast_sleep(_delay):
+            await real_sleep(0)
+
+        monkeypatch.setattr(parser_module.asyncio, "sleep", fast_sleep)
+        hang = Hang()
+        steps = [raising(OSError("open failed"))] * 3 + [hang]
+        session = FakeSession(unlock_steps=steps)
+        await _cancel_and_expect_it_to_escape(parser_with_session(session), hang)
+        assert session.unlock_calls == 4

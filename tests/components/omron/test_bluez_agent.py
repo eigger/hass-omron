@@ -7,17 +7,17 @@ PEP 563 으로 인해 어노테이션이 문자열화되어
 크래시가 발생하므로, 모듈 분리 및 어노테이션 보존 불변조건을 검증한다.
 """
 
-import ast
 import asyncio
 import logging
-from pathlib import Path
 import sys
 import pytest
 
 
 def test_bluez_agent_interface_builds():
     """dbus_fast 는 어노테이션에서 시그니처를 만든다 — 이 모듈에
-    from __future__ import annotations 가 들어가면 임포트/클래스 생성 시점에 깨진다."""
+    from __future__ import annotations 가 들어가면 임포트/클래스 생성 시점에 깨진다.
+
+    소스를 읽는 대신 실제 클래스를 만들어 그 불변조건을 검증한다."""
     pytest.importorskip("dbus_fast")
     from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
 
@@ -39,25 +39,6 @@ def test_bluez_agent_interface_builds():
         "Cancel",
     }
     assert expected_methods.issubset(method_names)
-
-
-def test_bluez_agent_no_future_annotations():
-    """bluez_agent.py 에는 from __future__ import annotations 가 포함되지 않아야 한다."""
-    agent_file = (
-        Path(__file__).resolve().parents[3]
-        / "custom_components"
-        / "omron"
-        / "omron_ble"
-        / "bluez_agent.py"
-    )
-    tree = ast.parse(agent_file.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module == "__future__":
-            for alias in node.names:
-                assert alias.name != "annotations", (
-                    "bluez_agent.py 에 from __future__ import annotations 가 포함되면 안 됩니다. "
-                    "dbus_fast 의 런타임 시그니처 분석이 깨집니다."
-                )
 
 
 def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, caplog):

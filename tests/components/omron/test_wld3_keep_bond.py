@@ -7,10 +7,38 @@
 이슈 #91 의 BP5465 폰 HCI 캐처에서 공식 앱은 평상 동기화에서
 페어링을 전혀 하지 않는다 — 커프가 연결 후 ~53ms 에 SMP Security
 Request 를 올리고, 폰은 이미 들고 있는 본드로 암호화를 재개한다.
+
+연결 경로는 실제 ``establish_connection_with_bond_settle`` /
+``OmronDeviceSession`` 을, 설정 플로우는 실제 HA 플로우 매니저를 구동하고
+BLE 경계(``establish_connection``, GATT 세션)만 대체한다.
 """
 
-import pytest
+from __future__ import annotations
 
+import asyncio
+import dataclasses
+import logging
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+from bleak.backends.device import BLEDevice
+from bleak.exc import BleakError
+from homeassistant.config_entries import SOURCE_BLUETOOTH, ConfigEntryState
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+import custom_components.omron.config_flow as config_flow
+from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from custom_components.omron.omron_ble import (
+    connection,
+    pairing,
+    parser,
+    session as session_module,
+)
+from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )
@@ -19,6 +47,15 @@ from custom_components.omron.omron_ble.devices import (
     get_device_config,
     resolve_profile_model_id,
 )
+from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.session_handoff import stash_probe_session
+
+from bt import service_info
+
+ADDRESS = "AA:BB:CC:DD:EE:33"
+_BLUEZ_DETAILS = {"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_33"}
+_PROXY_DETAILS = {"source": "proxy-1"}
+_QUIET_MSD = bytes([0x01, 0x00, 0x00, 0x00])
 
 
 def test_reporter_device_maps_to_the_profile_under_test():
@@ -56,24 +93,6 @@ def test_both_families_are_on_the_confirmed_bond_settings():
         if config.connect_type not in (ConnectType.WLD3_0, ConnectType.WLD4_0):
             continue
         assert config.keep_notify_subscriptions is True, name
-        assert config.keep_notify_subscriptions is True, name
-
-
-def test_connect_logs_the_path_that_owns_the_bond():
-    """본드를 유지하면 "어느 라디오가 그걸 갖고 있나" 가 진단의 핵심이 된다.
-
-    habluetooth 는 연결마다 점수로 프록시를 고른다. 본딩한 세션과 재연결하는
-    세션이 다른 라디오에 안착하면, 유지한 본드는 있으나 마나다.
-    """
-    import pathlib
-
-    source = pathlib.Path("custom_components/omron/omron_ble/connection.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "def _connected_path" in source
-    assert "advertised by source=%s, connected via " in source
-    assert "connected via" in source
 
 
 def test_driver_module_has_no_undefined_names():
@@ -91,77 +110,6 @@ def test_driver_module_has_no_undefined_names():
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_connect_time_bonding_is_fenced_to_a_local_adapter_and_the_pairing_session():
-    """연결 시점 본딩은 돌아왔지만, #142 가 막으려던 것은 그대로 막아야 한다.
-
-    ESP-IDF 의 ``btc_dm_ble_auth_cmpl_evt`` 는 SMP_CONN_TOUT(102) 을 default
-    분기로 흘려 ``btc_dm_remove_ble_bonding_keys()`` 를 부른다. 프록시에서
-    완료되지 않은 pair 요청 하나가 저장된 본드를 영구히 날린다. 그리고 2.8.3 이
-    이 플래그를 달고도 ESP 에서 실패했으니, 거기서는 얻는 것도 없었다.
-
-    반대로 재접속 본드가 유지된 유일한 실행(2.7.8-beta.15, 로컬 BlueZ)은 연결
-    시점에, 디스커버리보다 먼저 본딩했다.
-
-    그래서 세 가지 울타리를 친다: 로컬 어댑터일 때만, 본드를 만드는 세션에서만,
-    그리고 실패하면 평범한 연결로 물러난다.
-    """
-    import inspect
-
-    from custom_components.omron.omron_ble.connection import (
-        establish_connection_with_bond_settle,
-    )
-
-    source = inspect.getsource(establish_connection_with_bond_settle)
-    assert "is_local_adapter" in source, (
-        "로컬 어댑터 여부를 확인하지 않는다 — 프록시에서 pair 요청이 나가면 "
-        "본드를 잃는다"
-    )
-    assert "pair=True" in source, "연결 시점 본딩 경로가 없다"
-    assert source.count("establish_connection(BleakClient") >= 2, (
-        "연결 시점 본딩이 실패했을 때 물러날 경로가 없다"
-    )
-    assert "_bluez_pairing_agent" in source, (
-        "agent 없이 Device1.Pair() 를 부르면 BlueZ 5.72+ 는 Just Works 확인을 "
-        "응답하지 않고 AuthenticationFailed 로 떨어진다 — 그러면 폴백이 타서 "
-        "디스커버리 뒤 pair() 와 구분되지 않는다"
-    )
-    assert "TimeoutError" in source, (
-        "bleak_retry_connector 가 소진 후 던지는 TimeoutError 에 폴백이 없다"
-    )
-    assert "pair_this_attempt = False" in source, (
-        "거절이 매 시도마다 반복된다 — 한 번 거절되면 남은 시도는 평범한 연결이어야 한다"
-    )
-
-
-def test_a_second_bonding_is_skipped_only_when_the_connect_actually_bonded():
-    """플래그가 아니라 결과로 판단해야 한다 — 폴백이 탄 뒤에도 본드는 만들어져야."""
-    import inspect
-
-    from custom_components.omron.omron_ble.session import OmronDeviceSession
-
-    source = inspect.getsource(OmronDeviceSession.pair)
-    assert "_omron_bonded_at_connect" in source, (
-        "connect 가 실제로 본딩했는지 보지 않는다 — 같은 링크에서 두 번 본딩하면 "
-        "방금 만든 키를 돌린다"
-    )
-    assert "pair_on_connect" not in source, (
-        "프로파일 플래그로 건너뛰면 폴백이 탄 뒤에도 건너뛰어 본드가 없이 끝난다"
-    )
-
-
-def test_only_the_pairing_session_bonds_at_connect():
-    """재접속이 pair 요청을 보내면 안 된다 — 그게 프록시에서 본드를 날린 경로다."""
-    import inspect
-
-    from custom_components.omron.omron_ble.session import OmronDeviceSession
-
-    # Whitespace-normalised so the check survives code formatting (line wraps).
-    source = " ".join(inspect.getsource(OmronDeviceSession.connect).split())
-    assert "self._pairing_session and self._config.pair_on_connect" in source, (
-        "페어링 세션 여부로 걸러내지 않는다"
-    )
-
-
 def test_only_os_bonding_profiles_bond_at_connect():
     """커스텀 키 프로파일은 OS 본드를 만들지 않는다."""
     assert get_device_config("HEM-7386T1").pair_on_connect is True
@@ -173,71 +121,6 @@ def test_one_poll_is_one_connection_attempt_on_the_profile_under_test():
     assert get_device_config("HEM-7386T1").connect_settle_attempts == 1
     # 다른 프로필의 기존 동작은 그대로.
     assert get_device_config("HEM-7376T1").connect_settle_attempts == 3
-
-
-def test_pairing_flows_are_the_ones_marked_as_pairing_sessions():
-    """플래그를 안 넘기면 config flow 도 조용히 폴처럼 붙는다."""
-    import pathlib
-
-    flow = pathlib.Path("custom_components/omron/config_flow.py").read_text(
-        encoding="utf-8"
-    )
-    parser = pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert "OmronDeviceSession(ble_device, config, pairing_session=True)" in flow
-    # async_retry_pairing 도 본드를 만드는 자리다.
-    assert "pairing_session=True" in parser
-
-
-def test_the_model_probe_can_hand_its_link_to_pairing():
-    """모델 조회 연결이 본드를 맺는 자리다 — 거기서 끊으면 키 배포가 잘린다.
-
-    이슈 #91 의 프록시 트레이스: 커프의 Encryption Information(LTK) 은 도착했고
-    EDIV/Rand 를 담은 Master Identification 은 오지 않은 채, SMP 가
-    ``BOND_PENDING`` 인 상태에서 우리가 링크를 끊었다. LE legacy 는 나중에
-    암호화를 재개하려면 셋이 다 필요하므로, 저장된 본드는 못 쓰는 물건이 되고
-    첫 폴이 ``SMP_ENC_FAIL``(97) 로 떨어진다.
-    """
-    import inspect
-    import pathlib
-
-    from custom_components.omron.omron_ble.pairing import (
-        async_fetch_device_model_number,
-    )
-
-    sig = inspect.signature(async_fetch_device_model_number)
-    assert "keep_session_open" in sig.parameters
-
-    flow = pathlib.Path("custom_components/omron/config_flow.py").read_text(
-        encoding="utf-8"
-    )
-    # 조회 단계는 링크를 세워두고,
-    assert "keep_session_open=True" in flow
-    assert "stash_probe_session(" in flow
-    # 페어링 단계는 그 링크를 이어받는다.
-    assert "take_probe_session(" in flow
-
-
-def test_an_adopted_link_can_be_marked_as_the_pairing_session():
-    """adopt() 는 __init__ 을 우회한다 — 플래그를 손으로 안 넣으면 폴처럼 붙는다."""
-    import inspect
-
-    from custom_components.omron.omron_ble.session import OmronDeviceSession
-
-    sig = inspect.signature(OmronDeviceSession.adopt)
-    assert sig.parameters["pairing_session"].default is False
-
-
-def test_a_parked_probe_link_is_closed_when_the_entry_unloads():
-    """아무도 이어받지 않은 링크가 언로드 뒤까지 살아 있으면 슬롯을 잡아먹는다."""
-    import pathlib
-
-    init = pathlib.Path("custom_components/omron/__init__.py").read_text(
-        encoding="utf-8"
-    )
-    assert "discard_probe_session(hass, runtime.address)" in init
 
 
 def test_the_single_attempt_throttle_did_not_spread():
@@ -262,110 +145,530 @@ def test_the_two_profiles_under_test_stay_comparable():
         assert getattr(a, field) == getattr(b, field), field
 
 
-def test_the_bonding_result_is_scoped_to_the_connection_it_describes():
+# --- 연결 경로 (establish_connection_with_bond_settle) -------------------------
+
+
+class _Link:
+    """BleakClient 대역. ``alive`` 는 settle 이 끝난 뒤의 연결 상태를 정한다."""
+
+    def __init__(self, *, alive: bool = True) -> None:
+        self.is_connected = alive
+        self.disconnects = 0
+
+    async def disconnect(self) -> None:
+        self.disconnects += 1
+
+
+class _Connector:
+    """``establish_connection`` 대역: 호출마다 미리 정한 결과를 낸다."""
+
+    def __init__(self, *outcomes) -> None:
+        self._outcomes = list(outcomes)
+        self.calls: list[dict] = []
+
+    async def __call__(self, client_class, ble_device, name, **kwargs):
+        self.calls.append(kwargs)
+        outcome = self._outcomes.pop(0) if self._outcomes else _Link()
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    @property
+    def paired_calls(self) -> int:
+        return sum(1 for kwargs in self.calls if kwargs.get("pair"))
+
+
+@pytest.fixture
+def agent_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """``_bluez_pairing_agent`` 가 열리고 닫힌 기록."""
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def _agent():
+        events.append("enter")
+        try:
+            yield object()
+        finally:
+            events.append("exit")
+
+    monkeypatch.setattr(connection, "_bluez_pairing_agent", _agent)
+    monkeypatch.setattr(connection, "_POST_CONNECT_BOND_SETTLE_SEC", 0)
+    monkeypatch.setattr(connection, "_SETTLE_POLL_STEP_SEC", 0.001)
+    return events
+
+
+def _connect(monkeypatch, connector, *, details, **kwargs):
+    monkeypatch.setattr(connection, "establish_connection", connector)
+    device = BLEDevice(address=ADDRESS, name="BLESmart", details=details)
+    return connection.establish_connection_with_bond_settle(
+        device, ADDRESS, model="HEM-7386T1", **kwargs
+    )
+
+
+async def test_connect_logs_the_path_that_owns_the_bond(monkeypatch, agent_log, caplog):
+    """본드를 유지하면 "어느 라디오가 그걸 갖고 있나" 가 진단의 핵심이 된다.
+
+    habluetooth 는 연결마다 점수로 프록시를 고른다. 본딩한 세션과 재연결하는
+    세션이 다른 라디오에 안착하면, 유지한 본드는 있으나 마나다.
+    """
+    link = _Link()
+    link._backend = SimpleNamespace(_device_path=_BLUEZ_DETAILS["path"])
+    connector = _Connector(link)
+    details = {"source": "scanner-A"}
+
+    with caplog.at_level(logging.DEBUG, logger=connection.__name__):
+        await _connect(monkeypatch, connector, details=details)
+
+    established = [r.getMessage() for r in caplog.records if "established" in r.message]
+    assert established, "연결 로그가 없다"
+    line = established[0]
+    assert "advertised by source=scanner-A" in line
+    assert f"connected via {_BLUEZ_DETAILS['path']}" in line
+
+
+async def test_connect_time_bonding_runs_on_a_local_adapter_inside_an_agent(
+    monkeypatch, agent_log
+):
+    """연결 시점 본딩은 로컬 어댑터에서 agent 와 함께, 디스커버리 전에 나간다.
+
+    agent 없이 Device1.Pair() 를 부르면 BlueZ 5.72+ 는 Just Works 확인을
+    응답하지 않고 AuthenticationFailed 로 떨어진다.
+    """
+    link = _Link()
+    connector = _Connector(link)
+    info: dict = {}
+
+    client = await _connect(
+        monkeypatch,
+        connector,
+        details=_BLUEZ_DETAILS,
+        pair_on_connect=True,
+        link_info=info,
+    )
+
+    assert client is link
+    assert connector.calls == [{"pair": True}]
+    assert agent_log == ["enter", "exit"]
+    assert client._omron_bonded_at_connect is True
+    assert info["bonded_at_connect"] is True
+
+
+async def test_connect_time_bonding_is_never_sent_over_a_proxy(monkeypatch, agent_log):
+    """프록시에서 완료되지 않은 pair 요청 하나가 저장된 본드를 영구히 날린다 (#142)."""
+    connector = _Connector(_Link())
+
+    client = await _connect(
+        monkeypatch, connector, details=_PROXY_DETAILS, pair_on_connect=True
+    )
+
+    assert connector.calls == [{}]
+    assert agent_log == []
+    assert client._omron_bonded_at_connect is False
+
+
+async def test_a_session_that_does_not_ask_never_bonds_at_connect(
+    monkeypatch, agent_log
+):
+    connector = _Connector(_Link())
+
+    await _connect(monkeypatch, connector, details=_BLUEZ_DETAILS)
+
+    assert connector.paired_calls == 0
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        BleakError("AuthenticationFailed"),
+        TimeoutError("connect"),
+        asyncio.TimeoutError(),
+    ],
+    ids=["bleak-error", "timeout-error", "asyncio-timeout"],
+)
+async def test_a_refused_connect_time_bond_falls_back_to_a_plain_connect(
+    monkeypatch, agent_log, refusal
+):
+    """bleak_retry_connector 는 소진 후 TimeoutError 를 던진다 — 그것도 물러나야 한다."""
+    link = _Link()
+    connector = _Connector(refusal, link)
+
+    client = await _connect(
+        monkeypatch, connector, details=_BLUEZ_DETAILS, pair_on_connect=True
+    )
+
+    assert client is link
+    assert connector.calls == [{"pair": True}, {}]
+    assert client._omron_bonded_at_connect is False
+
+
+async def test_a_refusal_is_not_repeated_on_the_remaining_attempts(
+    monkeypatch, agent_log
+):
+    """한 번 거절되면 남은 시도는 평범한 연결이어야 한다."""
+    connector = _Connector(
+        BleakError("AuthenticationFailed"),  # pair=True 거절
+        _Link(alive=False),  # 폴백 연결이 settle 중 끊김
+        _Link(),  # 2차 시도
+    )
+
+    await _connect(
+        monkeypatch,
+        connector,
+        details=_BLUEZ_DETAILS,
+        pair_on_connect=True,
+        max_attempts=2,
+    )
+
+    assert connector.paired_calls == 1
+    assert connector.calls == [{"pair": True}, {}, {}]
+
+
+async def test_the_bonding_result_is_scoped_to_the_connection_it_describes(
+    monkeypatch, agent_log
+):
     """settle 중 끊기고 재시도하면, 앞 시도의 결과가 남아 있으면 안 된다.
 
     1차에서 pair=True 가 성공하고 settle 중 링크가 끊긴 뒤 2차가 폴백하면,
     이번 연결은 본딩하지 않았는데 pair() 가 건너뛴다 — 본드 없이 끝난다.
-    connect_settle_attempts 가 1 인 프로파일은 해당 없지만, 3 인 OS 본딩
-    프로파일에서는 실재한다.
     """
-    import ast
-    import inspect
+    second = _Link()
+    connector = _Connector(
+        _Link(alive=False),  # 1차: 본딩 성공, settle 중 끊김
+        BleakError("AuthenticationFailed"),  # 2차: pair=True 거절
+        second,  # 2차 폴백
+    )
+    info: dict = {}
 
-    from custom_components.omron.omron_ble.connection import (
-        establish_connection_with_bond_settle,
+    client = await _connect(
+        monkeypatch,
+        connector,
+        details=_BLUEZ_DETAILS,
+        pair_on_connect=True,
+        max_attempts=2,
+        link_info=info,
     )
 
-    tree = ast.parse(inspect.getsource(establish_connection_with_bond_settle).lstrip())
-    fn = tree.body[0]
-    loop = next(node for node in ast.walk(fn) if isinstance(node, ast.For))
+    assert client is second
+    assert client._omron_bonded_at_connect is False
+    assert info["bonded_at_connect"] is False
 
-    def _assigned(scope) -> set[str]:
-        names = set()
-        for node in ast.walk(scope):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        names.add(target.id)
-        return names
 
-    stashed = "bonded_this_client"
-    assert stashed in _assigned(loop), (
-        f"{stashed} 가 루프 안에서 초기화되지 않는다 — 앞 시도의 결과가 "
-        "다음 연결에 딸려간다"
+# --- 세션 -----------------------------------------------------------------------
+
+
+def _session(model: str, *, pairing_session: bool, client=None) -> OmronDeviceSession:
+    device = BLEDevice(address=ADDRESS, name="BLESmart", details=_BLUEZ_DETAILS)
+    target = OmronDeviceSession(
+        device, get_device_config(model), pairing_session=pairing_session
     )
-    before_loop = ast.Module(
-        body=[node for node in fn.body if node is not loop], type_ignores=[]
+    target._client = client
+    return target
+
+
+@pytest.mark.parametrize(
+    ("pairing_session", "model", "expected"),
+    [
+        (True, "HEM-7386T1", True),
+        # 재접속이 pair 요청을 보내면 안 된다 — 그게 프록시에서 본드를 날린 경로다.
+        (False, "HEM-7386T1", False),
+        # 커스텀 키 프로파일은 OS 본드를 만들지 않는다.
+        (True, "HEM-7155T", False),
+    ],
+)
+async def test_only_the_pairing_session_bonds_at_connect(
+    monkeypatch, pairing_session, model, expected
+):
+    seen: dict = {}
+
+    async def _establish(ble_device, name, **kwargs):
+        seen.update(kwargs)
+        return _Link()
+
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", _establish
     )
-    assert stashed not in _assigned(before_loop), (
-        f"{stashed} 를 루프 밖에서도 대입한다 — 시도별 결과가 아니게 된다"
+    target = _session(model, pairing_session=pairing_session)
+
+    await target.connect()
+
+    assert seen["pair_on_connect"] is expected
+
+
+@pytest.mark.parametrize(
+    ("bonded_at_connect", "expect_bonding"), [(True, False), (False, True)]
+)
+async def test_a_second_bonding_is_skipped_only_when_the_connect_actually_bonded(
+    monkeypatch, bonded_at_connect, expect_bonding
+):
+    """플래그가 아니라 결과로 판단해야 한다 — 폴백이 탄 뒤에도 본드는 만들어져야."""
+    calls: list[str] = []
+
+    async def _bond(self) -> None:
+        calls.append("bond")
+
+    monkeypatch.setattr(OmronDeviceSession, "_pair_os_bonding", _bond)
+    client = _Link()
+    client._omron_bonded_at_connect = bonded_at_connect
+    # pair_on_connect 가 켜진 프로필이다: 프로파일 플래그로 판단하면 둘 다 건너뛴다.
+    target = _session("HEM-7386T1", pairing_session=True, client=client)
+    assert target.config.pair_on_connect is True
+
+    await target.pair()
+
+    assert (calls == ["bond"]) is expect_bonding
+
+
+async def test_the_token_unlock_asks_for_what_the_profile_wants(monkeypatch):
+    """unlock() 이 프로필 값을 그대로 넘겨야 한다 — 기본값이면 아무것도 안 바뀐다."""
+    seen: list[bool] = []
+
+    async def _token_unlock(target, *, keep_notify: bool = False) -> None:
+        seen.append(keep_notify)
+
+    monkeypatch.setattr(session_module, "_token_unlock", _token_unlock)
+    base = get_device_config("HEM-7386T1")
+    assert base.unlock_mode is session_module.UnlockMode.TOKEN_KEY
+    for keep in (True, False):
+        target = _session("HEM-7386T1", pairing_session=False, client=_Link())
+        target._config = dataclasses.replace(base, keep_notify_subscriptions=keep)
+        await target.unlock()
+        assert seen[-1] is keep
+
+
+def test_an_adopted_link_can_be_marked_as_the_pairing_session():
+    """adopt() 는 __init__ 을 우회한다 — 플래그를 손으로 안 넣으면 폴처럼 붙는다."""
+    config = get_device_config("HEM-7386T1")
+
+    assert OmronDeviceSession.adopt(_Link(), config)._pairing_session is False
+    assert (
+        OmronDeviceSession.adopt(_Link(), config, pairing_session=True)._pairing_session
+        is True
     )
 
 
-def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect():
+# --- 모델 조회 링크 ------------------------------------------------------------------
+
+
+class _ProbeSession:
+    """``async_fetch_device_model_number`` 가 여는 세션의 대역."""
+
+    instances: list[_ProbeSession] = []
+
+    def __init__(self, ble_device, config) -> None:
+        self.closed = 0
+        _ProbeSession.instances.append(self)
+
+    async def connect(self):
+        return self
+
+    async def read_model_number(self) -> str:
+        return "HEM-7191T1"
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+async def test_the_model_probe_can_hand_its_link_to_pairing(monkeypatch):
+    """모델 조회 연결이 본드를 맺는 자리다 — 거기서 끊으면 키 배포가 잘린다.
+
+    이슈 #91 의 프록시 트레이스: 커프의 Encryption Information(LTK) 은 도착했고
+    EDIV/Rand 를 담은 Master Identification 은 오지 않은 채, SMP 가
+    ``BOND_PENDING`` 인 상태에서 우리가 링크를 끊었다. LE legacy 는 나중에
+    암호화를 재개하려면 셋이 다 필요하므로, 저장된 본드는 못 쓰는 물건이 되고
+    첫 폴이 ``SMP_ENC_FAIL``(97) 로 떨어진다.
+    """
+    monkeypatch.setattr(pairing, "OmronDeviceSession", _ProbeSession)
+    _ProbeSession.instances = []
+    device = BLEDevice(address=ADDRESS, name="BLESmart", details={})
+
+    model, kept = await pairing.async_fetch_device_model_number(
+        device, keep_session_open=True
+    )
+    assert model == "HEM-7191T1"
+    assert kept is _ProbeSession.instances[0]
+    assert kept.closed == 0, "링크를 넘긴다면서 닫았다"
+
+    model, kept = await pairing.async_fetch_device_model_number(device)
+    assert kept is None
+    assert _ProbeSession.instances[1].closed == 1
+
+
+# --- 설정 플로우 -----------------------------------------------------------------------
+
+
+class _ProbeLink:
+    """모델 조회가 열어 둔 링크: 실제 세션으로 감싼 연결된 클라이언트."""
+
+    def __init__(self) -> None:
+        self.client = _Link()
+        self.session = OmronDeviceSession.adopt(
+            self.client, get_device_config("HEM-7600T")
+        )
+        self.closed = 0
+
+        async def _aclose() -> None:
+            self.closed += 1
+
+        self.session.aclose = _aclose  # type: ignore[method-assign]
+
+
+async def _pair_through_the_flow(
+    hass: HomeAssistant,
+    monkeypatch: pytest.MonkeyPatch,
+    model: str,
+    *,
+    details: dict,
+    probe: _ProbeLink,
+) -> list[OmronDeviceSession]:
+    """실제 플로우 매니저로 페어링 단계까지 가서 ``async_pair_and_sync_device`` 가 받은 세션을 돌려준다."""
+    paired: list[OmronDeviceSession] = []
+
+    def _device(hass, address, *args, **kwargs):
+        return BLEDevice(address=address, name="BLESmart_0000123", details=details)
+
+    async def _fetch(ble_device, *, keep_session_open: bool = False):
+        assert keep_session_open, "페어링이 이어받을 수 있게 링크를 열어 둬야 한다"
+        return "HEM-7600T", probe.session
+
+    async def _pair(session, model, **kwargs) -> None:
+        paired.append(session)
+
+    async def _connect(self):
+        if self._client is None:
+            self._client = _Link()
+        return self
+
+    monkeypatch.setattr(config_flow, "async_ble_device_from_address", _device)
+    monkeypatch.setattr(config_flow, "async_fetch_device_model_number", _fetch)
+    monkeypatch.setattr(config_flow, "async_pair_and_sync_device", _pair)
+    monkeypatch.setattr(OmronDeviceSession, "connect", _connect)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_BLUETOOTH},
+        data=service_info(
+            ADDRESS,
+            name="BLESmart_0000123",
+            manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD},
+        ),
+    )
+    if result["step_id"] == "bluetooth_confirm":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+    assert result["step_id"].startswith("select_model")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], user_input={CONF_DEVICE_MODEL: model}
+    )
+    assert result["type"] is FlowResultType.FORM, result
+    assert result["step_id"] in ("pairing", "pairing_os")
+    with (
+        patch("custom_components.omron.async_setup_entry", return_value=True),
+        patch("custom_components.omron.async_unload_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+        await hass.async_block_till_done()
+        assert result["type"] is FlowResultType.CREATE_ENTRY, result
+        await hass.config_entries.async_remove(result["result"].entry_id)
+    return paired
+
+
+async def test_the_pairing_flow_continues_on_the_probe_link_and_marks_it_a_pairing_session(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """프로필이 연결 시점에 본딩하지 않으면 조회 링크를 이어받아 페어링한다.
+
+    플래그를 안 넘기면 설정 플로우도 조용히 폴처럼 붙는다.
+    """
+    probe = _ProbeLink()
+
+    paired = await _pair_through_the_flow(
+        hass, monkeypatch, "HEM-7600T", details=_BLUEZ_DETAILS, probe=probe
+    )
+
+    [session] = paired
+    assert session.client is probe.client, "조회 링크를 이어받지 않았다"
+    assert session._pairing_session is True
+    assert probe.closed == 0
+
+
+async def test_the_probe_link_is_not_adopted_when_the_profile_bonds_at_connect(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """프로브 링크를 이어받으면 connect-time 본딩이 조용히 건너뛰어진다 (#24, #92).
 
     프로브는 모델을 모르는 상태에서 링크를 열었으니 본딩할 수 없었고, 이미
     디스커버리를 끝낸 링크는 "디스커버리보다 먼저" 본딩할 수 없다. 그대로
-    adopt 하면 connect() 가 즉시 반환해 pair=True 가 나가지 않는다 — 이 경로를
-    검증하려는 제보자들에게 아무 동작도 하지 않게 된다.
-
-    재접속 본드가 유지된 유일한 실행(2.7.8-beta.15)도 프로브 링크가 아니라 새
-    연결이었다.
+    adopt 하면 connect() 가 즉시 반환해 pair=True 가 나가지 않는다.
     """
-    import ast
-    from pathlib import Path
+    probe = _ProbeLink()
 
-    # conftest 가 voluptuous 를 채우지 않으므로 import 하지 않고 파일로 읽는다.
-    source = (
-        Path(__file__).resolve().parents[3]
-        / "custom_components"
-        / "omron"
-        / "config_flow.py"
-    ).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-
-    assert any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "adopt"
-        for node in ast.walk(tree)
-    ), "프로브 링크를 adopt 하는 곳이 없다 — 테스트가 낡았다"
-
-    discards = [
-        ast.unparse(node.test)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.If)
-        and any(
-            isinstance(call, ast.Call)
-            and getattr(call.func, "id", None) == "close_probe_session"
-            for call in ast.walk(node)
-        )
-    ]
-    assert discards, (
-        "프로브 링크를 버리는 분기가 없다 — 이어받으면 connect-time 본딩이 "
-        "조용히 건너뛰어진다"
-    )
-    guard = discards[0]
-    assert "pair_on_connect" in guard, (
-        "프로파일이 connect 시점에 본딩하는지 보지 않고 프로브 링크를 버린다"
-    )
-    # 프록시에서는 pair=True 가 나가지 않는다. 그런데도 프로브를 버리면 본드가
-    # 만들어지던 링크만 끊고 똑같은 연결로 갈아타는 셈이라, 순수한 손해다.
-    assert "is_local_adapter" in guard, (
-        "로컬 어댑터인지 보지 않는다 — 프록시에서 프로브 링크만 잃는다"
+    paired = await _pair_through_the_flow(
+        hass, monkeypatch, "HEM-7191T1", details=_BLUEZ_DETAILS, probe=probe
     )
 
+    [session] = paired
+    assert probe.closed == 1, "프로브 링크를 버리지 않았다"
+    assert session.client is not probe.client
+    assert session._pairing_session is True, "새 연결도 페어링 세션이어야 한다"
 
-def test_both_gates_use_the_same_local_adapter_predicate():
-    """설정 플로우와 연결 경로가 갈라지면 프록시에서 링크만 잃는다."""
-    import inspect
 
-    from custom_components.omron.omron_ble.connection import (
-        establish_connection_with_bond_settle,
+async def test_the_probe_link_is_kept_over_a_proxy_even_when_the_profile_bonds_at_connect(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """프록시에서는 pair=True 가 나가지 않는다 — 프로브를 버리면 순수한 손해다.
+
+    설정 플로우와 연결 경로가 같은 술어(``is_local_adapter``)를 써야 한다.
+    """
+    probe = _ProbeLink()
+
+    paired = await _pair_through_the_flow(
+        hass, monkeypatch, "HEM-7191T1", details=_PROXY_DETAILS, probe=probe
     )
 
-    assert "is_local_adapter" in inspect.getsource(
-        establish_connection_with_bond_settle
-    ), "연결 경로가 공용 술어를 쓰지 않는다"
+    [session] = paired
+    assert session.client is probe.client
+    assert probe.closed == 0
+
+
+async def test_a_parked_probe_link_is_closed_when_the_entry_unloads(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """아무도 이어받지 않은 링크가 언로드 뒤까지 살아 있으면 슬롯을 잡아먹는다."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title="HEM-7155T",
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    probe = _ProbeLink()
+    stash_probe_session(hass, entry.runtime_data.address, probe.session)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.NOT_LOADED
+    assert probe.closed == 1
+
+
+async def test_retry_pairing_is_a_pairing_session(monkeypatch):
+    """async_retry_pairing 도 본드를 만드는 자리다."""
+    opened: list[bool] = []
+
+    async def _connect(self):
+        opened.append(self._pairing_session)
+        raise ConnectionError("stop here")
+
+    monkeypatch.setattr(OmronDeviceSession, "connect", _connect)
+    data = parser.OmronBluetoothDeviceData(device_model="HEM-7386T1")
+    device = BLEDevice(address=ADDRESS, name="BLESmart", details={})
+
+    with pytest.raises(ConnectionError):
+        await data.async_retry_pairing(device)
+
+    assert opened == [True]

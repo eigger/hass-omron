@@ -10,7 +10,22 @@ BP5465 가 HEM-7382T1-AZAZ 인지 HEM-7388T1-AJF3 인지 카탈로그는 모른�
 추측하지 않고 프로파일 키를 쓴다 — 실제로 아는 사실이고, 진짜 HEM 표기다.
 """
 
-from pathlib import Path
+from datetime import timedelta
+import asyncio
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
+
+from bt import service_info
+from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
 )
@@ -61,41 +76,53 @@ def test_every_catalog_name_displays_in_its_model_family():
 
 
 def test_the_device_name_path_reads_display_model():
-    """표시 경로가 실제로 그 값을 쓰는지 — 여기서 갈라지면 설정만 고친 셈이다.
-
-    소스 텍스트를 보는 이유: conftest 가 ``BluetoothData`` 를 MagicMock 으로
-    갈아끼우기 때문에 ``OmronBluetoothDeviceData`` 는 클래스 객체조차 만들어지지
-    않는다(그 자체가 Mock 이다). 인스턴스화도, 메서드 리플렉션도 불가능하므로
-    이 하네스에서 이 배선을 지킬 방법은 이것뿐이다.
-    """
-    import pathlib
-
-    source = pathlib.Path("custom_components/omron/omron_ble/parser.py").read_text(
-        encoding="utf-8"
-    )
-    head = source.split("def _setup_device_info(")[1]
-    body = head.split("self.pending = False")[0]
-
-    assert "self._device_config.display_model" in body
-    assert "self._device_config.model" not in body, (
-        "설정 필드를 그대로 읽으면 소매명이 다시 새어나간다"
+    """표시 경로가 실제로 display_model 을 쓰는지 광고 업데이트 출력으로 검증한다."""
+    data = OmronBluetoothDeviceData(device_model="BP5465")
+    update = data.update(
+        service_info(
+            "C1:8D:32:97:D5:BB",
+            name="BP5465",
+            manufacturer_data={OMRON_MANUFACTURER_ID: bytes([0x01, 0, 0, 0])},
+        )
     )
 
+    device_info = update.devices[None]
+    assert device_info.name == "HEM-7382T1-AZAZ D5BB"
+    assert "BP5465" not in (device_info.name or "")
 
-def test_both_naming_paths_agree() -> None:
-    """설정 시점과 광고 처리 시점이 같은 이름을 써야 한다 (#91).
 
-    __init__.py 는 device registry 항목을 만들 때, parser 는 광고를 받을 때
-    기기 이름을 짓는다. 한쪽만 HEM 표기로 정규화하면 BP5465 로 설정한 커프가
-    한 화면에서는 BP5465, 다른 화면에서는 HEM-7382T1-AZAZ 로 보인다.
-    """
-    component = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
-    init_src = (component / "__init__.py").read_text(encoding="utf-8")
-    parser_src = (component / "omron_ble" / "parser.py").read_text(encoding="utf-8")
-
-    assert "display_model" in parser_src
-    assert "display_model" in init_src, (
-        "the device registry entry is named from the raw model id again"
+async def test_both_naming_paths_agree(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """설정 시점(device registry)과 광고 처리 시점(parser)이 같은 이름을 써야 한다 (#91)."""
+    address = "C1:8D:32:97:D5:BB"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=address,
+        title="BP5465 D5BB",
+        data={CONF_DEVICE_MODEL: "BP5465"},
     )
-    assert "model=display_model" in init_src
-    assert 'name=f"{display_model} {identifier}"' in init_src
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=2))
+    async with asyncio.timeout(5):
+        while entry.runtime_data.background_tasks:
+            await asyncio.sleep(0.01)
+
+    (device,) = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert (CONNECTION_BLUETOOTH, address) in device.connections
+    assert device.model == "HEM-7382T1-AZAZ"
+    assert device.name == "HEM-7382T1-AZAZ D5BB"
+
+    adv_update = entry.runtime_data.device_data.update(
+        service_info(
+            address,
+            name="BP5465",
+            manufacturer_data={OMRON_MANUFACTURER_ID: bytes([0x01, 0, 0, 0])},
+        )
+    )
+    assert adv_update.devices[None].name == device.name
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

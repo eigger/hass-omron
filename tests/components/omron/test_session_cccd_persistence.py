@@ -22,10 +22,11 @@
 """
 
 import asyncio
+import dataclasses
 
 from bleak.exc import BleakError
 
-from custom_components.omron.omron_ble.devices import get_device_config
+from custom_components.omron.omron_ble.devices import UnlockMode, get_device_config
 from custom_components.omron.omron_ble.const import UNLOCK_CHARACTERISTIC_UUID
 from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
 from custom_components.omron.omron_ble.session import OmronDeviceSession
@@ -184,15 +185,36 @@ def test_a_kept_subscription_is_not_subscribed_again():
     assert target._client.started == []
 
 
-def test_the_token_unlock_asks_for_what_the_profile_wants():
-    """unlock() 이 프로필 값을 그대로 넘겨야 한다 — 기본값이면 아무것도 안 바뀐다."""
-    import inspect
+async def test_the_token_unlock_asks_for_what_the_profile_wants(monkeypatch):
+    """unlock() 이 프로필 값을 그대로 넘겨야 한다 — 기본값이면 아무것도 안 바뀐다.
 
-    from custom_components.omron.omron_ble.unlock import _token_unlock
+    실제 세션의 ``unlock()`` 을 돌리고, 기기 쪽 클라이언트만 대신한다. 프로필이
+    구독을 유지하면 언락 CCCD 가 세션에 남고, 아니면 풀린다.
+    """
+    from blesession.testing import FakeClient
 
-    sig = inspect.signature(_token_unlock)
-    assert sig.parameters["keep_notify"].default is False
-    assert get_device_config("HEM-7386T1").keep_notify_subscriptions is True
+    from custom_components.omron.omron_ble import unlock as unlock_module
+
+    monkeypatch.setattr(unlock_module, "_NOTIFY_SUBSCRIBE_SETTLE_SEC", 0)
+    base = get_device_config("HEM-7386T1")
+    assert base.unlock_mode is UnlockMode.TOKEN_KEY
+
+    for keep in (True, False):
+        client = FakeClient()
+
+        def _answer(uuid, value, client=client):
+            client.reply(b"\x91\x00" + value[1:5], uuid)
+
+        client.on_write = _answer
+        target = OmronDeviceSession.adopt(
+            client, dataclasses.replace(base, keep_notify_subscriptions=keep)
+        )
+
+        await target.unlock()
+
+        assert target._unlocked is True
+        assert (UNLOCK_CHARACTERISTIC_UUID in client.subscribed) is keep
+        await target.release_unlock_channel()
 
 
 class _BlueZError(BleakError):
@@ -249,47 +271,51 @@ def test_a_notify_session_bluez_still_holds_is_released_and_retried(monkeypatch)
     assert all(cb is sentinel for _, cb in client.started)
 
 
-def test_the_unlock_subscribe_stays_on_the_recovery_path():
+async def test_the_unlock_subscribe_stays_on_the_recovery_path(monkeypatch):
     """언락 구독이 start_notify 를 직접 부르면 위 복구가 걸리지 않는다 (#92).
 
-    소스 문자열이 아니라 AST 로 본다 — 줄바꿈을 바꿔도 깨지지 않아야 한다.
+    BlueZ 가 이전 연결의 구독을 붙들고 있어 첫 start_notify 를 거부하는 클라이언트로
+    실제 ``_token_unlock`` 을 돌린다. 언락 특성과 RX 프라임 둘 다 풀고 다시 걸어야
+    한다.
     """
-    import ast
-    import inspect
-    import textwrap
+    from blesession.testing import FakeClient
 
-    from custom_components.omron.omron_ble.unlock import _token_unlock
+    from custom_components.omron.omron_ble import unlock as unlock_module
 
-    tree = ast.parse(textwrap.dedent(inspect.getsource(_token_unlock)))
-    direct: list[str] = []
-    recovered: list[str] = []
-    notifications: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        first = ast.unparse(node.args[0]) if node.args else ""
-        if isinstance(node.func, ast.Attribute) and node.func.attr == "start_notify":
-            direct.append(first)
-        elif (
-            isinstance(node.func, ast.Name)
-            and node.func.id == "start_notify_with_recovery"
-        ):
-            if len(node.args) >= 2:
-                recovered.append(ast.unparse(node.args[1]))
-        elif isinstance(node.func, ast.Name) and node.func.id == "Notifications":
-            recover = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}.get(
-                "recover"
-            )
-            if len(node.args) >= 2 and recover == "True":
-                notifications.append(ast.unparse(node.args[1]))
+    monkeypatch.setattr(unlock_module, "_NOTIFY_SUBSCRIBE_SETTLE_SEC", 0)
+    monkeypatch.setattr(unlock_module, "_UNLOCK_AUTH_WAIT_TIMEOUT_SEC", 0.5)
+    rx = get_device_config("HEM-7386T1").rx_channel_uuids[0]
 
-    assert not direct, f"복구를 우회하는 직접 호출이 남아 있다: {direct}"
-    assert "UNLOCK_CHARACTERISTIC_UUID" in notifications, (
-        "언락 구독이 복구 경로를 타지 않는다"
-    )
-    assert any("rx_channel_uuids" in arg for arg in recovered), (
-        "RX 프라임이 복구 경로를 타지 않는다"
-    )
+    class _Held(FakeClient):
+        def __init__(self) -> None:
+            super().__init__()
+            self.held = {UNLOCK_CHARACTERISTIC_UUID, rx}
+            self.stopped: list[str] = []
+            self.services.get_characteristic = lambda _uuid: None
+
+        async def start_notify(self, characteristic, handler) -> None:
+            if characteristic in self.held:
+                raise _BlueZError(
+                    "[org.bluez.Error.Failed] Failed to register notify session"
+                )
+            await super().start_notify(characteristic, handler)
+
+        async def stop_notify(self, characteristic) -> None:
+            self.stopped.append(characteristic)
+            self.held.discard(characteristic)
+            await super().stop_notify(characteristic)
+
+    client = _Held()
+    client.on_write = lambda uuid, value: client.reply(b"\x91\x00" + value[1:5], uuid)
+    target = OmronDeviceSession.adopt(client, get_device_config("HEM-7386T1"))
+
+    await target.unlock()
+
+    assert target._unlocked is True
+    assert UNLOCK_CHARACTERISTIC_UUID in client.stopped, "언락 구독을 풀지 않았다"
+    assert rx in client.stopped, "RX 프라임 구독을 풀지 않았다"
+    assert UNLOCK_CHARACTERISTIC_UUID in client.subscribed
+    assert rx in client.subscribed
 
 
 def test_reset_releases_a_held_unlock_channel_instead_of_stopping_it_twice():

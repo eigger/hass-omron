@@ -48,13 +48,9 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 > [!NOTE]
 > Other Omron BLE devices might work by selecting a similar model during setup, but have not been formally tested. If your device does not work, please share Home Assistant debug logs and, if possible, a [Bluetooth stack log from your phone](docs/capturing-bluetooth-logs.md).
 
-## ⚠️ Warning: Conflict with Official App
-**Omron blood pressure monitors only support one paired device at a time.**
-If you have already paired your monitor with the official Omron Connect smartphone app, you **must unpair/forget** the device from your phone's Bluetooth settings before connecting it to Home Assistant. Using both simultaneously is not supported by the hardware.
-
 ## Requirements
 
-Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or ESPHome Bluetooth proxy.
+Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or ESPHome Bluetooth proxy (a Bluetooth proxy is strongly recommended for connection stability and range).
 
 ## Installation
 
@@ -62,29 +58,6 @@ Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or E
    **Manual**: Copy the `custom_components/omron` directory into your Home Assistant `custom_components` folder.
 2. Restart Home Assistant.
 
-## ⚠️ Important Notice
-
-- It is **strongly recommended to use a Bluetooth proxy instead of a built-in Bluetooth adapter**.  
-  Bluetooth proxies generally offer more stable connections and better range, especially in environments with multiple BLE devices.
-
-> [!TIP]
-> For hardware recommendations, refer to [Great ESP32 Board for an ESPHome Bluetooth Proxy](https://community.home-assistant.io/t/great-esp32-board-for-an-esphome-bluetooth-proxy/916767/31).  
-- When using a Bluetooth proxy, it is strongly recommended to **keep the scan interval at its default value**.  
-  Changing these values may cause issues with Bluetooth data transmission.
-- **bluetooth_proxy:** must always have **active: true**.
-- Shared proxy setup, recommended devices and the connection-problem checklist (Korean): [Bluetooth proxy guide](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md). Model-specific wake/pairing conditions and diagnostics are in [Troubleshooting](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions).
-
-  Example (recommended configuration with default values):
-
-  ```yaml
-  esp32_ble_tracker:
-    scan_parameters:
-      active: true
-
-  bluetooth_proxy:
-    active: true
-  ```
-  
 ## Pairing & Configuration
 
 Device setup and pairing are done entirely through the Home Assistant UI.
@@ -108,32 +81,36 @@ Device setup and pairing are done entirely through the Home Assistant UI.
    - HA will securely perform the pairing sequence (programming its pairing key or performing OS-level bonding).
    - The monitor screen will display an `[OK]` symbol when successful.
 
+## Quick Start
+
+Recommended ESPHome Bluetooth proxy configuration (keep the default scan interval):
+
+```yaml
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+```
+
+## Important Limitations
+
+- **One paired host at a time**: Omron blood pressure monitors only support one paired device at a time. If you have already paired your monitor with the official Omron Connect smartphone app, you **must unpair/forget** the device from your phone's Bluetooth settings before connecting it to Home Assistant. Using both simultaneously is not supported by the hardware.
+- **Bluetooth proxy requirements**: `bluetooth_proxy` must always have `active: true`, and `scan_parameters` should remain at default intervals. For hardware recommendations, see [Great ESP32 Board for an ESPHome Bluetooth Proxy](https://community.home-assistant.io/t/great-esp32-board-for-an-esphome-bluetooth-proxy/916767/31). Shared proxy setup, recommended devices and the connection-problem checklist (Korean): [Bluetooth proxy guide](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md). Model-specific wake/pairing conditions, error-by-error fixes, and diagnostics (`Last Failure`, `Duration`) are in [Troubleshooting](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions).
+- **Unverified models**: Models not marked in the Supported Models table are unverified.
+
 ## Documentation
 
 - [Entities, categories and polling behavior](docs/entities.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Capturing Bluetooth logs](docs/capturing-bluetooth-logs.md)
 - [HEM-7374T1 notes](docs/hem-7374t1.md)
-- [Roadmap](docs/roadmap.md)
 - [Body composition scale notes](docs/body-composition-scales-notes.md)
 - [HN-300T2 memory map](docs/hn-300t2-memory-map.md)
+- [Roadmap](docs/roadmap.md)
 - [Development and tests](CONTRIBUTING.md)
-
-## Troubleshooting
-
-**[Troubleshooting](docs/troubleshooting.md)** — how to read the **Last Failure** and
-**Duration** sensors' attributes (`failed_stage`, `likely_cause`, the radio, the
-per-stage timings), what each failed stage means, and what to attach to an issue.
-
-- **`Pairing failed: Could not enter key programming mode`**: Make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
-- **`Connection terminated by peer`**: BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter or use a USB extension cable for your BLE dongle.
-- **Sensor values not updating**: The device turns off its Bluetooth radio to save battery. It turns on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
-- **Data doesn't show up after changing batteries**: Changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
-
-
-## References
-
-- [omblepy (userx14)](https://github.com/userx14/omblepy)
+- Reference: [omblepy (userx14)](https://github.com/userx14/omblepy)
 
 ## Support
 

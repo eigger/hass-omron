@@ -11,14 +11,24 @@ The dropdown, including the unknown and shared-name steps, is exercised
 through the flow manager (``test_config_flow.py``), which also checks that
 each description's placeholders are ones that form supplies. What remains
 here is the catalog, the translations, and the rule that no later step
-substitutes the fallback model for a choice the user never made.
+substitutes the fallback model for a choice the user never made. That each
+model step has a handler is covered by ``test_config_flow.py``, which opens
+every step through the flow manager.
 """
 
-import ast
 import json
 from pathlib import Path
 
+import pytest
+from homeassistant.config_entries import SOURCE_BLUETOOTH
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import AbortFlow, FlowResultType
+
+from custom_components.omron.const import DOMAIN
+from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 from custom_components.omron.omron_ble.devices import infer_model_id_from_local_name
+
+from bt import service_info
 
 _CONFIG_FLOW = (
     Path(__file__).resolve().parents[3]
@@ -46,24 +56,35 @@ def test_unknown_names_stay_unknown() -> None:
         assert infer_model_id_from_local_name(value) is None
 
 
-def _config_flow_class() -> ast.ClassDef:
-    tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == "OmronConfigFlow":
-            return node
-    raise AssertionError("OmronConfigFlow not found — was it renamed?")
-
-
-def test_no_step_substitutes_a_default_for_the_chosen_model() -> None:
+async def test_no_step_substitutes_a_default_for_the_chosen_model(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
     # The steps after select_model (user aliases, pairing, the pairing call
     # itself) used to read `self._selected_model or DEFAULT_DEVICE_MODEL`,
     # which would have paired and configured the device on the wrong profile
-    # without a word. They must fail loudly instead.
-    flow = _config_flow_class()
-    names = {n.id for n in ast.walk(flow) if isinstance(n, ast.Name)}
-    assert "DEFAULT_DEVICE_MODEL" not in names, (
-        "a config flow step fell back to the default model again (#45)"
+    # without a word. Entered without a choice, they must fail loudly instead.
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_BLUETOOTH},
+        data=service_info(
+            "AA:BB:CC:DD:EE:33",
+            name="BLESmart_0000123",
+            manufacturer_data={OMRON_MANUFACTURER_ID: bytes([0x01, 0, 0, 0])},
+        ),
     )
+    assert result["type"] is FlowResultType.FORM
+    flow = hass.config_entries.flow._progress[result["flow_id"]]
+    assert flow._selected_model is None
+
+    for step in (
+        flow.async_step_user_aliases,
+        flow.async_step_pairing,
+        flow.async_step_pairing_os,
+    ):
+        for user_input in (None, {}):
+            with pytest.raises(AbortFlow) as err:
+                await step(user_input)
+            assert err.value.reason == "model_not_selected"
 
 
 _MODEL_STEPS = ("select_model", "select_model_unknown", "select_model_ambiguous")
@@ -86,10 +107,3 @@ def test_every_model_step_is_translated_everywhere() -> None:
         for step_id in _MODEL_STEPS:
             assert step_id in steps, f"{path.name} is missing {step_id}"
             assert steps[step_id].get("description"), f"{path.name}:{step_id}"
-
-
-def test_each_model_step_id_has_a_handler() -> None:
-    tree = ast.parse(_CONFIG_FLOW.read_text(encoding="utf-8"))
-    handlers = {n.name for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)}
-    for step_id in _MODEL_STEPS:
-        assert f"async_step_{step_id}" in handlers, step_id

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import pathlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+from custom_components.omron.omron_ble import parser as parser_module
 from custom_components.omron.omron_ble.devices import get_device_config
 from custom_components.omron.omron_ble.driver import OmronDeviceDriver
 from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
+from custom_components.omron.omron_ble.session_trace import SessionTrace
 
 
 class _CompletionTransport:
@@ -216,54 +220,102 @@ def test_cleanup_close_alone_never_writes_completion_mirrors():
     ]
 
 
-def test_poll_calls_completion_only_at_successful_eeprom_readout_boundary():
-    parser_path = (
-        pathlib.Path(__file__).resolve().parents[3]
-        / "custom_components"
-        / "omron"
-        / "omron_ble"
-        / "parser.py"
+_RECORD = {
+    "datetime": dt.datetime(2026, 9, 18, 21, 54),
+    "sys": 120,
+    "dia": 80,
+    "bpm": 60,
+    "user": 1,
+}
+
+
+def _poll_readout(
+    model: str,
+    *,
+    records: dict | None = None,
+    memory_session_active: bool = True,
+    pairing_session: bool = False,
+) -> list[str]:
+    """Run the real readout; return the order of publish / complete / device-info."""
+    events: list[str] = []
+    data = OmronBluetoothDeviceData(device_model=model)
+    data._driver.write_user_profile = AsyncMock()
+    data._driver.get_latest_records_per_user = AsyncMock(
+        return_value={1: dict(_RECORD)} if records is None else records
     )
 
-    source = parser_path.read_text(encoding="utf-8")
+    async def complete(_session):
+        events.append("complete")
 
-    start = source.index("    async def _poll_device_readout(")
+    data._driver.complete_measurement_readout = complete
+    publish = data._update_measurement_sensors
 
-    end = source.index(
-        "    async def async_poll(",
-        start,
+    def spy_publish(*args, **kwargs):
+        events.append("publish")
+        return publish(*args, **kwargs)
+
+    data._update_measurement_sensors = spy_publish
+
+    session = MagicMock()
+    session.trace = SessionTrace()
+    session._pairing_session = pairing_session
+    client = MagicMock()
+
+    async def read_gatt_char(_char):
+        events.append("device_info")
+        return b"1"
+
+    client.read_gatt_char = read_gatt_char
+    # Both revision characteristics exist, so the device-info reads really run.
+    client.services.get_characteristic.return_value = object()
+
+    async def run() -> None:
+        with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
+            await data._poll_device_readout(
+                session,
+                client,
+                SimpleNamespace(address="AA:BB"),
+                memory_session_active=memory_session_active,
+            )
+
+    asyncio.run(run())
+    return events
+
+
+def test_poll_calls_completion_once_after_publishing_and_before_device_info():
+    events = _poll_readout("HEM-7361T")
+
+    assert events.count("complete") == 1
+    assert events.count("publish") >= 1
+    assert "device_info" in events
+    # The measurement is published first, and the cuff is acknowledged before
+    # the firmware/model reads that follow.
+    assert max(i for i, e in enumerate(events) if e == "publish") < events.index(
+        "complete"
     )
+    assert events.index("complete") < events.index("device_info")
 
-    poll = source[start:end]
 
-    assert poll.count("await self._driver.complete_measurement_readout(session)") == 1
+def test_poll_does_not_complete_without_an_open_memory_session():
+    assert "complete" not in _poll_readout("HEM-7361T", memory_session_active=False)
 
-    # 조건은 두 가지를 함께 요구한다: 메모리 세션이 열려 있고, 실제로 EEPROM
-    # 레코드가 디코드됐을 것. 여기에 페어링 세션 제외가 더해진다 — 그 세션은
-    # 끝에서 등록 쓰기가 같은 두 주소에 상위집합을 쓰므로 둘 다 돌면 쓰기가
-    # 네 번 나가고 앞의 두 번은 덮인다.
-    for required in (
-        "memory_session_active",
-        "eeprom_record_decoded",
-        "session._pairing_session",
-        "self._device_config.pairing_registration is not None",
-    ):
-        assert required in poll, required
 
-    completion_at = poll.index(
-        "await self._driver.complete_measurement_readout(session)"
-    )
+def test_poll_does_not_complete_when_no_eeprom_record_was_decoded():
+    events = _poll_readout("HEM-7361T", records={})
 
-    publication_at = poll.index("self._update_measurement_sensors(")
+    assert "complete" not in events
+    assert "publish" not in events
 
-    firmware_read_at = poll.index(
-        "char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)"
-    )
 
-    model_read_at = poll.index(
-        "char_model = client.services.get_characteristic(MODEL_NUMBER_UUID)"
-    )
+def test_poll_skips_completion_on_a_pairing_session_that_registers():
+    """The registration write at the end covers the same two addresses with a
+    superset; running both would send four writes where two do."""
+    events = _poll_readout("BP5465", pairing_session=True)
+    assert "complete" not in events
+    assert "publish" in events
 
-    assert publication_at < completion_at
-    assert completion_at < firmware_read_at
-    assert completion_at < model_read_at
+    # The same profile on an ordinary session does complete.
+    assert _poll_readout("BP5465", pairing_session=False).count("complete") == 1
+
+    # A pairing session on a profile with no registration still completes.
+    assert _poll_readout("HEM-7361T", pairing_session=True).count("complete") == 1

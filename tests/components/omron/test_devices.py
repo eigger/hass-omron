@@ -321,31 +321,55 @@ class TestNoDeadConfigSurface:
         assert UNLOCK_CHARACTERISTIC_UUID == "b305b680-aee7-11e1-a730-0002a5d5c51b"
 
     def test_every_field_is_read_somewhere(self):
-        """dataclass 필드는 코드나 테스트 어딘가에서 읽혀야 한다.
-
-        테스트까지 세는 이유는 ``connect_type`` 같은 분류용 필드 때문이다.
-        런타임 분기가 읽지 않아도(프로토콜 계열을 나누는 메타데이터다) 테스트가
-        단언한다면 조용히 죽은 것이 아니다. 정말 죽은 필드는 카탈로그가 채우기만
-        하고 어느 쪽에서도 안 읽는다.
-        """
+        """dataclass 필드는 런타임 코드 객체나 카탈로그 프로파일 분기에서 실제로 쓰여야 한다."""
         import dataclasses
-        import pathlib
+        import importlib
+        import pkgutil
+        import types
 
+        import custom_components.omron as omron_pkg
+        from custom_components.omron.omron_ble.device_catalog import (
+            CANONICAL_DEVICE_PROFILES,
+        )
         from custom_components.omron.omron_ble.devices import DeviceConfig
 
-        sources = (
-            *pathlib.Path("custom_components/omron").rglob("*.py"),
-            *pathlib.Path("tests/components/omron").rglob("*.py"),
-        )
-        read_by = "".join(
-            p.read_text(encoding="utf-8")
-            for p in sources
-            if p.name not in ("device_catalog.py", "test_devices.py")
-        )
+        def _walk_code_names(code: types.CodeType, out: set[str]) -> None:
+            out.update(code.co_names)
+            for const in code.co_consts:
+                if isinstance(const, types.CodeType):
+                    _walk_code_names(const, out)
+
+        referenced_names: set[str] = set()
+        for mod_info in pkgutil.walk_packages(
+            omron_pkg.__path__, prefix=omron_pkg.__name__ + "."
+        ):
+            if mod_info.name.endswith(".device_catalog"):
+                continue
+            mod = importlib.import_module(mod_info.name)
+            for obj in vars(mod).values():
+                code = getattr(obj, "__code__", None)
+                if isinstance(code, types.CodeType):
+                    _walk_code_names(code, referenced_names)
+                elif isinstance(obj, type):
+                    for member in vars(obj).values():
+                        target = member.fget if isinstance(member, property) else member
+                        mcode = getattr(target, "__code__", None)
+                        if isinstance(mcode, types.CodeType):
+                            _walk_code_names(mcode, referenced_names)
+
+        # Classification metadata fields like connect_type vary across catalog profiles.
+        varied_in_catalog = {
+            f.name
+            for f in dataclasses.fields(DeviceConfig)
+            if len(
+                {repr(getattr(p, f.name)) for p in CANONICAL_DEVICE_PROFILES.values()}
+            )
+            > 1
+        }
         unread = [
             f.name
             for f in dataclasses.fields(DeviceConfig)
-            if f".{f.name}" not in read_by and f'"{f.name}"' not in read_by
+            if f.name not in referenced_names and f.name not in varied_in_catalog
         ]
         assert not unread, f"카탈로그만 채우고 아무도 안 읽는 필드: {unread}"
 

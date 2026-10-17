@@ -85,6 +85,10 @@ The records were read; only the session close failed. Harmless on its own. If th
 
 ### Quick checks
 
+- **`Pairing failed: Could not enter key programming mode`** — make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
+- **`Connection terminated by peer`** — BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter/proxy or use a USB extension cable for your BLE dongle.
+- **Sensor values not updating** — the device turns off its Bluetooth radio to save battery and turns it on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
+- **Data doesn't show up after changing batteries** — changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
 - **`error: Session deadline reached`** — the session hung and was cut at the 3-minute bound. `failed_stage` says where. This is not the cuff: bleak's BlueZ backend has no timeout of its own, so a wedged `bluetoothd` or a proxy that died mid-session looks exactly like this. Restart the adapter (or the proxy) if it repeats.
 - **`rssi` is low but `paths` is 2 or more** — another radio might do better; Home Assistant connects through the strongest advertisement, so the alternative is only used after a failure. Check `via` to see which one was used.
 - **Everything fails at `connect` right after adding a proxy** — the proxy must be `active: true` in both `esp32_ble_tracker` and `bluetooth_proxy`; a passive proxy sees the cuff but cannot connect.

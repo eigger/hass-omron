@@ -16,43 +16,33 @@ WLD3.0 token-key 커프는 방금 만든 본드를 받아들이고도 다음 연
 여기서 고정하는 것: 위 변환의 정확한 출력, 주소가 프로파일에서 나온다는 것,
 페어링 세션에서만 링크당 한 번, close 를 막지 않는다는 것, 호출 지점이 예외를
 삼킨다는 것.
-
-conftest 가 homeassistant/bleak 를 MagicMock 으로 치환하므로 통합 계층은 AST 로,
-드라이버 메서드는 unbound 호출로 검사한다 (test_session_cccd_persistence.py 방식).
 """
 
-import ast
 import asyncio
+import dataclasses
 from datetime import datetime
-from pathlib import Path
+import logging
 from types import SimpleNamespace
+import typing
+from unittest.mock import AsyncMock, MagicMock
 
+from bleak.backends.device import BLEDevice
 import pytest
 
+from custom_components.omron.omron_ble import OmronBluetoothDeviceData
+from custom_components.omron.omron_ble import parser as parser_module
 from custom_components.omron.omron_ble.devices import (
     PairingRegistration,
     get_device_config,
 )
 from custom_components.omron.omron_ble.memory_protocol import MemoryProtocol
+from custom_components.omron.omron_ble.session import OmronDeviceSession
+from custom_components.omron.omron_ble.session_trace import SessionTrace
 from custom_components.omron.omron_ble.settings_mirror import (
     SettingsMirrorLayout,
     clock_block,
     slot_checksum,
 )
-
-_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
-
-
-def _function(path: Path, name: str):
-    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == name
-        ):
-            return node
-    raise AssertionError(
-        f"{name} 을(를) 찾지 못했다 — 이름을 바꿨다면 이 테스트도 갱신할 것"
-    )
 
 
 def _session(config, *, pairing=True, memory_active=True, memory=None):
@@ -256,12 +246,20 @@ class TestDerivedFromTheProfile:
         assert written[8:12] == slot[8:12]  # +8 은 이제 데이터, 손대지 않음
 
     def test_the_driver_names_no_model(self):
-        source = "".join(
-            (_COMPONENT / "omron_ble" / name).read_text(encoding="utf-8")
-            for name in ("session.py", "memory_protocol.py", "driver.py")
-        )
-        assert "HEM-7386T1" not in source
-        assert "resolve_profile_model_id" not in source
+        """프로파일 필드만으로 동작해야 하므로 임의의 모델명이어도 같은 등록 쓰기를 만든다."""
+        base = get_device_config("HEM-7386T1")
+        synthetic = dataclasses.replace(base, model="SYNTHETIC-REGISTRATION-MODEL")
+        memory = bytearray(0x400)
+        memory[0x0010 : 0x0010 + 0x30] = _settings(0x1C, _populated_slot(1))
+
+        base_target = _session(base, memory=bytes(memory))
+        synth_target = _session(synthetic, memory=bytes(memory))
+        assert _commit(base_target) is True
+        assert _commit(synth_target) is True
+        assert [addr for addr, _ in synth_target.writes] == [
+            addr for addr, _ in base_target.writes
+        ]
+        assert synth_target.writes[0][1] == base_target.writes[0][1]
 
     def test_the_profiles_carry_their_own_counter_lists(self):
         """같은 지오메트리라도 스트림 수는 다르다 — 7386T1 여덟, 7376T1 여섯."""
@@ -340,26 +338,59 @@ class TestDerivedFromTheProfile:
                 )
             )
 
-    def test_the_time_sync_is_not_skipped_for_the_registration(self):
+    async def test_the_time_sync_is_not_skipped_for_the_registration(self, monkeypatch):
         """등록이 같은 주소를 다시 쓰지만, 등록은 readout 끝에서 실패할 수 있고 그
         실패는 삼켜진다. 시간 동기화를 미리 건너뛰면 그 세션은 시계를 아예 못 쓰고,
         등록 실패는 곧 재연결 거부라 만회할 다음 폴도 없다."""
-        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
-        body = ast.unparse(fn)
-        assert "registration" not in body.split("async_sync_eeprom_time")[0], (
-            "시간 동기화가 등록 여부로 게이트된다 — 등록이 실패하면 시계도 잃는다"
+        order: list[str] = []
+
+        async def fake_sync_eeprom(*_args, **_kwargs) -> None:
+            order.append("time_sync")
+
+        async def failing_registration() -> bool:
+            order.append("registration")
+            raise TimeoutError("registration failed")
+
+        monkeypatch.setattr(parser_module, "async_sync_eeprom_time", fake_sync_eeprom)
+        data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+        data._driver = SimpleNamespace(
+            write_user_profile=AsyncMock(),
+            get_latest_records_per_user=AsyncMock(return_value={}),
+            complete_measurement_readout=AsyncMock(),
+        )
+        client = MagicMock()
+        client.services.get_characteristic.return_value = None
+        session = SimpleNamespace(
+            _pairing_session=True,
+            trace=SessionTrace(),
+            memory=SimpleNamespace(commit_pairing_registration=failing_registration),
+        )
+        ble_dev = BLEDevice("C1:8D:32:97:D5:BB", "HEM-7386T1", {})
+
+        await data._poll_device_readout(
+            session, client, ble_dev, memory_session_active=True
         )
 
-    def test_the_write_helpers_are_typed(self):
-        """둘 다 Any 면 인자를 바꿔 넘겨도 런타임까지 안 걸린다."""
-        source = (_COMPONENT / "omron_ble" / "memory_protocol.py").read_text(
-            encoding="utf-8"
+        assert order[0] == "time_sync", (
+            "시간 동기화가 등록 여부로 게이트된다 — 등록이 실패하면 시계도 잃는다"
         )
-        for sig in (
-            "layout: SettingsMirrorLayout, registration: PairingRegistration",
-            "_write_registration_clock(self, layout: SettingsMirrorLayout)",
-        ):
-            assert sig in source, sig
+        assert "registration" in order
+
+    def test_the_write_helpers_are_typed(self):
+        """둘 다 Any 면 인자를 바꿔 넘겨도 타입 검사에서 안 걸린다."""
+        ns = {
+            "PairingRegistration": PairingRegistration,
+            "SettingsMirrorLayout": SettingsMirrorLayout,
+        }
+        head_hints = typing.get_type_hints(
+            MemoryProtocol._write_registration_head, localns=ns
+        )
+        clock_hints = typing.get_type_hints(
+            MemoryProtocol._write_registration_clock, localns=ns
+        )
+        assert head_hints["layout"] is SettingsMirrorLayout
+        assert head_hints["registration"] is PairingRegistration
+        assert clock_hints["layout"] is SettingsMirrorLayout
 
     def test_profiles_without_evidence_stay_off(self):
         for other in ("HEM-7155T-MW3", "HEM-7188T1-LEO", "HEM-7142T2", "HEM-7196T1"):
@@ -405,41 +436,91 @@ class TestWhenItRuns:
         assert [a for a, _ in target.writes] == [0x0058, 0x0088]
         assert _commit(target) is False  # 이제 둘 다 끝
 
-    def test_a_session_reset_rearms_both_halves(self):
+    async def test_a_session_reset_rearms_both_halves(self):
         """새 세션의 3회 재시도 루프는 reset 후 다시 돈다 — 등록도 다시 써야 한다."""
-        reset = _function(
-            _COMPONENT / "omron_ble" / "session.py", "reset_session_state"
+        client = SimpleNamespace(
+            is_connected=True,
+            address="C1:8D:32:97:D5:BB",
+            stop_notify=AsyncMock(),
         )
-        assert "memory.reset()" in ast.unparse(reset)
-        protocol_reset = _function(
-            _COMPONENT / "omron_ble" / "memory_protocol.py", "reset"
+        session = OmronDeviceSession.adopt(
+            client, get_device_config("HEM-7386T1"), pairing_session=True
         )
-        body = ast.unparse(protocol_reset)
-        assert "_pairing_registration_head_done = False" in body
-        assert "_pairing_registration_clock_done = False" in body
+        session.memory._pairing_registration_head_done = True
+        session.memory._pairing_registration_clock_done = True
 
-    def test_a_dropped_pairing_handoff_is_replaced_by_a_pairing_session(self):
+        await session.reset_session_state()
+
+        assert session.memory._pairing_registration_head_done is False
+        assert session.memory._pairing_registration_clock_done is False
+
+    async def test_a_dropped_pairing_handoff_is_replaced_by_a_pairing_session(self):
         """등록은 페어링 세션에서만 돈다. 핸드오프 링크가 끊겨 새로 열 때 그 성격을
         잃으면, 커프가 -P- 창 안에 있어도 등록 없이 닫히고 이후 재연결은 전부 거부된다."""
-        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "async_poll")
-        body = ast.unparse(fn)
-        assert "preconnected_session._pairing_session" in body, (
-            "끊긴 핸드오프의 pairing_session 을 교체 세션에 물려주지 않는다"
+
+        class _Stop(Exception):
+            pass
+
+        class _Fresh:
+            trace = None
+
+            async def __aenter__(self):
+                raise _Stop
+
+            async def __aexit__(self, *exc_info) -> bool:
+                return False
+
+            def publish_link_to(self, trace) -> None:
+                return None
+
+        for model, expected_pairing in (
+            ("HEM-7386T1", True),
+            ("HEM-7188T1-LEO", False),
+        ):
+            dropped = SimpleNamespace(
+                is_connected=False,
+                _pairing_session=True,
+                reclaim_ownership=lambda: None,
+                aclose=AsyncMock(),
+            )
+            opened_pairing: list[bool] = []
+            data = OmronBluetoothDeviceData(device_model=model)
+
+            def _open(ble_device, pairing_session=False, opened=opened_pairing):
+                opened.append(pairing_session)
+                return _Fresh()
+
+            data._open_session = _open
+            with pytest.raises(_Stop):
+                await data.async_poll(
+                    BLEDevice("C1:8D:32:97:D5:BB", model, {}),
+                    preconnected_session=dropped,
+                )
+            assert opened_pairing == [expected_pairing], model
+
+    async def test_a_failed_close_after_registering_is_logged(self, caplog):
+        """이 경로엔 재시도가 없다 — 최소한 나중의 0x06 에 원인이 남아야 한다."""
+        client = SimpleNamespace(
+            is_connected=True,
+            address="C1:8D:32:97:D5:BB",
+            disconnect=AsyncMock(),
         )
-        assert "_open_session(ble_device, pairing_session=pairing_session)" in body
-        # 등록을 쓰는 프로파일에서만. secure-session 프로파일에서 페어링 세션은
-        # 저장된 자격증명을 버리고 새로 페어링하므로, 창 밖에서는 멀쩡한
-        # 자격증명을 두고 실패한다.
-        assert "pairing_registration is not None" in body, (
-            "상속이 프로파일로 게이트되지 않는다 — secure-session 계열이 자격증명을 잃는다"
+        session = OmronDeviceSession.adopt(
+            client, get_device_config("HEM-7386T1"), pairing_session=True
+        )
+        session.memory._memory_session_active = True
+        session.memory._pairing_registration_head_done = True
+        session.memory.close_memory_session = AsyncMock(
+            side_effect=RuntimeError("close boom")
         )
 
-    def test_a_failed_close_after_registering_is_logged(self):
-        """이 경로엔 재시도가 없다 — 최소한 나중의 0x06 에 원인이 남아야 한다."""
-        fn = _function(_COMPONENT / "omron_ble" / "session.py", "aclose")
-        body = ast.unparse(fn)
-        assert "_pairing_registration_head_done" in body
-        assert "_LOGGER.warning" in body
+        with caplog.at_level(logging.WARNING):
+            await session.aclose()
+
+        assert any(
+            "pairing registration" in rec.message and "close boom" in rec.message
+            for rec in caplog.records
+        )
 
     def test_not_on_an_ordinary_session(self):
         target = _session(get_device_config("HEM-7386T1"), pairing=False)
@@ -462,53 +543,94 @@ class TestWhenItRuns:
 
 
 class TestItNeverBlocksTheClose:
-    def test_close_memory_session_has_no_registration_hook(self):
-        fn = _function(
-            _COMPONENT / "omron_ble" / "memory_protocol.py", "close_memory_session"
+    async def test_close_memory_session_has_no_registration_hook(self):
+        """close_memory_session 은 등록 쓰기를 호출하지 않고 종료 명령만 보낸다."""
+        commands: list[str] = []
+        target = SimpleNamespace(
+            _config=get_device_config("HEM-7386T1"),
+            _memory_session_active=True,
+            address="C1:8D:32:97:D5:BB",
+            _last_reply_packet_type=bytearray.fromhex("8f00"),
+            _last_reply_payload=bytes(1),
+            _client=SimpleNamespace(is_connected=True, stop_notify=AsyncMock()),
+            _notify_subscribed=True,
+            _debug_ble_link=lambda *_a, **_k: None,
+            commit_pairing_registration=AsyncMock(
+                side_effect=AssertionError(
+                    "close_memory_session must not invoke registration"
+                )
+            ),
         )
-        assert "registration" not in ast.unparse(fn).lower()
 
-    def test_the_call_site_retries_so_the_split_is_reachable(self):
+        async def _write(cmd: bytearray) -> None:
+            commands.append(bytes(cmd).hex())
+
+        target._write_command_and_wait_reply = _write
+        target._unsubscribe_notify_channels = (
+            MemoryProtocol._unsubscribe_notify_channels.__get__(target)
+        )
+
+        await MemoryProtocol.close_memory_session(target)
+
+        assert commands == ["080f000000000007"]
+        target.commit_pairing_registration.assert_not_awaited()
+
+    async def test_the_call_site_retries_so_the_split_is_reachable(self, monkeypatch):
         """head/clock 플래그를 나눈 이유는 실패한 시계 쓰기를 따로 다시 쓰기 위해서다.
         호출이 한 번뿐이고 실패를 삼키면 두 번째 호출이 영영 없어 그 분리가 죽는다."""
-        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
-        call = None
-        for node in ast.walk(fn):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "commit_pairing_registration"
-            ):
-                call = node
-        assert call is not None
-        looped = any(
-            isinstance(node, (ast.For, ast.While))
-            and node.lineno <= call.lineno <= getattr(node, "end_lineno", node.lineno)
-            for node in ast.walk(fn)
+        monkeypatch.setattr(parser_module, "async_sync_eeprom_time", AsyncMock())
+        data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+        data._driver = SimpleNamespace(
+            write_user_profile=AsyncMock(),
+            get_latest_records_per_user=AsyncMock(return_value={}),
+            complete_measurement_readout=AsyncMock(),
         )
-        assert looped, (
-            "등록 호출이 한 번뿐이다 — 실패한 시계 쓰기를 다시 쓸 경로가 없다"
-        )
-        # 루프가 있다는 것만으로는 부족하다: 한 번만 도는 루프도 루프다.
-        from custom_components.omron.omron_ble.parser import _REGISTRATION_ATTEMPTS
+        attempts = 0
 
-        assert _REGISTRATION_ATTEMPTS >= 2, (
-            "시도가 한 번뿐이면 head/clock 분리가 아무 일도 하지 않는다"
+        async def flaky_commit() -> bool:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise TimeoutError("first clock write timed out")
+            return True
+
+        client = MagicMock()
+        client.services.get_characteristic.return_value = None
+        session = SimpleNamespace(
+            _pairing_session=True,
+            trace=SessionTrace(),
+            memory=SimpleNamespace(commit_pairing_registration=flaky_commit),
+        )
+        ble_dev = BLEDevice("C1:8D:32:97:D5:BB", "HEM-7386T1", {})
+
+        await data._poll_device_readout(
+            session, client, ble_dev, memory_session_active=True
         )
 
-    def test_the_call_site_swallows_failures(self):
-        fn = _function(_COMPONENT / "omron_ble" / "parser.py", "_poll_device_readout")
-        call = None
-        for node in ast.walk(fn):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "commit_pairing_registration"
-            ):
-                call = node
-        assert call is not None
-        assert any(
-            isinstance(node, ast.Try)
-            and node.lineno <= call.lineno <= getattr(node, "end_lineno", node.lineno)
-            for node in ast.walk(fn)
+        assert attempts == 2, "첫 시계 쓰기가 실패했을 때 두 번째 시도로 복구해야 한다"
+        assert "registration_error" not in session.trace.facts
+
+    async def test_the_call_site_swallows_failures(self, monkeypatch):
+        monkeypatch.setattr(parser_module, "async_sync_eeprom_time", AsyncMock())
+        data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+        data._driver = SimpleNamespace(
+            write_user_profile=AsyncMock(),
+            get_latest_records_per_user=AsyncMock(return_value={}),
+            complete_measurement_readout=AsyncMock(),
         )
+        commit_mock = AsyncMock(side_effect=TimeoutError("registration timed out"))
+        client = MagicMock()
+        client.services.get_characteristic.return_value = None
+        session = SimpleNamespace(
+            _pairing_session=True,
+            trace=SessionTrace(),
+            memory=SimpleNamespace(commit_pairing_registration=commit_mock),
+        )
+        ble_dev = BLEDevice("C1:8D:32:97:D5:BB", "HEM-7386T1", {})
+
+        await data._poll_device_readout(
+            session, client, ble_dev, memory_session_active=True
+        )
+
+        assert commit_mock.await_count == parser_module._REGISTRATION_ATTEMPTS
+        assert session.trace.facts.get("registration_error") == "registration timed out"
