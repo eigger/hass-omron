@@ -1,0 +1,349 @@
+"""The model step is driven through Home Assistant's flow manager.
+
+An unidentified cuff must not arrive with a model already filled in. The
+fallback profile is a real EEPROM map, so confirming it reads the cuff
+through the wrong layout and reports no error (#45). The same form has
+three step ids, and each description may only name a placeholder the
+flow actually puts on the form.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+
+from bleak.backends.device import BLEDevice
+from homeassistant.config_entries import SOURCE_BLUETOOTH
+from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+import pytest
+import voluptuous as vol
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+import custom_components.omron.config_flow as config_flow
+from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
+from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
+from custom_components.omron.omron_ble.model_aliases import AMBIGUOUS_MODEL_NAMES
+
+from bt import service_info
+from test_model_selection_default import _MODEL_STEPS, _string_files
+
+ADDRESS = "AA:BB:CC:DD:EE:11"
+# Step ids whose placeholders were checked. Compared with ``_MODEL_STEPS``
+# after this module's tests, so a new model step cannot be translated and
+# given a handler while its form is never opened.
+_checked_steps: set[str] = set()
+# A carton name that covers two profiles. The probe reports it; nothing in
+# the advertisement identifies which of the two it is.
+_SHARED_NAME = "BP5350"
+# Format 0x01, no status flags, one user slot of sequence bytes. Enough for
+# ``supported()``; the name is what the model step reads.
+_QUIET_MSD = bytes([0x01, 0x00, 0x00, 0x00])
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _placeholder_checks_cover_every_model_step():
+    """Fail if a model step never reached ``_assert_supplied``.
+
+    The translation and handler tests walk ``_MODEL_STEPS`` on their own, so
+    they stay green when a step is added there and no flow opens it.
+    """
+    _checked_steps.clear()
+    yield
+    assert _checked_steps == set(_MODEL_STEPS), (
+        "placeholder checks cover "
+        f"{sorted(_checked_steps)}, expected {list(_MODEL_STEPS)}"
+    )
+
+
+def _description_tokens(step_id: str) -> set[str]:
+    """Every ``{name}`` the translation files use for this step."""
+    tokens: set[str] = set()
+    for path in _string_files():
+        description = json.loads(path.read_text(encoding="utf-8"))["config"]["step"][
+            step_id
+        ]["description"]
+        tokens.update(re.findall(r"\{(\w+)\}", description))
+    return tokens
+
+
+def _assert_supplied(result: dict, step_id: str) -> None:
+    """A token the form does not supply is left as ``{name}`` in the UI.
+
+    Home Assistant only stores ``description_placeholders``. It does not
+    format the description; the frontend does.
+    """
+    supplied = result["description_placeholders"]
+    missing = _description_tokens(step_id) - set(supplied)
+    assert not missing, f"{step_id} omits {sorted(missing)}"
+
+
+async def _open_model_step(
+    hass: HomeAssistant,
+    name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    probe: str | None = None,
+    step_id: str = "select_model",
+):
+    if probe is not None:
+        # The model-number read is a GATT session. Stub it so the branch runs
+        # without a cuff; the advertisement name itself identifies nothing.
+        def _device(hass, address, *args, **kwargs):
+            return BLEDevice(address=address, name=name, details={})
+
+        async def _fetch(ble_device, *, keep_session_open: bool = False):
+            return probe, None
+
+        monkeypatch.setattr(config_flow, "async_ble_device_from_address", _device)
+        monkeypatch.setattr(config_flow, "async_fetch_device_model_number", _fetch)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_BLUETOOTH},
+        data=service_info(
+            ADDRESS,
+            name=name,
+            manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD},
+        ),
+    )
+    # An abort has no step_id. Reading it first would raise KeyError.
+    assert result["type"] is FlowResultType.FORM
+    if result["step_id"] == "bluetooth_confirm":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], user_input={}
+        )
+        assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == step_id
+    _assert_supplied(result, step_id)
+    _checked_steps.add(step_id)
+    return result
+
+
+def _field(schema: vol.Schema, key: str) -> vol.Marker:
+    assert key in schema.schema
+    return next(marker for marker in schema.schema if marker == key)
+
+
+def _default(marker: vol.Marker):
+    """Home Assistant wraps a provided default in a zero-arg factory."""
+    value = marker.default
+    return value() if callable(value) else value
+
+
+async def test_an_unidentified_cuff_leaves_the_model_empty(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Nothing in the name is a catalog id, and no radio is present to probe."""
+    with caplog.at_level(logging.WARNING):
+        result = await _open_model_step(hass, "BLESmart_0000123", monkeypatch)
+
+    model = _field(result["data_schema"], CONF_DEVICE_MODEL)
+    assert model.default is vol.UNDEFINED
+    assert "has to be picked by hand" in caplog.text
+
+    interval = _field(result["data_schema"], CONF_SCAN_INTERVAL)
+    assert _default(interval) == 300
+
+
+async def test_a_named_cuff_preselects_that_model(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+    model = _field(result["data_schema"], CONF_DEVICE_MODEL)
+    assert _default(model) == "HEM-7155T"
+
+
+async def test_a_probe_outside_the_catalog_leaves_the_model_empty(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The cuff answered, and the answer is in no table."""
+    with caplog.at_level(logging.WARNING):
+        result = await _open_model_step(
+            hass,
+            "BLESmart_0000123",
+            monkeypatch,
+            probe="NOT-A-MODEL",
+            step_id="select_model_unknown",
+        )
+
+    model = _field(result["data_schema"], CONF_DEVICE_MODEL)
+    assert model.default is vol.UNDEFINED
+    placeholders = result["description_placeholders"]
+    assert placeholders["probed_model"] == "NOT-A-MODEL"
+    assert placeholders["candidate_count"] == "0"
+    assert placeholders["candidates"] == ""
+    assert "NOT-A-MODEL" in caplog.text
+
+
+async def test_a_shared_name_lists_the_models_it_covers(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Several profiles answer to one carton name, and they do not read alike."""
+    with caplog.at_level(logging.WARNING):
+        result = await _open_model_step(
+            hass,
+            "BLESmart_0000123",
+            monkeypatch,
+            probe=_SHARED_NAME,
+            step_id="select_model_ambiguous",
+        )
+
+    model = _field(result["data_schema"], CONF_DEVICE_MODEL)
+    assert model.default is vol.UNDEFINED
+    placeholders = result["description_placeholders"]
+    covered = AMBIGUOUS_MODEL_NAMES[_SHARED_NAME]
+    assert placeholders["probed_model"] == _SHARED_NAME
+    assert placeholders["candidate_count"] == str(len(covered))
+    assert placeholders["candidates"] == "\n".join(
+        f"- **{model_id}**" for model_id in covered
+    )
+    assert "do not read alike" in caplog.text
+
+
+async def test_model_step_accepts_zero_and_rejects_the_gap(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """0 turns scheduled polling off; 1..59 is neither off nor a sane interval."""
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+
+    rejected = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7600T", CONF_SCAN_INTERVAL: 30},
+    )
+    assert rejected["type"] is FlowResultType.FORM
+    assert rejected["step_id"] == "select_model"
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+    assert _default(_field(rejected["data_schema"], CONF_SCAN_INTERVAL)) == 30
+    # The pick survives the rejection instead of reverting to the detected model.
+    assert _default(_field(rejected["data_schema"], CONF_DEVICE_MODEL)) == "HEM-7600T"
+
+    accepted = await hass.config_entries.flow.async_configure(
+        rejected["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 0},
+    )
+    assert accepted["type"] is FlowResultType.FORM
+    assert accepted["step_id"] != "select_model"
+    assert not accepted.get("errors")
+
+
+async def test_interval_schemas_render_in_the_ui(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """HA serialises the form to the frontend; an unserialisable schema 500s."""
+    from homeassistant.helpers import config_validation as cv
+
+    try:  # Home Assistant 2026.x serialises with probatio
+        from probatio import to_field_list
+    except ImportError:  # Home Assistant 2025.12 (minimum) uses voluptuous-serialize
+        from voluptuous_serialize import convert as to_field_list
+
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+    to_field_list(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    from custom_components.omron.omron_ble.devices import get_device_config
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DEVICE_MODEL: "HEM-7155T"})
+    schema = config_flow._options_init_schema(entry, get_device_config("HEM-7155T"))
+    fields = to_field_list(schema, custom_serializer=cv.custom_serializer)
+    interval = next(f for f in fields if f["name"] == CONF_SCAN_INTERVAL)
+    assert interval["valueMin"] == 0
+
+
+async def test_options_flow_validates_the_interval(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    rejected = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 30}
+    )
+    assert rejected["type"] is FlowResultType.FORM
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+
+    for value in (0, 60):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        done = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_SCAN_INTERVAL: value}
+        )
+        assert done["type"] is FlowResultType.CREATE_ENTRY
+        assert done["data"][CONF_SCAN_INTERVAL] == value
+
+
+async def test_options_flow_checks_the_interval_before_aliases(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A multi-user model reports the bad interval, not the alias clash."""
+    model = next(
+        m
+        for m in config_flow.get_supported_models()
+        if config_flow.get_device_config(m).num_users > 1
+    )
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: model}
+    )
+    entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    rejected = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            CONF_SCAN_INTERVAL: 30,
+            "user_alias_1": "same",
+            "user_alias_2": "same",
+        },
+    )
+    assert rejected["errors"] == {CONF_SCAN_INTERVAL: "invalid_scan_interval"}
+
+
+async def test_options_flow_offers_stored_record_sync_only_where_supported(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    from custom_components.omron.const import CONF_SYNC_STORED_RECORDS
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: "HEM-7322T"}
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert CONF_SYNC_STORED_RECORDS not in result["data_schema"].schema
+    done = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+    )
+    assert CONF_SYNC_STORED_RECORDS not in done["data"]
+
+    supported = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="11:22:33:44:55:66",
+        data={CONF_DEVICE_MODEL: "HEM-7361T"},
+    )
+    supported.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(supported.entry_id)
+    assert CONF_SYNC_STORED_RECORDS in {str(k) for k in result["data_schema"].schema}
+    on = await hass.config_entries.options.async_configure(
+        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+    )
+    assert on["data"][CONF_SYNC_STORED_RECORDS] is False  # off by default
+    result = await hass.config_entries.options.async_init(supported.entry_id)
+    enabled = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={CONF_SCAN_INTERVAL: 300, CONF_SYNC_STORED_RECORDS: True},
+    )
+    assert enabled["data"][CONF_SYNC_STORED_RECORDS] is True

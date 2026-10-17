@@ -3,6 +3,7 @@
 Handles device detection from BLE advertisements and active polling
 for measurement data via GATT connection.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -75,6 +76,7 @@ def _normalize_user_aliases(user_aliases: dict[int, str] | None) -> dict[int, st
         label = str(v).strip() if v is not None else ""
         out[idx] = label if label else f"user{idx}"
     return out
+
 
 # Local-name prefixes of Omron model codes: cuffs and scales.
 _OMRON_MODEL_PREFIXES = ("HEM-", "HN-3", "HBF-")
@@ -221,26 +223,68 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ExtendedSensorDeviceClass,
             )
 
-    def _seed_measurement_specs(self, sensor_classes: Any) -> tuple[tuple[str, str | None, Any, str], ...]:
+    def _seed_measurement_specs(
+        self, sensor_classes: Any
+    ) -> tuple[tuple[str, str | None, Any, str], ...]:
         """Declarative spec for all measurement entities that must exist at startup."""
         if self._device_config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
             return (
                 ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
                 ("body_fat", "%", sensor_classes.BODY_FAT, "Body Fat"),
-                ("skeletal_muscle", "%", sensor_classes.SKELETAL_MUSCLE, "Skeletal Muscle"),
-                ("visceral_fat", None, sensor_classes.VISCERAL_FAT, "Visceral Fat Level"),
-                ("basal_metabolic_rate", "kcal/day", sensor_classes.BASAL_METABOLIC_RATE, "Basal Metabolic Rate"),
-                ("body_composition_bmi", "kg/m²", sensor_classes.BODY_COMPOSITION_BMI, "BMI"),
-                ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+                (
+                    "skeletal_muscle",
+                    "%",
+                    sensor_classes.SKELETAL_MUSCLE,
+                    "Skeletal Muscle",
+                ),
+                (
+                    "visceral_fat",
+                    None,
+                    sensor_classes.VISCERAL_FAT,
+                    "Visceral Fat Level",
+                ),
+                (
+                    "basal_metabolic_rate",
+                    "kcal/day",
+                    sensor_classes.BASAL_METABOLIC_RATE,
+                    "Basal Metabolic Rate",
+                ),
+                (
+                    "body_composition_bmi",
+                    "kg/m²",
+                    sensor_classes.BODY_COMPOSITION_BMI,
+                    "BMI",
+                ),
+                (
+                    "measurement_timestamp",
+                    None,
+                    SensorDeviceClass.TIMESTAMP,
+                    "Measured At",
+                ),
             )
         if not self._device_config.is_blood_pressure:
             return (
                 ("weight", "kg", sensor_classes.WEIGHT, "Weight"),
-                ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
+                (
+                    "measurement_timestamp",
+                    None,
+                    SensorDeviceClass.TIMESTAMP,
+                    "Measured At",
+                ),
             )
         return (
-            ("blood_pressure_systolic", "mmHg", sensor_classes.BLOOD_PRESSURE_SYSTOLIC, "Systolic"),
-            ("blood_pressure_diastolic", "mmHg", sensor_classes.BLOOD_PRESSURE_DIASTOLIC, "Diastolic"),
+            (
+                "blood_pressure_systolic",
+                "mmHg",
+                sensor_classes.BLOOD_PRESSURE_SYSTOLIC,
+                "Systolic",
+            ),
+            (
+                "blood_pressure_diastolic",
+                "mmHg",
+                sensor_classes.BLOOD_PRESSURE_DIASTOLIC,
+                "Diastolic",
+            ),
             ("heart_rate", "bpm", sensor_classes.HEART_RATE, "Pulse"),
             ("pulse_pressure", "mmHg", sensor_classes.PULSE_PRESSURE, "Pulse Pressure"),
             (
@@ -249,9 +293,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                 sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
                 "Estimated MAP",
             ),
-            ("blood_pressure_category", None, sensor_classes.BLOOD_PRESSURE_CATEGORY, "BP Category (ACC/AHA)"),
+            (
+                "blood_pressure_category",
+                None,
+                sensor_classes.BLOOD_PRESSURE_CATEGORY,
+                "BP Category (ACC/AHA)",
+            ),
             ("shock_index", "ratio", sensor_classes.SHOCK_INDEX, "Shock Index"),
-            ("rate_pressure_product", "mmHg*bpm", sensor_classes.RATE_PRESSURE_PRODUCT, "Rate Pressure Product"),
+            (
+                "rate_pressure_product",
+                "mmHg*bpm",
+                sensor_classes.RATE_PRESSURE_PRODUCT,
+                "Rate Pressure Product",
+            ),
             ("measurement_timestamp", None, SensorDeviceClass.TIMESTAMP, "Measured At"),
         )
 
@@ -262,7 +316,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         sensor_classes: Any,
     ) -> None:
         """Publish all startup measurement entities for one user suffix."""
-        for base_key, unit, device_class, base_name in self._seed_measurement_specs(sensor_classes):
+        for base_key, unit, device_class, base_name in self._seed_measurement_specs(
+            sensor_classes
+        ):
             self._publish_measurement_sensor(
                 base_key,
                 unit,
@@ -540,8 +596,7 @@ class OmronBluetoothDeviceData(BluetoothData):
     ) -> None:
         """Publish RPP from systolic and pulse."""
         if not (
-            isinstance(sys_val, (int, float))
-            and isinstance(bpm_val, (int, float))
+            isinstance(sys_val, (int, float)) and isinstance(bpm_val, (int, float))
         ):
             return
         rpp = float(sys_val) * float(bpm_val)
@@ -595,7 +650,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
 
     def _update_measurement_sensors(
-        self, record: dict[str, Any], *, user: int | None = None, multi_user: bool = False
+        self,
+        record: dict[str, Any],
+        *,
+        user: int | None = None,
+        multi_user: bool = False,
     ) -> None:
         """Publish measurement-derived sensors for one record."""
         from .const import ExtendedSensorDeviceClass
@@ -613,15 +672,50 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
             if self._device_config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
                 for key, record_key, unit, device_class, name in (
-                    ("body_fat", "body_fat", "%", ExtendedSensorDeviceClass.BODY_FAT, "Body Fat"),
-                    ("skeletal_muscle", "skeletal_muscle", "%", ExtendedSensorDeviceClass.SKELETAL_MUSCLE, "Skeletal Muscle"),
-                    ("visceral_fat", "visceral_fat", None, ExtendedSensorDeviceClass.VISCERAL_FAT, "Visceral Fat Level"),
-                    ("basal_metabolic_rate", "basal_metabolic_rate", "kcal/day", ExtendedSensorDeviceClass.BASAL_METABOLIC_RATE, "Basal Metabolic Rate"),
-                    ("body_composition_bmi", "bmi", "kg/m²", ExtendedSensorDeviceClass.BODY_COMPOSITION_BMI, "BMI"),
+                    (
+                        "body_fat",
+                        "body_fat",
+                        "%",
+                        ExtendedSensorDeviceClass.BODY_FAT,
+                        "Body Fat",
+                    ),
+                    (
+                        "skeletal_muscle",
+                        "skeletal_muscle",
+                        "%",
+                        ExtendedSensorDeviceClass.SKELETAL_MUSCLE,
+                        "Skeletal Muscle",
+                    ),
+                    (
+                        "visceral_fat",
+                        "visceral_fat",
+                        None,
+                        ExtendedSensorDeviceClass.VISCERAL_FAT,
+                        "Visceral Fat Level",
+                    ),
+                    (
+                        "basal_metabolic_rate",
+                        "basal_metabolic_rate",
+                        "kcal/day",
+                        ExtendedSensorDeviceClass.BASAL_METABOLIC_RATE,
+                        "Basal Metabolic Rate",
+                    ),
+                    (
+                        "body_composition_bmi",
+                        "bmi",
+                        "kg/m²",
+                        ExtendedSensorDeviceClass.BODY_COMPOSITION_BMI,
+                        "BMI",
+                    ),
                 ):
                     self._publish_measurement_sensor(
-                        key, unit, record.get(record_key), device_class, name,
-                        key_suffix, name_suffix,
+                        key,
+                        unit,
+                        record.get(record_key),
+                        device_class,
+                        name,
+                        key_suffix,
+                        name_suffix,
                     )
             self._publish_measurement_timestamp(record, key_suffix, name_suffix)
             return
@@ -657,13 +751,17 @@ class OmronBluetoothDeviceData(BluetoothData):
         user_id = f"user_{user}" if multi_user else "user_1"
         if user_id not in self.omron_extra_attributes:
             self.omron_extra_attributes[user_id] = {}
-            
-        if 'measurement_type' in record:
-            self.omron_extra_attributes[user_id]['measurement_type'] = record['measurement_type']
-        if 'truread_details' in record:
-            self.omron_extra_attributes[user_id]['truread_details'] = record['truread_details']
+
+        if "measurement_type" in record:
+            self.omron_extra_attributes[user_id]["measurement_type"] = record[
+                "measurement_type"
+            ]
+        if "truread_details" in record:
+            self.omron_extra_attributes[user_id]["truread_details"] = record[
+                "truread_details"
+            ]
         else:
-            self.omron_extra_attributes[user_id].pop('truread_details', None)
+            self.omron_extra_attributes[user_id].pop("truread_details", None)
 
         # Merge EEPROM-parsed ihb/mov into status_flags so both BLS and EEPROM
         # paths produce binary sensors for irregular pulse and body movement.
@@ -679,11 +777,15 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
+
             for flag_key, class_name in [
                 ("body_movement", ExtendedBinarySensorDeviceClass.BODY_MOVEMENT),
                 ("cuff_fit", ExtendedBinarySensorDeviceClass.CUFF_FIT),
                 ("irregular_pulse", ExtendedBinarySensorDeviceClass.IRREGULAR_PULSE),
-                ("improper_position", ExtendedBinarySensorDeviceClass.IMPROPER_POSITION),
+                (
+                    "improper_position",
+                    ExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
+                ),
             ]:
                 if flag_key in status_flags:
                     self.update_binary_sensor(
@@ -693,13 +795,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                         f"{flag_key.replace('_', ' ').title()}{name_suffix}",
                     )
 
-
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
         if not isinstance(value, dt.datetime):
             return value
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            tz = (self._get_tz() if self._get_tz else None) or dt.datetime.now().astimezone().tzinfo
+            tz = (
+                self._get_tz() if self._get_tz else None
+            ) or dt.datetime.now().astimezone().tzinfo
             return value.replace(tzinfo=tz)
         return value
 
@@ -716,7 +819,9 @@ class OmronBluetoothDeviceData(BluetoothData):
             return "elevated"
         return "normal"
 
-    async def _read_latest_via_bls_racp(self, client: BleakClient) -> dict[str, Any] | None:
+    async def _read_latest_via_bls_racp(
+        self, client: BleakClient
+    ) -> dict[str, Any] | None:
         """Request latest BP measurement via BLS RACP and parse 0x2A35 notification."""
         meas_char = client.services.get_characteristic(BP_MEASUREMENT_CHAR_UUID)
         racp_char = client.services.get_characteristic(BP_RACP_CHAR_UUID)
@@ -738,9 +843,15 @@ class OmronBluetoothDeviceData(BluetoothData):
             ):
                 # RACP: Report Stored Records (0x01), operator Last Record (0x06)
                 await guarded_write(
-                    client, BP_RACP_CHAR_UUID, b"\x01\x06", step="readout", response=True
+                    client,
+                    BP_RACP_CHAR_UUID,
+                    b"\x01\x06",
+                    step="readout",
+                    response=True,
                 )
-                raw = await measurements.wait_for(bool, _RACP_MEASUREMENT_TIMEOUT_S, step="racp_measurement")
+                raw = await measurements.wait_for(
+                    bool, _RACP_MEASUREMENT_TIMEOUT_S, step="racp_measurement"
+                )
                 # Response code or procedure-complete indication; not every
                 # cuff sends one, so its absence is not a failure.
                 with contextlib.suppress(NotificationTimeout):
@@ -770,7 +881,11 @@ class OmronBluetoothDeviceData(BluetoothData):
         model = self._device_config.display_model
         manufacturer = "Omron"
         normalized_address = service_info.address.replace(":", "")
-        identifier = normalized_address[-4:] if len(normalized_address) >= 4 else normalized_address
+        identifier = (
+            normalized_address[-4:]
+            if len(normalized_address) >= 4
+            else normalized_address
+        )
 
         if not self._model_chosen:
             self.set_title(f"{manufacturer} {identifier}")
@@ -813,16 +928,17 @@ class OmronBluetoothDeviceData(BluetoothData):
         shown: dict[int, int] = {}
         # TruRead profiles store a session as three raw readings that the poll
         # shows as their average; raw states would mix with the averages.
-        states_wanted = not (
-            self._device_config.index_pointer_layout or {}
-        ).get("truread_sequence")
+        states_wanted = not (self._device_config.index_pointer_layout or {}).get(
+            "truread_sequence"
+        )
         for user, outcome in sorted(found.items()):
             next_seq[user] = outcome.next_seq
             if outcome.lost:
                 _LOGGER.warning(
                     "%d stored measurement(s) for user %d were overwritten or "
                     "unreadable before they could be synced",
-                    outcome.lost, user,
+                    outcome.lost,
+                    user,
                 )
             records = outcome.records
             # The poll shows the cuff's newest record itself, whether or not
@@ -835,7 +951,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             # get their event.
             last_shown = self.history_shown.get(user)
             backlog = [
-                r for r in records
+                r
+                for r in records
                 if states_wanted
                 and r["sequence"] != outcome.index_seq
                 and (
@@ -854,11 +971,13 @@ class OmronBluetoothDeviceData(BluetoothData):
                     dataclasses.replace(
                         update,
                         entity_values={
-                            k: v for k, v in update.entity_values.items()
+                            k: v
+                            for k, v in update.entity_values.items()
                             if v.native_value is not None
                         },
                         binary_entity_values={
-                            k: v for k, v in update.binary_entity_values.items()
+                            k: v
+                            for k, v in update.binary_entity_values.items()
                             if v.native_value is not None
                         },
                     )
@@ -877,8 +996,12 @@ class OmronBluetoothDeviceData(BluetoothData):
             "user": user,
             "user_alias": self._user_aliases.get(user),
             "sequence": record.get("sequence"),
-            "measured_at": aware.isoformat() if isinstance(aware, dt.datetime) else None,
-            "device_time": measured.isoformat() if isinstance(measured, dt.datetime) else None,
+            "measured_at": aware.isoformat()
+            if isinstance(aware, dt.datetime)
+            else None,
+            "device_time": measured.isoformat()
+            if isinstance(measured, dt.datetime)
+            else None,
             **(
                 {
                     "sys": record.get("sys"),
@@ -887,7 +1010,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "irregular_pulse": bool(record["ihb"]) if "ihb" in record else None,
                     "body_movement": bool(record["mov"]) if "mov" in record else None,
                     "cuff_loose": bool(record["cuff"]) if "cuff" in record else None,
-                    "improper_position": bool(record["pos"]) if "pos" in record else None,
+                    "improper_position": bool(record["pos"])
+                    if "pos" in record
+                    else None,
                 }
                 if self._device_config.is_blood_pressure
                 else {
@@ -1008,14 +1133,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                             )
                         live_record = None
 
-                if live_record and isinstance(live_record.get("sys"), int) and isinstance(live_record.get("dia"), int):
+                if (
+                    live_record
+                    and isinstance(live_record.get("sys"), int)
+                    and isinstance(live_record.get("dia"), int)
+                ):
                     eeprom_dt = record.get("datetime") if record else None
                     live_dt = live_record.get("datetime")
                     use_live = False
                     if record is None:
                         use_live = True
                     elif isinstance(live_dt, dt.datetime) and (
-                        not isinstance(eeprom_dt, dt.datetime) or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
+                        not isinstance(eeprom_dt, dt.datetime)
+                        or live_dt > (eeprom_dt + dt.timedelta(minutes=1))
                     ):
                         use_live = True
                     elif (
@@ -1039,7 +1169,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                         if "user" not in merged:
                             merged["user"] = 1
                         record = merged
-
 
             # Before the latest record is published below: the older ones go out
             # first, each as its own update.
@@ -1095,7 +1224,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                 if signature != self._last_record_signature:
                     self._last_record_signature = signature
 
-
             # Only a decoded EEPROM record owns the application-level
             # completion mirrors. Time-sync-only and cleanup closes must
             # never acknowledge a measurement transfer that did not finish.
@@ -1119,7 +1247,11 @@ class OmronBluetoothDeviceData(BluetoothData):
             # How many latest records the readout came back with: one per
             # user with data, so 0 is a cuff with nothing stored -- not a
             # failure, and the reason the measurement entities did not move.
-            trace.note(records=len(latest_by_user) if multi_user_mode else int(record is not None))
+            trace.note(
+                records=len(latest_by_user)
+                if multi_user_mode
+                else int(record is not None)
+            )
 
         with trace.timed("device_info"):
             try:
@@ -1197,7 +1329,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                     )
 
     async def async_poll(
-        self, ble_device: BLEDevice, preconnected_session: OmronDeviceSession | None = None
+        self,
+        ble_device: BLEDevice,
+        preconnected_session: OmronDeviceSession | None = None,
     ) -> SensorUpdate:
         """Poll the device to retrieve measurement records via GATT connection.
 
@@ -1267,7 +1401,9 @@ class OmronBluetoothDeviceData(BluetoothData):
                         trace.fail("services")
                         prof = resolve_profile_model_id(self._device_model)
                         stack_label = (
-                            "modern" if self._device_config.is_modern_stack else "classic"
+                            "modern"
+                            if self._device_config.is_modern_stack
+                            else "classic"
                         )
                         _LOGGER.error(
                             "Required service %s not on %s; model=%s profile=%s expected_stack=%s",
@@ -1282,12 +1418,17 @@ class OmronBluetoothDeviceData(BluetoothData):
                             f"not found on device {ble_device.address}"
                         )
 
-                    if self.last_service_info and not self._device_config.is_advertisement_compatible(
-                        self.last_service_info.service_uuids
+                    if (
+                        self.last_service_info
+                        and not self._device_config.is_advertisement_compatible(
+                            self.last_service_info.service_uuids
+                        )
                     ):
                         prof = resolve_profile_model_id(self._device_model)
                         stack_label = (
-                            "modern" if self._device_config.is_modern_stack else "classic"
+                            "modern"
+                            if self._device_config.is_modern_stack
+                            else "classic"
                         )
                         _LOGGER.debug(
                             "Configured model %s (profile %s) may not match advertised service family; "
@@ -1379,7 +1520,10 @@ class OmronBluetoothDeviceData(BluetoothData):
                                         await session.refresh_services()
                                         await asyncio.sleep(0.5)
                             trace.note(memory_session_attempts=session_attempt + 1)
-                            if not memory_session_active and last_session_exc is not None:
+                            if (
+                                not memory_session_active
+                                and last_session_exc is not None
+                            ):
                                 if (
                                     self._device_config.host_pairing_mode
                                     == HostPairingMode.OS_BONDING
@@ -1513,7 +1657,9 @@ class OmronBluetoothDeviceData(BluetoothData):
             self._record_session_trace(session, session.trace)
 
     async def _async_sync_current_time_with_client(
-        self, client: BleakClient, address: str,
+        self,
+        client: BleakClient,
+        address: str,
         transport: OmronDeviceSession | None = None,
     ) -> bool:
         """Sync current local time via CTS or EEPROM fallback."""

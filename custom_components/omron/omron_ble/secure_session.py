@@ -69,7 +69,7 @@ class SecureSession:
 
         self.shared_secret = None
         self.mac_key = None
-        
+
         self.session_key = None
 
         # Encryption-stage buffers
@@ -87,7 +87,9 @@ class SecureSession:
             elif len(stored_ltk) == 16:
                 self._ltk = stored_ltk
             else:
-                raise ValueError(f"Stored LTK must be 16 or 80 bytes, got {len(stored_ltk)}")
+                raise ValueError(
+                    f"Stored LTK must be 16 or 80 bytes, got {len(stored_ltk)}"
+                )
         else:
             self._ltk = None
 
@@ -101,6 +103,7 @@ class SecureSession:
         _require_cryptography()
         from cryptography.hazmat.primitives import cmac
         from cryptography.hazmat.primitives.ciphers import algorithms
+
         c = cmac.CMAC(algorithms.AES(key))
         c.update(message)
         return c.finalize()
@@ -134,7 +137,9 @@ class SecureSession:
         self.own_challenge = secrets.token_bytes(16)
 
         # Frame header (0x70) + command ID (0x01)
-        packet = b"\x70\x01" + self.own_salt + self.own_challenge + self.own_public_key_bytes
+        packet = (
+            b"\x70\x01" + self.own_salt + self.own_challenge + self.own_public_key_bytes
+        )
 
         self.state = self.STATE_PAIR_REQ_SENT
         return packet
@@ -156,7 +161,7 @@ class SecureSession:
         # [2:9] salt, [9:25] challenge, [25:89] public key
         self.peer_salt = resp[2:9]
         self.peer_challenge = resp[9:25]
-        
+
         peer_x = resp[25:57][::-1]
         peer_y = resp[57:89][::-1]
         self.peer_public_key_bytes = peer_x + peer_y
@@ -174,7 +179,7 @@ class SecureSession:
             peer_public_numbers = ec.EllipticCurvePublicNumbers(
                 x=int.from_bytes(self.peer_public_key_bytes[:32], "big"),
                 y=int.from_bytes(self.peer_public_key_bytes[32:], "big"),
-                curve=ec.SECP256R1()
+                curve=ec.SECP256R1(),
             )
             peer_public_key = peer_public_numbers.public_key()
 
@@ -204,7 +209,7 @@ class SecureSession:
 
         # Frame header (0x70) + command ID (0x05)
         packet = b"\x70\x05" + self.enc_own_challenge + self.enc_own_salt
-        
+
         self.state = self.STATE_ENC_REQ_SENT
         return packet
 
@@ -226,10 +231,14 @@ class SecureSession:
         if self.state != self.STATE_ENC_REQ_SENT:
             raise RuntimeError("build_challenge_req requires STATE_ENC_REQ_SENT.")
         if len(start_enc_resp) != 46:
-            raise ValueError(f"Peer Encryption Response must be 46 bytes, got {len(start_enc_resp)}")
+            raise ValueError(
+                f"Peer Encryption Response must be 46 bytes, got {len(start_enc_resp)}"
+            )
         # Peer responses use header 0xf0, not 0x70 — see process_pair_resp.
         if start_enc_resp[:2] != b"\xf0\x85":
-            raise ValueError(f"Invalid Encryption Response headers: {start_enc_resp[:2].hex()}")
+            raise ValueError(
+                f"Invalid Encryption Response headers: {start_enc_resp[:2].hex()}"
+            )
 
         # Extract peer's encryption challenge and salt
         peer_enc_challenge = start_enc_resp[2:18]
@@ -241,7 +250,7 @@ class SecureSession:
         # Session key = AES-CMAC(LTK, peer_salt[:8] || own_salt[:8])
         session_kdf_msg = peer_enc_salt[0:8] + self.enc_own_salt[0:8]
         self.session_key = self._aes_cmac(self._ltk, session_kdf_msg)
-        
+
         self.own_packet_counter = 0
         self.last_peer_packet_counter = 0
 
@@ -258,7 +267,7 @@ class SecureSession:
 
         # Frame header (0x70) + command ID (0x06)
         packet = b"\x70\x06" + ciphertext
-        
+
         self.state = self.STATE_CHALLENGE_REQ_SENT
         return packet
 
@@ -268,9 +277,13 @@ class SecureSession:
         from cryptography.hazmat.primitives.ciphers.aead import AESCCM
 
         if self.state != self.STATE_CHALLENGE_REQ_SENT:
-            raise RuntimeError("process_challenge_resp requires STATE_CHALLENGE_REQ_SENT.")
+            raise RuntimeError(
+                "process_challenge_resp requires STATE_CHALLENGE_REQ_SENT."
+            )
         if len(resp) != 46:
-            raise ValueError(f"Peer Challenge Response must be 46 bytes, got {len(resp)}")
+            raise ValueError(
+                f"Peer Challenge Response must be 46 bytes, got {len(resp)}"
+            )
         # Peer responses use header 0xf0, not 0x70 — see process_pair_resp.
         if resp[:2] != b"\xf0\x86":
             raise ValueError(f"Invalid Challenge Response headers: {resp[:2].hex()}")
@@ -330,7 +343,7 @@ class SecureSession:
             raise RuntimeError("decrypt is only valid in PAIRED state.")
         if len(packet) < PACKET_HEADER_SIZE:
             raise ValueError("Encrypted data packet too short.")
-        if packet[0] != 0xc0:
+        if packet[0] != 0xC0:
             raise ValueError(f"Invalid packet prefix ID: {packet[0]:02x}")
 
         # Replay protection: monotonically increasing counter

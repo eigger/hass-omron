@@ -168,7 +168,9 @@ def build_session_report(
             # The adapter or proxy stopped taking data; the cuff's per-stage
             # advice (re-pair, open an issue) does not fit. The library words it.
             return None
-        text = cuff_cause(failure.stage, failure.detail, failure.error, failure.facts, operation)
+        text = cuff_cause(
+            failure.stage, failure.detail, failure.error, failure.facts, operation
+        )
         if text is not None:
             return text
         if cause_key(failure.stage, failure.error, exc=failure.exc) is not None:

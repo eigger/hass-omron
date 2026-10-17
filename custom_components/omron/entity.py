@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 from .data import OmronRuntimeData
 from .types import OmronConfigEntry
@@ -37,7 +40,9 @@ class OmronEntity:
         )
 
 
-class OmronCoordinatorEntity[T](OmronEntity, CoordinatorEntity[DataUpdateCoordinator[T]]):
+class OmronCoordinatorEntity[T](
+    OmronEntity, CoordinatorEntity[DataUpdateCoordinator[T]]
+):
     """Entry-bound entity fed by one of the per-entry coordinators."""
 
     def __init__(

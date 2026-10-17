@@ -52,27 +52,29 @@ _TRANSLATED_NAME_BASES: tuple[str, ...] = (
 )
 
 # Slot label is part of the entity key only for these. Device-level flags are not.
-_USER_NAME_BASES = frozenset({
-    "mean_arterial_pressure_estimated",
-    "blood_pressure_systolic",
-    "blood_pressure_diastolic",
-    "blood_pressure_category",
-    "rate_pressure_product",
-    "measurement_timestamp",
-    "improper_position",
-    "irregular_pulse",
-    "pulse_pressure",
-    "body_movement",
-    "shock_index",
-    "heart_rate",
-    "body_composition_bmi",
-    "basal_metabolic_rate",
-    "skeletal_muscle",
-    "visceral_fat",
-    "body_fat",
-    "cuff_fit",
-    "weight",
-})
+_USER_NAME_BASES = frozenset(
+    {
+        "mean_arterial_pressure_estimated",
+        "blood_pressure_systolic",
+        "blood_pressure_diastolic",
+        "blood_pressure_category",
+        "rate_pressure_product",
+        "measurement_timestamp",
+        "improper_position",
+        "irregular_pulse",
+        "pulse_pressure",
+        "body_movement",
+        "shock_index",
+        "heart_rate",
+        "body_composition_bmi",
+        "basal_metabolic_rate",
+        "skeletal_muscle",
+        "visceral_fat",
+        "body_fat",
+        "cuff_fit",
+        "weight",
+    }
+)
 
 
 def entity_name_translation(

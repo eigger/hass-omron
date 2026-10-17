@@ -310,7 +310,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 inferred_model = inferred
             else:
                 # If we cannot infer from the advertised model name, actively connect to read Model Number.
-                ble_device = async_ble_device_from_address(self.hass, self._discovery_info.address)
+                ble_device = async_ble_device_from_address(
+                    self.hass, self._discovery_info.address
+                )
                 if ble_device:
                     # Keep the link: on WLD3.0 cuffs this read is where the
                     # bond is made, and closing it here cuts SMP off before
@@ -348,8 +350,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 "%s reports the model name %r, which covers %d models that do "
                 "not read alike: %s. Pick the one printed on the cuff -- "
                 "nothing sent over the air distinguishes them",
-                address, probed_name or self._discovery_info.name,
-                len(candidates), ", ".join(candidates),
+                address,
+                probed_name or self._discovery_info.name,
+                len(candidates),
+                ", ".join(candidates),
             )
         elif inferred_model is None:
             _LOGGER.warning(
@@ -409,9 +413,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                         if default_model is not None
                         else vol.Required(CONF_DEVICE_MODEL)
                     ): vol.In(model_dict),
-                    vol.Optional(
-                        CONF_SCAN_INTERVAL, default=interval
-                    ): vol.All(vol.Coerce(int), vol.Range(min=0, max=86400)),
+                    vol.Optional(CONF_SCAN_INTERVAL, default=interval): vol.All(
+                        vol.Coerce(int), vol.Range(min=0, max=86400)
+                    ),
                 }
             ),
             description_placeholders=desc_ph,
@@ -514,7 +518,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         model = self._require_selected_model()
         config = get_device_config(model)
-        step_id = "pairing_os" if config.host_pairing_mode == HostPairingMode.OS_BONDING else "pairing"
+        step_id = (
+            "pairing_os"
+            if config.host_pairing_mode == HostPairingMode.OS_BONDING
+            else "pairing"
+        )
 
         title_ph = self.context.get("title_placeholders") or {}
         device_name = str(title_ph.get("name") or model)
@@ -559,7 +567,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 f"Selected model {model} does not match advertised BLE services "
                 f"(services={advertised_services})"
             )
-        if advertised_services and not config.is_service_compatible(advertised_services):
+        if advertised_services and not config.is_service_compatible(
+            advertised_services
+        ):
             _LOGGER.debug(
                 "Advertisement lists standard BP service only; Omron service may appear "
                 "after connect (model=%s ads=%s)",
@@ -715,9 +725,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         if model:
             data[CONF_DEVICE_MODEL] = model
 
-        data[CONF_SCAN_INTERVAL] = int(
-            getattr(self, "_scan_interval", 300)
-        )
+        data[CONF_SCAN_INTERVAL] = int(getattr(self, "_scan_interval", 300))
         data[CONF_USER_ALIASES] = dict(getattr(self, "_user_aliases", {}))
         credential = getattr(self, "_transport_credential", None)
         if credential:

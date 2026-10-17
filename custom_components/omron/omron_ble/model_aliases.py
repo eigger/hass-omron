@@ -31,6 +31,7 @@ visible on connect. That needs the device in hand, so it is left for later.
 Resolution aliases only: get_supported_models does not offer them in the
 config-flow dropdown, which stays on the HEM designations.
 """
+
 from __future__ import annotations
 
 MODEL_NUMBER_ALIASES: dict[str, str] = {

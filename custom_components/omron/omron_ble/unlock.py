@@ -3,6 +3,7 @@
 ``OmronDeviceSession.unlock`` and ``pair`` stay the entry points. This module
 holds the ack checks and the handshakes those entries dispatch to.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -85,7 +86,7 @@ async def _maybe_send_unlock_probe(session, replies: Notifications) -> None:
     try:
         await replies.request(
             UNLOCK_CHARACTERISTIC_UUID,
-            b'\x02' + b'\x00' * 16,
+            b"\x02" + b"\x00" * 16,
             timeout=_UNLOCK_PROBE_WAIT_TIMEOUT_SEC,
             write_timeout=WRITE_TIMEOUT_S,
             step="unlock_probe",
@@ -93,6 +94,7 @@ async def _maybe_send_unlock_probe(session, replies: Notifications) -> None:
         )
     except Exception:
         pass
+
 
 def _latest(replies: Notifications, current: bytes | None) -> bytes | None:
     """The newest frame queued, or ``current`` when nothing new arrived.
@@ -139,7 +141,6 @@ async def _secure_unlock(session) -> None:
         session._new_credential = credential
 
 
-
 async def _token_unlock(session, *, keep_notify: bool = False) -> None:
     """Unlock via the stateless 0x11/0x91 token handshake.
 
@@ -181,7 +182,9 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         await start_notify_with_recovery(
             session._client,
             session._config.rx_channel_uuids[0],
-            session.memory._on_notify_channel_data if keep_notify else (lambda _h, _d: None),
+            session.memory._on_notify_channel_data
+            if keep_notify
+            else (lambda _h, _d: None),
         )
         rx_notify_primed = True
         if keep_notify:
@@ -189,7 +192,9 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
     except asyncio.CancelledError:
         if rx_notify_primed:
-            await stop_notify_best_effort(session._client, session._config.rx_channel_uuids[0])
+            await stop_notify_best_effort(
+                session._client, session._config.rx_channel_uuids[0]
+            )
         raise
     except Exception as exc:
         _LOGGER.debug("token unlock RX pre-notify prime skipped: %s", exc)
@@ -251,7 +256,9 @@ async def _token_unlock(session, *, keep_notify: bool = False) -> None:
         else:
             await subscriptions.aclose()
             if rx_notify_primed:
-                await stop_notify_best_effort(session._client, session._config.rx_channel_uuids[0])
+                await stop_notify_best_effort(
+                    session._client, session._config.rx_channel_uuids[0]
+                )
             session._debug_ble_link("token_unlock_after_stop_notify")
 
 
@@ -263,10 +270,16 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
     aggressive_timing = session._config.aggressive_gatt_timing
     if aggressive_timing:
         await _bleak_refresh_services(session._client)
-        unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE, _OS_BOND_RETRY_DELAY_SEC
+        unlock_attempts, unlock_retry_delay = (
+            _PAIR_UNLOCK_ATTEMPTS_AGGRESSIVE,
+            _OS_BOND_RETRY_DELAY_SEC,
+        )
         key_max_retries = 5
     else:
-        unlock_attempts, unlock_retry_delay = _PAIR_UNLOCK_ATTEMPTS_DEFAULT, _PAIRING_SETTLE_DEFAULT_SEC
+        unlock_attempts, unlock_retry_delay = (
+            _PAIR_UNLOCK_ATTEMPTS_DEFAULT,
+            _PAIRING_SETTLE_DEFAULT_SEC,
+        )
         key_max_retries = 5
 
     # The subscriptions are released on every way out, in the reverse order
@@ -349,22 +362,31 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
             # the last wait gave up (during the settle pause) still counts.
             resp = _latest(replies, resp)
             if _is_unlock_key_programming_ready(resp):
-                _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt)
+                _LOGGER.debug(
+                    "Entered key programming mode after %d attempt(s)", attempt
+                )
                 entered_programming = True
                 break
 
             replies.clear()
             try:
                 await guarded_write(
-                    session._client, UNLOCK_CHARACTERISTIC_UUID, b'\x02' + b'\x00' * 16,
-                    step="pairing", response=True,
+                    session._client,
+                    UNLOCK_CHARACTERISTIC_UUID,
+                    b"\x02" + b"\x00" * 16,
+                    step="pairing",
+                    response=True,
                 )
             except Exception as exc:
                 write_failures += 1
-                _LOGGER.debug("Key programming write attempt %d failed: %s", attempt + 1, exc)
+                _LOGGER.debug(
+                    "Key programming write attempt %d failed: %s", attempt + 1, exc
+                )
 
             try:
-                resp = await replies.next(_PAIRING_PROG_WAIT_TIMEOUT_SEC, step="pairing")
+                resp = await replies.next(
+                    _PAIRING_PROG_WAIT_TIMEOUT_SEC, step="pairing"
+                )
                 resp = _latest(replies, resp)
             except NotificationTimeout:
                 resp = None
@@ -373,13 +395,16 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
                 if len(notify_samples) < 10:
                     notify_samples.append(f"#{attempt + 1}:{_hex(resp)}")
             if _is_unlock_key_programming_ready(resp):
-                _LOGGER.debug("Entered key programming mode after %d attempt(s)", attempt + 1)
+                _LOGGER.debug(
+                    "Entered key programming mode after %d attempt(s)", attempt + 1
+                )
                 entered_programming = True
                 break
 
             _LOGGER.debug(
                 "Key programming attempt %d/%d got: %s",
-                attempt + 1, max_retries,
+                attempt + 1,
+                max_retries,
                 resp[:2].hex() if resp else "None",
             )
             await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)
@@ -405,14 +430,19 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
         replies.clear()
         try:
             await guarded_write(
-                session._client, UNLOCK_CHARACTERISTIC_UUID, b'\x00' + pair_key,
-                step="pairing_key", response=True,
+                session._client,
+                UNLOCK_CHARACTERISTIC_UUID,
+                b"\x00" + pair_key,
+                step="pairing_key",
+                response=True,
             )
         except Exception as exc:
             _LOGGER.error("Failed to write new key: %s", exc)
 
         try:
-            resp = await replies.next(_PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC, step="pairing_key")
+            resp = await replies.next(
+                _PAIRING_KEY_ACK_WAIT_TIMEOUT_SEC, step="pairing_key"
+            )
             resp = _latest(replies, resp)
         except NotificationTimeout:
             resp = None
@@ -420,7 +450,9 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
         await subscriptions.aclose()
 
     if not _is_unlock_pairing_key_ack(resp):
-        raise ConnectionError(f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}")
+        raise ConnectionError(
+            f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}"
+        )
 
     _LOGGER.debug("Device paired successfully with new key")
     await asyncio.sleep(_PAIRING_SETTLE_DEFAULT_SEC)

@@ -101,6 +101,17 @@ Three kinds of problem never reach the failure sensors, because the session did 
 
 **The action itself errored before any BLE traffic.** *Retry Pairing* with the cuff out of range fails immediately with *BLE device not available*, and *BLE session already in progress* means a poll is running: wait for Connection to turn off and try again.
 
+## Bluetooth proxy and model-specific conditions
+
+Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy guide](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/bluetooth.md) (Korean, checked 2026-10-17). The conditions below are specific to Omron monitors and scales:
+
+- **Seeing the device is not the same as connecting to it.** Advertisements (discovery, RSSI) can arrive while the GATT connection, pairing or memory read still fails. Use the **Last Failure** `failed_stage` to tell them apart: `connect` is the link, `session`/`auth` are services and pairing, `transfer` is the record read.
+- **Wake / power.** The monitor switches its Bluetooth radio off to save battery. It connects briefly after a measurement; for pairing, hold the Bluetooth button until `-P-` blinks and submit while it is still blinking.
+- **One paired phone/app at a time.** If the official Omron Connect app (or another host) holds the pairing, unpair it first; otherwise `auth` stages fail even with a strong signal.
+- **Proxy path.** Home Assistant chooses among the available Bluetooth adapters and ESPHome proxies (see the radio shown in the **Duration** attributes); `bluetooth_proxy` must have `active: true` and the scan interval should stay at its default. Move the proxy close to the device, and include the radio shown in the **Duration** attributes when reporting.
+- **Unverified models.** Only the models listed with a check mark in the README are verified; others selected as a "similar model" are untested.
+- **Reporting.** Attach a debug log and the sensor attributes; remove addresses, bond keys and measurements you do not want to share first (see [Capturing Bluetooth logs](capturing-bluetooth-logs.md)).
+
 ## Intermittent failures
 
 A poll that fails only sometimes is the reason Last Failure keeps its attributes: look there, not at Duration, which already shows the later success. Its `failed_stage` and `rssi` at the time of failure are what matter. If failures cluster at one `via`, that proxy is the problem; if `paths` was 1 each time, a second radio would have given a fallback.

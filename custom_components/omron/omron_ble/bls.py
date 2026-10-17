@@ -1,4 +1,5 @@
 """Blood Pressure Service measurement decode (GATT 0x2A35)."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -20,7 +21,7 @@ def _decode_sfloat_le(raw: bytes) -> float | None:
         mantissa -= 0x1000
     if exponent >= 0x0008:
         exponent -= 0x0010
-    return float(mantissa) * (10.0 ** exponent)
+    return float(mantissa) * (10.0**exponent)
 
 
 def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
@@ -35,11 +36,11 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
     has_user_id = bool(flags & 0x08)
     has_status = bool(flags & 0x10)
 
-    sys_val = _decode_sfloat_le(payload[idx:idx + 2])
+    sys_val = _decode_sfloat_le(payload[idx : idx + 2])
     idx += 2
-    dia_val = _decode_sfloat_le(payload[idx:idx + 2])
+    dia_val = _decode_sfloat_le(payload[idx : idx + 2])
     idx += 2
-    _ = _decode_sfloat_le(payload[idx:idx + 2])  # MAP
+    _ = _decode_sfloat_le(payload[idx : idx + 2])  # MAP
     idx += 2
 
     if sys_val is None or dia_val is None:
@@ -55,7 +56,7 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
 
     measured_dt: dt.datetime | None = None
     if has_timestamp and len(payload) >= idx + 7:
-        year = int.from_bytes(payload[idx:idx + 2], "little")
+        year = int.from_bytes(payload[idx : idx + 2], "little")
         month = payload[idx + 2]
         day = payload[idx + 3]
         hour = payload[idx + 4]
@@ -69,7 +70,7 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
 
     pulse: int | None = None
     if has_pulse and len(payload) >= idx + 2:
-        pulse_value = _decode_sfloat_le(payload[idx:idx + 2])
+        pulse_value = _decode_sfloat_le(payload[idx : idx + 2])
         if pulse_value is not None:
             pulse = int(round(pulse_value))
         idx += 2
@@ -79,7 +80,7 @@ def _parse_bp_measurement(payload: bytes) -> dict[str, Any] | None:
 
     status_flags = {}
     if has_status and len(payload) >= idx + 2:
-        status_val = int.from_bytes(payload[idx:idx + 2], "little")
+        status_val = int.from_bytes(payload[idx : idx + 2], "little")
         status_flags["body_movement"] = bool(status_val & 0x01)
         status_flags["cuff_fit"] = bool(status_val & 0x02)
         status_flags["irregular_pulse"] = bool(status_val & 0x04)

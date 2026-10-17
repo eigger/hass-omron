@@ -1,4 +1,5 @@
 """Constants for the Omron BLE module."""
+
 from __future__ import annotations
 
 from sensor_state_data import BaseDeviceClass
@@ -53,6 +54,7 @@ DISCOVERABLE_PARENT_SERVICE_UUIDS = [
     MODERN_STACK_PARENT_SERVICE_UUID,
 ]
 
+
 class ExtendedSensorDeviceClass(BaseDeviceClass):
     """Device class for additional sensors (compared to sensor-state-data)."""
 
@@ -81,6 +83,7 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
 
 class ExtendedBinarySensorDeviceClass(BaseDeviceClass):
     """Device class for additional binary sensors."""
+
     BODY_MOVEMENT = "body_movement"
     CUFF_FIT = "cuff_fit"
     IRREGULAR_PULSE = "irregular_pulse"
