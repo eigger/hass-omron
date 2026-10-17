@@ -21,9 +21,9 @@
 | 축 / 상태 | 통합 커밋 | Python / HA / 플러그인 | 대상 패키지 | 명령·결과 | 미검증 범위 |
 |---|---|---|---|---|---|
 | 로컬 current / PASS | `2e6d405` | 3.14.5 / HA 2026.9.3 / 0.13.366 | blesession 0.9.0 | `ruff check .`, `ruff format --check .` 통과, `pytest tests/components/omron` 606 passed, `pip check` 이상 없음, `check_repository.py`·`sync_badges.py --check` 통과 | 실물 BLE 기기 |
-| CI current / PASS | `2e6d405` | 3.14 / 2026.9.3 / 0.13.366 | blesession 최신 | `current / Python 3.14 / ha / current` 및 `Validate` (`hacs`, `hassfest`) pass (Tests run 39046244784, Validate run 39046244773) | 실물 BLE 기기 |
-| CI 최소 라이브러리 / PASS | `2e6d405` | 3.14 / 2026.9.3 / 0.13.366 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass (Tests run 39046244784) | 실물 BLE 기기 |
-| CI 최소 HA 2025.12.0 / PASS | `2e6d405` | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | `minimum-ha / Python 3.13 / ha / current` pass (Tests run 39046244784) | 최소 HA 로컬 미실행(CI에서 검증), 실물 BLE 기기 |
+| CI current / PASS | `2e6d405` | 3.14 / 2026.10.2 / 0.13.373 | blesession 최신 | `current / Python 3.14 / ha / current` 및 `Validate` (`hacs`, `hassfest`) pass | 실물 BLE 기기 |
+| CI 최소 라이브러리 / PASS | `2e6d405` | 3.14 / 2026.10.2 / 0.13.373 | blesession==0.9.0 | `current / Python 3.14 / ha / minimum` pass | 실물 BLE 기기 |
+| CI 최소 HA 2025.12.0 / PASS | `2e6d405` | 3.13 / 2025.12.0 / 0.13.298 | blesession>=0.9.0 | `minimum-ha / Python 3.13 / ha / current` pass | 최소 HA 로컬 미실행(CI에서 검증), 실물 BLE 기기 |
 
 ## 항목
 
@@ -53,7 +53,7 @@
 | TEST-05, DEP-02, DEP-05 | PASS | `current` job의 `minimum` 모드에서 `blesession==0.9.0` 설치 확인 및 전체 테스트 통과, `manifest.json`의 `>=0.9.0` 연산자 유지 |
 | DEP-01, DEP-06 | PASS | 런타임 의존성은 `custom_components/omron/manifest.json`(`requirements: ["blesession>=0.9.0"]`, `dependencies: ["bluetooth_adapters"]`), 테스트·린트 의존성은 `requirements_test.txt`·`requirements_test_min.txt`·`requirements_lint.txt`로 분리 |
 | DEP-07, CI-06 | PASS | 공통 `install.py`가 단일 resolver 호출 및 `pip check`, HA 구성요소(`bluetooth`, `bluetooth_adapters`, `usb`) 요구사항을 함께 설치하고 `ruff==0.17.1` 고정 |
-| DEP-03, DEP-04, CI-09, CI-10 | PASS | `.github/workflows/update_dependencies.yml`이 공통 `dependency-update.yml`을 호출하며 `validation-command`로 `ruff`와 `pytest tests/components/omron/`을 실행. 로컬 `actions/update-manifest/update.py` dry-run 검증(`Requirements are current; no change`) 및 `.github/dependabot.yml`의 최소 환경 `exclude-paths` 설정 확인. 열린 Dependabot PR #250(`pytest-homeassistant-custom-component` 0.13.366→0.13.372)에서 `minimum-ha` 파일 미변경 및 `expected-ha-version: 2026.9.3` 불일치 차단 확인(자동 병합하지 않음) |
+| DEP-03, DEP-04, CI-09, CI-10 | PASS | `.github/workflows/update_dependencies.yml`이 공통 `dependency-update.yml`을 호출하며 `validation-command`로 `ruff`와 `pytest tests/components/omron/`을 실행. 로컬 `actions/update-manifest/update.py` dry-run 검증(`Requirements are current; no change`) 및 `.github/dependabot.yml`의 최소 환경 `exclude-paths` 설정 확인. 열린 Dependabot PR #250(`pytest-homeassistant-custom-component` 0.13.366→0.13.372, `expected-ha-version` 미갱신)은 자동 병합하지 않고 종료 후, `current` 환경을 `pytest-homeassistant-custom-component==0.13.373` 및 `expected-ha-version: 2026.10.2`로 일괄 갱신(최소 HA `2025.12.0` 환경은 보존) |
 | DEP-08 | N/A | 이번 채택에서 신규 런타임 의존성 추가나 기존 요구사항 범위 변경 없음 |
 | HACS-01(구조), HACS-02 | PASS | 루트 `README.md`, `LICENSE`, `hacs.json` 및 `custom_components/omron` 구조 확인 |
 | HACS-03, HACS-05 | PASS | HACS Custom 배지 사용, `validate / hacs` 및 `validate / hassfest` 통과, `custom_components/omron/brand/icon.png`(256×256)·`icon@2x.png`(512×512) 존재 |

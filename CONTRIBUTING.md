@@ -27,8 +27,8 @@ python -m pytest tests/components/omron/ -v --timeout 120
 
 | Environment | Python | Home Assistant | pytest-homeassistant-custom-component | `blesession` | Scope / Unverified |
 |---|---|---|---|---|---|
-| Local & CI `current` (`current` mode) | 3.14 | 2026.9.3 | 0.13.366 | latest compatible (`>=0.9.0`) | No physical BLE hardware in CI (external BLE transport mocked) |
-| CI `current` (`minimum` mode) | 3.14 | 2026.9.3 | 0.13.366 | `0.9.0` (exact floor) | No physical BLE hardware in CI |
+| Local & CI `current` (`current` mode) | 3.14 | 2026.10.2 | 0.13.373 | latest compatible (`>=0.9.0`) | No physical BLE hardware in CI (external BLE transport mocked) |
+| CI `current` (`minimum` mode) | 3.14 | 2026.10.2 | 0.13.373 | `0.9.0` (exact floor) | No physical BLE hardware in CI |
 | CI `minimum-ha` (`hacs.json` minimum) | 3.13 | 2025.12.0 | 0.13.298 | `>=0.9.0` | Verified in GitHub Actions CI (`constraints/homeassistant-min.txt`) |
 
 ## Standards

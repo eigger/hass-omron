@@ -12,7 +12,7 @@
 - 테스트 경로: `tests/components/omron/`
 - 변경 전 지원 최소 HA / 선언 근거: 2025.12.0 / `hacs.json`
 - 적용 후 지원 최소 HA: 2025.12.0 (변경 없음)
-- current HA 테스트 환경: Python 3.14.5, pytest-homeassistant-custom-component 0.13.366, HA 2026.9.3 (`expected-ha-version`로 CI 검증)
+- current HA 테스트 환경: Python 3.14, pytest-homeassistant-custom-component 0.13.373, HA 2026.10.2 (`expected-ha-version`로 CI 검증; 로컬은 Python 3.14.5 / HA 2026.9.3 / plugin 0.13.366 병행 검증)
 - 최소 HA 검증 환경: CI `minimum-ha` job (Python 3.13, HA 2025.12.0, plugin 0.13.298). 원격 CI 결과는 체크리스트 참조
 - 최소 package 검증: CI `current` job의 `minimum` 모드로 `blesession==0.9.0` (원격 CI 결과 참조)
 
