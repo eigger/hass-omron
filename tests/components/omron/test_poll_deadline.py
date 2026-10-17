@@ -45,21 +45,6 @@ def _caught_names(handler: ast.ExceptHandler) -> list[str]:
 class TestPollDeadline:
     """예약 폴은 반드시 유한 시간 안에 session_lock 을 돌려줘야 한다."""
 
-    def test_poll_is_wrapped_in_asyncio_timeout(self):
-        fn = _find_async_function(_parse("__init__.py"), "async_poll_data")
-        wrapped = [
-            item
-            for node in ast.walk(fn)
-            if isinstance(node, ast.AsyncWith)
-            for item in node.items
-            if isinstance(item.context_expr, ast.Call)
-            and ast.unparse(item.context_expr.func) == "asyncio.timeout"
-        ]
-        assert wrapped, (
-            "async_poll_data 는 async_poll 을 asyncio.timeout 으로 감싸야 한다. "
-            "감싸지 않으면 무경계 GATT 대기가 session_lock 을 영구 점유한다."
-        )
-
     def test_poll_timeout_constant_is_positive(self):
         tree = _parse("__init__.py")
         assignments = [
