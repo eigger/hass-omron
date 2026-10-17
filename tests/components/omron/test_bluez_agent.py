@@ -106,8 +106,8 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
     원인이 뒤바뀌었다. establish_connection_with_bond_settle 의 BleakError 폴백은
     이 RuntimeError 를 잡지 못해 pair=False 재시도가 동작하지 않았다."""
     pytest.importorskip("dbus_fast")
+    import dbus_fast.aio.message_bus as message_bus_module
     from custom_components.omron.omron_ble import bluez
-    from dbus_fast.aio.message_bus import MessageBus
 
     class FakeBus:
         def __init__(self):
@@ -126,10 +126,16 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
 
     fake_bus = FakeBus()
 
-    async def _fake_connect(*args, **kwargs):
-        return fake_bus
+    class FakeMessageBus:
+        """Stand-in for MessageBus: older dbus-fast opens the socket in __init__."""
 
-    monkeypatch.setattr(MessageBus, "connect", _fake_connect)
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            return fake_bus
+
+    monkeypatch.setattr(message_bus_module, "MessageBus", FakeMessageBus)
 
     class SimulatedConnectTimeout(Exception):
         pass
@@ -149,8 +155,8 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
 
 def test_bluez_pairing_agent_disconnects_bus_if_unregister_is_cancelled(monkeypatch):
     pytest.importorskip("dbus_fast")
+    import dbus_fast.aio.message_bus as message_bus_module
     from custom_components.omron.omron_ble import bluez
-    from dbus_fast.aio.message_bus import MessageBus
 
     class FakeBus:
         def __init__(self):
@@ -169,10 +175,16 @@ def test_bluez_pairing_agent_disconnects_bus_if_unregister_is_cancelled(monkeypa
 
     fake_bus = FakeBus()
 
-    async def fake_connect(*args, **kwargs):
-        return fake_bus
+    class FakeMessageBus:
+        """Stand-in for MessageBus: older dbus-fast opens the socket in __init__."""
 
-    monkeypatch.setattr(MessageBus, "connect", fake_connect)
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            return fake_bus
+
+    monkeypatch.setattr(message_bus_module, "MessageBus", FakeMessageBus)
 
     async def run():
         with pytest.raises(asyncio.CancelledError):

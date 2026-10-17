@@ -243,7 +243,11 @@ async def test_interval_schemas_render_in_the_ui(
 ) -> None:
     """HA serialises the form to the frontend; an unserialisable schema 500s."""
     from homeassistant.helpers import config_validation as cv
-    from probatio import to_field_list
+
+    try:  # Home Assistant 2026.x serialises with probatio
+        from probatio import to_field_list
+    except ImportError:  # Home Assistant 2025.12 (minimum) uses voluptuous-serialize
+        from voluptuous_serialize import convert as to_field_list
 
     result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
     to_field_list(result["data_schema"], custom_serializer=cv.custom_serializer)
