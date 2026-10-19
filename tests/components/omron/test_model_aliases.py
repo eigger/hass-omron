@@ -145,3 +145,14 @@ def test_every_candidate_is_selectable_in_the_dropdown() -> None:
 def test_no_name_is_both_resolvable_and_ambiguous() -> None:
     for name in AMBIGUOUS_MODEL_NAMES:
         assert name not in MODEL_NUMBER_ALIASES, name
+
+
+def test_the_china_market_u705t_reads_through_the_hem_7142t2_map():
+    """U705T reports its retail code; its memory matches the HEM-7142T2 layout."""
+    assert resolve_profile_model_id("U705T") == "HEM-7142T2"
+
+    config = get_device_config("U705T")
+    assert config.user_start_addresses == [0x02E8]
+    assert config.per_user_records_count == [14]
+    assert config.record_byte_size == 0x0E
+    assert config.settings_read_address == 0x0260

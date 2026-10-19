@@ -140,6 +140,14 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "X4 Connect AFib": "HEM-7196T1-FLEO",
     "X7 Smart": "HEM-7361T_ESL",
     "X7 Smart AFib": "HEM-7380T1-EOSL",
+    # China-market retail codes (OMRON Plus app). Not in the OMRON connect
+    # list; mapped from a memory readout of the device itself.
+    #
+    # U705T: one user, 14 x 14-byte records from 0x02E8, write cursor and
+    # unread counter at 0x0260, clock at 0x0260+0x2C -- the HEM-7142T2 map
+    # exactly. Neither the HEM-7374T1 (U738T) map nor the HEM-7191T1 map fits:
+    # the cuff refuses reads at 0x0804 and beyond 0x05EB with 0xE3.
+    "U705T": "HEM-7142T2",
 }
 
 
