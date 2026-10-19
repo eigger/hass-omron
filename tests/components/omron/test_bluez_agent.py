@@ -226,10 +226,22 @@ def test_agent_rejects_a_non_bluez_path():
 
 @pytest.mark.parametrize("path", [None, ""])
 def test_pairing_agent_is_not_registered_without_a_target(monkeypatch, path):
+    pytest.importorskip("dbus_fast")
+    from dbus_fast.aio.message_bus import MessageBus
+
     from custom_components.omron.omron_ble import bluez
+
+    connects = []
+
+    async def _no_bus(self):
+        connects.append(1)
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(MessageBus, "connect", _no_bus)
 
     async def _run():
         async with bluez._bluez_pairing_agent(path) as bus:
             assert bus is None
 
     asyncio.run(_run())
+    assert connects == []

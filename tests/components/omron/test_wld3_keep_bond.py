@@ -211,6 +211,18 @@ def _connect(monkeypatch, connector, *, details, **kwargs):
     )
 
 
+async def test_held_agent_on_connect_is_scoped_to_the_cuff(monkeypatch, agent_log):
+    connector = _Connector(_Link())
+
+    await _connect(
+        monkeypatch, connector, details=_BLUEZ_DETAILS, hold_pairing_agent=True
+    )
+
+    assert connector.calls == [{}]
+    assert agent_log == ["enter", "exit"]
+    assert agent_log.paths == [_BLUEZ_DETAILS["path"]]
+
+
 async def test_connect_logs_the_path_that_owns_the_bond(monkeypatch, agent_log, caplog):
     """본드를 유지하면 "어느 라디오가 그걸 갖고 있나" 가 진단의 핵심이 된다.
 

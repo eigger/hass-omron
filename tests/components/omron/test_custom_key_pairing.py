@@ -87,11 +87,11 @@ def _custom_key_session(ble_device, client) -> OmronDeviceSession:
 @pytest.fixture
 def agent_recorder(monkeypatch):
     """``_bluez_pairing_agent()`` 진입 여부를 기록한다."""
-    entered: list[bool] = []
+    entered: list = []
 
     @asynccontextmanager
-    async def _fake_agent(*_args):
-        entered.append(True)
+    async def _fake_agent(path):
+        entered.append(path)
         yield None
 
     monkeypatch.setattr(session_module, "_bluez_pairing_agent", _fake_agent)
@@ -120,7 +120,7 @@ def test_local_bluez_custom_key_pairing_registers_agent(
 
     asyncio.run(session.pair())
 
-    assert agent_recorder == [True]
+    assert agent_recorder == [LOCAL_BLUEZ_DEVICE_DETAILS["path"]]
     assert len(pair_custom_key_recorder) == 1
 
 
