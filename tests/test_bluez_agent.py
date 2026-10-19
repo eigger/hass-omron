@@ -14,6 +14,8 @@ from pathlib import Path
 import sys
 import pytest
 
+DEV = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+
 
 def test_bluez_agent_interface_builds():
     """dbus_fast 는 어노테이션에서 시그니처를 만든다 — 이 모듈에
@@ -21,7 +23,7 @@ def test_bluez_agent_interface_builds():
     pytest.importorskip("dbus_fast")
     from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
 
-    agent = AutoConfirmAgent()
+    agent = AutoConfirmAgent(DEV)
     assert agent is not None
     assert agent.name == "org.bluez.Agent1"
 
@@ -71,7 +73,7 @@ def test_bluez_pairing_agent_falls_back_when_agent_module_broken(monkeypatch, ca
 
     async def _run():
         with caplog.at_level(logging.DEBUG, logger=bluez.__name__):
-            async with bluez._bluez_pairing_agent() as bus:
+            async with bluez._bluez_pairing_agent(DEV) as bus:
                 assert bus is None
         assert "BlueZ agent unavailable" in caplog.text
 
@@ -91,7 +93,7 @@ def test_bluez_pairing_agent_falls_back_on_system_bus_failure(monkeypatch, caplo
 
     async def _run():
         with caplog.at_level(logging.DEBUG, logger=bluez.__name__):
-            async with bluez._bluez_pairing_agent() as bus:
+            async with bluez._bluez_pairing_agent(DEV) as bus:
                 assert bus is None
         assert "cannot connect to system bus" in caplog.text
 
@@ -136,7 +138,7 @@ def test_bluez_pairing_agent_propagates_caller_exception(monkeypatch):
 
     async def _run():
         with pytest.raises(SimulatedConnectTimeout):
-            async with bluez._bluez_pairing_agent() as bus:
+            async with bluez._bluez_pairing_agent(DEV) as bus:
                 assert bus is fake_bus
                 raise SimulatedConnectTimeout("simulated establish_connection failure")
 
@@ -176,8 +178,65 @@ def test_bluez_pairing_agent_disconnects_bus_if_unregister_is_cancelled(monkeypa
 
     async def run():
         with pytest.raises(asyncio.CancelledError):
-            async with bluez._bluez_pairing_agent():
+            async with bluez._bluez_pairing_agent(DEV):
                 pass
 
     asyncio.run(run())
     assert fake_bus.disconnected
+
+
+_AGENT_CALLS = {
+    "RequestPinCode": (DEV,),
+    "DisplayPinCode": (DEV, "0000"),
+    "RequestPasskey": (DEV,),
+    "DisplayPasskey": (DEV, 123456, 0),
+    "RequestConfirmation": (DEV, 123456),
+    "RequestAuthorization": (DEV,),
+    "AuthorizeService": (DEV, "0000180f-0000-1000-8000-00805f9b34fb"),
+}
+
+
+@pytest.mark.parametrize("method", _AGENT_CALLS)
+def test_agent_rejects_other_devices(method):
+    """The agent is the system default while up; it must not answer for anyone
+    but the device being paired (HACS review, hacs/default#10041)."""
+    pytest.importorskip("dbus_fast")
+    from dbus_fast.errors import DBusError
+    from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
+
+    agent = AutoConfirmAgent(DEV)
+    other = "/org/bluez/hci0/dev_11_22_33_44_55_66"
+    args = (other, *_AGENT_CALLS[method][1:])
+    with pytest.raises(DBusError) as exc:
+        getattr(agent, method)(*args)
+    assert exc.value.type == "org.bluez.Error.Rejected"
+
+
+@pytest.mark.parametrize("method", _AGENT_CALLS)
+def test_agent_accepts_the_paired_device_on_any_adapter(method):
+    pytest.importorskip("dbus_fast")
+    from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
+
+    agent = AutoConfirmAgent(DEV)
+    same_on_hci1 = "/org/bluez/hci1/dev_aa_bb_cc_dd_ee_ff"
+    getattr(agent, method)(same_on_hci1, *_AGENT_CALLS[method][1:])
+
+
+def test_agent_rejects_a_non_bluez_path():
+    pytest.importorskip("dbus_fast")
+    from dbus_fast.errors import DBusError
+    from custom_components.omron.omron_ble.bluez_agent import AutoConfirmAgent
+
+    with pytest.raises(DBusError):
+        AutoConfirmAgent(DEV).RequestAuthorization("/evil/dev_AA_BB_CC_DD_EE_FF")
+
+
+@pytest.mark.parametrize("path", [None, ""])
+def test_pairing_agent_is_not_registered_without_a_target(monkeypatch, path):
+    from custom_components.omron.omron_ble import bluez
+
+    async def _run():
+        async with bluez._bluez_pairing_agent(path) as bus:
+            assert bus is None
+
+    asyncio.run(_run())

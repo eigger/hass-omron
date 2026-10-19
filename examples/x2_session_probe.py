@@ -55,7 +55,9 @@ async def main():
     wanted_service = "0000fcb4-0000-1000-8000-00805f9b34fb" if key is None else "0000fe4a-0000-1000-8000-00805f9b34fb"
     async with AsyncExitStack() as resources:
         if args.passive_bonding_agent:
-            agent = await resources.enter_async_context(_bluez_pairing_agent())
+            agent = await resources.enter_async_context(
+                _bluez_pairing_agent("/org/bluez/hci0/dev_" + binding["address"].replace(":", "_"))
+            )
             if agent is None:
                 raise RuntimeError("BlueZ agent unavailable; diagnostic not started")
             print("PASSIVE_BONDING_AGENT_READY; NO_EXPLICIT_PAIR_CALL", flush=True)

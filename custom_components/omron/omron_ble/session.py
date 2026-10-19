@@ -204,14 +204,21 @@ class OmronDeviceSession:
             self._config.register_pairing_agent
             and self._pairing_agent is None
             and is_local_adapter(self._ble_device)
+            and (
+                self._pairing_session
+                or await _bluez_is_paired(self._ble_device) is not True
+            )
         ):
             # For the whole session, not just the connect: on these profiles the
             # device raises its Security Request on its own schedule, and the
             # hardware-verified sequence had an agent registered throughout.
-            # Released in aclose().
+            # Only while bonding: a bonded cuff re-encrypts with its stored key
+            # and never asks the agent (#10041). Released in aclose().
             stack = AsyncExitStack()
             try:
-                await stack.enter_async_context(_bluez_pairing_agent())
+                await stack.enter_async_context(
+                    _bluez_pairing_agent(_bluez_device_path(self._ble_device))
+                )
             except Exception as exc:
                 await stack.aclose()
                 _LOGGER.debug(
@@ -812,7 +819,7 @@ class OmronDeviceSession:
         # custom-key path. Cuffs that raise an SMP security request when RX
         # notifications are enabled (HEM-7155T) then drop the link, because
         # BlueZ leaves the Just Works confirmation unanswered without one.
-        async with _bluez_pairing_agent():
+        async with _bluez_pairing_agent(_bluez_device_path(self._bluez_target())):
             await _pair_custom_key(self, pair_key)
 
     async def unpair(self) -> None:

@@ -89,7 +89,7 @@ def agent_recorder(monkeypatch):
     entered: list[bool] = []
 
     @asynccontextmanager
-    async def _fake_agent():
+    async def _fake_agent(*_args):
         entered.append(True)
         yield None
 

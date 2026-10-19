@@ -78,14 +78,18 @@ def test_failed_connect_releases_session_pairing_agent(monkeypatch):
     closed = False
 
     @asynccontextmanager
-    async def pairing_agent():
+    async def pairing_agent(*_args):
         yield None
 
     async def fail_connect(*args, **kwargs):
         raise ConnectionError("connect failed")
 
     monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
+    async def not_paired(_device):
+        return False
+
     monkeypatch.setattr(session_module, "is_local_adapter", lambda _device: True)
+    monkeypatch.setattr(session_module, "_bluez_is_paired", not_paired)
     monkeypatch.setattr(session_module, "establish_connection_with_bond_settle", fail_connect)
 
     session = OmronDeviceSession(
@@ -134,3 +138,41 @@ def test_aclose_bounds_memory_close(monkeypatch):
     asyncio.run(asyncio.wait_for(session.aclose(), timeout=0.5))
     assert session._client is None
     assert client.disconnected
+
+
+@pytest.mark.parametrize(
+    ("paired", "pairing_session", "held"),
+    [(True, False, False), (True, True, True), (False, False, True), (None, False, True)],
+)
+def test_session_agent_is_only_held_while_bonding(monkeypatch, paired, pairing_session, held):
+    """A bonded cuff re-encrypts with its stored key and never asks the agent."""
+    paths = []
+
+    @asynccontextmanager
+    async def pairing_agent(path):
+        paths.append(path)
+        yield None
+
+    async def is_paired(_device):
+        return paired
+
+    async def fail_connect(*args, **kwargs):
+        raise ConnectionError("connect failed")
+
+    device = SimpleNamespace(
+        address="AA:BB:CC:DD:EE:FF",
+        details={"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"},
+    )
+    monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
+    monkeypatch.setattr(session_module, "_bluez_is_paired", is_paired)
+    monkeypatch.setattr(session_module, "establish_connection_with_bond_settle", fail_connect)
+    session = OmronDeviceSession(
+        device, get_device_config("HEM-7188T1-LEO"), pairing_session=pairing_session
+    )
+
+    async def run():
+        with pytest.raises(ConnectionError):
+            await session.connect()
+
+    asyncio.run(run())
+    assert paths == (["/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"] if held else [])

@@ -166,7 +166,7 @@ class TestPairingIsOptional:
                 fn = node
         assert fn is not None, "connect() 를 찾지 못했다"
         body = ast.unparse(fn)
-        assert "_bluez_pairing_agent()" in body, (
+        assert "_bluez_pairing_agent(" in body, (
             "connect() 가 에이전트를 잡지 않는다 — establish_connection 안에서만 "
             "유지되면 이후 핸드셰이크의 보안 요청에 답할 주체가 없다"
         )

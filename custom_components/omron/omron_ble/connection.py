@@ -12,7 +12,7 @@ from bleak_retry_connector import establish_connection
 from blesession import DISCONNECT_TIMEOUT_S, ConnectFailed
 from blesession.link import connected_via
 
-from .bluez import _bluez_pairing_agent, is_local_adapter
+from .bluez import _bluez_device_path, _bluez_pairing_agent, is_local_adapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ async def establish_connection_with_bond_settle(
                     # without a registered agent and fails the pair with
                     # AuthenticationFailed, so the agent is what makes this path
                     # actually bond rather than quietly fall back.
-                    async with _bluez_pairing_agent():
+                    async with _bluez_pairing_agent(_bluez_device_path(ble_device)):
                         client = await establish_connection(
                             BleakClient, ble_device, name, pair=True
                         )
@@ -174,7 +174,7 @@ async def establish_connection_with_bond_settle(
                     )
                     client = await establish_connection(BleakClient, ble_device, name)
             elif agent_this_attempt:
-                async with _bluez_pairing_agent():
+                async with _bluez_pairing_agent(_bluez_device_path(ble_device)):
                     client = await establish_connection(BleakClient, ble_device, name)
             else:
                 client = await establish_connection(BleakClient, ble_device, name)
