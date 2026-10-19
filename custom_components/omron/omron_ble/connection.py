@@ -13,7 +13,7 @@ from bleak_retry_connector import establish_connection
 from blesession import DISCONNECT_TIMEOUT_S, ConnectFailed
 from blesession.link import connected_via
 
-from .bluez import _bluez_pairing_agent, is_local_adapter
+from .bluez import _bluez_device_path, _bluez_pairing_agent, is_local_adapter
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -122,8 +122,8 @@ async def establish_connection_with_bond_settle(
     pair_this_attempt = pair_on_connect and is_local_adapter(ble_device)
     # Profiles that never call Pair() still need someone to answer the Just
     # Works confirmation the cuff's own Security Request triggers. The caller
-    # holds an agent for the whole session (see OmronDeviceSession.connect);
-    # this one only covers the connect itself for callers that do not.
+    # holds an agent for the session while the cuff is unbonded (see
+    # OmronDeviceSession.connect); this one only covers the connect itself.
     agent_this_attempt = hold_pairing_agent and is_local_adapter(ble_device)
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(
@@ -156,7 +156,7 @@ async def establish_connection_with_bond_settle(
                     # without a registered agent and fails the pair with
                     # AuthenticationFailed, so the agent is what makes this path
                     # actually bond rather than quietly fall back.
-                    async with _bluez_pairing_agent():
+                    async with _bluez_pairing_agent(_bluez_device_path(ble_device)):
                         client = await establish_connection(
                             BleakClient, ble_device, name, pair=True
                         )
@@ -179,7 +179,7 @@ async def establish_connection_with_bond_settle(
                     )
                     client = await establish_connection(BleakClient, ble_device, name)
             elif agent_this_attempt:
-                async with _bluez_pairing_agent():
+                async with _bluez_pairing_agent(_bluez_device_path(ble_device)):
                     client = await establish_connection(BleakClient, ble_device, name)
             else:
                 client = await establish_connection(BleakClient, ble_device, name)

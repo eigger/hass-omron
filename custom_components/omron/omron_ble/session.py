@@ -108,8 +108,8 @@ class OmronDeviceSession:
         self._client = client
         # Set only when this session established a credential worth storing.
         self._new_credential: bytes | None = None
-        # Pairing agent held for the lifetime of the session, for profiles
-        # where the device drives security itself.
+        # Pairing agent held while bonding, for profiles where the device
+        # drives security itself.
         self._pairing_agent: AsyncExitStack | None = None
         self._owns_connection = owns_connection
         # Stage timings and the failure point, for the diagnostic sensors. A
@@ -204,14 +204,16 @@ class OmronDeviceSession:
             self._config.register_pairing_agent
             and self._pairing_agent is None
             and is_local_adapter(self._ble_device)
+            and await self._needs_session_agent()
         ):
-            # For the whole session, not just the connect: on these profiles the
-            # device raises its Security Request on its own schedule, and the
-            # hardware-verified sequence had an agent registered throughout.
-            # Released in aclose().
+            # Session-wide while bonding (#92): the cuff raises its Security
+            # Request on its own schedule. A bonded cuff re-encrypts without the
+            # agent. Released in aclose().
             stack = AsyncExitStack()
             try:
-                await stack.enter_async_context(_bluez_pairing_agent())
+                await stack.enter_async_context(
+                    _bluez_pairing_agent(_bluez_device_path(self._ble_device))
+                )
             except Exception as exc:
                 await stack.aclose()
                 _LOGGER.debug(
@@ -246,6 +248,16 @@ class OmronDeviceSession:
         finally:
             self.publish_link_to(self.trace)
         return self
+
+    async def _needs_session_agent(self) -> bool:
+        """Whether this session must hold a pairing agent: bonding, or no bond."""
+        if self._pairing_session:
+            return True
+        try:
+            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                return await _bluez_is_paired(self._ble_device) is not True
+        except TimeoutError:
+            return True
 
     def publish_link_to(self, trace: SessionTrace) -> None:
         """Copy what the connect learned onto ``trace``.
@@ -836,9 +848,7 @@ class OmronDeviceSession:
         if self._config.host_pairing_mode != HostPairingMode.CUSTOM_KEY:
             raise ConnectionError("Pairing is not supported for this device")
         if _bluez_device_path(self._bluez_target()) is None:
-            # Proxy link: there is no local SMP confirmation to answer, and the
-            # agent registers as the system *default*, so putting one up here
-            # would take over pairing confirmation for unrelated local devices.
+            # Proxy link: no local SMP confirmation to answer.
             await _pair_custom_key(self, pair_key)
             return
         # Nothing has put an agent up for this link: connect-time bonding and
@@ -846,7 +856,7 @@ class OmronDeviceSession:
         # custom-key path. Cuffs that raise an SMP security request when RX
         # notifications are enabled (HEM-7155T) then drop the link, because
         # BlueZ leaves the Just Works confirmation unanswered without one.
-        async with _bluez_pairing_agent():
+        async with _bluez_pairing_agent(_bluez_device_path(self._bluez_target())):
             await _pair_custom_key(self, pair_key)
 
     async def unpair(self) -> None:

@@ -42,7 +42,7 @@ def _bluez_device_path(obj: BleakClient | BLEDevice) -> str | None:
 
 
 @asynccontextmanager
-async def _bluez_pairing_agent() -> AsyncIterator[Any]:
+async def _bluez_pairing_agent(device_path: str | None) -> AsyncIterator[Any]:
     """Hold an auto-confirming BlueZ agent registered for the duration.
 
     Yields the DBus connection the ``KeyboardDisplay`` agent is registered
@@ -50,7 +50,13 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
     set up (non-Linux, no DBus, no BlueZ). Callers can pair inside the block
     — either via ``Device1.Pair()`` on the yielded bus or by letting bleak
     pair during connect — without the confirmation going unanswered.
+
+    The agent answers only for ``device_path``; with no path nothing is
+    registered and None is yielded.
     """
+    if not device_path:
+        yield None
+        return
     try:
         from dbus_fast.aio.message_bus import MessageBus
         from dbus_fast.constants import BusType
@@ -72,7 +78,7 @@ async def _bluez_pairing_agent() -> AsyncIterator[Any]:
     registered = False
     agent_ready = False
     try:
-        bus.export(_BLUEZ_AGENT_PATH, AutoConfirmAgent())
+        bus.export(_BLUEZ_AGENT_PATH, AutoConfirmAgent(device_path))
         await bus.call(
             Message(
                 destination="org.bluez",
@@ -161,7 +167,7 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
     if not device_path:
         return False
 
-    async with _bluez_pairing_agent() as bus:
+    async with _bluez_pairing_agent(device_path) as bus:
         if bus is None:
             return False
         try:

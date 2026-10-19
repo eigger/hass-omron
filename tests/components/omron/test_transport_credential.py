@@ -203,7 +203,7 @@ class TestPairingIsOptional:
         agent_events: list[str] = []
 
         @contextlib.asynccontextmanager
-        async def fake_agent():
+        async def fake_agent(*_args):
             agent_events.append("enter")
             try:
                 yield

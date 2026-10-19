@@ -19,7 +19,7 @@ jobs:
       python-versions: '["3.14"]'
       requirements: requirements_test.txt
       dependency-modes: '["current", "minimum"]'
-      minimum-packages: '["blesession"]'
+      minimum-packages: '["blesession", "bluetooth-sensor-state-data", "sensor-state-data"]'
       ha-components: bluetooth bluetooth_adapters usb
       expected-ha-version: '2026.10.2'
       test-profile: ha

@@ -181,10 +181,16 @@ class _Connector:
 @pytest.fixture
 def agent_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """``_bluez_pairing_agent`` 가 열리고 닫힌 기록."""
-    events: list[str] = []
+
+    class _Log(list):
+        paths: list = []
+
+    events = _Log()
+    events.paths = []
 
     @asynccontextmanager
-    async def _agent():
+    async def _agent(path):
+        events.paths.append(path)
         events.append("enter")
         try:
             yield object()
@@ -203,6 +209,18 @@ def _connect(monkeypatch, connector, *, details, **kwargs):
     return connection.establish_connection_with_bond_settle(
         device, ADDRESS, model="HEM-7386T1", **kwargs
     )
+
+
+async def test_held_agent_on_connect_is_scoped_to_the_cuff(monkeypatch, agent_log):
+    connector = _Connector(_Link())
+
+    await _connect(
+        monkeypatch, connector, details=_BLUEZ_DETAILS, hold_pairing_agent=True
+    )
+
+    assert connector.calls == [{}]
+    assert agent_log == ["enter", "exit"]
+    assert agent_log.paths == [_BLUEZ_DETAILS["path"]]
 
 
 async def test_connect_logs_the_path_that_owns_the_bond(monkeypatch, agent_log, caplog):
@@ -249,6 +267,7 @@ async def test_connect_time_bonding_runs_on_a_local_adapter_inside_an_agent(
     assert client is link
     assert connector.calls == [{"pair": True}]
     assert agent_log == ["enter", "exit"]
+    assert agent_log.paths == [_BLUEZ_DETAILS["path"]]
     assert client._omron_bonded_at_connect is True
     assert info["bonded_at_connect"] is True
 
