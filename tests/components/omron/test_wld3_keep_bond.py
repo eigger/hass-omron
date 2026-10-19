@@ -184,7 +184,7 @@ def agent_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     events: list[str] = []
 
     @asynccontextmanager
-    async def _agent():
+    async def _agent(*_args):
         events.append("enter")
         try:
             yield object()
