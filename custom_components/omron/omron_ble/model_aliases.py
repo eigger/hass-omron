@@ -31,9 +31,14 @@ visible on connect. That needs the device in hand, so it is left for later.
 Resolution aliases only: get_supported_models does not offer them in the
 config-flow dropdown, which stays on the HEM designations.
 """
+
 from __future__ import annotations
 
 MODEL_NUMBER_ALIASES: dict[str, str] = {
+    "VIVA": "HBF-222T",
+    "Omron VIVA": "HBF-222T",
+    "BCM-500": "HBF-222T",
+    "Omron BCM-500": "HBF-222T",
     "BP300": "HEM-7320T-ZV",
     "BP4350": "HEM-6232T-Z",
     "BP5150": "HEM-7142T2-ZAZ",

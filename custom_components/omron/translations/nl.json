@@ -78,6 +78,7 @@
         "description": "Hoe vaak Home Assistant de bloeddrukmeter moet pollen voor nieuwe metingen (60–86400 seconden). Een lagere waarde verbruikt meer batterij van de manchet. Met 0 staat geplande polling uit. Manchetten die een wachtende overdracht melden worden nog steeds vanzelf uitgelezen; de rest werkt alleen bij met de knop Gegevens vernieuwen.\n\n**Profielplaatsen op dit apparaat:** {num_users}. Bij meer dan één kunt u hieronder per plaats een weergavenaam instellen (standaard user1, user2, …). Een plaats hernoemen maakt nieuwe sensorentiteiten voor die plaats.",
         "data": {
           "scan_interval": "Bijwerkinterval (seconden, 0 = uit)",
+          "sync_stored_records": "Alle sinds de laatste poll opgeslagen metingen publiceren",
           "user_alias_1": "Naam gebruiker 1",
           "user_alias_2": "Naam gebruiker 2",
           "user_alias_3": "Naam gebruiker 3",
@@ -356,6 +357,36 @@
           "obesity_class_2": "Obesitas klasse 2",
           "obesity_class_3": "Obesitas klasse 3"
         }
+      },
+      "body_fat": {
+        "name": "Body Fat"
+      },
+      "body_fat_user": {
+        "name": "Body Fat ({user})"
+      },
+      "skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "skeletal_muscle_user": {
+        "name": "Skeletal Muscle ({user})"
+      },
+      "visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "visceral_fat_user": {
+        "name": "Visceral Fat Level ({user})"
+      },
+      "basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "basal_metabolic_rate_user": {
+        "name": "Basal Metabolic Rate ({user})"
+      },
+      "body_composition_bmi": {
+        "name": "BMI"
+      },
+      "body_composition_bmi_user": {
+        "name": "BMI ({user})"
       }
     },
     "binary_sensor": {

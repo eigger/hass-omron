@@ -9,6 +9,7 @@ Contributed for HEM-7188T1-LEO by the #24 reporter and hardware-verified there
 on Linux/BlueZ and macOS. Nothing here is written for that model specifically:
 every address comes out of the catalog fields the profile already carries.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,6 +56,7 @@ def _secure_error_frame_code(resp: bytes | bytearray | None) -> int | None:
         return resp[1]
     return None
 
+
 async def prepare_secure_token(session, timeout: float) -> None:
     """Run the pre-handshake reads, subscriptions and 0x11/0x91 token exchange.
 
@@ -91,7 +93,9 @@ async def prepare_secure_token(session, timeout: float) -> None:
         )
         session.memory._notify_subscribed = True
         await start_notify_with_recovery(
-            session._client, ASYNC_NOTICE_UUID, async_notice,
+            session._client,
+            ASYNC_NOTICE_UUID,
+            async_notice,
         )
         _LOGGER.debug("Secure session: subscribed control, rx and async channels")
         await asyncio.sleep(0.75)
@@ -139,10 +143,9 @@ async def establish_secure_session(
     crypto = SecureSession(stored_ltk=stored_ltk)
     # Key generation and lazy crypto imports must not delay token -> request.
     first_request = crypto.build_pair_req() if pairing else crypto.build_start_enc_req()
+
     async def exchange(packet: bytes, prefix: bytes) -> bytes:
-        _LOGGER.debug(
-            "Secure session TX stage=%s bytes=%d", prefix.hex(), len(packet)
-        )
+        _LOGGER.debug("Secure session TX stage=%s bytes=%d", prefix.hex(), len(packet))
         channel = session._unlock_channel
         if channel is None:
             raise ConnectionError("The secure session has no unlock subscription")
@@ -199,7 +202,10 @@ async def establish_secure_session(
             tail = await session.memory.read_memory_block(
                 layout.clock_read_address, layout.clock_read_size
             )
-            if len(head) != layout.head_read_size or len(tail) != layout.clock_read_size:
+            if (
+                len(head) != layout.head_read_size
+                or len(tail) != layout.clock_read_size
+            ):
                 raise ConnectionError("Incomplete secure initialization settings")
             block = clock_block(tail, now, layout.clock_write_size)
             await session.memory.write_memory_block(

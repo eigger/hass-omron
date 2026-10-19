@@ -8,6 +8,7 @@ registration written on the way out. The host session provides the link
 frames, and ``_require_connected`` / ``_ensure_services_cache`` /
 ``_debug_ble_link``. A failed open clears the host's ``_unlocked`` flag.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,7 +50,7 @@ _MEMORY_PROTOCOL_RETRY_BACKOFF_SEC: float = 0.25
 
 # The per-transfer slot that follows the index region in the settings mirror
 # (#175 BP5465 capture; same shape in the #67 HEM-7155T-MW3 capture).
-_REGISTRATION_SLOT_COUNT_OFFSET: int = 4      # u32 LE, steps once per transfer
+_REGISTRATION_SLOT_COUNT_OFFSET: int = 4  # u32 LE, steps once per transfer
 
 # The device answers 0x8f00 for the session-close ack and for a rejected
 # command alike, so it is accepted whatever was asked for.
@@ -85,6 +86,7 @@ class MemoryProtocol:
     def reset(self) -> None:
         """Drop reply and registration progress. The reply Event is cleared, not replaced."""
         self._notify_subscribed = False
+        self._notify_subscribed_uuids: set[str] = set()
         self._last_reply_packet_type: bytes | None = None
         self._last_reply_memory_address: bytes | None = None
         self._last_reply_payload: bytes | None = None
@@ -94,6 +96,7 @@ class MemoryProtocol:
         self._channel_fragments: list[bytes | None] = [None] * 4
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
+        self._memory_session_start_attempted = False
         # A pairing session commits its registration once per link. The two
         # writes are tracked apart: the head write steps the cuff's transfer
         # count and must never repeat, the clock write can be redone.
@@ -152,19 +155,24 @@ class MemoryProtocol:
                 self._config.model,
             )
             return
-
         self._debug_ble_link("before_rx_subscribe")
         await self._ensure_services_cache()
         self._rebuild_notify_handle_index_map()
 
         for uuid in self._config.rx_channel_uuids:
+            if uuid in self._notify_subscribed_uuids:
+                continue
             await start_notify_with_recovery(
                 self._client,
                 uuid,
                 self._on_notify_channel_data,
             )
+            self._notify_subscribed_uuids.add(uuid)
         await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
-        self._notify_subscribed = True
+        self._notify_subscribed = all(
+            uuid in self._notify_subscribed_uuids
+            for uuid in self._config.rx_channel_uuids
+        )
         self._debug_ble_link("after_rx_subscribe")
 
     async def _unsubscribe_notify_channels(self, *, force: bool = False) -> None:
@@ -183,6 +191,7 @@ class MemoryProtocol:
             return
         for uuid in self._config.rx_channel_uuids:
             await stop_notify_best_effort(self._client, uuid)
+        getattr(self, "_notify_subscribed_uuids", set()).clear()
         self._notify_subscribed = False
         self._debug_ble_link("after_rx_unsubscribe")
 
@@ -249,7 +258,10 @@ class MemoryProtocol:
             required_channels = range((packet_size + 15) // 16)
             # Check all required channels are received
             for ch in required_channels:
-                if ch >= len(self._channel_fragments) or self._channel_fragments[ch] is None:
+                if (
+                    ch >= len(self._channel_fragments)
+                    or self._channel_fragments[ch] is None
+                ):
                     return
             # Combine channels
             frame_bytes = bytearray()
@@ -259,9 +271,14 @@ class MemoryProtocol:
             self._channel_fragments = [None] * 4
 
         # Decrypt if secure-session encryption is active
-        if self._config.unlock_mode == UnlockMode.SECURE_SESSION and self._secure_session is not None:
+        if (
+            self._config.unlock_mode == UnlockMode.SECURE_SESSION
+            and self._secure_session is not None
+        ):
             try:
-                frame_bytes = bytearray(self._secure_session.decrypt(bytes(frame_bytes)))
+                frame_bytes = bytearray(
+                    self._secure_session.decrypt(bytes(frame_bytes))
+                )
             except Exception as exc:
                 _LOGGER.error("Secure session decryption failed: %s", exc)
                 return
@@ -336,7 +353,9 @@ class MemoryProtocol:
                 self._last_reply_payload = b""
                 _LOGGER.debug(
                     "Device refused the read at %s with result code 0x%02X: %s",
-                    _hex(memory_address), frame_bytes[6], _hex(frame_bytes),
+                    _hex(memory_address),
+                    frame_bytes[6],
+                    _hex(frame_bytes),
                 )
                 self._reply_ready.set()
                 return
@@ -349,7 +368,7 @@ class MemoryProtocol:
                 )
                 return
             self._last_reply_result_code = 0
-            self._last_reply_payload = bytes(frame_bytes[6:6 + expected_data_len])
+            self._last_reply_payload = bytes(frame_bytes[6 : 6 + expected_data_len])
         elif packet_type == b"\x8f\x00":
             # End-of-transmission packet: error code is in byte 6
             self._last_reply_payload = bytes(frame_bytes[6:7])
@@ -415,15 +434,21 @@ class MemoryProtocol:
                         tx_segment = remaining_cmd[:channel_width]
                         if self._config.is_single_channel:
                             await guarded_write(
-                                self._client, self._config.tx_channel_uuids[ch_idx],
-                                tx_segment, step="command", response=False,
+                                self._client,
+                                self._config.tx_channel_uuids[ch_idx],
+                                tx_segment,
+                                step="command",
+                                response=False,
                             )
                         else:
                             # No explicit response type: bleak picks from the
                             # characteristic's properties, as before.
                             await guarded_write(
-                                self._client, self._config.tx_channel_uuids[ch_idx],
-                                tx_segment, step="command", response=None,
+                                self._client,
+                                self._config.tx_channel_uuids[ch_idx],
+                                tx_segment,
+                                step="command",
+                                response=None,
                             )
                         remaining_cmd = remaining_cmd[channel_width:]
                 except BleakError as exc:
@@ -536,6 +561,7 @@ class MemoryProtocol:
             await self._subscribe_notify_channels()
             # Universal init command (ubpm cmd_init): byte[5]=0x10 for all devices.
             start_cmd = bytearray.fromhex("0800000000100018")
+            self._memory_session_start_attempted = True
             await self._write_command_and_wait_reply(start_cmd)
             if self._last_reply_packet_type != bytearray.fromhex("8000"):
                 raise ConnectionError("Invalid response to data readout start")
@@ -550,6 +576,22 @@ class MemoryProtocol:
             self._memory_session_active = False
             self._host._unlocked = False
             self._debug_ble_link("open_memory_session_fail_cleanup")
+            if (
+                self._memory_session_start_attempted
+                and self._config.staged_classic_notifications
+            ):
+                try:
+                    stop_cmd = bytearray.fromhex("080f000000000007")
+                    async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                        await self._write_command_and_wait_reply(stop_cmd)
+                except Exception as stop_exc:
+                    _LOGGER.debug(
+                        "Best-effort memory session end failed for %s: %s",
+                        self.address,
+                        stop_exc,
+                    )
+                finally:
+                    self._memory_session_start_attempted = False
             await self._unsubscribe_notify_channels(force=True)
             raise
 
@@ -586,9 +628,7 @@ class MemoryProtocol:
             return False
         self._require_connected("commit_pairing_registration")
         if not self._memory_session_active:
-            raise ConnectionError(
-                "Pairing registration needs an open memory session"
-            )
+            raise ConnectionError("Pairing registration needs an open memory session")
         layout = SettingsMirrorLayout(cfg)
         head_size = registration.slot_offset + registration.slot_size
         if layout.head_read_size < head_size:
@@ -670,7 +710,9 @@ class MemoryProtocol:
         """
         cfg = self._config
         tail = await self.read_memory_range(
-            layout.clock_read_address, layout.clock_read_size, cfg.transmission_block_size
+            layout.clock_read_address,
+            layout.clock_read_size,
+            cfg.transmission_block_size,
         )
         if len(tail) < layout.clock_write_size:
             raise ConnectionError(
@@ -688,7 +730,9 @@ class MemoryProtocol:
     @traced("memory_close")
     async def close_memory_session(self) -> None:
         """End a data readout session (no-op if not open)."""
-        if not self._memory_session_active:
+        if not self._memory_session_active and not getattr(
+            self, "_memory_session_start_attempted", False
+        ):
             return
 
         try:
@@ -704,6 +748,7 @@ class MemoryProtocol:
                 )
         finally:
             self._memory_session_active = False
+            self._memory_session_start_attempted = False
             await self._unsubscribe_notify_channels()
             _LOGGER.debug("Memory session closed for %s", self.address)
 
@@ -716,7 +761,7 @@ class MemoryProtocol:
         xor_crc = 0
         for byte in cmd:
             xor_crc ^= byte
-        cmd += b'\x00'
+        cmd += b"\x00"
         cmd.append(xor_crc)
 
         await self._write_command_and_wait_reply(cmd)
@@ -742,7 +787,7 @@ class MemoryProtocol:
         xor_crc = 0
         for byte in cmd:
             xor_crc ^= byte
-        cmd += b'\x00'
+        cmd += b"\x00"
         cmd.append(xor_crc)
 
         await self._write_command_and_wait_reply(cmd)

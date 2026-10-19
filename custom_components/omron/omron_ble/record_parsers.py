@@ -198,7 +198,9 @@ def parse_classic_vital_16_6401_family(
         # Map status flags to existing integration keys.
         "ihb": flags & 0x03,
         "mov": (flags >> 2) & 0x03,
-        "datetime": datetime.datetime(year_off + 2000, month, day, hour, minute, second),
+        "datetime": datetime.datetime(
+            year_off + 2000, month, day, hour, minute, second
+        ),
     }
     return record
 
@@ -297,4 +299,56 @@ def parse_weight_16(data: bytes | bytearray, endianness: str) -> dict[str, Any]:
     except ValueError:
         # Keep record usable for slot-based latest selection.
         record["datetime"] = None
+    return record
+
+
+def parse_hbf_32(data: bytes | bytearray, _endianness: str) -> dict[str, Any]:
+    """Decode one 32-byte HBF-222T body-composition record.
+
+    Fields use MSB-first bit offsets across the complete record. Zero
+    composition fields mean the scale did not calculate that metric.
+    """
+    if len(data) != 32:
+        raise ValueError("HBF record must be exactly 32 bytes")
+
+    def field(start_bit: int, bit_size: int) -> int:
+        value = int.from_bytes(data, "big")
+        shift = len(data) * 8 - start_bit - bit_size
+        return (value >> shift) & ((1 << bit_size) - 1)
+
+    weight_raw = field(0, 12)
+    duplicate_weight = field(208, 12)
+    if weight_raw != duplicate_weight:
+        raise ValueError("HBF record weight copies do not match")
+    # HBF-222T stores weight in 0.05 kg steps (not 0.1 kg steps).
+    weight = round(weight_raw * 0.05, 2)
+    if not 2 <= weight <= 300:
+        raise ValueError("HBF record weight is outside a plausible range")
+
+    year = 2000 + field(58, 6)
+    month = field(92, 4)
+    day = field(96, 5)
+    hour = field(101, 5)
+    minute = field(74, 6)
+    try:
+        measured_at = datetime.datetime(year, month, day, hour, minute)
+    except ValueError:
+        measured_at = None
+
+    def optional_scaled(start_bit: int, bit_size: int) -> float | None:
+        value = field(start_bit, bit_size)
+        return round(value / 10, 1) if value else None
+
+    visceral = field(27, 5)
+    bmr = field(32, 12)
+    record: dict[str, Any] = {
+        "weight": weight,
+        "body_fat": optional_scaled(16, 10),
+        "visceral_fat": visceral or None,
+        "basal_metabolic_rate": bmr or None,
+        "skeletal_muscle": optional_scaled(48, 10),
+        "bmi": optional_scaled(64, 10),
+        "datetime": measured_at,
+        "_record_id": int.from_bytes(data[24:26], "big"),
+    }
     return record

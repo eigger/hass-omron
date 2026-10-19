@@ -1,10 +1,12 @@
 """Record readout on top of a session: EEPROM time, index walk, latest-record selection."""
+
 from __future__ import annotations
 
 import asyncio
 import datetime as dt
 import logging
 from collections.abc import Collection
+from dataclasses import dataclass, field
 from typing import Any
 
 from .devices import DeviceConfig, HostPairingMode
@@ -24,33 +26,41 @@ WEIGHT_RANGE_KG = (1.0, 300.0)
 TRUREAD_SESSION_WINDOW = dt.timedelta(minutes=15)
 
 
+@dataclass
+class StoredUserRecords:
+    """What one user's stored records yielded since the last sync.
+
+    ``records`` run oldest first. ``next_seq`` is the sequence the caller
+    should persist once it has handled them: it trails the cuff's own counter
+    when the read was cut short, so the next poll resumes where this one
+    stopped.
+    """
+
+    next_seq: int
+    index_seq: int
+    records: list[dict[str, Any]] = field(default_factory=list)
+    lost: int = 0
+    rebased: bool = False
+    complete: bool = True
+
+
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
     """Decode wall time from an EEPROM time-sync section (naive datetime)."""
     if layout == "eeprom_time_at_8":
         year_off, month, day, hour, minute, second = (int(b) for b in cached[8:14])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
+        return dt.datetime(year_off + 2000, month, day, hour, minute, min(second, 59))
     if layout == "eeprom_time_at_8_swapped":
         month, year_off, hour, day, second, minute = (int(b) for b in cached[8:14])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
+        return dt.datetime(year_off + 2000, month, day, hour, minute, min(second, 59))
     if layout in ("eeprom_time_at_0", "eeprom_time_at_0_checksum"):
         year_off, month, day, hour, minute, second = (int(b) for b in cached[0:6])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
+        return dt.datetime(year_off + 2000, month, day, hour, minute, min(second, 59))
     if layout == "eeprom_time_at_2":
         year_off, month, day, hour, minute, second = (int(b) for b in cached[2:8])
-        return dt.datetime(
-            year_off + 2000, month, day, hour, minute, min(second, 59)
-        )
+        return dt.datetime(year_off + 2000, month, day, hour, minute, min(second, 59))
     # Default: eeprom_time_at_2_swapped
     month, year_off, hour, day, second, minute = (int(b) for b in cached[2:8])
-    return dt.datetime(
-        year_off + 2000, month, day, hour, minute, min(second, 59)
-    )
+    return dt.datetime(year_off + 2000, month, day, hour, minute, min(second, 59))
 
 
 def _encode_eeprom_time_payload(
@@ -293,9 +303,7 @@ class OmronDeviceDriver:
             )
             return None
 
-    async def complete_measurement_readout(
-        self, transport: OmronDeviceSession
-    ) -> None:
+    async def complete_measurement_readout(self, transport: OmronDeviceSession) -> None:
         """Apply profile-defined end-of-readout EEPROM mirrors."""
         completion = self._config.measurement_completion
         if completion is None:
@@ -364,9 +372,7 @@ class OmronDeviceDriver:
             self._config.model,
         )
 
-    def _build_eeprom_time_data(
-        self, cached: bytearray, now: dt.datetime
-    ) -> bytearray:
+    def _build_eeprom_time_data(self, cached: bytearray, now: dt.datetime) -> bytearray:
         """Build the EEPROM time sync payload with updated time and checksum."""
         layout = self._config.resolved_time_sync_layout()
         return _encode_eeprom_time_payload(layout, cached, now)
@@ -430,7 +436,9 @@ class OmronDeviceDriver:
             except MemoryReadRefused as refused:
                 _LOGGER.debug(
                     "User%d [%s] full scan: %s — skipping this user",
-                    user_idx + 1, self._config.model, refused,
+                    user_idx + 1,
+                    self._config.model,
+                    refused,
                 )
                 all_user_records.append([])
                 continue
@@ -438,7 +446,10 @@ class OmronDeviceDriver:
                 _LOGGER.warning(
                     "User%d [%s] full scan read failed at 0x%04X, skipping this "
                     "user and keeping the users already read: %s",
-                    user_idx + 1, self._config.model, start_addr, read_exc,
+                    user_idx + 1,
+                    self._config.model,
+                    start_addr,
+                    read_exc,
                 )
                 if first_link_error is None:
                     first_link_error = read_exc
@@ -508,7 +519,9 @@ class OmronDeviceDriver:
             # Partial: keep what the index found; fall back for the rest.
             latest_by_user.update(indexed_candidates)
 
-        missing_users = set(range(1, expected_user_count + 1)) - set(latest_by_user.keys())
+        missing_users = set(range(1, expected_user_count + 1)) - set(
+            latest_by_user.keys()
+        )
         if not missing_users:
             return latest_by_user
 
@@ -557,8 +570,10 @@ class OmronDeviceDriver:
             _LOGGER.warning(
                 "Full scan for user(s) %s failed on model=%s, keeping the %d "
                 "user(s) the index path already read: %s",
-                sorted(scan_required_users), self._config.model,
-                len(latest_by_user), scan_exc,
+                sorted(scan_required_users),
+                self._config.model,
+                len(latest_by_user),
+                scan_exc,
             )
             return latest_by_user
         for user_idx, user_records in enumerate(all_user_records):
@@ -567,7 +582,9 @@ class OmronDeviceDriver:
                 continue
             if not user_records:
                 continue
-            selected = self._select_latest_candidate([(user, rec) for rec in user_records])
+            selected = self._select_latest_candidate(
+                [(user, rec) for rec in user_records]
+            )
             if selected is None:
                 continue
             _, record = selected
@@ -590,8 +607,291 @@ class OmronDeviceDriver:
         user, record = selected
         return self._finalize_public_latest_record(record, user)
 
+    async def get_records_since(
+        self,
+        transport: OmronDeviceSession,
+        last_seq_by_user: dict[int, int],
+        *,
+        max_reads: int,
+    ) -> dict[int, StoredUserRecords]:
+        """Read the records stored since each user's ``last_seq``.
+
+        Only users whose index layout carries ``latest_sequence_offset`` take
+        part. A user with no ``last_seq`` yet is only baselined: nothing is
+        read and ``next_seq`` is the cuff's current counter, so setting the
+        integration up never replays the memory. Reads are bounded by
+        ``max_reads`` per user, oldest first, so a long backlog drains over
+        several polls instead of one long link.
+        """
+        layout = self._config.index_pointer_layout
+        if (
+            layout is None
+            or self._config.settings_read_address is None
+            or self._config.record_byte_size <= 0
+        ):
+            return {}
+        user_layouts = layout.get("users", [])
+        index_region_byte_size = int(layout.get("index_region_byte_size", 0))
+        if not any(
+            u.get("latest_sequence_offset") is not None
+            or u.get("sequence_source") == "record_id"
+            for u in user_layouts
+        ):
+            return {}
+        record_addresses = (
+            layout.get("record_addresses") or self._config.user_start_addresses
+        )
+        record_byte_size = int(
+            layout.get("record_byte_size", self._config.record_byte_size)
+        )
+        record_step = int(layout.get("record_step", record_byte_size))
+        ptr_endian = str(layout.get("endianness", self._config.endianness))
+        index_bytes = await transport.memory.read_memory_range(
+            self._config.settings_read_address,
+            index_region_byte_size,
+            self._config.transmission_block_size,
+        )
+        results: dict[int, StoredUserRecords] = {}
+        for idx, user_cfg in enumerate(user_layouts):
+            seq_offset = user_cfg.get("latest_sequence_offset")
+            sequence_in_record = user_cfg.get("sequence_source") == "record_id"
+            if (seq_offset is None and not sequence_in_record) or idx >= len(
+                record_addresses
+            ):
+                continue
+            user = idx + 1
+            latest_slot: int | None = None
+            if sequence_in_record:
+                cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
+                cursor_width = int(user_cfg.get("cursor_width", 2))
+                cursor_word = (
+                    int.from_bytes(
+                        index_bytes[cursor_offset : cursor_offset + cursor_width],
+                        ptr_endian,
+                    )
+                    if 0 <= cursor_offset
+                    and cursor_offset + cursor_width <= len(index_bytes)
+                    else None
+                )
+                clear_value = user_cfg.get("clear_value")
+                if clear_value is not None and cursor_word == int(clear_value):
+                    continue
+                latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+                if latest_slot is None:
+                    continue
+                logical_slot = latest_slot - int(user_cfg.get("slot_index_min", 0))
+                address = int(record_addresses[idx]) + logical_slot * record_step
+                try:
+                    latest_raw = await transport.memory.read_memory_range(
+                        address, record_byte_size, self._config.transmission_block_size
+                    )
+                    latest_record = self._config.parse_record(bytes(latest_raw))
+                    index_seq = int(latest_record["_record_id"]) & 0xFFFF
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "User%d [%s]: could not read the newest record counter: %s",
+                        user,
+                        self._config.model,
+                        exc,
+                    )
+                    continue
+            else:
+                # A 32-bit word in the index's byte order: the counter is its low
+                # 16 bits, the two above them are overflow/full flags.
+                index_seq = (
+                    int.from_bytes(
+                        index_bytes[seq_offset : seq_offset + 4],
+                        ptr_endian,
+                        signed=False,
+                    )
+                    & 0xFFFF
+                )
+            _LOGGER.debug(
+                "User%d [%s]: record counter word=%s -> seq=%d (last handled: %s)",
+                user,
+                self._config.model,
+                (
+                    bytes(index_bytes[seq_offset : seq_offset + 4]).hex()
+                    if seq_offset is not None
+                    else latest_record["_record_id"].to_bytes(2, "big").hex()
+                ),
+                index_seq,
+                last_seq_by_user.get(user),
+            )
+            last = last_seq_by_user.get(user)
+            if last is None:
+                _LOGGER.debug(
+                    "User%d [%s]: first sync, taking seq=%d as the baseline",
+                    user,
+                    self._config.model,
+                    index_seq,
+                )
+                results[user] = StoredUserRecords(
+                    next_seq=index_seq, index_seq=index_seq
+                )
+                continue
+            new = (index_seq - last) & 0xFFFF
+            if new == 0:
+                results[user] = StoredUserRecords(next_seq=last, index_seq=index_seq)
+                continue
+            if new >= 0x8000:
+                # The counter went backwards: memory was cleared or the cuff
+                # swapped. Start over from here rather than guess.
+                _LOGGER.warning(
+                    "User%d [%s]: record counter moved back (%d -> %d); "
+                    "resuming from the cuff's current counter",
+                    user,
+                    self._config.model,
+                    last,
+                    index_seq,
+                )
+                results[user] = StoredUserRecords(
+                    next_seq=index_seq, index_seq=index_seq, rebased=True
+                )
+                continue
+            if latest_slot is None:
+                latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+            if latest_slot is None:
+                continue
+            pointer_min = int(user_cfg.get("slot_index_min", 0))
+            record_count = (
+                int(
+                    user_cfg.get(
+                        "slot_index_max", self._config.per_user_records_count[idx] - 1
+                    )
+                )
+                - pointer_min
+                + 1
+            )
+            lost = max(new - record_count, 0)
+            to_read = new - lost
+            _LOGGER.debug(
+                "User%d [%s]: %d new record(s) since seq %d, newest slot=%d, "
+                "ring=%d, lost=%d, reading %d of %d (max_reads=%d)",
+                user,
+                self._config.model,
+                new,
+                last,
+                latest_slot,
+                record_count,
+                lost,
+                min(to_read, max_reads),
+                to_read,
+                max_reads,
+            )
+            outcome = StoredUserRecords(next_seq=last, index_seq=index_seq, lost=lost)
+            outcome.next_seq = (last + lost) & 0xFFFF
+            base_addr = int(record_addresses[idx])
+            previous_id: int | None = None
+            for k in range(min(to_read, max_reads)):
+                slot = latest_slot - (to_read - 1 - k)
+                while slot < pointer_min:
+                    slot += record_count
+                addr = base_addr + (slot - pointer_min) * record_step
+                try:
+                    raw = await transport.memory.read_memory_range(
+                        addr, record_byte_size, self._config.transmission_block_size
+                    )
+                except Exception as exc:
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d addr=0x%04X history read failed: %s",
+                        user,
+                        self._config.model,
+                        slot,
+                        addr,
+                        exc,
+                    )
+                    outcome.complete = False
+                    break
+                outcome.next_seq = (outcome.next_seq + 1) & 0xFFFF
+                _LOGGER.debug(
+                    "User%d [%s] seq=%d slot=%d addr=0x%04X raw=%s",
+                    user,
+                    self._config.model,
+                    outcome.next_seq,
+                    slot,
+                    addr,
+                    bytes(raw).hex(),
+                )
+                try:
+                    parsed = self._config.parse_record(bytes(raw))
+                    parsed["_slot_index"] = slot
+                    plausible = self._is_record_plausible(parsed)
+                except Exception:
+                    plausible = False
+                if not plausible:
+                    _LOGGER.debug(
+                        "User%d [%s] seq=%d slot=%d unreadable or implausible; "
+                        "counted as lost",
+                        user,
+                        self._config.model,
+                        outcome.next_seq,
+                        slot,
+                    )
+                    outcome.lost += 1
+                    continue
+                record_id = parsed.get("_record_id")
+                if (
+                    previous_id is not None
+                    and record_id is not None
+                    and record_id != (previous_id + 1) & 0xFFFF
+                ):
+                    _LOGGER.debug(
+                        "User%d [%s] slot=%d record id %s does not follow %s",
+                        user,
+                        self._config.model,
+                        slot,
+                        record_id,
+                        previous_id,
+                    )
+                previous_id = record_id
+                record = self._finalize_public_latest_record(parsed, user)
+                record["sequence"] = outcome.next_seq
+                outcome.records.append(record)
+            if outcome.next_seq != index_seq:
+                outcome.complete = False
+            _LOGGER.debug(
+                "User%d [%s]: synced %d record(s), next seq=%d, cuff seq=%d, "
+                "lost=%d, complete=%s",
+                user,
+                self._config.model,
+                len(outcome.records),
+                outcome.next_seq,
+                index_seq,
+                outcome.lost,
+                outcome.complete,
+            )
+            results[user] = outcome
+        return results
+
+    def _latest_slot(
+        self,
+        idx: int,
+        user_cfg: dict,
+        index_bytes: bytes | bytearray,
+        ptr_endian: str,
+    ) -> int | None:
+        """Slot the user's write cursor points at (the newest record)."""
+        offset = int(user_cfg.get("write_cursor_offset", -1))
+        cursor_width = int(user_cfg.get("cursor_width", 2))
+        if offset < 0 or offset + cursor_width > len(index_bytes):
+            return None
+        raw = int.from_bytes(
+            index_bytes[offset : offset + cursor_width], ptr_endian, signed=False
+        )
+        pointer_min = int(user_cfg.get("slot_index_min", 0))
+        pointer_max = int(
+            user_cfg.get("slot_index_max", self._config.per_user_records_count[idx] - 1)
+        )
+        corrected = (raw & int(user_cfg.get("write_cursor_mask", 0xFF))) + int(
+            user_cfg.get("slot_index_bias", -1)
+        )
+        return self._wrap_pointer_to_range(corrected, pointer_min, pointer_max)
+
     @staticmethod
-    def _wrap_pointer_to_range(pointer: int, pointer_min: int, pointer_max: int) -> int | None:
+    def _wrap_pointer_to_range(
+        pointer: int, pointer_min: int, pointer_max: int
+    ) -> int | None:
         """Wrap pointer into [min, max] range (device index window semantics)."""
         if pointer_max < pointer_min:
             return None
@@ -625,27 +925,37 @@ class OmronDeviceDriver:
         """
         user_candidates: list[tuple[int, dict[str, Any]]] = []
         confirmed_empty = False
-        if idx >= len(record_addresses) or idx >= len(self._config.per_user_records_count):
+        if idx >= len(record_addresses) or idx >= len(
+            self._config.per_user_records_count
+        ):
             return [], False
         write_cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
-        if write_cursor_offset < 0 or write_cursor_offset + 2 > len(index_bytes):
+        cursor_width = int(user_cfg.get("cursor_width", 2))
+        if write_cursor_offset < 0 or write_cursor_offset + cursor_width > len(
+            index_bytes
+        ):
             _LOGGER.debug(
                 "User%d [%s]: write_cursor_offset=0x%02X invalid (index_bytes len=%d), skipping",
-                idx + 1, self._config.model, write_cursor_offset, len(index_bytes),
+                idx + 1,
+                self._config.model,
+                write_cursor_offset,
+                len(index_bytes),
             )
             return [], False
 
         raw_pointer = int.from_bytes(
-            index_bytes[write_cursor_offset:write_cursor_offset + 2],
+            index_bytes[write_cursor_offset : write_cursor_offset + cursor_width],
             ptr_endian,
             signed=False,
         )
         parity = user_cfg.get("cursor_parity")
         if parity is not None and not _cursor_parity_ok(raw_pointer & 0xFF, parity):
             _LOGGER.debug(
-                "User%d [%s]: cursor 0x%02X does not keep %s parity; "
-                "reading it anyway",
-                idx + 1, self._config.model, raw_pointer & 0xFF, parity,
+                "User%d [%s]: cursor 0x%02X does not keep %s parity; reading it anyway",
+                idx + 1,
+                self._config.model,
+                raw_pointer & 0xFF,
+                parity,
             )
         # Unrecorded users have their pointer set to clear_value
         # (0x8000 on the vendor maps). The same word is also a live
@@ -685,9 +995,13 @@ class OmronDeviceDriver:
             _LOGGER.debug(
                 "User%d [%s]: cursor raw=0x%04X masked=0x%02X corrected=%d wrapped=None "
                 "(range [%d,%d]), skipping",
-                idx + 1, self._config.model,
-                raw_pointer, pointer_masked, pointer_corrected,
-                pointer_min, pointer_max,
+                idx + 1,
+                self._config.model,
+                raw_pointer,
+                pointer_masked,
+                pointer_corrected,
+                pointer_min,
+                pointer_max,
             )
             return [], False
         record_count = (pointer_max - pointer_min) + 1
@@ -697,10 +1011,16 @@ class OmronDeviceDriver:
         _LOGGER.debug(
             "User%d [%s]: cursor raw=0x%04X masked=0x%02X bias=%+d "
             "→ slot=%d (range [%d,%d]) base_addr=0x%04X record_step=%d",
-            idx + 1, self._config.model,
-            raw_pointer, pointer_masked, correction,
-            latest_slot, pointer_min, pointer_max,
-            int(record_addresses[idx]), record_step,
+            idx + 1,
+            self._config.model,
+            raw_pointer,
+            pointer_masked,
+            correction,
+            latest_slot,
+            pointer_min,
+            pointer_max,
+            int(record_addresses[idx]),
+            record_step,
         )
         # backtrack_slots only widens the corrupt-slot skip window;
         # a TruRead sequence needs at least the two older slots too.
@@ -738,13 +1058,19 @@ class OmronDeviceDriver:
                     # region.
                     _LOGGER.debug(
                         "User%d [%s] slot=%d %s",
-                        idx + 1, self._config.model, probe_slot, read_exc,
+                        idx + 1,
+                        self._config.model,
+                        probe_slot,
+                        read_exc,
                     )
                 else:
                     _LOGGER.debug(
                         "User%d [%s] slot=%d addr=0x%04X read failed: %s",
-                        idx + 1, self._config.model, probe_slot,
-                        probe_addr, read_exc,
+                        idx + 1,
+                        self._config.model,
+                        probe_slot,
+                        probe_addr,
+                        read_exc,
                     )
                 if cursor_is_clear_value and not user_had_any_read:
                     # The pointer already says empty and the very
@@ -759,7 +1085,8 @@ class OmronDeviceDriver:
                     _LOGGER.debug(
                         "User%d [%s] confirmed empty: cursor is "
                         "clear_value and the cursor slot did not read",
-                        idx + 1, self._config.model,
+                        idx + 1,
+                        self._config.model,
                     )
                 # Later in the backtrack the region has answered at
                 # least once, so keep what was collected and let the
@@ -768,8 +1095,11 @@ class OmronDeviceDriver:
                 break
             _LOGGER.debug(
                 "User%d [%s] slot=%d addr=0x%04X raw=%s",
-                idx + 1, self._config.model, probe_slot,
-                probe_addr, bytes(raw_record).hex(),
+                idx + 1,
+                self._config.model,
+                probe_slot,
+                probe_addr,
+                bytes(raw_record).hex(),
             )
             user_had_any_read = True
             user_slots_read += 1
@@ -788,7 +1118,10 @@ class OmronDeviceDriver:
             except Exception as parse_exc:
                 _LOGGER.debug(
                     "User%d [%s] slot=%d parse error: %s",
-                    idx + 1, self._config.model, probe_slot, parse_exc,
+                    idx + 1,
+                    self._config.model,
+                    probe_slot,
+                    parse_exc,
                 )
                 parsed = None
                 continue
@@ -797,15 +1130,25 @@ class OmronDeviceDriver:
                 _LOGGER.debug(
                     "User%d [%s] slot=%d parsed: sys=%s dia=%s bpm=%s "
                     "dt=%s ihb=%s mov=%s cuff=%s pos=%s",
-                    idx + 1, self._config.model, probe_slot,
-                    parsed.get("sys"), parsed.get("dia"), parsed.get("bpm"),
-                    parsed.get("datetime"), parsed.get("ihb"),
-                    parsed.get("mov"), parsed.get("cuff"), parsed.get("pos"),
+                    idx + 1,
+                    self._config.model,
+                    probe_slot,
+                    parsed.get("sys"),
+                    parsed.get("dia"),
+                    parsed.get("bpm"),
+                    parsed.get("datetime"),
+                    parsed.get("ihb"),
+                    parsed.get("mov"),
+                    parsed.get("cuff"),
+                    parsed.get("pos"),
                 )
             else:
                 _LOGGER.debug(
                     "User%d [%s] slot=%d parsed: %s",
-                    idx + 1, self._config.model, probe_slot, parsed,
+                    idx + 1,
+                    self._config.model,
+                    probe_slot,
+                    parsed,
                 )
             if not self._is_record_plausible(parsed):
                 parsed = None
@@ -826,7 +1169,10 @@ class OmronDeviceDriver:
             _LOGGER.debug(
                 "User%d [%s]: cursor raw=0x%04X equals clear_value but "
                 "slot %d holds a record — treating the pointer as live",
-                idx + 1, self._config.model, raw_pointer, latest_slot,
+                idx + 1,
+                self._config.model,
+                raw_pointer,
+                latest_slot,
             )
         # After the backtrack window completes: if every read came
         # back all-0xFF, mark this user as definitively empty. A
@@ -838,7 +1184,9 @@ class OmronDeviceDriver:
                 "User%d [%s] confirmed empty: cursor slot and %d "
                 "backtrack slot(s) all 0xFF — full-scan fallback "
                 "will be skipped for this user",
-                idx + 1, self._config.model, user_slots_read - 1,
+                idx + 1,
+                self._config.model,
+                user_slots_read - 1,
             )
         return user_candidates, confirmed_empty
 
@@ -874,11 +1222,19 @@ class OmronDeviceDriver:
 
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
         user_layouts = layout.get("users", [])
-        if index_region_byte_size <= 0 or not isinstance(user_layouts, list) or not user_layouts:
+        if (
+            index_region_byte_size <= 0
+            or not isinstance(user_layouts, list)
+            or not user_layouts
+        ):
             return None if not return_all_users else ({}, set())
 
-        record_addresses = layout.get("record_addresses") or self._config.user_start_addresses
-        record_byte_size = int(layout.get("record_byte_size", self._config.record_byte_size))
+        record_addresses = (
+            layout.get("record_addresses") or self._config.user_start_addresses
+        )
+        record_byte_size = int(
+            layout.get("record_byte_size", self._config.record_byte_size)
+        )
         record_step = int(layout.get("record_step", record_byte_size))
         backtrack_slots = int(layout.get("backtrack_slots", 0))
         # Models that store a TruRead session as three consecutive slots
@@ -886,9 +1242,7 @@ class OmronDeviceDriver:
         # keeps reading past the cursor until it holds a full sequence, so
         # the average can be reconstructed. Everything else stops at the
         # first plausible record, as before.
-        collect_limit = (
-            TRUREAD_SEQUENCE_LEN if layout.get("truread_sequence") else 1
-        )
+        collect_limit = TRUREAD_SEQUENCE_LEN if layout.get("truread_sequence") else 1
         ptr_endian = str(layout.get("endianness", self._config.endianness))
 
         candidates: list[tuple[int, dict[str, Any]]] = []
@@ -952,7 +1306,8 @@ class OmronDeviceDriver:
         if not candidates:
             _LOGGER.debug(
                 "Index read [%s]: no valid candidate found (checked %d configured user layout(s))",
-                self._config.model, len(user_layouts),
+                self._config.model,
+                len(user_layouts),
             )
             return None if not return_all_users else ({}, confirmed_empty_users)
 
@@ -996,15 +1351,22 @@ class OmronDeviceDriver:
         if self._config.is_blood_pressure:
             _LOGGER.debug(
                 "Index selected [%s]: user=%d slot=%d sys=%s dia=%s bpm=%s dt=%s",
-                self._config.model, user, record.get("_slot_index", "?"),
-                record.get("sys"), record.get("dia"), record.get("bpm"),
+                self._config.model,
+                user,
+                record.get("_slot_index", "?"),
+                record.get("sys"),
+                record.get("dia"),
+                record.get("bpm"),
                 record.get("datetime"),
             )
         else:
             _LOGGER.debug(
                 "Index selected [%s]: user=%d slot=%d weight=%s dt=%s",
-                self._config.model, user, record.get("_slot_index", "?"),
-                record.get("weight"), record.get("datetime"),
+                self._config.model,
+                user,
+                record.get("_slot_index", "?"),
+                record.get("weight"),
+                record.get("datetime"),
             )
         return self._finalize_public_latest_record(record, user)
 
@@ -1052,12 +1414,14 @@ class OmronDeviceDriver:
         ]
         _LOGGER.debug(
             "TruRead [%s] user=%d slots=%s → avg sys=%d dia=%d bpm=%d",
-            self._config.model, user_candidates[0][0],
+            self._config.model,
+            user_candidates[0][0],
             [r.get("_slot_index") for r in (c1, c2, c3)],
-            avg_record["sys"], avg_record["dia"], avg_record["bpm"],
+            avg_record["sys"],
+            avg_record["dia"],
+            avg_record["bpm"],
         )
         return avg_record
-
 
     def _parse_user_records(
         self,
@@ -1068,10 +1432,10 @@ class OmronDeviceDriver:
         """Parse raw EEPROM bytes into a list of record dicts."""
         records = []
         size = record_byte_size or self._config.record_byte_size
-        empty_record = b'\xff' * size
+        empty_record = b"\xff" * size
 
         for offset in range(0, len(raw_data), size):
-            single = raw_data[offset:offset + size]
+            single = raw_data[offset : offset + size]
             if single == empty_record:
                 continue
             try:
@@ -1087,7 +1451,10 @@ class OmronDeviceDriver:
             except Exception as exc:
                 _LOGGER.warning(
                     "Error parsing record for user%d at offset %d (data: %s): %s",
-                    user_idx + 1, offset, _hex(single), exc,
+                    user_idx + 1,
+                    offset,
+                    _hex(single),
+                    exc,
                 )
         return records
 
@@ -1113,8 +1480,11 @@ class OmronDeviceDriver:
         if not isinstance(weight, (int, float)) or not (low <= weight <= high):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: weight=%r out of range [%g, %g] kg",
-                self._config.model, record.get("_slot_index", "?"),
-                weight, low, high,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                weight,
+                low,
+                high,
             )
             return False
         return True
@@ -1125,7 +1495,9 @@ class OmronDeviceDriver:
         if not isinstance(date_value, dt.datetime):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: datetime is %r (not a datetime object)",
-                self._config.model, record.get("_slot_index", "?"), date_value,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                date_value,
             )
             return False
 
@@ -1133,13 +1505,17 @@ class OmronDeviceDriver:
         if date_value < dt.datetime(2010, 1, 1):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: datetime %s is before 2010 (likely empty/corrupt slot)",
-                self._config.model, record.get("_slot_index", "?"), date_value,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                date_value,
             )
             return False
         if date_value > (now + dt.timedelta(days=2)):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: datetime %s is in the future (clock sync issue?)",
-                self._config.model, record.get("_slot_index", "?"), date_value,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                date_value,
             )
             return False
 
@@ -1149,34 +1525,51 @@ class OmronDeviceDriver:
         sys = record.get("sys")
         dia = record.get("dia")
         bpm = record.get("bpm")
-        if not isinstance(sys, int) or not isinstance(dia, int) or not isinstance(bpm, int):
+        if (
+            not isinstance(sys, int)
+            or not isinstance(dia, int)
+            or not isinstance(bpm, int)
+        ):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: non-integer vitals sys=%r dia=%r bpm=%r",
-                self._config.model, record.get("_slot_index", "?"), sys, dia, bpm,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                sys,
+                dia,
+                bpm,
             )
             return False
         if not (60 <= sys <= 280):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: sys=%d out of range [60, 280]",
-                self._config.model, record.get("_slot_index", "?"), sys,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                sys,
             )
             return False
         if not (30 <= dia <= 180):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: dia=%d out of range [30, 180]",
-                self._config.model, record.get("_slot_index", "?"), dia,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                dia,
             )
             return False
         if not (30 <= bpm <= 240):
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: bpm=%d out of range [30, 240]",
-                self._config.model, record.get("_slot_index", "?"), bpm,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                bpm,
             )
             return False
         if dia >= sys:
             _LOGGER.debug(
                 "Record rejected [%s slot=%s]: dia=%d >= sys=%d (physiologically invalid)",
-                self._config.model, record.get("_slot_index", "?"), dia, sys,
+                self._config.model,
+                record.get("_slot_index", "?"),
+                dia,
+                sys,
             )
             return False
         return True

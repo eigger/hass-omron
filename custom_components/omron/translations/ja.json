@@ -78,6 +78,7 @@
         "description": "Home Assistant が血圧計から新しい測定値を取得する間隔です（60–86400 秒）。短いほどカフの電池を多く使います。0 にすると定期取得が無効になります。転送待ちを通知するカフは引き続き自動で読み取られ、通知しないカフは「データを更新」ボタンを押したときだけ更新されます。\n\n**この機器のプロファイルスロット数:** {num_users}。2 つ以上ある場合は、下でスロットごとの表示名を設定できます（既定 user1, user2, …）。スロット名を変えると、そのスロットのセンサーエンティティが新しく作られます。",
         "data": {
           "scan_interval": "更新間隔（秒、0 = 無効）",
+          "sync_stored_records": "前回のポーリング以降に保存された測定値をすべて反映",
           "user_alias_1": "ユーザー 1 の名前",
           "user_alias_2": "ユーザー 2 の名前",
           "user_alias_3": "ユーザー 3 の名前",
@@ -356,6 +357,36 @@
           "obesity_class_2": "肥満 2 度",
           "obesity_class_3": "肥満 3 度"
         }
+      },
+      "body_fat": {
+        "name": "Body Fat"
+      },
+      "body_fat_user": {
+        "name": "Body Fat ({user})"
+      },
+      "skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "skeletal_muscle_user": {
+        "name": "Skeletal Muscle ({user})"
+      },
+      "visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "visceral_fat_user": {
+        "name": "Visceral Fat Level ({user})"
+      },
+      "basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "basal_metabolic_rate_user": {
+        "name": "Basal Metabolic Rate ({user})"
+      },
+      "body_composition_bmi": {
+        "name": "BMI"
+      },
+      "body_composition_bmi_user": {
+        "name": "BMI ({user})"
       }
     },
     "binary_sensor": {

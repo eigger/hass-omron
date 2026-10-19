@@ -1,10 +1,9 @@
 # Body-composition scales: collected protocol notes (HBF family)
 
-Working notes for adding the HBF body-composition scales after the HN-300T2
-(#233, [hn-300t2-memory-map.md](hn-300t2-memory-map.md)). Nothing here is
-implemented. Confidence is marked per item: **observed** (seen on a real
-device), **map** (read from per-model device configuration data, not tested on a
-device), **unverified** (a single report, or the reports disagree).
+Working notes for HBF body-composition support following the HN-300T2
+(#233, [hn-300t2-memory-map.md](hn-300t2-memory-map.md)). HBF-222T/VIVA has a
+catalog profile, record parser, sensor publication and stored-history path;
+device setup writes and support for other HBF models remain unimplemented.
 
 ## Same stack as the cuffs
 
@@ -21,7 +20,7 @@ the vendor app using them.
 | Model | Connect type | Users | Records | Index read / write | Cursor layout |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | HN-300T2 (all variants) | WLD1.0 | 1 | 30 x 16 B @0x2C0 | 0x1A0 / 0x230 | `OF111111` |
-| HBF-222T, 227T, 228T, 229T, 230T | WLC3.0 | 4 | 30 x 32 B @0x2C0 | 0x1A0 / 0x230 | `EF111111` |
+| HBF-222T / VIVA | WLC3.0 | 4 | 30 x 32 B @0x2C0, 0x6A0, 0xA80, 0xE60 | 0x1A0 / — | `EF111111` |
 | HBF-702T | WLC3.0 | 4 | 30 x 48 B @0x2C0 | 0x1A0 / 0x230 | `EF111111` |
 | HBF-257T2 (KRD-60x) | WLS3.0 | 4 | 30 x 32 B @0x2C0 | 0x1A0 / 0x230 | `EF111111` |
 | HBF-260T1 / 270T1 | WLD3.2 | 2 / 4 | 32 B @0x240 | 0x120 / 0x1B0 | `OF111111` |
@@ -32,8 +31,7 @@ their own; they are expected to follow the model they are built on.
 
 Notes:
 
-- `connect_type` is already an enum in the catalog (`ConnectType`); WLC3.0 is not
-  in it yet.
+- WLC3.0 is represented by `ConnectType.WLC3_0`.
 - Cursor layout: the first letter is the parity of bit 7 (`O` odd, `E` even), `F`
   is bit 6, a flag that reads as "ring buffer has wrapped", and the low six bits
   are the pointer. The newest record is slot `pointer - 1`. The cleared value is
@@ -51,22 +49,22 @@ Bit-packed, bit 0 is the most significant bit of byte 0.
 
 | Field | Bits | Encoding |
 | :--- | :--- | :--- |
-| weight | 0-11 | / 10, kg |
-| body fat | 17-26 | / 10, % |
-| visceral fat | 28-32 | integer |
-| basal metabolic rate | 33-44 | kcal |
-| skeletal muscle | 49-58 | / 10, % |
-| year | 58-64 | + 2000 |
-| BMI | 64-74 | / 10 |
-| minute | 74-80 | |
-| month | 92-96 | |
-| day | 96-101 | |
-| hour | 101-106 | |
+| weight | 0-11 | × 0.05, kg |
+| body fat | 16-25 | / 10, % |
+| visceral fat | 27-31 | integer |
+| basal metabolic rate | 32-43 | kcal |
+| skeletal muscle | 48-57 | / 10, % |
+| year | 58-63 | + 2000 |
+| BMI | 64-73 | / 10 |
+| minute | 74-79 | |
+| month | 92-95 | |
+| day | 96-100 | |
+| hour | 101-105 | |
 | counter | bytes 24-25 | u16 big-endian, per profile |
 | weight, second copy | 208-219 | same encoding as weight |
 
-- 59 records were cross-checked against the cloud history of the same weigh-ins
-  and matched to 0.1 kg and the minute.
+- 59 records were cross-checked against cloud history; the #239 VIVA capture
+  additionally confirms the 0.05 kg weight step and composition field offsets.
 - No seconds in the record; timestamps have one-minute resolution.
 - The second copy of the weight is the only per-record integrity check; drop the
   record when the two differ.
@@ -80,9 +78,12 @@ Bit-packed, bit 0 is the most significant bit of byte 0.
 
 **Unverified:** one report reads the weight of the HBF scales as a
 12-bit big-endian field at byte offset 26, low 4 bits dropped, in 0.05 kg steps.
-That disagrees with the table above (0.1 kg steps from bit 0), and with its
-48-byte vs 32-byte record sizes it may describe a different model. Settle it
-against a real dump before writing a parser.
+The 0.05 kg step matches the HBF-222T capture, but the reported offset and
+48-byte record size differ from this 32-byte model. It may describe another
+model; settle its layout against a model-specific dump before writing a parser.
+
+The implementation uses the cross-checked 32-byte HBF-222T layout above. The
+other reported layout is not selected without model-specific evidence.
 
 ## User profile (map, HBF-222T_E user 1)
 

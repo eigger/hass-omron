@@ -1,4 +1,5 @@
 """One connected BLE session to an Omron device: connection lifecycle, pairing and unlock (the memory protocol is owned, from memory_protocol)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,6 +16,7 @@ from blesession import (
     Notifications,
     WriteTimeout,
     probe_link,
+    start_notify_with_recovery,
     stop_notify_best_effort,
 )
 from blesession.link import LinkInfo
@@ -70,8 +72,6 @@ def _link_scanner_source(raw: Any) -> str | None:
     if not isinstance(raw, str) or raw == "unknown":
         return None
     return raw
-
-
 
 
 class OmronDeviceSession:
@@ -240,7 +240,8 @@ class OmronDeviceSession:
                     max_attempts=self._config.connect_settle_attempts,
                     # Only the connection that creates the bond; a reconnect that sends
                     # a pair request is what cost the bond on a proxy (#142).
-                    pair_on_connect=self._pairing_session and self._config.pair_on_connect,
+                    pair_on_connect=self._pairing_session
+                    and self._config.pair_on_connect,
                     hold_pairing_agent=self._config.register_pairing_agent,
                     link_info=self.link_info,
                 )
@@ -265,7 +266,11 @@ class OmronDeviceSession:
             trace.link = self.trace.link
         info = self.link_info
         source = _link_scanner_source(info.get("source"))
-        if trace.link is None and self._client is not None and self._ble_device is not None:
+        if (
+            trace.link is None
+            and self._client is not None
+            and self._ble_device is not None
+        ):
             link = probe_link(self._client, self._ble_device)
             if link.source is None and source is not None:
                 link = LinkInfo(via=link.via, source=source, proxy=link.proxy)
@@ -301,14 +306,16 @@ class OmronDeviceSession:
         _LOGGER.debug(
             "Parent service %s not in cached services for %s; "
             "refreshing GATT discovery",
-            parent_uuid, self.address,
+            parent_uuid,
+            self.address,
         )
         await self.refresh_services()
         await asyncio.sleep(0.35)
         if _present():
             _LOGGER.debug(
                 "Parent service %s found after discovery refresh for %s",
-                parent_uuid, self.address,
+                parent_uuid,
+                self.address,
             )
             return True
 
@@ -319,19 +326,23 @@ class OmronDeviceSession:
             "Parent service %s still missing after refresh for %s; "
             "forcing fresh discovery via clear_cache (stale proxy/GATT cache "
             "suspected)",
-            parent_uuid, self.address,
+            parent_uuid,
+            self.address,
         )
         for attempt in range(2):
             if not await _bleak_clear_cache(self.client):
                 _LOGGER.debug(
                     "clear_cache unsupported by backend for %s; "
-                    "cannot force fresh discovery", self.address,
+                    "cannot force fresh discovery",
+                    self.address,
                 )
                 break
             _LOGGER.debug(
                 "Cleared GATT cache; re-discovering parent service %s "
                 "(attempt %d/2) for %s",
-                parent_uuid, attempt + 1, self.address,
+                parent_uuid,
+                attempt + 1,
+                self.address,
             )
             await self.refresh_services()
             await asyncio.sleep(0.35)
@@ -339,7 +350,9 @@ class OmronDeviceSession:
                 _LOGGER.debug(
                     "Parent service %s recovered after cache clear "
                     "(attempt %d/2) for %s",
-                    parent_uuid, attempt + 1, self.address,
+                    parent_uuid,
+                    attempt + 1,
+                    self.address,
                 )
                 return True
         return False
@@ -421,7 +434,9 @@ class OmronDeviceSession:
                         async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
                             await self._await_peer_close(client, addr)
                     except Exception as exc:
-                        _LOGGER.debug("Waiting for peer close on %s failed: %s", addr, exc)
+                        _LOGGER.debug(
+                            "Waiting for peer close on %s failed: %s", addr, exc
+                        )
                     if client.is_connected:
                         try:
                             async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
@@ -469,12 +484,11 @@ class OmronDeviceSession:
         if client.is_connected:
             _LOGGER.debug(
                 "%s still up %.1fs after the session ended; closing it here",
-                addr, waited,
+                addr,
+                waited,
             )
         else:
-            _LOGGER.debug(
-                "%s ended the session itself after %.2fs", addr, waited
-            )
+            _LOGGER.debug("%s ended the session itself after %.2fs", addr, waited)
 
     async def __aenter__(self) -> "OmronDeviceSession":
         return await self.connect()
@@ -564,9 +578,7 @@ class OmronDeviceSession:
                 await self.pair()
             except Exception as exc:
                 self.trace.forgive("pair")
-                _LOGGER.debug(
-                    "Poll pair step failed (continuing to unlock): %s", exc
-                )
+                _LOGGER.debug("Poll pair step failed (continuing to unlock): %s", exc)
         await self.unlock()
         async with self.memory.memory_session():
             yield
@@ -575,10 +587,15 @@ class OmronDeviceSession:
     async def unlock(self, key: bytearray | None = None) -> None:
         """Unlock device with pairing key."""
         if self._config.unlock_mode == UnlockMode.NONE:
-            _LOGGER.debug("unlock skipped: unlock not required for model=%s", self._config.model)
+            _LOGGER.debug(
+                "unlock skipped: unlock not required for model=%s", self._config.model
+            )
             return
         if self._unlocked:
-            _LOGGER.debug("unlock skipped: transport already unlocked model=%s", self._config.model)
+            _LOGGER.debug(
+                "unlock skipped: transport already unlocked model=%s",
+                self._config.model,
+            )
             return
 
         self._require_connected("unlock")
@@ -601,16 +618,32 @@ class OmronDeviceSession:
             # Match pairing flow: briefly prime RX notify so stacks that require
             # a security request trigger can establish encrypted notify reliably.
             # Entered first, so it is released last.
-            try:
-                await subscriptions.enter_async_context(
-                    Notifications(
-                        self._client,
-                        self._config.rx_channel_uuids[0],
-                        settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+            if self._config.staged_classic_notifications:
+                try:
+                    await self._ensure_services_cache()
+                    self.memory._rebuild_notify_handle_index_map()
+                    rx0 = self._config.rx_channel_uuids[0]
+                    await start_notify_with_recovery(
+                        self._client, rx0, self.memory._on_notify_channel_data
                     )
-                )
-            except Exception as exc:
-                _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
+                    self.memory._notify_subscribed_uuids.add(rx0)
+                    await asyncio.sleep(_NOTIFY_SUBSCRIBE_SETTLE_SEC)
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX0 pre-notify prime failed: %s", exc)
+                    raise ConnectionError(
+                        f"Could not enable the first memory notification channel: {exc}"
+                    ) from exc
+            else:
+                try:
+                    await subscriptions.enter_async_context(
+                        Notifications(
+                            self._client,
+                            self._config.rx_channel_uuids[0],
+                            settle=_NOTIFY_SUBSCRIBE_SETTLE_SEC,
+                        )
+                    )
+                except Exception as exc:
+                    _LOGGER.debug("unlock RX pre-notify prime skipped: %s", exc)
 
             self._debug_ble_link("unlock_before_notify")
             try:
@@ -628,7 +661,7 @@ class OmronDeviceSession:
 
                 response = await replies.request(
                     UNLOCK_CHARACTERISTIC_UUID,
-                    b'\x01' + unlock_key,
+                    b"\x01" + unlock_key,
                     timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC,
                     write_timeout=WRITE_TIMEOUT_S,
                     step="unlock",
@@ -663,7 +696,9 @@ class OmronDeviceSession:
                 await asyncio.sleep(_OS_BOND_REFRESH_DELAY_SEC)
                 await _bleak_refresh_services(self._client)
             except Exception as refresh_exc:
-                _LOGGER.debug("Post-bond service refresh failed (continuing): %s", refresh_exc)
+                _LOGGER.debug(
+                    "Post-bond service refresh failed (continuing): %s", refresh_exc
+                )
 
         for attempt in range(1, max_attempts + 1):
             try:
@@ -747,7 +782,6 @@ class OmronDeviceSession:
             )
             raise last_exc
 
-
     async def subscribe_service_changed(self) -> bool:
         """Subscribe to Service Changed, as the app does when pairing.
 
@@ -758,19 +792,19 @@ class OmronDeviceSession:
         Best effort: a device without the characteristic, or a backend that
         refuses the subscribe, must not fail the pairing.
         """
+
         def _on_service_changed(_handle: int, data: bytearray) -> None:
             _LOGGER.debug(
                 "Service Changed indication from %s: %s", self.address, _hex(data)
             )
 
         try:
-            await self._client.start_notify(
-                SERVICE_CHANGED_UUID, _on_service_changed
-            )
+            await self._client.start_notify(SERVICE_CHANGED_UUID, _on_service_changed)
         except Exception as exc:
             _LOGGER.debug(
                 "Could not subscribe to Service Changed on %s (continuing): %s",
-                self.address, exc,
+                self.address,
+                exc,
             )
             return False
         _LOGGER.debug("Subscribed to Service Changed on %s", self.address)
@@ -839,4 +873,6 @@ class OmronDeviceSession:
                 self._config.model,
             )
         except Exception as exc:
-            _LOGGER.debug("unpair() failed for %s (ignored): %s", self._config.model, exc)
+            _LOGGER.debug(
+                "unpair() failed for %s (ignored): %s", self._config.model, exc
+            )

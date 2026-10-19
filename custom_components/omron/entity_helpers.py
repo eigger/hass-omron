@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothEntityKey,
 )
-from homeassistant.const import ATTR_HW_VERSION, ATTR_SW_VERSION
-from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from homeassistant.helpers.sensor import sensor_device_info_to_hass_device_info
+from homeassistant.const import (
+    ATTR_HW_VERSION,
+    ATTR_MANUFACTURER,
+    ATTR_MODEL,
+    ATTR_NAME,
+    ATTR_SW_VERSION,
+)
+from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 
 from sensor_state_data import DeviceKey
 
@@ -49,22 +56,46 @@ def device_key_to_bluetooth_entity_key(
     return PassiveBluetoothEntityKey(device_key.key, device_key.device_id)
 
 
+@lru_cache(maxsize=64)
+def _device_info(
+    name: str | None,
+    manufacturer: str | None,
+    model: str | None,
+    address: str | None,
+    sw_version: str | None,
+    hw_version: str | None,
+) -> DeviceInfo:
+    """Return cached device info for these values."""
+    device_info = DeviceInfo()
+    for key, value in (
+        (ATTR_NAME, name),
+        (ATTR_MANUFACTURER, manufacturer),
+        (ATTR_MODEL, model),
+        (ATTR_SW_VERSION, sw_version),
+        (ATTR_HW_VERSION, hw_version),
+    ):
+        if value is not None:
+            device_info[key] = value
+    if address is not None:
+        device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
+    return device_info
+
+
 def hass_device_info_with_ble_connection(
     sensor_device_info,
     address: str | None,
     *,
     include_revision_attrs: bool = True,
-) -> dict:
-    """Map SensorDeviceInfo to HA DeviceInfo and ensure BLE connection is present."""
-    device_info = sensor_device_info_to_hass_device_info(sensor_device_info)
-    if address is not None and "connections" not in device_info:
-        device_info["connections"] = {(CONNECTION_BLUETOOTH, address)}
-    if include_revision_attrs:
-        if sensor_device_info.sw_version is not None:
-            device_info[ATTR_SW_VERSION] = sensor_device_info.sw_version
-        if sensor_device_info.hw_version is not None:
-            device_info[ATTR_HW_VERSION] = sensor_device_info.hw_version
-    return device_info
+) -> DeviceInfo:
+    """Map SensorDeviceInfo to cached HA DeviceInfo with its BLE connection."""
+    return _device_info(
+        sensor_device_info.name,
+        sensor_device_info.manufacturer,
+        sensor_device_info.model,
+        address,
+        sensor_device_info.sw_version if include_revision_attrs else None,
+        sensor_device_info.hw_version if include_revision_attrs else None,
+    )
 
 
 def preserved_passive_unique_id(

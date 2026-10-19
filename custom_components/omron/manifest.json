@@ -21,6 +21,10 @@
     {
       "local_name": "HN-3*",
       "connectable": true
+    },
+    {
+      "local_name": "HBF-*",
+      "connectable": true
     }
   ],
   "codeowners": [
@@ -38,5 +42,5 @@
     "bluetooth-sensor-state-data>=1.7.0",
     "sensor-state-data>=2.18.0"
   ],
-  "version": "4.0.0"
+  "version": "4.1.1"
 }

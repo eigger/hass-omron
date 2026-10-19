@@ -41,10 +41,17 @@ from homeassistant.helpers.update_coordinator import (
 from .const import (
     BLE_SESSION_TIMEOUT_SECONDS,
     CONF_DEVICE_MODEL,
+    CONF_SYNC_STORED_RECORDS,
     CONF_TRANSPORT_CREDENTIAL,
     DOMAIN,
 )
 from .data import OmronRuntimeData
+from .history import (
+    async_setup_history,
+    async_publish_history,
+    async_push_history_updates,
+    async_remove_history,
+)
 from .util import aliases_dict_from_entry
 from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
@@ -79,11 +86,14 @@ def _session_lock_for(hass: HomeAssistant, address: str) -> asyncio.Lock:
     locks = hass.data.setdefault(DOMAIN, {}).setdefault("_session_locks", {})
     return locks.setdefault(address, asyncio.Lock())
 
+
 # When a poll fails mid-flight, keep measurement history but drop stale RSSI
 # unless this poll refreshed it (avoids showing outdated diagnostics).
-_STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset({
-    SSDSensorDeviceClass.SIGNAL_STRENGTH,
-})
+_STALE_DROP_SENSOR_DEVICE_CLASSES: frozenset = frozenset(
+    {
+        SSDSensorDeviceClass.SIGNAL_STRENGTH,
+    }
+)
 _STALE_DROP_BINARY_DEVICE_CLASSES: frozenset = frozenset()
 
 
@@ -361,11 +371,7 @@ def process_service_info(
 
     # Trigger sync only for explicit device flags. A poll coordinator being present
     # is not itself a reason to connect on every advertisement.
-    is_sync_needed = (
-        is_pairing
-        or is_invalid_time
-        or is_forced_transfer
-    )
+    is_sync_needed = is_pairing or is_invalid_time or is_forced_transfer
     if not is_sync_needed:
         return update
 
@@ -595,6 +601,18 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
             runtime.readout_coordinator.async_set_updated_data(
                 runtime.device_data.last_readout_at
             )
+            # Not once the entry is being unloaded or reloaded: a reload that
+            # switched the sync off has dropped the saved position, and this
+            # poll must not write it back.
+            async with runtime.history_lock:
+                if not runtime.unloading:
+                    await async_push_history_updates(
+                        poll_coordinator,
+                        runtime.device_data.history_updates,
+                        _merge_poll_sensor_update,
+                    )
+                    runtime.device_data.history_updates = []
+                    await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
                 result = _merge_poll_sensor_update(prev_data, result)
@@ -689,6 +707,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
                 "re-add the device while it is in pairing mode",
                 address,
             )
+
+    await async_setup_history(
+        hass,
+        entry.entry_id,
+        data,
+        supported=get_device_config(device_model).supports_stored_record_sync,
+        enabled=bool(entry.options.get(CONF_SYNC_STORED_RECORDS, False)),
+    )
 
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
@@ -810,10 +836,19 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+async def async_remove_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
+    """Drop the stored-record sync position with the entry."""
+    await async_remove_history(hass, entry.entry_id)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:
     """Unload a config entry."""
     runtime = entry.runtime_data
     runtime.unloading = True
+    # A poll that is pushing stored records or saving the position finishes
+    # first; later ones see the flag and skip.
+    async with runtime.history_lock:
+        pass
     # HA normally cancels entry background tasks after this function returns,
     # which is too late: a pairing task could park a new link after cleanup.
     background_tasks = set(runtime.background_tasks)

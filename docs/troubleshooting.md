@@ -85,9 +85,13 @@ The records were read; only the session close failed. Harmless on its own. If th
 
 ### Quick checks
 
+- **`Pairing failed: Could not enter key programming mode`** — make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
+- **`Connection terminated by peer`** — BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter/proxy or use a USB extension cable for your BLE dongle.
+- **Sensor values not updating** — the device turns off its Bluetooth radio to save battery and turns it on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
+- **Data doesn't show up after changing batteries** — changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
 - **`error: Session deadline reached`** — the session hung and was cut at the 3-minute bound. `failed_stage` says where. This is not the cuff: bleak's BlueZ backend has no timeout of its own, so a wedged `bluetoothd` or a proxy that died mid-session looks exactly like this. Restart the adapter (or the proxy) if it repeats.
 - **`rssi` is low but `paths` is 2 or more** — another radio might do better; Home Assistant connects through the strongest advertisement, so the alternative is only used after a failure. Check `via` to see which one was used.
-- **Everything fails at `connect` right after adding a proxy** — the proxy must be `active: true` in both `esp32_ble_tracker` and `bluetooth_proxy`; a passive proxy sees the cuff but cannot connect.
+- **Everything fails at `connect` right after adding a proxy** — enable `bluetooth_proxy.active: true` for GATT connections and check available connection slots. `esp32_ble_tracker.scan_parameters.active` controls scan-response requests separately; passive scanning alone does not prevent GATT connections. See [Bluetooth proxy troubleshooting](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.md#troubleshooting).
 - **`connect_attempts` above 1 on successful polls** — the link dropped during the post-connect settle and the retry got through. Harmless once in a while; on most polls it is where a marginal link, or a proxy without the bond, shows first.
 - **`time_sync_error` on every poll** — the records still come through; the cuff's clock is not being set. On models that sync the clock through the EEPROM this means the clock layout for the model is wrong — worth an issue with the model name.
 
@@ -100,6 +104,17 @@ Three kinds of problem never reach the failure sensors, because the session did 
 **No session was attempted.** The cuff was not seen by any radio when the poll was due, so nothing connected and Duration did not move. The poll returns the cached values and logs nothing at default level. Take a measurement — the cuff advertises for a while afterwards — and press *Refresh Data* while it shows the Bluetooth symbol.
 
 **The action itself errored before any BLE traffic.** *Retry Pairing* with the cuff out of range fails immediately with *BLE device not available*, and *BLE session already in progress* means a poll is running: wait for Connection to turn off and try again.
+
+## Bluetooth proxy and model-specific conditions
+
+Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy setup](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.md). The conditions below are specific to Omron monitors and scales:
+
+- **Seeing the device is not the same as connecting to it.** Advertisements (discovery, RSSI) can arrive while the GATT connection, pairing or memory read still fails. Use the **Last Failure** `failed_stage` to tell them apart: `connect` is the link, `session`/`auth` are services and pairing, `transfer` is the record read.
+- **Wake / power.** The monitor switches its Bluetooth radio off to save battery. It connects briefly after a measurement; for pairing, hold the Bluetooth button until `-P-` blinks and submit while it is still blinking.
+- **One paired phone/app at a time.** If the official Omron Connect app (or another host) holds the pairing, unpair it first; otherwise `auth` stages fail even with a strong signal.
+- **Proxy path.** Home Assistant chooses among the available Bluetooth adapters and ESPHome proxies (see the radio shown in the **Duration** attributes); `bluetooth_proxy` must have `active: true` and the scan interval should stay at its default. Move the proxy close to the device, and include the radio shown in the **Duration** attributes when reporting.
+- **Unverified models.** Only the models listed with a check mark in the README are verified; others selected as a "similar model" are untested.
+- **Reporting.** Attach a debug log and the sensor attributes; remove addresses, bond keys and measurements you do not want to share first (see [Capturing Bluetooth logs](capturing-bluetooth-logs.md)).
 
 ## Intermittent failures
 

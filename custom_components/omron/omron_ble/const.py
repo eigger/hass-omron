@@ -1,4 +1,5 @@
 """Constants for the Omron BLE module."""
+
 from __future__ import annotations
 
 from sensor_state_data import BaseDeviceClass
@@ -53,6 +54,7 @@ DISCOVERABLE_PARENT_SERVICE_UUIDS = [
     MODERN_STACK_PARENT_SERVICE_UUID,
 ]
 
+
 class ExtendedSensorDeviceClass(BaseDeviceClass):
     """Device class for additional sensors (compared to sensor-state-data)."""
 
@@ -72,10 +74,16 @@ class ExtendedSensorDeviceClass(BaseDeviceClass):
 
     # Weight (scales)
     WEIGHT = "weight"
+    BODY_FAT = "body_fat"
+    SKELETAL_MUSCLE = "skeletal_muscle"
+    VISCERAL_FAT = "visceral_fat"
+    BASAL_METABOLIC_RATE = "basal_metabolic_rate"
+    BODY_COMPOSITION_BMI = "body_composition_bmi"
 
 
 class ExtendedBinarySensorDeviceClass(BaseDeviceClass):
     """Device class for additional binary sensors."""
+
     BODY_MOVEMENT = "body_movement"
     CUFF_FIT = "cuff_fit"
     IRREGULAR_PULSE = "irregular_pulse"

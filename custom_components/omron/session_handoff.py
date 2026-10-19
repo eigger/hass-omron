@@ -69,9 +69,7 @@ def stash_probe_session(
     bucket[address] = session
 
 
-def take_probe_session(
-    hass: HomeAssistant, address: str
-) -> OmronDeviceSession | None:
+def take_probe_session(hass: HomeAssistant, address: str) -> OmronDeviceSession | None:
     """Take the parked probe link, if one is still open.
 
     A link that dropped while the user was choosing a model is closed and None
@@ -214,7 +212,9 @@ async def run_post_pairing_poll(
             try:
                 await session.aclose()
             except BaseException as exc:
-                _LOGGER.debug("Closing cancelled pairing session for %s failed: %s", address, exc)
+                _LOGGER.debug(
+                    "Closing cancelled pairing session for %s failed: %s", address, exc
+                )
         raise
 
 

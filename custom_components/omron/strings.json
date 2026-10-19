@@ -78,6 +78,7 @@
         "description": "How often Home Assistant should poll the blood pressure monitor for new readings (60–86400 seconds). Lower values use more battery on the cuff. Set 0 to turn scheduled polling off. Cuffs that signal a pending transfer are still read on their own; the others update only when you press Refresh Data.\n\n**Profile slots on this device:** {num_users}. When there is more than one, set a display name per slot below (defaults user1, user2, …). Renaming a slot creates new sensor entities for that slot.",
         "data": {
           "scan_interval": "Update Interval (seconds, 0 = off)",
+          "sync_stored_records": "Publish every measurement stored since the last poll",
           "user_alias_1": "User 1 name",
           "user_alias_2": "User 2 name",
           "user_alias_3": "User 3 name",
@@ -356,6 +357,36 @@
           "obesity_class_2": "Obesity class 2",
           "obesity_class_3": "Obesity class 3"
         }
+      },
+      "body_fat": {
+        "name": "Body Fat"
+      },
+      "body_fat_user": {
+        "name": "Body Fat ({user})"
+      },
+      "skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "skeletal_muscle_user": {
+        "name": "Skeletal Muscle ({user})"
+      },
+      "visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "visceral_fat_user": {
+        "name": "Visceral Fat Level ({user})"
+      },
+      "basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "basal_metabolic_rate_user": {
+        "name": "Basal Metabolic Rate ({user})"
+      },
+      "body_composition_bmi": {
+        "name": "BMI"
+      },
+      "body_composition_bmi_user": {
+        "name": "BMI ({user})"
       }
     },
     "binary_sensor": {

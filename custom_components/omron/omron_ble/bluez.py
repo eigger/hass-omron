@@ -3,6 +3,7 @@
 Everything here is a no-op or returns None off Linux, where there is no BlueZ;
 callers keep their previous behaviour rather than act on a guess.
 """
+
 from __future__ import annotations
 
 import logging
@@ -344,7 +345,14 @@ def _log_pairing_failure_detail(prefix: str, exc: BaseException) -> None:
     dbus_error = getattr(exc, "dbus_error", None)
     if dbus_error is not None:
         lines.append(f"  dbus_error: {dbus_error!s}")
-    for attr in ("dbus_path", "name", "details", "reply", "error_name", "error_message"):
+    for attr in (
+        "dbus_path",
+        "name",
+        "details",
+        "reply",
+        "error_name",
+        "error_message",
+    ):
         val = getattr(exc, attr, None)
         if val is not None:
             lines.append(f"  {attr}: {val!r}")

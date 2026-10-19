@@ -1,4 +1,5 @@
 """Omron device definitions and profile registry."""
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +25,7 @@ from .record_parsers import (
     parse_classic_vital_16_6401_family,
     parse_classic_vital_24_heartguide,
     parse_weight_16,
+    parse_hbf_32,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +64,7 @@ class ConnectType(StrEnum):
     WLD3_0 = "WLD3.0"
     WLD4_0 = "WLD4.0"
     WLS3_0 = "WLS3.0"
+    WLC3_0 = "WLC3.0"
 
 
 class MeasurementKind(StrEnum):
@@ -88,6 +91,7 @@ class RecordParser(StrEnum):
     CLASSIC_VITAL_14_6232_FAMILY = "classic_vital_14_6232_family"
     CLASSIC_VITAL_24_HEARTGUIDE = "classic_vital_24_heartguide"
     WEIGHT_16 = "weight_16"
+    HBF_32 = "hbf_32"
 
 
 class TimeSyncLayout(StrEnum):
@@ -155,7 +159,9 @@ class PairingRegistration:
             )
         for offset, width, idle in self.unread_clears:
             if width not in (1, 2):
-                raise ValueError(f"Unread counter at {offset}: width {width} is not 1 or 2")
+                raise ValueError(
+                    f"Unread counter at {offset}: width {width} is not 1 or 2"
+                )
             if idle >= 1 << (8 * width):
                 raise ValueError(
                     f"Unread counter at {offset}: idle value 0x{idle:X} does not fit "
@@ -241,6 +247,8 @@ class DeviceConfig:
     # avoided the churn, its comment recording that this family rejects a
     # pairing request (0xff 0x26) when the unlock CCCD is dropped and re-added.
     keep_notify_subscriptions: bool = False
+    # HBF scales require RX0 before unlock and RX1–RX3 after unlock.
+    staged_classic_notifications: bool = False
     # Hold an auto-confirming BlueZ agent registered across the connect
     # without calling Pair() ourselves. For profiles where the cuff drives
     # security with its own Security Request: BlueZ 5.72+ leaves the Just
@@ -391,6 +399,17 @@ class DeviceConfig:
                     "the %d-byte index region"
                     % (self.model, self.pairing_registration.slot_offset, index_size)
                 )
+        for user_layout in (self.index_pointer_layout or {}).get("users", []):
+            seq_offset = user_layout.get("latest_sequence_offset")
+            if seq_offset is None:
+                continue
+            index_size = int(self.index_pointer_layout.get("index_region_byte_size", 0))
+            if int(seq_offset) < 0 or int(seq_offset) + 4 > index_size:
+                raise ValueError(
+                    "Invalid profile config for %s: the latest sequence field at "
+                    "%d lies outside the %d-byte index region"
+                    % (self.model, int(seq_offset), index_size)
+                )
         if self.measurement_completion is not None:
             # Same reasoning as the registration above: where the completion
             # byte lands is fixed by the catalog, so a profile that puts it
@@ -418,7 +437,10 @@ class DeviceConfig:
             # whose record is shorter or ordered differently would pass the
             # check above and then fail on the clock write, after the index
             # mirror landed.
-            if clock_size < 16 or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8:
+            if (
+                clock_size < 16
+                or self.resolved_time_sync_layout() != TimeSyncLayout.AT_8
+            ):
                 raise ValueError(
                     "Invalid profile config for %s: the measurement completion needs "
                     "a 16-byte %s clock record, not %d bytes of %s"
@@ -445,7 +467,7 @@ class DeviceConfig:
         fallback profile, which would name a device we did not identify. Logs
         keep ``model`` either way, so a report still shows what was resolved.
         """
-        if self.model.upper().startswith(("HEM-", "HN-")):
+        if self.model.upper().startswith(("HEM-", "HN-", "HBF-")):
             return self.model
         alias = MODEL_NUMBER_ALIASES.get(self.model)
         if alias:
@@ -458,6 +480,16 @@ class DeviceConfig:
     def is_blood_pressure(self) -> bool:
         """Whether this profile measures blood pressure."""
         return self.measurement_kind == MeasurementKind.BLOOD_PRESSURE
+
+    @property
+    def supports_stored_record_sync(self) -> bool:
+        """Whether the index layout carries a per-user record counter."""
+        users = (self.index_pointer_layout or {}).get("users", [])
+        return any(
+            u.get("latest_sequence_offset") is not None
+            or u.get("sequence_source") == "record_id"
+            for u in users
+        )
 
     @property
     def num_users(self) -> int:
@@ -495,6 +527,7 @@ class DeviceConfig:
             RecordParser.CLASSIC_VITAL_14_6232_FAMILY: parse_classic_vital_14_6232_family,
             RecordParser.CLASSIC_VITAL_24_HEARTGUIDE: parse_classic_vital_24_heartguide,
             RecordParser.WEIGHT_16: parse_weight_16,
+            RecordParser.HBF_32: parse_hbf_32,
         }
         parser = parser_map.get(self.record_parser)
         if parser is None:
@@ -537,12 +570,12 @@ class DeviceConfig:
         return standard.lower() in advertised
 
 
-
 # Deliberately not at module top: device_catalog.py imports types (DeviceConfig,
 # UnlockMode, etc.) from this module, so importing it back at the top would be
 # circular. Safe here since everything device_catalog.py needs from this module
 # is already defined above.
 from .device_catalog import CANONICAL_DEVICE_PROFILES  # noqa: E402
+
 
 def _build_model_variant_map() -> dict[str, str]:
     idx: dict[str, str] = {}
@@ -576,7 +609,8 @@ def get_device_config(model: str) -> DeviceConfig:
         return replace(get_device_config(alias), model=model)
     _LOGGER.warning(
         "Unknown device model '%s', falling back to %s",
-        model, DEFAULT_DEVICE_MODEL,
+        model,
+        DEFAULT_DEVICE_MODEL,
     )
     config = CANONICAL_DEVICE_PROFILES[DEFAULT_DEVICE_MODEL]
     if config.model != model:
@@ -602,7 +636,10 @@ def get_supported_model_stats() -> dict[str, int]:
     }
 
 
-_MODEL_CODE_RE = re.compile(r"(HEM-[A-Z0-9_.-]+|(?<![A-Z0-9])HN-[A-Z0-9_.-]+)", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(
+    r"(HEM-[A-Z0-9_.-]+|HBF-[A-Z0-9_.-]+|(?<![A-Z0-9])HN-[A-Z0-9_.-]+)",
+    re.IGNORECASE,
+)
 # Decoration the carton adds over the app's own listing: a HEM-7188T1-LEO
 # reports "X2+ Connect" where the app says "X2+".
 _NAME_DECORATION_RE = re.compile(
@@ -636,8 +673,13 @@ def _name_candidates(token: str) -> tuple[str, ...]:
     """Spellings of a reported name to try against the lookup tables."""
     normalised = normalise_reported_name(token)
     seen: list[str] = []
-    for cand in (token, normalised, token.upper(), normalised.upper(),
-                 token.replace(" ", "").upper()):
+    for cand in (
+        token,
+        normalised,
+        token.upper(),
+        normalised.upper(),
+        token.replace(" ", "").upper(),
+    ):
         if cand and cand not in seen:
             seen.append(cand)
     return tuple(seen)
@@ -705,4 +747,3 @@ def resolve_profile_model_id(model: str) -> str:
     if alias:
         return resolve_profile_model_id(alias)
     return DEFAULT_DEVICE_MODEL
-

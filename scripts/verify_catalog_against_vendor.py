@@ -2,6 +2,7 @@
 
 Usage: python3 scripts/verify_catalog_against_vendor.py <repo_root> <vendor_config_path> [<vendor_config_path> ...]
 """
+
 from __future__ import annotations
 
 import glob
@@ -13,7 +14,7 @@ import zipfile
 
 REPO, *VENDOR_ROOTS = sys.argv[1:]
 sys.path.insert(0, REPO)
-sys.path.insert(0, os.path.join(REPO, "tests"))
+sys.path.insert(0, os.path.join(REPO, "tests", "components", "omron"))
 import conftest  # noqa: E402, F401  (stubs homeassistant/bleak so the catalog imports)
 
 from custom_components.omron.omron_ble.device_catalog import CANONICAL_DEVICE_PROFILES  # noqa: E402
@@ -100,7 +101,9 @@ def load_vendor():
             continue
 
         if os.path.isdir(root):
-            for cfg in glob.glob(os.path.join(root, "**", "DeviceConfig.sys"), recursive=True):
+            for cfg in glob.glob(
+                os.path.join(root, "**", "DeviceConfig.sys"), recursive=True
+            ):
                 d = os.path.dirname(cfg)
                 name = os.path.basename(d)
                 if name in models:
@@ -109,9 +112,21 @@ def load_vendor():
                 other_path = os.path.join(d, "OtherInfo.json")
                 vital_path = os.path.join(d, "VitalDataIndexes.json")
                 sw_path = os.path.join(d, "SettingWriteIndex.json")
-                other = _parse_json(open(other_path, "rb").read()) if os.path.exists(other_path) else {}
-                vital = _parse_json(open(vital_path, "rb").read()) if os.path.exists(vital_path) else {}
-                sw = _parse_json(open(sw_path, "rb").read()) if os.path.exists(sw_path) else {}
+                other = (
+                    _parse_json(open(other_path, "rb").read())
+                    if os.path.exists(other_path)
+                    else {}
+                )
+                vital = (
+                    _parse_json(open(vital_path, "rb").read())
+                    if os.path.exists(vital_path)
+                    else {}
+                )
+                sw = (
+                    _parse_json(open(sw_path, "rb").read())
+                    if os.path.exists(sw_path)
+                    else {}
+                )
                 models[name] = {
                     "dir": d,
                     "sys": _parse_sys(sys_txt),
@@ -136,17 +151,28 @@ def vendor_regions(s):
         n = s.get(f"index_{i}_data_num_of_memories")
         if n is None and f"index_{i}_data_pointer_max" in s:
             n = int(s[f"index_{i}_data_pointer_max"]) + 1
-        out[hx(a)] = (int(s.get(f"data_{i}_size", 0)), int(n) if n is not None else None, i)
+        out[hx(a)] = (
+            int(s.get(f"data_{i}_size", 0)),
+            int(n) if n is not None else None,
+            i,
+        )
     return out
 
 
 def vendor_user(s, i):
     """Index-pointer fields for data block i, normalised across format versions."""
+
     def g(*names):
         return next((s[n] for n in names if n in s), None)
 
-    cur = g(f"index_{i}_data_pointer_byte_offset", f"index_{i}_data_pointer_byte_offset_in_read")
-    unr = g(f"index_{i}_num_of_unsend_byte_offset", f"index_{i}_num_of_unsend_byte_offset_in_read")
+    cur = g(
+        f"index_{i}_data_pointer_byte_offset",
+        f"index_{i}_data_pointer_byte_offset_in_read",
+    )
+    unr = g(
+        f"index_{i}_num_of_unsend_byte_offset",
+        f"index_{i}_num_of_unsend_byte_offset_in_read",
+    )
     layout = g(f"index_{i}_data_pointer_bit_layout")
     clear_val_hex = g(f"index_{i}_data_pointer_clear_value")
     clear_val = int(clear_val_hex, 16) if clear_val_hex is not None else None
@@ -159,7 +185,9 @@ def vendor_user(s, i):
         "mask": mask,
         "bias": int(g(f"index_{i}_data_pointer_latest_pos_correction") or 0),
         "min": int(g(f"index_{i}_data_pointer_min") or 0),
-        "max": (lambda v: int(v) if v is not None else None)(g(f"index_{i}_data_pointer_max")),
+        "max": (lambda v: int(v) if v is not None else None)(
+            g(f"index_{i}_data_pointer_max")
+        ),
         "clear": clear_val,
     }
 
@@ -171,7 +199,11 @@ def vendor_setting_blocks(s):
         return []
     base = hx(read)
     info = s.get("index_setting_info_read_address")
-    start = hx(info) - base if info else int(s.get("index_setting_pointer_unsend_size") or 0)
+    start = (
+        hx(info) - base
+        if info
+        else int(s.get("index_setting_pointer_unsend_size") or 0)
+    )
     blocks, off = [], start
     for i in range(1, 9):
         size = s.get(f"index_setting_info_block_{i}_size")
@@ -200,7 +232,10 @@ def vital_signature(v):
     def m(code):
         for key in (code, code.lower(), code.upper()):
             if key in md:
-                return off((md[key] or {}).get("value") or (md[key] or {}).get("measurement", {}).get("value"))
+                return off(
+                    (md[key] or {}).get("value")
+                    or (md[key] or {}).get("measurement", {}).get("value")
+                )
         return None
 
     return (m("0001"), m("0002"), m("0003"), off(sd.get("year")))
@@ -227,6 +262,7 @@ def bp_block_indices(ven):
 
 
 CLOCK_OFFSET_IN_WINDOW = {
+    "eeprom_time_at_8": 8,
     "eeprom_time_modern_offset8": 8,
     "eeprom_time_classic_offset8": 8,
     "eeprom_time_linear_10": 2,
@@ -237,7 +273,11 @@ CLOCK_OFFSET_IN_WINDOW = {
 
 def find_year_offset(obj):
     if isinstance(obj, dict):
-        if "year" in obj and isinstance(obj["year"], dict) and "addressOffset" in obj["year"]:
+        if (
+            "year" in obj
+            and isinstance(obj["year"], dict)
+            and "addressOffset" in obj["year"]
+        ):
             return obj["year"]["addressOffset"]
         for val in obj.values():
             res = find_year_offset(val)
@@ -267,7 +307,7 @@ def check(model_id, cfg, ven):
     for u, addr in enumerate(cfg.user_start_addresses or []):
         if addr not in regions:
             issues.append(
-                f"user{u+1} start 0x{addr:04X} is not a vendor data block "
+                f"user{u + 1} start 0x{addr:04X} is not a vendor data block "
                 f"(vendor blocks: {['0x%04X' % a for a in sorted(regions)]})"
             )
             continue
@@ -275,37 +315,61 @@ def check(model_id, cfg, ven):
         bp = bp_block_indices(ven)
         if bp and di not in bp:
             issues.append(
-                f"user{u+1} start 0x{addr:04X} is vendor data_{di}, not a blood-pressure block "
+                f"user{u + 1} start 0x{addr:04X} is vendor data_{di}, not a blood-pressure block "
                 f"(vendor marks data_{'/'.join(str(b) for b in sorted(bp))} as BP)"
             )
         if size and size != cfg.record_byte_size:
-            issues.append(f"user{u+1} record_byte_size {cfg.record_byte_size} != vendor {size}")
+            issues.append(
+                f"user{u + 1} record_byte_size {cfg.record_byte_size} != vendor {size}"
+            )
         if count is not None and count != cfg.per_user_records_count[u]:
-            issues.append(f"user{u+1} records {cfg.per_user_records_count[u]} != vendor {count}")
+            issues.append(
+                f"user{u + 1} records {cfg.per_user_records_count[u]} != vendor {count}"
+            )
 
         # 2. index-pointer fields for that same data block
         layout = (cfg.index_pointer_layout or {}).get("users") or []
         if u < len(layout):
             vu, ru = vendor_user(s, di), layout[u]
-            if vu["cursor"] is not None and vu["cursor"] != ru.get("write_cursor_offset"):
-                issues.append(f"user{u+1} write_cursor_offset 0x{ru.get('write_cursor_offset'):02X} != vendor {vu['cursor']}")
-            if vu["unread"] is not None and vu["unread"] != ru.get("unread_counter_offset"):
-                issues.append(f"user{u+1} unread_counter_offset 0x{ru.get('unread_counter_offset'):02X} != vendor {vu['unread']}")
+            if vu["cursor"] is not None and vu["cursor"] != ru.get(
+                "write_cursor_offset"
+            ):
+                issues.append(
+                    f"user{u + 1} write_cursor_offset 0x{ru.get('write_cursor_offset'):02X} != vendor {vu['cursor']}"
+                )
+            if vu["unread"] is not None and vu["unread"] != ru.get(
+                "unread_counter_offset"
+            ):
+                issues.append(
+                    f"user{u + 1} unread_counter_offset 0x{ru.get('unread_counter_offset'):02X} != vendor {vu['unread']}"
+                )
             if vu["mask"] is not None and vu["mask"] != ru.get("write_cursor_mask"):
-                issues.append(f"user{u+1} write_cursor_mask 0x{ru.get('write_cursor_mask'):02X} != vendor 0x{vu['mask']:02X}")
+                issues.append(
+                    f"user{u + 1} write_cursor_mask 0x{ru.get('write_cursor_mask'):02X} != vendor 0x{vu['mask']:02X}"
+                )
             if vu["bias"] != ru.get("slot_index_bias"):
-                issues.append(f"user{u+1} slot_index_bias {ru.get('slot_index_bias')} != vendor {vu['bias']}")
+                issues.append(
+                    f"user{u + 1} slot_index_bias {ru.get('slot_index_bias')} != vendor {vu['bias']}"
+                )
             if vu["clear"] is not None:
                 rclear = ru.get("clear_value", 0x8000)
                 if rclear != vu["clear"]:
-                    issues.append(f"user{u+1} clear_value 0x{rclear:04X} != vendor 0x{vu['clear']:04X}")
-            vmax = vu["max"] if vu["max"] is not None else (count - 1 if count else None)
+                    issues.append(
+                        f"user{u + 1} clear_value 0x{rclear:04X} != vendor 0x{vu['clear']:04X}"
+                    )
+            vmax = (
+                vu["max"] if vu["max"] is not None else (count - 1 if count else None)
+            )
             if vmax is not None and vmax != ru.get("slot_index_max"):
-                issues.append(f"user{u+1} slot_index_max {ru.get('slot_index_max')} != vendor {vmax}")
+                issues.append(
+                    f"user{u + 1} slot_index_max {ru.get('slot_index_max')} != vendor {vmax}"
+                )
 
     # 3. settings block addresses
-    for key, attr in (("index_setting_read_address", "settings_read_address"),
-                      ("index_setting_write_address", "settings_write_address")):
+    for key, attr in (
+        ("index_setting_read_address", "settings_read_address"),
+        ("index_setting_write_address", "settings_write_address"),
+    ):
         v, r = s.get(key), getattr(cfg, attr)
         if v and r is not None and hx(v) != r:
             issues.append(f"{attr} 0x{r:04X} != vendor 0x{hx(v):04X}")
@@ -321,7 +385,14 @@ def check(model_id, cfg, ven):
         sw = ven.get("setting_write")
         clock_off = find_year_offset(sw) if sw else None
         if clock_off is not None:
-            layout = str(cfg.time_sync_layout or ("eeprom_time_modern_offset8" if cfg.settings_time_sync_bytes == [0x2C, 0x3C] else "eeprom_time_classic_mixed"))
+            layout = str(
+                cfg.time_sync_layout
+                or (
+                    "eeprom_time_modern_offset8"
+                    if cfg.settings_time_sync_bytes == [0x2C, 0x3C]
+                    else "eeprom_time_classic_mixed"
+                )
+            )
             expected_start = clock_off - CLOCK_OFFSET_IN_WINDOW.get(layout, 0)
             if cfg.settings_time_sync_bytes[0] != expected_start:
                 issues.append(
@@ -343,7 +414,9 @@ def check(model_id, cfg, ven):
         if model_id in KNOWN_CONNECT_TYPE_DEVIATIONS:
             pass
         else:
-            issues.append(f"connect_type {cfg.connect_type!s} != vendor {'/'.join(vct)}")
+            issues.append(
+                f"connect_type {cfg.connect_type!s} != vendor {'/'.join(vct)}"
+            )
 
     return issues
 
@@ -369,18 +442,31 @@ def main():
             else:
                 clean += 1
 
-    known = {m for c in CANONICAL_DEVICE_PROFILES for m in [c] + list(CANONICAL_DEVICE_PROFILES[c].equivalent_model_ids or ())}
+    known = {
+        m
+        for c in CANONICAL_DEVICE_PROFILES
+        for m in [c] + list(CANONICAL_DEVICE_PROFILES[c].equivalent_model_ids or ())
+    }
+
     def is_bp(v):
         idx = (v["vital"] or {}).get("vitalDataIndex1") or {}
         md = {k.lower() for k in (idx.get("measurementData") or {})}
-        return {"0001", "0002", "0003"} <= md and v["sys"].get("data_1_size") in {"14", "16"}
-    missing = sorted(m for m, v in vendor.items() if m not in known and vendor_regions(v["sys"]))
+        return {"0001", "0002", "0003"} <= md and v["sys"].get("data_1_size") in {
+            "14",
+            "16",
+        }
+
+    missing = sorted(
+        m for m, v in vendor.items() if m not in known and vendor_regions(v["sys"])
+    )
     missing_bp = [m for m in missing if is_bp(vendor[m])]
 
     print("=" * 78)
     print(f"vendor model configs : {len(vendor)}")
     print(f"catalog model ids    : {len(known)}")
-    print(f"  with vendor config : {covered}   ({clean} fully match, {len(rows)} with findings)")
+    print(
+        f"  with vendor config : {covered}   ({clean} fully match, {len(rows)} with findings)"
+    )
     print(f"  without            : {len(known) - covered}")
     print(f"vendor models absent from catalog: {len(missing)}")
     print("=" * 78)
@@ -401,16 +487,22 @@ def main():
                 print(f"    sys/dia/bpm/year offsets {sig}: {', '.join(ms)}")
 
     if missing:
-        print(f"\n## blood-pressure models in the vendor set but not in the catalog ({len(missing_bp)})\n")
+        print(
+            f"\n## blood-pressure models in the vendor set but not in the catalog ({len(missing_bp)})\n"
+        )
         for m in missing_bp:
             s2 = vendor[m]["sys"]
             regs = vendor_regions(s2)
-            print(f"    {m:22s} {[c for c in vendor[m]['sys']['_multi'].get('connect_type',[]) if c!='usb_block']} "
-                  f"data={[('0x%04X' % a, r[0], r[1]) for a, r in sorted(regs.items())][:2]} "
-                  f"set={s2.get('index_setting_read_address')}/{s2.get('index_setting_write_address')}")
+            print(
+                f"    {m:22s} {[c for c in vendor[m]['sys']['_multi'].get('connect_type', []) if c != 'usb_block']} "
+                f"data={[('0x%04X' % a, r[0], r[1]) for a, r in sorted(regs.items())][:2]} "
+                f"set={s2.get('index_setting_read_address')}/{s2.get('index_setting_write_address')}"
+            )
         other = [m for m in missing if m not in missing_bp]
-        print(f"\n## other (non-BP) vendor models not in the catalog ({len(other)}) — out of scope\n    "
-              + ", ".join(other))
+        print(
+            f"\n## other (non-BP) vendor models not in the catalog ({len(other)}) — out of scope\n    "
+            + ", ".join(other)
+        )
 
     print(f"\n## catalog ids with no vendor config ({len(uncovered)})\n")
     for canon, mid in uncovered:

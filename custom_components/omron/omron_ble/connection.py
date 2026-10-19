@@ -1,4 +1,5 @@
 """Establishing the BLE link: connect, let bonding settle, refresh the GATT cache."""
+
 from __future__ import annotations
 
 import asyncio
@@ -139,7 +140,11 @@ async def establish_connection_with_bond_settle(
         link_info["connect_attempts"] = attempt
         _LOGGER.debug(
             "Connecting to %s [%s] via proxy/source=%s (attempt %d/%d)",
-            name, model or "?", source, attempt, max_attempts,
+            name,
+            model or "?",
+            source,
+            attempt,
+            max_attempts,
         )
         # Per attempt: a connect that bonded and then dropped during the
         # settle says nothing about the one that replaces it.
@@ -227,7 +232,8 @@ async def establish_connection_with_bond_settle(
             if getattr(client, "is_connected", False):
                 _LOGGER.debug(
                     "Post-settle state for %s via source=%s: is_connected=True",
-                    name, source,
+                    name,
+                    source,
                 )
                 await _bleak_refresh_services(client)
                 # Only a link that survived the settle: ``source`` and ``via`` are
@@ -251,8 +257,11 @@ async def establish_connection_with_bond_settle(
         _LOGGER.warning(
             "%s dropped ~%.2fs into the post-connect settle via source=%s "
             "(attempt %d/%d) — retrying",
-            name, waited, source,
-            attempt, max_attempts,
+            name,
+            waited,
+            source,
+            attempt,
+            max_attempts,
         )
         try:
             await client.disconnect()

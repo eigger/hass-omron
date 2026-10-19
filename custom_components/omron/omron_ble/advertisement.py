@@ -1,4 +1,5 @@
 """Omron manufacturer-specific advertisement field decode."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -78,9 +79,8 @@ def _decode_omron_msd_fields(payload: bytes) -> dict[str, Any] | None:
     if b11 == 0x08:
         b13 = payload[1]
         user_count = b13 & 0x03
-        length_ok = (
-            (user_count == 0 and len(payload) == 10)
-            or (user_count == 1 and len(payload) == 13)
+        length_ok = (user_count == 0 and len(payload) == 10) or (
+            user_count == 1 and len(payload) == 13
         )
         if not length_ok:
             return None
