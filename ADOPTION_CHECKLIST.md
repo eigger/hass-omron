@@ -57,18 +57,18 @@
 | DEP-08 | PASS | HACS 리뷰(hacs/default#10041)에 따라 코드가 직접 import하는 `sensor-state-data>=2.18.0`, `bluetooth-sensor-state-data>=1.7.0`을 `manifest.json`에 추가했고, `current` job의 `minimum` 모드가 두 하한을 설치해 검증 |
 | HACS-01(구조), HACS-02 | PASS | 루트 `README.md`, `LICENSE`, `hacs.json` 및 `custom_components/omron` 구조 확인 |
 | HACS-03, HACS-05 | PASS | HACS Custom 배지 사용, `validate / hacs` 및 `validate / hassfest` 통과, `custom_components/omron/brand/icon.png`(256×256)·`icon@2x.png`(512×512) 존재 |
-| HACS-04 | PASS | 최신 GitHub 정식 Release 태그 `4.1.1`(`isPrerelease: false`)과 `custom_components/omron/manifest.json` `"version": "4.1.1"` 일치 |
+| HACS-04 | PASS | 최신 GitHub 정식 Release 태그 `4.1.2`(`isPrerelease: false`)과 `custom_components/omron/manifest.json` `"version": "4.1.2"` 일치 |
 | HACS-06 | PASS | GitHub 리포 description(`Omron BLE Home Assistant Integration`), topics, Issues/Discussions 활성화 및 `hacs.json` 유효 필드(`name`, `homeassistant`) 확인 |
 | CI-01, CI-02 | PASS | `Tests`, `Validate`, `Update dependencies`가 공통 reusable workflow를 호출하며 `master` push, PR, `workflow_dispatch`, 주간 `schedule` 지원 |
 | CI-03, CI-05 | PASS | 검증 workflow `permissions: contents: read`, `concurrency` 설정, 공통 workflow 전체 SHA 고정 |
 | CI-04, CI-07, CI-12 | PASS | 필수 `ha` 테스트 job(`current`, `minimum-ha`)과 `lint` 병렬 실행, 오류 무시 래퍼 없음, `master` 브랜치 보호 미사용 확인 |
 | CI-08 | PASS | 모든 workflow 파일에 비신뢰 PR 입력의 직접 shell 보간 없음, `pull_request_target` 미사용, 테스트에 secrets 불요, `secrets: inherit` 미사용 |
-| CI-11 | N/A | 자동 릴리스 생성 workflow를 두지 않으며 수동 GitHub Release(`4.1.1`)로 배포 |
+| CI-11 | N/A | 자동 릴리스 생성 workflow를 두지 않으며 수동 GitHub Release(`4.1.2`)로 배포 |
 | DOC-01, DOC-06 | PASS | `README.md`를 표준 섹션 순서(소개 → 지원 모델 → 요구사항 → 설치·설정 → 빠른 시작 → 중요 제한사항 → 문서 → 지원 → 라이선스)로 정리하고 오류별 대응을 `docs/troubleshooting.md`로 이동·연결. `CONTRIBUTING.md`에 Core 대응 구조·실제 HA 테스트·의존성 절차·검증 환경 표 수록 |
 | DOC-02 | PASS | `README.md`(영어)와 `README.ko.md`(한국어) 상호 전환 링크, 동일 배지·문서 목록·제한사항 유지 |
 | DOC-03, DOC-04, DOC-05 | PASS | `sync_badges.py --check` 통과 (HACS → Release → HA minimum → Tests → Validate → License → 동적 Usage 순서) |
 | DOC-07 | PASS | `README.md`·`README.ko.md`에서 공통 Bluetooth 문서(고정 SHA)와 `docs/troubleshooting.md` 연결, 기기 고유 깨우기·`-P-` 페어링·단일 앱 제약·진단 센서(`Last Failure`, `Duration`) 및 민감 정보 제거 후 제보 절차 안내 |
-| REL-01, REL-02, REL-03, REL-05 | PASS | SemVer(`4.1.1`) 준수, 규칙 채택만을 위한 태그/릴리스 미생성, 최소 HA `2025.12.0` 유지, 채택·테스트 개편을 기능 릴리스와 분리 |
+| REL-01, REL-02, REL-03, REL-05 | PASS | SemVer(`4.1.2`) 준수, 규칙 채택만을 위한 태그/릴리스 미생성, 최소 HA `2025.12.0` 유지, 채택·테스트 개편을 기능 릴리스와 분리 |
 | REL-04 | N/A | 현행 유지보수 리포로 이전·중단 해당 없음 |
 
 ## 남은 작업
