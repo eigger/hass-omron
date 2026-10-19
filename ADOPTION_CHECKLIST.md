@@ -54,7 +54,7 @@
 | DEP-01, DEP-06 | PASS | 런타임 의존성은 `custom_components/omron/manifest.json`(`requirements: ["blesession>=0.9.0", "bluetooth-sensor-state-data>=1.7.0", "sensor-state-data>=2.18.0"]`, `dependencies: ["bluetooth_adapters"]`), 테스트·린트 의존성은 `requirements_test.txt`·`requirements_test_min.txt`·`requirements_lint.txt`로 분리 |
 | DEP-07, CI-06 | PASS | 공통 `install.py`가 단일 resolver 호출 및 `pip check`, HA 구성요소(`bluetooth`, `bluetooth_adapters`, `usb`) 요구사항을 함께 설치하고 `ruff==0.17.1` 고정 |
 | DEP-03, DEP-04, CI-09, CI-10 | PASS | `.github/workflows/update_dependencies.yml`이 공통 `dependency-update.yml`을 호출하며 `validation-command`로 `ruff`와 `pytest tests/components/omron/`을 실행. 로컬 `actions/update-manifest/update.py` dry-run 검증(`Requirements are current; no change`) 및 `.github/dependabot.yml`의 최소 환경 `exclude-paths` 설정 확인. 열린 Dependabot PR #250(`pytest-homeassistant-custom-component` 0.13.366→0.13.372, `expected-ha-version` 미갱신)은 자동 병합하지 않고 종료 후, `current` 환경을 `pytest-homeassistant-custom-component==0.13.373` 및 `expected-ha-version: 2026.10.2`로 일괄 갱신(최소 HA `2025.12.0` 환경은 보존) |
-| DEP-08 | N/A | 이번 채택에서 신규 런타임 의존성 추가나 기존 요구사항 범위 변경 없음 |
+| DEP-08 | PASS | HACS 리뷰(hacs/default#10041)에 따라 코드가 직접 import하는 `sensor-state-data>=2.18.0`, `bluetooth-sensor-state-data>=1.7.0`을 `manifest.json`에 추가했고, `current` job의 `minimum` 모드가 두 하한을 설치해 검증 |
 | HACS-01(구조), HACS-02 | PASS | 루트 `README.md`, `LICENSE`, `hacs.json` 및 `custom_components/omron` 구조 확인 |
 | HACS-03, HACS-05 | PASS | HACS Custom 배지 사용, `validate / hacs` 및 `validate / hassfest` 통과, `custom_components/omron/brand/icon.png`(256×256)·`icon@2x.png`(512×512) 존재 |
 | HACS-04 | PASS | 최신 GitHub 정식 Release 태그 `4.1.1`(`isPrerelease: false`)과 `custom_components/omron/manifest.json` `"version": "4.1.1"` 일치 |

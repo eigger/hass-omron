@@ -181,10 +181,16 @@ class _Connector:
 @pytest.fixture
 def agent_log(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """``_bluez_pairing_agent`` 가 열리고 닫힌 기록."""
-    events: list[str] = []
+
+    class _Log(list):
+        paths: list = []
+
+    events = _Log()
+    events.paths = []
 
     @asynccontextmanager
-    async def _agent(*_args):
+    async def _agent(path):
+        events.paths.append(path)
         events.append("enter")
         try:
             yield object()
@@ -249,6 +255,7 @@ async def test_connect_time_bonding_runs_on_a_local_adapter_inside_an_agent(
     assert client is link
     assert connector.calls == [{"pair": True}]
     assert agent_log == ["enter", "exit"]
+    assert agent_log.paths == [_BLUEZ_DETAILS["path"]]
     assert client._omron_bonded_at_connect is True
     assert info["bonded_at_connect"] is True
 

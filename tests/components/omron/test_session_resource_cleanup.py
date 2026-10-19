@@ -190,3 +190,37 @@ def test_session_agent_is_only_held_while_bonding(
 
     asyncio.run(run())
     assert paths == (["/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"] if held else [])
+
+
+def test_bond_check_timeout_keeps_the_session_agent(monkeypatch):
+    paths = []
+
+    @asynccontextmanager
+    async def pairing_agent(path):
+        paths.append(path)
+        yield None
+
+    async def hang(_device):
+        await asyncio.Event().wait()
+
+    async def fail_connect(*args, **kwargs):
+        raise ConnectionError("connect failed")
+
+    device = SimpleNamespace(
+        address="AA:BB:CC:DD:EE:FF",
+        details={"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"},
+    )
+    monkeypatch.setattr(session_module, "DISCONNECT_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
+    monkeypatch.setattr(session_module, "_bluez_is_paired", hang)
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", fail_connect
+    )
+    session = OmronDeviceSession(device, get_device_config("HEM-7188T1-LEO"))
+
+    async def run():
+        with pytest.raises(ConnectionError):
+            await session.connect()
+
+    asyncio.run(run())
+    assert paths == ["/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"]
