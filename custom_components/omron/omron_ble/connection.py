@@ -122,8 +122,8 @@ async def establish_connection_with_bond_settle(
     pair_this_attempt = pair_on_connect and is_local_adapter(ble_device)
     # Profiles that never call Pair() still need someone to answer the Just
     # Works confirmation the cuff's own Security Request triggers. The caller
-    # holds an agent for the whole session (see OmronDeviceSession.connect);
-    # this one only covers the connect itself for callers that do not.
+    # holds an agent for the session while the cuff is unbonded (see
+    # OmronDeviceSession.connect); this one only covers the connect itself.
     agent_this_attempt = hold_pairing_agent and is_local_adapter(ble_device)
     if pair_on_connect and not pair_this_attempt:
         _LOGGER.debug(

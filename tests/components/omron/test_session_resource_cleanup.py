@@ -86,6 +86,7 @@ def test_failed_connect_releases_session_pairing_agent(monkeypatch):
         raise ConnectionError("connect failed")
 
     monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
+
     async def not_paired(_device):
         return False
 
@@ -146,9 +147,16 @@ def test_aclose_bounds_memory_close(monkeypatch):
 
 @pytest.mark.parametrize(
     ("paired", "pairing_session", "held"),
-    [(True, False, False), (True, True, True), (False, False, True), (None, False, True)],
+    [
+        (True, False, False),
+        (True, True, True),
+        (False, False, True),
+        (None, False, True),
+    ],
 )
-def test_session_agent_is_only_held_while_bonding(monkeypatch, paired, pairing_session, held):
+def test_session_agent_is_only_held_while_bonding(
+    monkeypatch, paired, pairing_session, held
+):
     """A bonded cuff re-encrypts with its stored key and never asks the agent."""
     paths = []
 
@@ -169,7 +177,9 @@ def test_session_agent_is_only_held_while_bonding(monkeypatch, paired, pairing_s
     )
     monkeypatch.setattr(session_module, "_bluez_pairing_agent", pairing_agent)
     monkeypatch.setattr(session_module, "_bluez_is_paired", is_paired)
-    monkeypatch.setattr(session_module, "establish_connection_with_bond_settle", fail_connect)
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", fail_connect
+    )
     session = OmronDeviceSession(
         device, get_device_config("HEM-7188T1-LEO"), pairing_session=pairing_session
     )
