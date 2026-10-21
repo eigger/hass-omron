@@ -1,4 +1,4 @@
-# Shared standards: eigger/hass-repo-standards@ff46b0c8d9ba
+# Shared standards: eigger/hass-repo-standards@0ec31111a81b
 name: Update dependencies
 'on':
   schedule:
@@ -11,8 +11,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: eigger/hass-repo-standards/.github/workflows/dependency-update.yml@ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870
+    uses: eigger/hass-repo-standards/.github/workflows/dependency-update.yml@0ec31111a81b0ee5702f1d8a17f03616a10a5db6
     with:
+      standards-ref: 0ec31111a81b0ee5702f1d8a17f03616a10a5db6
       domain: omron
       packages: '["blesession"]'
       ha-components: bluetooth bluetooth_adapters usb

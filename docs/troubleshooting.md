@@ -1,8 +1,113 @@
 # Troubleshooting
 
+[README](../README.md) | **English** | [한국어](troubleshooting.ko.md)
+
 When a cuff does not sync, the integration has usually already recorded why. This page is the order to look in: first the two diagnostic sensors that hold the last BLE session's breakdown, then the cases those sensors cannot see, then what to attach to an issue.
 
-## Where to look
+
+## Common troubleshooting
+
+Start with the [common Bluetooth troubleshooting](https://github.com/eigger/blesession/blob/main/docs/troubleshooting.md). For proxy selection, firmware and Home Assistant registration, use the [Bluetooth proxy guide](https://github.com/eigger/blesession/blob/main/docs/bluetooth.md).
+
+## Device-specific checks
+
+Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy setup](https://github.com/eigger/blesession/blob/main/docs/bluetooth.md). The conditions below are specific to Omron monitors and scales:
+
+- **Seeing the device is not the same as connecting to it.** Advertisements (discovery, RSSI) can arrive while the GATT connection, pairing or memory read still fails. Use the **Last Failure** `failed_stage` to tell them apart: `connect` is the link, `session`/`auth` are services and pairing, `transfer` is the record read.
+- **Wake / power.** The monitor switches its Bluetooth radio off to save battery. It connects briefly after a measurement; for pairing, hold the Bluetooth button until `-P-` blinks and submit while it is still blinking.
+- **One paired phone/app at a time.** If the official Omron Connect app (or another host) holds the pairing, unpair it first; otherwise `auth` stages fail even with a strong signal.
+- **Proxy path.** Home Assistant chooses among the available Bluetooth adapters and ESPHome proxies (see the radio shown in the **Duration** attributes); `bluetooth_proxy` must have `active: true` and the scan interval should stay at its default. Move the proxy close to the device, and include the radio shown in the **Duration** attributes when reporting.
+- **Unverified models.** Only the models listed with a check mark in the README are verified; others selected as a "similar model" are untested.
+- **Reporting.** Attach a debug log and the sensor attributes; remove addresses, bond keys and measurements you do not want to share first (see [Capturing Bluetooth logs](capturing-bluetooth-logs.md)).
+- **Transfer conditions.** Readout requires an awake device, an accepted bond/transport credential and the matching model profile. The retry counts and 180-second session deadline described below are Omron policies; no image-transfer pacing or payload configuration applies to this measurement integration. Models, firmware and local-adapter/proxy combinations without reported verification remain unverified.
+
+## Symptoms and actions
+
+| Symptom | Failing stage | Checks | Action |
+|---|---|---|---|
+| Device is visible but no link is established | `connect` / `settle` | Awake window, `rssi`, `paths`, proxy slots and bond-owning radio | Take a new measurement; move closer, free a slot or re-pair through the intended radio. |
+| Connected but required service is absent | `session` (`services`) | Configured model and proxy GATT cache | Select the correct model; restart the proxy if cache recovery does not help. |
+| Pairing or unlock fails | `auth` (`pair`, `unlock`, `memory_open`) | Blinking `-P-`, stored credential, other hosts, `memory_session_attempts` | Stop other app connections; re-pair in the device's pairing window. |
+| Records stop during readout | `transfer` (`readout`) | `rssi`, `via`, repeated failure position | Improve placement; report a consistent model-specific failure with a sanitized capture. |
+| A write does not return | Stage in `failed_stage` / `failed_detail`; `WriteTimeout` | Exact `error` and radio/proxy status | Check adapter/proxy health before repeating; re-pairing does not repair a stalled transport. |
+| Readout completed but close failed | `finish` (`memory_close`) / `disconnect` | Whether records arrived and the next session succeeds | Observe the next poll; re-pair if subsequent unlock/session-open fails. |
+| Session succeeds but no new measurement appears | No failure; `records` | Stored data, user slot and whether the record is already shown | Take a new measurement with the intended user selected. |
+| Duration does not change, or a button fails immediately | Before a BLE session | Advertisement availability and Connection state | Wake the device and press Refresh Data; wait for a running session before retrying pairing. |
+
+### Reading a failure
+
+Start with `failed_stage` on Last Failure: it says how far the session got, in the shared vocabulary. `failed_detail` is the cuff's name for the same stage. `likely_cause` is a reading of the stage, the failure type and the radio situation; `error` is the exact message. `likely_cause_key`, when present, is the stable name of that reading.
+
+#### `connect`
+
+The link never came up.
+- *This is the cuff's normal state between readings.* It turns its radio off to save battery and wakes for a short window after a measurement (and while it shows the Bluetooth symbol). A poll that runs while the cuff has just gone back to sleep fails here; the next one after a measurement succeeds. Look further only when a sync **never** succeeds.
+- *Check:* `rssi` and `paths`. `failed_detail: settle` (or `error` containing *settle*) = the cuff accepted the link and dropped it before encryption settled. `error` with *slot* = the proxy's connection slots are all in use.
+- *Do:* Weak `rssi` (below about −85 dBm is a rough placement clue, not a universal cutoff): move the cuff or add a proxy near it. *settle* on a multi-proxy setup: only the radio that paired holds the bond — check `via` (and `advertised_via`, when present) against the proxy the cuff was paired through, and pair again through the one it now uses. *slot*: fewer BLE devices per proxy, or another proxy.
+
+#### `session` (`failed_detail: services`)
+
+Connected, but the cuff does not expose the GATT service this model profile expects.
+- *Check:* The model chosen in the entry against the label on the cuff.
+- *Do:* Wrong model: remove the entry and add the cuff again with the right one. Right model: a stale GATT cache on the proxy — the integration already clears it and retries; if it persists, restart the proxy.
+
+#### `auth` (`failed_detail: pair`)
+
+Bonding with the cuff failed (`operation: pairing`).
+- *Check:* *Could not enter key programming mode* = the cuff was not in pairing mode.
+- *Do:* Hold the cuff's Bluetooth button until it shows the blinking **-P-**, then press *Retry Pairing* while it is still blinking.
+
+#### `auth` (`failed_detail: unlock`)
+
+The cuff refused, or did not answer, the application-level unlock.
+- *Check:* *pairing key mismatch* = the cuff no longer accepts the stored key. *No stored transport credential* = the entry has no credential for a model that needs one. *PIN or Key Missing* / *auth* = the cuff no longer accepts the stored **bond**.
+- *Do:* All three usually mean the cuff was paired to another host since (the phone app takes the pairing over), or the bond was lost on our side (a re-flashed proxy, a changed adapter). Pair again: put the cuff in **-P-** and press *Retry Pairing*. If re-pairing is needed every few days, check whether the phone is pairing with it in between.
+
+#### `auth` (`failed_detail: memory_open`)
+
+Unlocked, but the cuff refused to start a readout session.
+- *Check:* Does it repeat? `memory_session_attempts: 3` means every try failed.
+- *Do:* Once: ignore, the next poll usually succeeds. Every time: treat it like `unlock` — pair again.
+
+#### `transfer` (`failed_detail: readout`)
+
+Failed while reading the record memory. This is the one stage that points at link quality — or at the memory map.
+- *Check:* `rssi`, `via`, and whether it fails at the same point every time.
+- *Do:* Once: move the cuff or the proxy it used (`via`), or add one. Every time, on a model listed as untested: the memory map for that model may be wrong — please [open an issue](https://github.com/eigger/hass-omron/issues) with a Bluetooth log ([capturing-bluetooth-logs.md](capturing-bluetooth-logs.md)).
+
+#### `finish` (`failed_detail: memory_close`) / `disconnect`
+
+The records were read; only the session close failed. Harmless on its own. If the **next** connection is refused (`unlock` or `memory_open` failing right after), the cuff did not commit the session — pair again.
+
+#### Quick checks
+
+- **`Pairing failed: Could not enter key programming mode`** — make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
+- **`Connection terminated by peer`** — BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter/proxy or use a USB extension cable for your BLE dongle.
+- **Sensor values not updating** — the device turns off its Bluetooth radio to save battery and turns it on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
+- **Data doesn't show up after changing batteries** — changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
+- **`error: Session deadline reached`** — the session hung and was cut at the 3-minute bound. `failed_stage` says where. A wedged `bluetoothd` or a proxy that died mid-session can cause this; the deadline alone does not establish the cause. Restart the adapter (or the proxy) if it repeats.
+- **`rssi` is low but `paths` is 2 or more** — another radio might do better; Home Assistant connects through the strongest advertisement, so the alternative is only used after a failure. Check `via` to see which one was used.
+- **Everything fails at `connect` right after adding a proxy** — enable `bluetooth_proxy.active: true` for GATT connections and check available connection slots. `esp32_ble_tracker.scan_parameters.active` controls scan-response requests separately; passive scanning alone does not prevent GATT connections. See [Bluetooth proxy troubleshooting](https://github.com/eigger/blesession/blob/main/docs/troubleshooting.md).
+- **`connect_attempts` above 1 on successful polls** — the link dropped during the post-connect settle and the retry got through. Harmless once in a while; on most polls it is where a marginal link, or a proxy without the bond, shows first.
+- **`time_sync_error` on every poll** — the records still come through; the cuff's clock is not being set. On models that sync the clock through the EEPROM this means the clock layout for the model is wrong — worth an issue with the model name.
+
+### What the attributes cannot show
+
+Three kinds of problem never reach the failure sensors, because the session did not fail — or never happened.
+
+**The poll succeeded but no measurement appeared.** `success: true` and `records` is 1 or more: the latest record the cuff holds is the one already shown, so the new measurement went to a user slot this entry does not read — check which user the cuff was set to (the user switch on the cuff). `records: 0`: the cuff has nothing stored at all for the users read. Neither is a failure, which is why Last Failure did not move.
+
+**No session was attempted.** The cuff was not seen by any radio when the poll was due, so nothing connected and Duration did not move. The poll returns the cached values and logs nothing at default level. Take a measurement — the cuff advertises for a while afterwards — and press *Refresh Data* while it shows the Bluetooth symbol.
+
+**The action itself errored before any BLE traffic.** *Retry Pairing* with the cuff out of range fails immediately with *BLE device not available*, and *BLE session already in progress* means a poll is running: wait for Connection to turn off and try again.
+
+### Intermittent failures
+
+A poll that fails only sometimes is the reason Last Failure keeps its attributes: look there, not at Duration, which already shows the later success. Its `failed_stage` and `rssi` at the time of failure are what matter. If failures cluster at one `via`, that proxy is the problem; if `paths` was 1 each time, a second radio would have given a fallback.
+
+## Diagnostics and logs
+
+### Where to look
 
 Open the cuff's device page (**Settings → Devices & services → Omron → the cuff**). Under *Diagnostic* there are five entities to read, in this order:
 
@@ -14,11 +119,17 @@ Open the cuff's device page (**Settings → Devices & services → Omron → the
 | **Last Readout** | When a poll last **decoded a record**. A poll that connected but came back with no record does not move it — so "Duration updates, Last Readout does not" means the cuff is reachable but the readout is coming back empty, or failing before it. |
 | **Connection** (binary) | On **while a session is in progress**. It is not "the cuff is nearby": a cuff keeps its radio off between readings. |
 
-To see the attributes: click the entity → ⋮ → **Attributes**, or in **Developer tools → States** search for the entity. In a template: `{{ state_attr('sensor.hem_7155t_a1b2_last_failure', 'likely_cause') }}` (the id is the model plus the last four hex digits of the cuff's MAC).
+To see the attributes: click the entity → ⋮ → **Attributes**, or in **Developer tools → States** search for the entity. In a template:
+
+```jinja
+{{ state_attr('sensor.hem_7155t_a1b2_last_failure', 'likely_cause') }}
+```
+
+The id is the model plus the last four hex digits of the cuff's MAC.
 
 Home Assistant also records the Duration attributes with each state change, so the history of that sensor has the breakdown of every session, not only the last failed one. Both sensors start empty on a restart or reload; the history is where a failure from before it lives.
 
-## Reading the attributes
+### Reading the attributes
 
 The attributes are, in order. `failed_stage` is the shared name used across BLE integrations; `failed_detail` is this cuff's own name for that stage, present only when the two differ.
 
@@ -38,93 +149,27 @@ The attributes are, in order. `failed_stage` is the shared name used across BLE 
 | `records` | How many latest records the readout came back with — one per user with data. `0` is a cuff with nothing stored: not a failure, and why the measurement entities did not move. |
 | `time_sync_error`, `registration_error` | A clock write, or a pairing registration, that failed but did not stop the session. |
 
-## Reading a failure
+### Debug logging
 
-Start with `failed_stage` on Last Failure: it says how far the session got, in the shared vocabulary. `failed_detail` is the cuff's name for the same stage. `likely_cause` is a reading of the stage, the failure type and the radio situation; `error` is the exact message. `likely_cause_key`, when present, is the stable name of that reading.
+The integration exposes the diagnostic entities above; it does not provide a separate downloadable integration diagnostics file. For a debug log, enable **Settings → Devices & services → Omron → Enable debug logging**, reproduce the problem once, then disable debug logging to download the captured interval. Alternatively merge this into your existing `configuration.yaml` logger configuration and restart Home Assistant:
 
-### `connect`
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.omron: debug
+```
 
-The link never came up.
-- *This is the cuff's normal state between readings.* It turns its radio off to save battery and wakes for a short window after a measurement (and while it shows the Bluetooth symbol). A poll that runs while the cuff has just gone back to sleep fails here; the next one after a measurement succeeds. Look further only when a sync **never** succeeds.
-- *Check:* `rssi` and `paths`. `failed_detail: settle` (or `error` containing *settle*) = the cuff accepted the link and dropped it before encryption settled. `error` with *slot* = the proxy's connection slots are all in use.
-- *Do:* Weak `rssi` (below about −85 dBm): move the cuff or add a proxy near it. *settle* on a multi-proxy setup: only the radio that paired holds the bond — check `via` (and `advertised_via`, when present) against the proxy the cuff was paired through, and pair again through the one it now uses. *slot*: fewer BLE devices per proxy, or another proxy.
+Remove the `custom_components.omron: debug` override afterward and restart to stop debug logging. The logger includes the integration's `omron_ble` modules. Collect only the reproduction interval. Before posting logs, attributes or traces, remove device addresses, bond keys/transport credentials, tokens and personal measurements. A Bluetooth stack capture contains security material and health data; follow [Capturing Bluetooth logs](capturing-bluetooth-logs.md), including its sanitized-summary option. Do not upload an iPhone sysdiagnose archive.
 
-### `session` (`failed_detail: services`)
+## If the problem persists
 
-Connected, but the cuff does not expose the GATT service this model profile expects.
-- *Check:* The model chosen in the entry against the label on the cuff.
-- *Do:* Wrong model: remove the entry and add the cuff again with the right one. Right model: a stale GATT cache on the proxy — the integration already clears it and retries; if it persists, restart the proxy.
+Use this integration's [existing Issues](https://github.com/eigger/hass-omron/issues) and follow the existing reporting instructions in [Capturing Bluetooth logs](capturing-bluetooth-logs.md).
 
-### `auth` (`failed_detail: pair`)
-
-Bonding with the cuff failed (`operation: pairing`).
-- *Check:* *Could not enter key programming mode* = the cuff was not in pairing mode.
-- *Do:* Hold the cuff's Bluetooth button until it shows the blinking **-P-**, then press *Retry Pairing* while it is still blinking.
-
-### `auth` (`failed_detail: unlock`)
-
-The cuff refused, or did not answer, the application-level unlock.
-- *Check:* *pairing key mismatch* = the cuff no longer accepts the stored key. *No stored transport credential* = the entry has no credential for a model that needs one. *PIN or Key Missing* / *auth* = the cuff no longer accepts the stored **bond**.
-- *Do:* All three usually mean the cuff was paired to another host since (the phone app takes the pairing over), or the bond was lost on our side (a re-flashed proxy, a changed adapter). Pair again: put the cuff in **-P-** and press *Retry Pairing*. A cuff that has to be re-paired every few days is being re-paired by the phone in between.
-
-### `auth` (`failed_detail: memory_open`)
-
-Unlocked, but the cuff refused to start a readout session.
-- *Check:* Does it repeat? `memory_session_attempts: 3` means every try failed.
-- *Do:* Once: ignore, the next poll usually succeeds. Every time: treat it like `unlock` — pair again.
-
-### `transfer` (`failed_detail: readout`)
-
-Failed while reading the record memory. This is the one stage that points at link quality — or at the memory map.
-- *Check:* `rssi`, `via`, and whether it fails at the same point every time.
-- *Do:* Once: move the cuff or the proxy it used (`via`), or add one. Every time, on a model listed as untested: the memory map for that model may be wrong — please [open an issue](https://github.com/eigger/hass-omron/issues) with a Bluetooth log ([capturing-bluetooth-logs.md](capturing-bluetooth-logs.md)).
-
-### `finish` (`failed_detail: memory_close`) / `disconnect`
-
-The records were read; only the session close failed. Harmless on its own. If the **next** connection is refused (`unlock` or `memory_open` failing right after), the cuff did not commit the session — pair again.
-
-### Quick checks
-
-- **`Pairing failed: Could not enter key programming mode`** — make sure the device is actively showing the blinking `-P-` before clicking Submit. If it timed out and turned off, hold the button on the device to trigger `-P-` again.
-- **`Connection terminated by peer`** — BLE interference or weak signal. Try moving the device closer to your Home Assistant Bluetooth adapter/proxy or use a USB extension cable for your BLE dongle.
-- **Sensor values not updating** — the device turns off its Bluetooth radio to save battery and turns it on briefly after a measurement. Ensure you have taken a *new* measurement after pairing to test the sync.
-- **Data doesn't show up after changing batteries** — changing batteries may reset the internal clock on the device. Re-pairing or syncing time (via the app, then re-pairing to HA) might be necessary on older models.
-- **`error: Session deadline reached`** — the session hung and was cut at the 3-minute bound. `failed_stage` says where. This is not the cuff: bleak's BlueZ backend has no timeout of its own, so a wedged `bluetoothd` or a proxy that died mid-session looks exactly like this. Restart the adapter (or the proxy) if it repeats.
-- **`rssi` is low but `paths` is 2 or more** — another radio might do better; Home Assistant connects through the strongest advertisement, so the alternative is only used after a failure. Check `via` to see which one was used.
-- **Everything fails at `connect` right after adding a proxy** — enable `bluetooth_proxy.active: true` for GATT connections and check available connection slots. `esp32_ble_tracker.scan_parameters.active` controls scan-response requests separately; passive scanning alone does not prevent GATT connections. See [Bluetooth proxy troubleshooting](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.md#troubleshooting).
-- **`connect_attempts` above 1 on successful polls** — the link dropped during the post-connect settle and the retry got through. Harmless once in a while; on most polls it is where a marginal link, or a proxy without the bond, shows first.
-- **`time_sync_error` on every poll** — the records still come through; the cuff's clock is not being set. On models that sync the clock through the EEPROM this means the clock layout for the model is wrong — worth an issue with the model name.
-
-## What the attributes cannot show
-
-Three kinds of problem never reach the failure sensors, because the session did not fail — or never happened.
-
-**The poll succeeded but no measurement appeared.** `success: true` and `records` is 1 or more: the latest record the cuff holds is the one already shown, so the new measurement went to a user slot this entry does not read — check which user the cuff was set to (the user switch on the cuff). `records: 0`: the cuff has nothing stored at all for the users read. Neither is a failure, which is why Last Failure did not move.
-
-**No session was attempted.** The cuff was not seen by any radio when the poll was due, so nothing connected and Duration did not move. The poll returns the cached values and logs nothing at default level. Take a measurement — the cuff advertises for a while afterwards — and press *Refresh Data* while it shows the Bluetooth symbol.
-
-**The action itself errored before any BLE traffic.** *Retry Pairing* with the cuff out of range fails immediately with *BLE device not available*, and *BLE session already in progress* means a poll is running: wait for Connection to turn off and try again.
-
-## Bluetooth proxy and model-specific conditions
-
-Shared proxy setup, recommended proxy hardware, the active scan / GATT connection difference and the general connection-problem checklist are maintained in the [Bluetooth proxy setup](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.md). The conditions below are specific to Omron monitors and scales:
-
-- **Seeing the device is not the same as connecting to it.** Advertisements (discovery, RSSI) can arrive while the GATT connection, pairing or memory read still fails. Use the **Last Failure** `failed_stage` to tell them apart: `connect` is the link, `session`/`auth` are services and pairing, `transfer` is the record read.
-- **Wake / power.** The monitor switches its Bluetooth radio off to save battery. It connects briefly after a measurement; for pairing, hold the Bluetooth button until `-P-` blinks and submit while it is still blinking.
-- **One paired phone/app at a time.** If the official Omron Connect app (or another host) holds the pairing, unpair it first; otherwise `auth` stages fail even with a strong signal.
-- **Proxy path.** Home Assistant chooses among the available Bluetooth adapters and ESPHome proxies (see the radio shown in the **Duration** attributes); `bluetooth_proxy` must have `active: true` and the scan interval should stay at its default. Move the proxy close to the device, and include the radio shown in the **Duration** attributes when reporting.
-- **Unverified models.** Only the models listed with a check mark in the README are verified; others selected as a "similar model" are untested.
-- **Reporting.** Attach a debug log and the sensor attributes; remove addresses, bond keys and measurements you do not want to share first (see [Capturing Bluetooth logs](capturing-bluetooth-logs.md)).
-
-## Intermittent failures
-
-A poll that fails only sometimes is the reason Last Failure keeps its attributes: look there, not at Duration, which already shows the later success. Its `failed_stage` and `rssi` at the time of failure are what matter. If failures cluster at one `via`, that proxy is the problem; if `paths` was 1 each time, a second radio would have given a fallback.
-
-## What to attach to an issue
+### What to attach to an issue
 
 1. The **Last Failure** attributes (Developer tools → States → the entity → copy the attributes block) and, if the failure is not the latest session, the **Duration** attributes from the history around that time.
 2. The model chosen in the entry and the model printed on the cuff.
 3. Which radio the cuff uses (`via` — proxy model and ESPHome version, or the adapter) if the failure is `connect` or `transfer`.
 4. For a model that pairs but never reads, or reads the wrong values: a Bluetooth log from the phone app — [capturing-bluetooth-logs.md](capturing-bluetooth-logs.md) explains how and what it contains.
-
-Debug logging is rarely needed; if asked, add `custom_components.omron: debug` under `logger:` and reproduce once.
+5. Home Assistant and integration versions, installed blesession version if available, device/proxy model and revision, ESPHome version or local-adapter details, connection method, failure time/stage and reproduction steps. State which attempts succeeded and which failed.

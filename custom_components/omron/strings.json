@@ -3,9 +3,9 @@
     "flow_title": "{name}",
     "step": {
       "user": {
-        "description": "[%key:component::bluetooth::config::step::user::description%]",
+        "description": "Choose a device to set up.",
         "data": {
-          "address": "[%key:common::config_flow::data::device%]"
+          "address": "Device"
         }
       },
       "bluetooth_confirm": {
@@ -63,10 +63,10 @@
       "invalid_scan_interval": "Enter 0 (no scheduled polling) or at least 60 seconds."
     },
     "abort": {
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]",
-      "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
-      "already_in_progress": "[%key:common::config_flow::abort::already_in_progress%]",
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reauth_successful": "Re-authentication was successful",
+      "no_devices_found": "No unconfigured devices found on the network",
+      "already_in_progress": "Configuration flow is already in progress",
+      "already_configured": "Device is already configured",
       "not_supported": "This device is not supported.",
       "model_not_selected": "The device model was not selected. Start over and pick the model from the list."
     }

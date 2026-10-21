@@ -5,7 +5,7 @@
     "README.md",
     "README.ko.md"
   ],
-  "hacs": "custom",
+  "hacs": "default",
   "release": true,
   "installation_link": "#installation",
   "tests_workflow": "tests.yml",
@@ -13,5 +13,45 @@
   "installation_links": {
     "README.md": "#installation",
     "README.ko.md": "#설치"
+  },
+  "hacs_default_evidence": "https://github.com/hacs/default/blob/master/integration — eigger/hass-omron listed; verified 2026-10-21",
+  "categories_review": {
+    "value": [
+      "health_wellbeing"
+    ],
+    "integration_type": null,
+    "source": "README.md Supported Models: Omron BLE blood pressure monitors and weight/body-composition scales measure personal health; reviewed against the central HA category taxonomy on 2026-10-21."
+  },
+  "readme": {
+    "title": "Omron BLE Home Assistant Integration (hass-omron)",
+    "descriptions": {
+      "en": "A HACS custom integration (not part of Home Assistant Core) to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors and weight scales.",
+      "ko": "Omron Bluetooth Low Energy(BLE) 혈압계와 체중계에 직접 연결해 측정값을 가져오는 Home Assistant 커스텀 통합(HACS)입니다. Home Assistant Core에 포함된 공식 통합이 아닙니다."
+    },
+    "issues": true,
+    "discussions": true,
+    "license_name": "MIT License",
+    "license_notices": {
+      "en": [],
+      "ko": []
+    },
+    "related_projects": [
+      {
+        "name": "blesession",
+        "url": "https://github.com/eigger/blesession",
+        "description": {
+          "en": "Shared BLE sessions and Bluetooth proxy guidance used by this integration.",
+          "ko": "이 통합에서 사용하는 공용 BLE 세션과 Bluetooth 프록시 안내입니다."
+        }
+      },
+      {
+        "name": "omblepy",
+        "url": "https://github.com/userx14/omblepy",
+        "description": {
+          "en": "Reference implementation for Omron BLE communication.",
+          "ko": "Omron BLE 통신 참고 구현입니다."
+        }
+      }
+    ]
   }
 }
