@@ -27,6 +27,9 @@
       "connectable": true
     }
   ],
+  "categories": [
+    "health_wellbeing"
+  ],
   "codeowners": [
     "@eigger"
   ],

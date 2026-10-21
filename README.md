@@ -1,22 +1,24 @@
+<!-- hass-standards:header:start -->
 # Omron BLE Home Assistant Integration (hass-omron)
 
-<!-- hass-standards:badges:start -->
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5?style=flat-square)](#installation)
-[![Release](https://img.shields.io/github/v/release/eigger/hass-omron?style=flat-square)](https://github.com/eigger/hass-omron/releases)
-[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202025.12.0-41BDF5?style=flat-square)](hacs.json)
-[![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/tests.yml?branch=master&style=flat-square&label=Tests)](https://github.com/eigger/hass-omron/actions/workflows/tests.yml)
-[![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/validate.yml?branch=master&style=flat-square&label=Validate)](https://github.com/eigger/hass-omron/actions/workflows/validate.yml)
-[![License](https://img.shields.io/github/license/eigger/hass-omron?style=flat-square)](LICENSE)
-[![Analytics reporting installs](https://img.shields.io/badge/dynamic/json?style=flat-square&color=41BDF5&label=Usage&query=%24.omron.total&url=https%3A%2F%2Fanalytics.home-assistant.io%2Fcustom_integrations.json)](https://analytics.home-assistant.io/)
-<!-- hass-standards:badges:end -->
+A HACS custom integration (not part of Home Assistant Core) to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors and weight scales.
 
 **English** | [한국어](README.ko.md)
+
+<!-- hass-standards:badges:start -->
+[![Release](https://img.shields.io/github/v/release/eigger/hass-omron?style=flat)](https://github.com/eigger/hass-omron/releases)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5?style=flat)](#installation)
+[![Home Assistant minimum](https://img.shields.io/badge/HA-%E2%89%A5%202025.12.0-41BDF5?style=flat)](hacs.json)
+[![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/tests.yml?branch=master&style=flat&label=Tests)](https://github.com/eigger/hass-omron/actions/workflows/tests.yml)
+[![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/validate.yml?branch=master&style=flat&label=Validate)](https://github.com/eigger/hass-omron/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/eigger/hass-omron?style=flat)](LICENSE)
+[![HACS Downloads](https://img.shields.io/badge/dynamic/json?style=flat&color=41BDF5&label=HACS+Downloads&query=%24%5B%3F%28%40.full_name%3D%3D%22eigger%2Fhass-omron%22%29%5D.downloads&url=https%3A%2F%2Fdata-v2.hacs.xyz%2Fintegration%2Fdata.json)](https://www.hacs.xyz/)
+<!-- hass-standards:badges:end -->
+<!-- hass-standards:header:end -->
 
 | Device | Model |
 | :---: | :---: |
 | <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="280" alt="Omron HEM-7142T2"> | **HEM-7142T2** |
-
-A HACS custom integration (not part of Home Assistant Core) to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors and weight scales.
 
 ## Supported Models
 
@@ -54,8 +56,12 @@ Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or E
 
 ## Installation
 
-1. **HACS**: Add this repository (`eigger/hass-omron`) to HACS as a custom repository, or 
-   **Manual**: Copy the `custom_components/omron` directory into your Home Assistant `custom_components` folder.
+<!-- hass-standards:installation:start -->
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-omron)
+<!-- hass-standards:installation:end -->
+
+1. **HACS**: With HACS installed, open HACS, search for **Omron**, open the integration, and download it. This integration is included in the default HACS repository list, so no custom repository is needed.
+   **Manual**: Alternatively, copy the `custom_components/omron` directory into your Home Assistant `custom_components` folder.
 2. Restart Home Assistant.
 
 ## Pairing & Configuration
@@ -97,7 +103,7 @@ bluetooth_proxy:
 ## Important Limitations
 
 - **One paired host at a time**: Omron blood pressure monitors only support one paired device at a time. If you have already paired your monitor with the official Omron Connect smartphone app, you **must unpair/forget** the device from your phone's Bluetooth settings before connecting it to Home Assistant. Using both simultaneously is not supported by the hardware.
-- **Bluetooth proxy requirements**: `bluetooth_proxy` must always have `active: true`, and `scan_parameters` should remain at default intervals. For hardware recommendations, see [Great ESP32 Board for an ESPHome Bluetooth Proxy](https://community.home-assistant.io/t/great-esp32-board-for-an-esphome-bluetooth-proxy/916767/31). Proxy setup, recommended devices and the connection-problem checklist: [Bluetooth proxy setup](https://github.com/eigger/hass-repo-standards/blob/main/docs/bluetooth.md). Model-specific wake/pairing conditions, error-by-error fixes, and diagnostics (`Last Failure`, `Duration`) are in [Troubleshooting](docs/troubleshooting.md#bluetooth-proxy-and-model-specific-conditions).
+- **Bluetooth proxy requirements**: `bluetooth_proxy` must always have `active: true`, and `scan_parameters` should remain at default intervals. For hardware recommendations, see [Great ESP32 Board for an ESPHome Bluetooth Proxy](https://community.home-assistant.io/t/great-esp32-board-for-an-esphome-bluetooth-proxy/916767/31). Proxy setup, recommended devices and the connection-problem checklist: [Bluetooth proxy setup](https://github.com/eigger/blesession/blob/main/docs/bluetooth.md). Model-specific wake/pairing conditions, error-by-error fixes, and diagnostics (`Last Failure`, `Duration`) are in [Troubleshooting](docs/troubleshooting.md).
 - **Unverified models**: Models not marked in the Supported Models table are unverified.
 
 ## Documentation
@@ -112,12 +118,22 @@ bluetooth_proxy:
 - [Development and tests](CONTRIBUTING.md)
 - Reference: [omblepy (userx14)](https://github.com/userx14/omblepy)
 
+<!-- hass-standards:support:start -->
 ## Support
 
-- Bug reports: [Issues](https://github.com/eigger/hass-omron/issues)
-- Questions and suggestions: [Discussions](https://github.com/eigger/hass-omron/discussions)
-- Development and tests: [CONTRIBUTING.md](CONTRIBUTING.md)
+- [Issues](https://github.com/eigger/hass-omron/issues): Report bugs or request features.
+- [Discussions](https://github.com/eigger/hass-omron/discussions): Ask questions and share your experience.
+<!-- hass-standards:support:end -->
 
+<!-- hass-standards:related-projects:start -->
+## Related Projects
+
+- [blesession](https://github.com/eigger/blesession): Shared BLE sessions and Bluetooth proxy guidance used by this integration.
+- [omblepy](https://github.com/userx14/omblepy): Reference implementation for Omron BLE communication.
+<!-- hass-standards:related-projects:end -->
+
+<!-- hass-standards:license:start -->
 ## License
 
-See [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).
+<!-- hass-standards:license:end -->

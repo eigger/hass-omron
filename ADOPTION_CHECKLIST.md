@@ -1,5 +1,45 @@
 # 공통 규칙 적용 체크리스트
 
+## 2026-10-21 최신 표준·HACS Default 재적용
+
+- 검토 기준: `0ec31111a81b0ee5702f1d8a17f03616a10a5db6` (중앙 main과 local HEAD 동일, `git ls-remote` 확인).
+- 검증 대상: `a068c1bdb72c428cded73365f936e26008e7fa4d` 기반 로컬 작업 트리. 커밋 전 작업 트리에 대한 아래 검증이며 과거 커밋/원격 CI 결과와 구분합니다. 사용자 요청으로 동일 변경을 PR에 제출합니다.
+- 담당: 조율 `root`, 문서 구현 `docs_implementation`, README·테스트 구조 구현 `readme_implementation`, 독립 리뷰·최소 HA 검증 `independent_review`.
+- HACS Default 근거: [공식 integration 목록](https://github.com/hacs/default/blob/master/integration)에 `eigger/hass-omron` 등재를 2026-10-21 구현·독립 조사에서 확인.
+- 지원 최소 HA `2025.12.0`, 통합 `4.1.2`, 런타임 의존성 하한 유지.
+
+| 변경·규칙 | 상태 | 근거 |
+|---|---|---|
+| GOV-01, GOV-02, CI-01–03 | PASS (로컬) | 3개 reusable caller를 검토 full SHA로 고정, Tests·updater `standards-ref` 동기화, Validate에 중앙 template compliance job 추가. `STANDARDS.md` 기준 필드 갱신 |
+| HA-02 | PASS | `categories: ["health_wellbeing"]` 및 `categories_review` 판단 기록. 실제 혈압계·체중/체성분계 제품 용도에 따른 선택으로 독립 확인 |
+| HACS-03, DOC-03–05 | PASS | Default·공식 HACS Downloads 배지 적용, Custom Usage 교체, 중앙 `sync_badges.py --check` 통과. 다운로드 수는 활성 설치 수를 의미하지 않음 |
+| DOC-01, DOC-02, DOC-06 | PASS | 중앙 renderer로 양언어 header/support/related-projects/license 및 My HACS 설치 배지 생성. 영어 모델표·설정·YAML 보존, 한국어 누락 정보 전체 보완. 실제 Default 검색 설치 절차 안내 |
+| DOC-07 | PASS | 양언어 blesession 사용자 원본 연결, `docs/troubleshooting.md`·`docs/troubleshooting.ko.md` 고정 구조·기기 조건·증상표·진단·로그·기존 Issues 연결. 독립 리뷰가 실제 `sensor.py`·`session_report.py`·`const.py`와 대조 |
+| TEST-03, TEST-08, HA-13 | PASS | 중앙 exact root conftest·3개 빈 init·domain fixture 관리 블록·빈 `custom_components/__init__.py` 적용. 기존 테스트를 init/각 플랫폼/coordinator 파일로 재배치. 독립 AST 비교에서 test 함수명 multiset 전후 573개 동일. 최소 HA event-loop 호환 fixture 보존 |
+| HA-11 | PASS | `strings.json` Core 참조를 기존 영어 번역 문구로 해소해 en.json과 일치. 한국어 기기 선택·중복·재인증 누락 문구 보완; 중앙 키/placeholder 검사 통과 |
+| GOV-05 | PASS | 구현 담당과 별도 독립 리뷰·최소 HA 전체 실행, 필수 지적 없음 |
+| GOV-04 | 로컬 반영 / 원격 TODO | 중앙 `docs/adoption-status.md`의 hass-omron 행만 갱신. 기존 다른 리포 수정 보존. 원격 중앙 반영·대상 기본 브랜치 반영은 미실행 (대상 변경은 PR 제출) |
+
+### 실제 검증
+
+| 환경 / 검사 | 버전·명령 | 결과·한계 |
+|---|---|---|
+| current HA + 정확한 라이브러리 하한 | Python 3.14.5 / HA 2026.10.2 / plugin 0.13.373 / blesession 0.9.0 / bluetooth-sensor-state-data 1.7.0 / sensor-state-data 2.18.0; `python -m pytest tests/components/omron/ -q --timeout 120` | **630 passed** (12.54초). 별도 `/private/tmp/omron-current-20261021` 환경, 요구사항·HA bluetooth/bluetooth_adapters/usb requirements를 함께 resolve, `uv pip check` 통과. 로그 `/private/tmp/omron-current-final-20261021.log` |
+| 최소 HA / 독립 최종 실행 | Python 3.13.14 / HA 2025.12.0 / plugin 0.13.298 / blesession 0.9.0 / bluetooth-sensor-state-data 1.9.0 / sensor-state-data 2.20.0; 동일 pytest 명령, 기존 `constraints/homeassistant-min.txt` 적용 | **629 passed, 1 skipped, 1 warning** (11.08초), `uv pip check` 통과. `/private/tmp/omron-independent-minimum-20261021`, 로그 `/private/tmp/omron-independent-minimum-final-pytest.log` |
+| 중앙 정적 검사 | `python <central>/scripts/check_integration.py . --check`, `sync_badges.py . --check`, `check_repository.py` | 모두 통과. 독립 리뷰에서도 integration·badge 검사 재실행 통과. `manage_integration.py inspect` 결과 conflicts/pending 없음 |
+| Ruff / workflow | `python -m ruff check .`, `python -m ruff format --check .` (ruff 0.17.1), `actionlint -oneline .github/workflows/*.yml` (1.7.12), `git diff --check` | 모두 통과 |
+| 로컬 Hassfest | 기존 `minibig-hassfest:ec18d8` 이미지, `docker run --rm --network none -v <target>:/github/workspace:ro minibig-hassfest:ec18d8` | Integrations 1 / Invalid integrations 0. 이미지 내 Core snapshot에 대한 로컬 검증이며 새 원격 CI 성공을 뜻하지 않음. 로그 `/private/tmp/omron-hassfest-final-20261021.log` |
+
+### 남은 외부 검증·반영
+
+- 로컬 검증 시점에는 현재 작업 트리의 GitHub Actions HACS/Hassfest/Tests 및 중앙 원격 반영을 실행하지 않았습니다. PR 제출 후 발생하는 CI 결과는 별도로 확인합니다. 아래 과거 PASS 기록을 새 SHA의 CI 증거로 사용하지 않습니다.
+- 실물 BLE 기기·로컬 어댑터/ESPHome 프록시 검증은 이번 작업에서 수행하지 않았습니다.
+- 참고: 기존 `/private/tmp/cur` 환경은 `sensor_state_data` 미설치로 수집 실패하여 사용하지 않고, 별도 완전한 current 환경에서 다시 설치·전체 검증했습니다.
+
+---
+
+# 2026-10-18 적용 기록 (과거 기준)
+
 [사용법과 판정 기준](https://github.com/eigger/hass-repo-standards/blob/ff46b0c8d9ba53b1d35ab9a4aa38f4db26c06870/docs/checklist.md). 상태: `PASS` 근거 확인, `TODO` 미충족/미확인, `EXCEPTION` [STANDARDS.md](STANDARDS.md) 예외, `N/A` 해당 없음. 최초 검토이며 모든 항목은 TODO로 시작해 근거가 있는 것만 변경했습니다. 한 행에 묶은 규칙은 결과가 같은 것만 묶었습니다.
 
 ## 검토 대상

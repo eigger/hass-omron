@@ -12,11 +12,10 @@ iteration. ``max_attempts`` only ever covered the other case below it (a
 connect that briefly succeeds and then drops during the post-connect
 settle), never a connect that fails outright.
 
-conftest replaces bleak/bleak_retry_connector with MagicMock, so the two
-names this test needs to control -- ``BleakError`` and ``establish_connection``
--- are monkeypatched on the module the same way test_session_cccd_persistence
-already does for ``BleakError``, and async functions run via ``asyncio.run``
-rather than a pytest-asyncio plugin, matching the rest of this test suite.
+Only the external connection factory and timing constants are replaced. The
+shared ``mock_client`` fixture supplies the returned BLE link; the real retry
+and settle implementation runs unchanged. Synchronous protocol tests use
+``asyncio.run`` to drive that implementation.
 """
 
 import asyncio
@@ -27,17 +26,9 @@ import pytest
 from custom_components.omron.omron_ble import connection
 
 
-class _FakeClient:
-    """Enough of a BleakClient for the settle/refresh steps to no-op cleanly."""
-
-    def __init__(self):
-        self.is_connected = True
-
-    async def disconnect(self):
-        pass
-
-
-def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(monkeypatch):
+def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(
+    monkeypatch, mock_client
+):
     class _BlueZError(Exception):
         pass
 
@@ -55,7 +46,7 @@ def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(monkeypatch):
                 "X - X: Failed to connect after 4 attempt(s): failed to "
                 "discover services, device disconnected"
             )
-        return _FakeClient()
+        return mock_client
 
     monkeypatch.setattr(connection, "establish_connection", fake_establish_connection)
 
@@ -68,7 +59,7 @@ def test_a_connect_failure_on_an_ordinary_reconnect_is_retried(monkeypatch):
     client = asyncio.run(_run())
 
     assert calls == 2
-    assert isinstance(client, _FakeClient)
+    assert client is mock_client
 
 
 def test_the_retry_budget_is_not_unlimited(monkeypatch):

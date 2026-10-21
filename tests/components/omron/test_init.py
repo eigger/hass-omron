@@ -9,22 +9,18 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
-import pytest
-from bleak.backends.device import BLEDevice
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
 
-from custom_components.omron import async_poll_data, process_service_info
+from custom_components.omron import process_service_info
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
 from custom_components.omron.omron_ble.const import OMRON_MANUFACTURER_ID
 
@@ -188,104 +184,6 @@ async def test_unload_waits_for_tasks_before_discarding_parked_sessions(
     assert seen == [True]
 
 
-async def test_poll_has_a_deadline_and_fails_the_refresh(
-    hass: HomeAssistant, enable_bluetooth: None
-) -> None:
-    """A poll stuck inside the BLE stack times out, frees the lock, marks failure."""
-    entry = await _setup(hass)
-    runtime = entry.runtime_data
-    hang = _Hang()
-    device = BLEDevice(ADDRESS, "HEM-7155T", {})
-    with (
-        patch("custom_components.omron.POLL_TIMEOUT_SECONDS", 0.2),
-        patch(
-            "custom_components.omron.async_ble_device_from_address", return_value=device
-        ),
-        patch.object(runtime.device_data, "async_poll", hang),
-    ):
-        async with asyncio.timeout(5):
-            with pytest.raises(TimeoutError):
-                await async_poll_data(hass, entry)
-
-    assert hang.cancelled.is_set()
-    assert runtime.session_lock.locked() is False
-    await _unload(hass, entry)
-
-
-async def test_pairing_button_has_a_deadline(
-    hass: HomeAssistant, enable_bluetooth: None
-) -> None:
-    entry = await _setup(hass)
-    runtime = entry.runtime_data
-    hang = _Hang()
-    device = BLEDevice(ADDRESS, "HEM-7155T", {})
-    with (
-        patch("custom_components.omron.button.BLE_SESSION_TIMEOUT_SECONDS", 0.2),
-        patch(
-            "custom_components.omron.button.async_ble_device_from_address",
-            return_value=device,
-        ),
-        patch(
-            "custom_components.omron.button.poll_parked_session",
-            AsyncMock(return_value=False),
-        ),
-        patch.object(runtime.device_data, "async_retry_pairing", hang),
-    ):
-        async with asyncio.timeout(5):
-            with pytest.raises(HomeAssistantError, match="Failed to retry pairing"):
-                await hass.services.async_call(
-                    "button",
-                    "press",
-                    {"entity_id": "button.hem_7155t_eeff_retry_pairing"},
-                    blocking=True,
-                )
-
-    assert hang.cancelled.is_set()
-    assert runtime.session_lock.locked() is False
-    assert not runtime.background_tasks
-    await _unload(hass, entry)
-
-
-async def test_pairing_button_operation_is_cancelled_by_unload(
-    hass: HomeAssistant, enable_bluetooth: None
-) -> None:
-    """A press is a service call, not an entry task: it must still be tracked."""
-    entry = await _setup(hass)
-    runtime = entry.runtime_data
-    hang = _Hang()
-    device = BLEDevice(ADDRESS, "HEM-7155T", {})
-    with (
-        patch(
-            "custom_components.omron.button.async_ble_device_from_address",
-            return_value=device,
-        ),
-        patch(
-            "custom_components.omron.button.poll_parked_session",
-            AsyncMock(return_value=False),
-        ),
-        patch.object(runtime.device_data, "async_retry_pairing", hang),
-    ):
-        press = hass.async_create_task(
-            hass.services.async_call(
-                "button",
-                "press",
-                {"entity_id": "button.hem_7155t_eeff_retry_pairing"},
-                blocking=True,
-            )
-        )
-        async with asyncio.timeout(5):
-            await hang.started.wait()
-        assert len(runtime.background_tasks) == 1
-
-        await _unload(hass, entry)
-
-        await asyncio.wait([press], timeout=5)
-
-    assert hang.cancelled.is_set()
-    assert runtime.session_lock.locked() is False
-    assert not runtime.background_tasks
-
-
 async def test_setup_does_not_wait_for_the_first_poll(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
@@ -320,27 +218,6 @@ async def test_setup_does_not_wait_for_the_first_poll(
         assert registered_at_poll[0] >= 8
 
         await _unload(hass, entry)
-
-
-async def test_failed_poll_surfaces_as_update_failed(
-    hass: HomeAssistant, enable_bluetooth: None
-) -> None:
-    """An ordinary BLE error is an expected UpdateFailed, not a stack trace."""
-    entry = await _setup(hass)
-    runtime = entry.runtime_data
-    device = BLEDevice(ADDRESS, "HEM-7155T", {})
-    with (
-        patch(
-            "custom_components.omron.async_ble_device_from_address", return_value=device
-        ),
-        patch.object(
-            runtime.device_data, "async_poll", AsyncMock(side_effect=OSError("asleep"))
-        ),
-    ):
-        with pytest.raises(UpdateFailed, match="asleep"):
-            await async_poll_data(hass, entry)
-    assert runtime.session_lock.locked() is False
-    await _unload(hass, entry)
 
 
 async def test_unload_cancels_a_forced_transfer_drain_waiting_on_the_lock(
