@@ -30,6 +30,12 @@
 | Ruff / workflow | `python -m ruff check .`, `python -m ruff format --check .` (ruff 0.17.1), `actionlint -oneline .github/workflows/*.yml` (1.7.12), `git diff --check` | 모두 통과 |
 | 로컬 Hassfest | 기존 `minibig-hassfest:ec18d8` 이미지, `docker run --rm --network none -v <target>:/github/workspace:ro minibig-hassfest:ec18d8` | Integrations 1 / Invalid integrations 0. 이미지 내 Core snapshot에 대한 로컬 검증이며 새 원격 CI 성공을 뜻하지 않음. 로그 `/private/tmp/omron-hassfest-final-20261021.log` |
 
+### PR #254 최초 CI 및 후속 수정
+
+- 대상 커밋 `4d748416c0109f5f6de507b7ff9b50f14284dcbc`: [Tests 39598680489](https://github.com/eigger/hass-omron/actions/runs/39598680489) 모든 current·minimum-library·minimum-HA·lint job PASS.
+- [Validate 39598680526](https://github.com/eigger/hass-omron/actions/runs/39598680526): HACS·Central template compliance PASS, Hassfest FAIL (`Invalid manifest: not a valid option at 'categories'`). 로컬 검증과 달리 published 기본 이미지에 새 schema가 없었음.
+- 수정: `validate.yml`의 공용 validate job에 검토한 Core `ec18d8b25d1ee39aa8b85a72a170e42bee33228c`를 `hassfest-core-ref`로 전달. 중앙 기존 경로로 upstream 공식 Dockerfile/전체 validator를 빌드·실행하며 manifest 전처리나 검사 제외 없음. 수정 이후 원격 결과는 새 실행에서 확인.
+
 ### 남은 외부 검증·반영
 
 - 로컬 검증 시점에는 현재 작업 트리의 GitHub Actions HACS/Hassfest/Tests 및 중앙 원격 반영을 실행하지 않았습니다. PR 제출 후 발생하는 CI 결과는 별도로 확인합니다. 아래 과거 PASS 기록을 새 SHA의 CI 증거로 사용하지 않습니다.

@@ -31,3 +31,9 @@
 - HA-11: `strings.json`의 미해결 Core 참조를 기존 영어 배포 번역으로 명시하고 한국어에 누락된 기기 선택/중복/재인증 문구를 보완.
 - 조율 `root`, 문서 구현 `docs_implementation`, README·테스트 구조 구현 `readme_implementation`, 독립 리뷰·최소 HA 검증 `independent_review`.
 - 지원 최소 HA 2025.12.0, 통합 버전 4.1.2, 런타임 의존성 하한 유지. 재적용 검증은 로컬 작업 트리에서 수행했으며, 사용자 요청으로 PR을 제출합니다. 새 릴리스는 만들지 않으며 원격 CI 결과는 제출 후 별도로 확인해야 합니다. 실제 실행 결과는 체크리스트 재적용 절 참조.
+
+## PR #254 CI 후속 수정
+
+- 최초 Validate [run 39598680526](https://github.com/eigger/hass-omron/actions/runs/39598680526)의 Hassfest는 published 이미지의 이전 schema가 `categories`를 거부해 실패. 같은 실행의 HACS·중앙 템플릿 검사는 통과했으며, [Tests run 39598680489](https://github.com/eigger/hass-omron/actions/runs/39598680489)는 current/minimum-library/minimum-HA·lint 전부 통과.
+- 중앙 CI 계약에 따라 `hassfest-core-ref: ec18d8b25d1ee39aa8b85a72a170e42bee33228c`를 명시. 해당 upstream Core의 manifest category 지원과 수정하지 않은 공식 Dockerfile을 확인했고, 이전 로컬 Hassfest 통과 snapshot과 동일한 기준을 CI에 적용. 지원 최소 HA·통합 manifest·분류를 유지.
+- 공식 published 이미지가 해당 schema를 지원하면 같은 통합 변경을 기본 이미지에서 실제 검증한 뒤 입력을 제거. source fetch/build/전체 Hassfest 실패는 그대로 job 실패이며 검사를 생략하지 않음.
