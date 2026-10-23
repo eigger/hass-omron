@@ -16,7 +16,7 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
-The Downloads badge counts GitHub release asset downloads across all releases, not active installations. HACS source-file installations are not counted; ZIP release distribution is not used.
+The Downloads badge counts GitHub release asset downloads across all releases, not active installations.
 
 | Device | Model |
 | :---: | :---: |
