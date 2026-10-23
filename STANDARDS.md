@@ -1,7 +1,7 @@
 # 적용한 공통 규칙
 
 - 표준: https://github.com/eigger/hass-repo-standards/tree/main
-- 참조 커밋 SHA: `0ec31111a81b0ee5702f1d8a17f03616a10a5db6`
+- 참조 커밋 SHA: `b54ac48102d6e326c6929071fdc02ba8fade794e`
 - 기준 확인: 2026-10-21 `git ls-remote`로 확인한 main, 공통 workflow/action 호출 SHA와 동일
 - 채택일: 2026-10-18
 - profile: integration / ha (실제 HA fixture·통합 로딩 필수)
@@ -37,3 +37,9 @@
 - 최초 Validate [run 39598680526](https://github.com/eigger/hass-omron/actions/runs/39598680526)의 Hassfest는 published 이미지의 이전 schema가 `categories`를 거부해 실패. 같은 실행의 HACS·중앙 템플릿 검사는 통과했으며, [Tests run 39598680489](https://github.com/eigger/hass-omron/actions/runs/39598680489)는 current/minimum-library/minimum-HA·lint 전부 통과.
 - 중앙 CI 계약에 따라 `hassfest-core-ref: ec18d8b25d1ee39aa8b85a72a170e42bee33228c`를 명시. 해당 upstream Core의 manifest category 지원과 수정하지 않은 공식 Dockerfile을 확인했고, 이전 로컬 Hassfest 통과 snapshot과 동일한 기준을 CI에 적용. 지원 최소 HA·통합 manifest·분류를 유지.
 - 공식 published 이미지가 해당 schema를 지원하면 같은 통합 변경을 기본 이미지에서 실제 검증한 뒤 입력을 제거. source fetch/build/전체 Hassfest 실패는 그대로 job 실패이며 검사를 생략하지 않음.
+
+## 2026-10-23 다운로드 배지 부분 갱신
+
+- 배지·DOC-03/05와 Validate 형식 검사기만 중앙 [`b54ac48102d6e326c6929071fdc02ba8fade794e`](https://github.com/eigger/hass-repo-standards/tree/b54ac48102d6e326c6929071fdc02ba8fade794e)를 채택합니다. 이전 기준 SHA `0ec31111a81b0ee5702f1d8a17f03616a10a5db6`의 채택 이력·예외는 보존합니다. 모든 중앙 workflow/action pin과 standards-ref는 GOV-02의 단일 기준 SHA 계약에 맞춰 갱신합니다. 중앙 diff에서 공용 workflow/action 실행 파일은 이전 기준과 동일함을 확인했습니다.
+- 대상 기본 브랜치 커밋: `535a5b2087ff467fa157dd282ebab3882fe68f7e`. 주 에이전트 직접 구현·자체 리뷰(GOV-05의 배지/생성물 변경 범위), 검증은 [ADOPTION_CHECKLIST.md](ADOPTION_CHECKLIST.md#2026-10-23-downloads-배지-부분-검증)에 기록합니다.
+- Downloads는 모든 릴리스 첨부 asset 다운로드 합계입니다. 사용자 지시에 따라 ZIP 배포를 도입하지 않으며 현재 HACS 소스 파일 설치는 이 수치에 집계되지 않습니다. 통합 코드·의존성·지원 최소·기존 설치 안내는 변경하지 않습니다.
