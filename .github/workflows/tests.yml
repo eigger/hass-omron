@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: true
 jobs:
   current:
-    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@b54ac48102d6e326c6929071fdc02ba8fade794e
+    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@0c1592977591ecba077a4666d699840062711201
     with:
-      standards-ref: b54ac48102d6e326c6929071fdc02ba8fade794e
+      standards-ref: 0c1592977591ecba077a4666d699840062711201
       domain: omron
       python-versions: '["3.14"]'
       requirements: requirements_test.txt
@@ -27,9 +27,9 @@ jobs:
       pytest-args: tests/components/omron/ -v --timeout 120
   minimum-ha:
     # hacs.json declares homeassistant 2025.12.0; keep this exact-minimum job.
-    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@b54ac48102d6e326c6929071fdc02ba8fade794e
+    uses: eigger/hass-repo-standards/.github/workflows/python-tests.yml@0c1592977591ecba077a4666d699840062711201
     with:
-      standards-ref: b54ac48102d6e326c6929071fdc02ba8fade794e
+      standards-ref: 0c1592977591ecba077a4666d699840062711201
       domain: omron
       python-versions: '["3.13"]'
       requirements: requirements_test_min.txt
