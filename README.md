@@ -12,9 +12,11 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 [![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/tests.yml?branch=master&style=flat&label=Tests)](https://github.com/eigger/hass-omron/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/validate.yml?branch=master&style=flat&label=Validate)](https://github.com/eigger/hass-omron/actions/workflows/validate.yml)
 [![License](https://img.shields.io/github/license/eigger/hass-omron?style=flat)](LICENSE)
-[![HACS Downloads](https://img.shields.io/badge/dynamic/json?style=flat&color=41BDF5&label=HACS+Downloads&query=%24%5B%3F%28%40.full_name%3D%3D%22eigger%2Fhass-omron%22%29%5D.downloads&url=https%3A%2F%2Fdata-v2.hacs.xyz%2Fintegration%2Fdata.json)](https://www.hacs.xyz/)
+[![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
+
+The Downloads badge counts GitHub release asset downloads across all releases, not active installations. HACS source-file installations are not counted; ZIP release distribution is not used.
 
 | Device | Model |
 | :---: | :---: |
