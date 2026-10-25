@@ -11,9 +11,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    uses: eigger/hass-repo-standards/.github/workflows/dependency-update.yml@0c1592977591ecba077a4666d699840062711201
+    uses: eigger/hass-repo-standards/.github/workflows/dependency-update.yml@ca740d88b32fa5dcbc94c41fce2908450c76ed50
     with:
-      standards-ref: 0c1592977591ecba077a4666d699840062711201
+      standards-ref: ca740d88b32fa5dcbc94c41fce2908450c76ed50
       domain: omron
       packages: '["blesession"]'
       ha-components: bluetooth bluetooth_adapters usb
