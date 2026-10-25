@@ -2,9 +2,9 @@
 
 ## Structure and Guidelines
 
-- **Home Assistant Core alignment**: Integration code lives in `custom_components/omron/` and tests live in `tests/components/omron/` ([Home Assistant development rules](https://github.com/eigger/hass-repo-standards/blob/0ec31111a81b0ee5702f1d8a17f03616a10a5db6/docs/home-assistant.md)).
-- **Testing**: Integration tests load the real Home Assistant runtime via `pytest-homeassistant-custom-component` (`hass` fixture, `MockConfigEntry`, config entry setup/unload, entity/device registry, and service actions), mocking only the external BLE device/GATT boundary ([Testing rules](https://github.com/eigger/hass-repo-standards/blob/0ec31111a81b0ee5702f1d8a17f03616a10a5db6/docs/testing.md)). Pure protocol/parser unit tests run in the same `tests/components/omron/` suite alongside the HA integration tests.
-- **Dependencies**: Runtime dependencies belong in `custom_components/omron/manifest.json` (`requirements` / `dependencies`), while test and lint dependencies are pinned in `requirements_test.txt`, `requirements_test_min.txt`, `constraints/homeassistant-min.txt`, and `requirements_lint.txt` ([Dependency rules](https://github.com/eigger/hass-repo-standards/blob/0ec31111a81b0ee5702f1d8a17f03616a10a5db6/docs/dependencies.md)).
+- **Home Assistant Core alignment**: Integration code lives in `custom_components/omron/` and tests live in `tests/components/omron/` ([Home Assistant development rules](https://github.com/eigger/hass-repo-standards/blob/v1.0.0/docs/home-assistant.md)).
+- **Testing**: Integration tests load the real Home Assistant runtime via `pytest-homeassistant-custom-component` (`hass` fixture, `MockConfigEntry`, config entry setup/unload, entity/device registry, and service actions), mocking only the external BLE device/GATT boundary ([Testing rules](https://github.com/eigger/hass-repo-standards/blob/v1.0.0/docs/testing.md)). Pure protocol/parser unit tests run in the same `tests/components/omron/` suite alongside the HA integration tests.
+- **Dependencies**: Runtime dependencies belong in `custom_components/omron/manifest.json` (`requirements` / `dependencies`), while test and lint dependencies are pinned in `requirements_test.txt`, `requirements_test_min.txt`, `constraints/homeassistant-min.txt`, and `requirements_lint.txt` ([Dependency rules](https://github.com/eigger/hass-repo-standards/blob/v1.0.0/docs/dependencies.md)).
 
 ## Development setup
 
