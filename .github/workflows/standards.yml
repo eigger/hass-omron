@@ -26,4 +26,4 @@ jobs:
       with:
         python-version: '3.14'
     # Use the same reviewed standards SHA as the reusable workflows.
-    - uses: eigger/hass-repo-standards/actions/check-standards@ca740d88b32fa5dcbc94c41fce2908450c76ed50
+    - uses: eigger/hass-repo-standards/actions/check-standards@v1.0.0

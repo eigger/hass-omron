@@ -53,5 +53,10 @@
         }
       }
     ]
+  },
+  "standards": {
+    "kind": "release",
+    "tag": "v1.0.0",
+    "resolved_sha": "44349ee5621eea5d80e5c427f7a2435d2c2491bb"
   }
 }
