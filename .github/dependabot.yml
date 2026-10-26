@@ -1,19 +1,27 @@
 version: 2
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-    # Keep the minimum-support environment fixed.
-    exclude-paths:
-      - requirements_test_min.txt
-      - constraints/homeassistant-min.txt
-    groups:
-      home-assistant-tests:
-        patterns:
-          - pytest-homeassistant-custom-component
-          - homeassistant
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: daily
+  cooldown:
+    exclude:
+    - eigger/hass-repo-standards
+    - eigger/hass-repo-standards/*
+  groups:
+    central-standards:
+      patterns:
+      - eigger/hass-repo-standards
+      - eigger/hass-repo-standards/*
+- package-ecosystem: pip
+  directory: /
+  schedule:
+    interval: weekly
+  exclude-paths:
+  - requirements_test_min.txt
+  - constraints/homeassistant-min.txt
+  groups:
+    home-assistant-tests:
+      patterns:
+      - pytest-homeassistant-custom-component
+      - homeassistant
