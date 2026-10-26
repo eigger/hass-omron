@@ -1,9 +1,9 @@
 # 적용한 공통 규칙
 
-- 표준: https://github.com/eigger/hass-repo-standards/tree/v1.1.1
-- 참조 커밋 SHA: 9876b521d401071345a13bd508f43d220852c77b
-- Standards release: v1.1.1
-- Resolved standards SHA: 9876b521d401071345a13bd508f43d220852c77b
+- 표준: https://github.com/eigger/hass-repo-standards/tree/v1.1.2
+- 참조 커밋 SHA: df9798509d9228247ec32efb313ec7b687b5b152
+- Standards release: v1.1.2
+- Resolved standards SHA: df9798509d9228247ec32efb313ec7b687b5b152
 - 기준 확인: 2026-10-21 `git ls-remote`로 확인한 main, 공통 workflow/action 호출 SHA와 동일
 - 채택일: 2026-10-18
 - profile: integration / ha (실제 HA fixture·통합 로딩 필수)
