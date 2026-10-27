@@ -21,7 +21,6 @@ jobs:
       dependency-modes: '["current", "minimum"]'
       minimum-packages: '["blesession", "bluetooth-sensor-state-data", "sensor-state-data"]'
       ha-components: bluetooth bluetooth_adapters usb
-      expected-ha-version: '2026.10.2'
       test-profile: ha
       pytest-args: tests/components/omron/ -v --timeout 120
   minimum-ha:
