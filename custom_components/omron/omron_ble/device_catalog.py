@@ -1371,17 +1371,22 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     ),
     # HEM-7196T1 / HEM-7194T1 family ("M4 Connect AFib" / "X4 Connect AFib" etc.) —
     # 2-user, 60 records per user (data_1=0x01C4, data_2=0x0584) on WLD4.0
-    # transport with token-key unlock.
+    # transport.
     #
-    # Consider SECURE_SESSION: the FLE variant's GATT carries 8858eb40, the
-    # async-notice characteristic only the secure session uses, and #45 reports
-    # reads inside the -P- window with nothing on any reconnect after.
+    # Secure session, like HEM-7188T1. The #45 phone capture syncs a FLE outside
+    # -P- over an unencrypted link with the secure-session resume (0x70 0x05,
+    # 0x70 0x06, 0xC0 frames); token-key polls fail outside -P- (#45, #268).
+    # Untested on this profile (#268).
     "HEM-7196T1": DeviceConfig(
-        **_MODERN_OS_BONDING_BASE,
+        parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,
+        rx_channel_uuids=["49123040-aee8-11e1-a74d-0002a5d5c51b"],
+        tx_channel_uuids=["db5b55e0-aee7-11e1-965e-0002a5d5c51b"],
+        host_pairing_mode=HostPairingMode.NONE,
+        register_pairing_agent=True,
         model="HEM-7196T1",
         connect_type=ConnectType.WLD4_0,
         keep_notify_subscriptions=_WLD_KEEP_NOTIFY,
-        unlock_mode=UnlockMode.TOKEN_KEY,
+        unlock_mode=UnlockMode.SECURE_SESSION,
         endianness=Endianness.LITTLE,
         user_start_addresses=[0x01C4, 0x0584],
         per_user_records_count=[60, 60],
