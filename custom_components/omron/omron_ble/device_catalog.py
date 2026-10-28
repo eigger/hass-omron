@@ -1375,7 +1375,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     #
     # Secure session, like HEM-7188T1. The #45 phone capture syncs a FLE outside
     # -P- over an unencrypted link with the secure-session resume (0x70 0x05,
-    # 0x70 0x06, 0xC0 frames); token-key polls fail outside -P- (#45, #268).
+    # 0x70 0x06, 0xC0 frames). Token-key polls fail outside -P- over an ESP32
+    # proxy (#45, #268); #268 reports they worked over a local BlueZ bond.
     # Untested on this profile (#268).
     "HEM-7196T1": DeviceConfig(
         parent_service_uuid=MODERN_STACK_PARENT_SERVICE_UUID,

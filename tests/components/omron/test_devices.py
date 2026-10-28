@@ -70,6 +70,10 @@ class TestCatalogResolution:
         assert resolve_profile_model_id("HEM-7194T1-FLAP") == "HEM-7196T1"
         assert resolve_profile_model_id("HEM-7194T1_FLIN") == "HEM-7196T1"
         cfg = get_device_config("HEM-7196T1-FLE")
+        assert cfg.unlock_mode.value == "secure_session"
+        assert cfg.host_pairing_mode.value == "none"
+        assert cfg.register_pairing_agent is True
+        assert cfg.pair_on_connect is False
         assert cfg.connect_type == ConnectType.WLD4_0
         assert cfg.user_start_addresses == [0x01C4, 0x0584]
         assert cfg.per_user_records_count == [60, 60]

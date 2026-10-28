@@ -321,9 +321,9 @@ class DeviceConfig:
                 and self.register_pairing_agent
             )
         ):
-            # A secure session still runs over an encrypted link, so the bond
-            # has to come from somewhere: either we ask for it (OS_BONDING) or
-            # the cuff asks and a registered agent answers.
+            # The link is encrypted when the cuff raises a Security Request,
+            # so the bond has to come from somewhere: either we ask for it
+            # (OS_BONDING) or the cuff asks and a registered agent answers.
             raise ValueError(
                 "Invalid profile config for %s: secure-session unlock requires "
                 "host_pairing_mode=OS_BONDING, or NONE with register_pairing_agent "
