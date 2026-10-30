@@ -12,11 +12,11 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 [![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/tests.yml?branch=master&style=flat&label=Tests)](https://github.com/eigger/hass-omron/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/validate.yml?branch=master&style=flat&label=Validate)](https://github.com/eigger/hass-omron/actions/workflows/validate.yml)
 [![License](https://img.shields.io/github/license/eigger/hass-omron?style=flat)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
+[![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/latest/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
-The Downloads badge counts GitHub release asset downloads across all releases, not active installations.
+The Downloads badge counts GitHub release asset downloads of the current release, not active installations.
 
 | Device | Model |
 | :---: | :---: |

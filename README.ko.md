@@ -12,11 +12,11 @@ Omron Bluetooth Low Energy(BLE) 혈압계와 체중계에 직접 연결해 측�
 [![Tests](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/tests.yml?branch=master&style=flat&label=Tests)](https://github.com/eigger/hass-omron/actions/workflows/tests.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/eigger/hass-omron/validate.yml?branch=master&style=flat&label=Validate)](https://github.com/eigger/hass-omron/actions/workflows/validate.yml)
 [![License](https://img.shields.io/github/license/eigger/hass-omron?style=flat)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
+[![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/latest/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
-Downloads 배지는 모든 GitHub 릴리스의 첨부 asset 다운로드 합계이며 활성 설치 수가 아닙니다.
+Downloads 배지는 현재 GitHub 릴리스의 첨부 asset 다운로드 합계이며 활성 설치 수가 아닙니다.
 
 | 기기 | 모델 |
 | :---: | :---: |
