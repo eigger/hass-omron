@@ -197,12 +197,64 @@ async def _bluez_agent_pair(client: BleakClient) -> bool:
         # agent and disconnects it on the way out — do not close it here.
 
 
-async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
+async def _bluez_find_device_path(address_or_path: str) -> str | None:
+    """Find the BlueZ DBus object path for a MAC address via ObjectManager."""
+    if address_or_path.startswith("/org/bluez/") and "/dev_" in address_or_path:
+        return address_or_path
+    if not isinstance(address_or_path, str) or not address_or_path.strip():
+        return None
+    dev_suffix = "dev_" + address_or_path.strip().upper().replace(":", "_").replace(
+        "-", "_"
+    )
+    try:
+        from dbus_fast.aio.message_bus import MessageBus
+        from dbus_fast.constants import BusType, MessageType
+        from dbus_fast.message import Message
+    except ImportError:
+        return None
+
+    try:
+        bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+    except Exception as exc:
+        _LOGGER.debug("BlueZ find device path: cannot connect to system bus: %s", exc)
+        return None
+    try:
+        reply = await bus.call(
+            Message(
+                destination="org.bluez",
+                path="/",
+                interface="org.freedesktop.DBus.ObjectManager",
+                member="GetManagedObjects",
+            )
+        )
+        if reply.message_type != MessageType.METHOD_RETURN or not reply.body:
+            return None
+        objects: dict[str, Any] = reply.body[0]
+        for path, interfaces in objects.items():
+            if "org.bluez.Device1" in interfaces:
+                if str(path).endswith(f"/{dev_suffix}"):
+                    return str(path)
+                addr_prop = interfaces["org.bluez.Device1"].get("Address")
+                if (
+                    addr_prop
+                    and str(getattr(addr_prop, "value", addr_prop)).upper()
+                    == address_or_path.strip().upper()
+                ):
+                    return str(path)
+        return None
+    except Exception as exc:
+        _LOGGER.debug("BlueZ find device path failed for %s: %s", address_or_path, exc)
+        return None
+    finally:
+        bus.disconnect()
+
+
+async def _bluez_remove_device(client: BleakClient | BLEDevice | str) -> bool:
     """Remove the BlueZ device + bond via DBus Adapter1.RemoveDevice.
 
     Used because BleakClient.unpair() is a no-op on the HA/habluetooth backend.
-    Accepts a bare BLEDevice too, so a bond can still be cleared after a
-    connect attempt failed and there is no client to unpair through.
+    Accepts a bare BLEDevice or MAC address str too, so a bond can still be cleared
+    after a connect attempt failed or when an integration entry is removed.
     Returns True on success; False otherwise (caller falls back to unpair()).
     """
     try:
@@ -212,7 +264,17 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
     except ImportError:
         return False
 
-    device_path = _bluez_device_path(client)
+    device_path = (
+        client
+        if isinstance(client, str)
+        and client.startswith("/org/bluez/")
+        and "/dev_" in client
+        else (_bluez_device_path(client) if not isinstance(client, str) else None)
+    )
+    if not device_path:
+        addr = client if isinstance(client, str) else getattr(client, "address", None)
+        if addr:
+            device_path = await _bluez_find_device_path(str(addr))
     if not device_path or "/dev_" not in device_path:
         return False
     # Adapter path is the device path minus the trailing dev_XX_.. segment.
@@ -246,7 +308,7 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice) -> bool:
         bus.disconnect()
 
 
-async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
+async def _bluez_is_paired(client: BleakClient | BLEDevice | str) -> bool | None:
     """Whether BlueZ currently holds a bond for this device.
 
     ``None`` when it cannot be determined -- no dbus_fast, no device path, or
@@ -260,7 +322,17 @@ async def _bluez_is_paired(client: BleakClient | BLEDevice) -> bool | None:
     except ImportError:
         return None
 
-    device_path = _bluez_device_path(client)
+    device_path = (
+        client
+        if isinstance(client, str)
+        and client.startswith("/org/bluez/")
+        and "/dev_" in client
+        else (_bluez_device_path(client) if not isinstance(client, str) else None)
+    )
+    if not device_path:
+        addr = client if isinstance(client, str) else getattr(client, "address", None)
+        if addr:
+            device_path = await _bluez_find_device_path(str(addr))
     if not device_path or "/dev_" not in device_path:
         return None
 

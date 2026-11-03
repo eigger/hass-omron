@@ -99,3 +99,35 @@ async def test_a_credential_stored_by_the_initial_poll_does_not_reload_the_entry
         reload_entry.assert_awaited_once()
 
         assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_removing_entry_cleans_up_bluez_bond_if_paired(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """When a config entry is removed, any BlueZ bond for its address is removed."""
+    from custom_components.omron import async_remove_entry
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title="HEM-7155T EEFF",
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+    )
+    entry.add_to_hass(hass)
+
+    removed_targets = []
+
+    async def _mock_is_paired(target):
+        return True
+
+    async def _mock_remove(target):
+        removed_targets.append(target)
+        return True
+
+    with (
+        patch("custom_components.omron._bluez_is_paired", _mock_is_paired),
+        patch("custom_components.omron._bluez_remove_device", _mock_remove),
+    ):
+        await async_remove_entry(hass, entry)
+
+    assert any(ADDRESS in str(t) for t in removed_targets)

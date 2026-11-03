@@ -55,7 +55,7 @@ from .const import (
     DOMAIN,
 )
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
-from .omron_ble.bluez import is_local_adapter
+from .omron_ble.bluez import _bluez_is_paired, _bluez_remove_device, is_local_adapter
 from .omron_ble.session import OmronDeviceSession
 from .omron_ble.pairing import (
     async_fetch_device_model_number,
@@ -610,6 +610,14 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             await close_probe_session(session, address)
             session = None
+        if session is None and is_local_adapter(ble_device):
+            if await _bluez_is_paired(ble_device):
+                _LOGGER.warning(
+                    "Stale BlueZ bond detected for %s before pairing; "
+                    "removing bond to ensure a clean pairing",
+                    address,
+                )
+                await _bluez_remove_device(ble_device)
         if session is not None:
             session = OmronDeviceSession.adopt(
                 session.release_client(), config, pairing_session=True
@@ -629,6 +637,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         except Exception:
             # Pairing failed: drop the link so a later retry starts clean.
             await session.aclose()
+            if is_local_adapter(ble_device) and await _bluez_is_paired(ble_device):
+                _LOGGER.warning(
+                    "Pairing failed for %s and BlueZ bond exists; clearing bond for retry",
+                    address,
+                )
+                await _bluez_remove_device(ble_device)
             raise
         else:
             # Pairing succeeded: hand the still-open session to the first poll

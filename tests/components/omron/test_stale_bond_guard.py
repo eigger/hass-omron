@@ -231,3 +231,100 @@ def test_the_path_probe_reads_the_backend_string():
     assert bluez._bluez_device_path(client) == _BLUEZ_PATH
     assert bluez.is_local_adapter(client) is True
     assert bluez.is_local_adapter(SimpleNamespace(details={})) is False
+
+
+def test_bluez_find_device_path_resolves_mac_address(monkeypatch):
+    """D-Bus ObjectManager 에서 MAC 주소에 해당하는 BlueZ 장치 경로를 찾는다."""
+    from dbus_fast.aio import message_bus
+    from dbus_fast.constants import MessageType
+    from types import SimpleNamespace
+
+    objects = {
+        _BLUEZ_PATH: {
+            "org.bluez.Device1": {
+                "Address": SimpleNamespace(value="C1:8D:32:97:D5:BB"),
+                "Paired": SimpleNamespace(value=True),
+            }
+        }
+    }
+
+    class _MockBus:
+        async def call(self, msg):
+            if msg.member == "GetManagedObjects":
+                return SimpleNamespace(
+                    message_type=MessageType.METHOD_RETURN, body=[objects]
+                )
+            return SimpleNamespace(message_type=MessageType.ERROR, body=[])
+
+        def disconnect(self):
+            pass
+
+    class _MockMessageBus:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            return _MockBus()
+
+    monkeypatch.setattr(message_bus, "MessageBus", _MockMessageBus)
+
+    found = asyncio.run(bluez._bluez_find_device_path("C1:8D:32:97:D5:BB"))
+    assert found == _BLUEZ_PATH
+
+    # Already formatted object path returns immediately
+    assert asyncio.run(bluez._bluez_find_device_path(_BLUEZ_PATH)) == _BLUEZ_PATH
+
+
+def test_bluez_remove_device_and_is_paired_with_address_string(monkeypatch):
+    """문자열 주소로도 RemoveDevice 와 is_paired 가 동작한다."""
+    from dbus_fast.aio import message_bus
+    from dbus_fast.constants import MessageType
+    from types import SimpleNamespace
+
+    objects = {
+        _BLUEZ_PATH: {
+            "org.bluez.Device1": {
+                "Address": SimpleNamespace(value="C1:8D:32:97:D5:BB"),
+                "Paired": SimpleNamespace(value=True),
+            }
+        }
+    }
+    calls = []
+
+    class _MockBus:
+        async def call(self, msg):
+            calls.append((msg.member, msg.path, getattr(msg, "body", None)))
+            if msg.member == "GetManagedObjects":
+                return SimpleNamespace(
+                    message_type=MessageType.METHOD_RETURN, body=[objects]
+                )
+            if msg.member == "Get":
+                return SimpleNamespace(
+                    message_type=MessageType.METHOD_RETURN,
+                    body=[SimpleNamespace(value=True)],
+                )
+            if msg.member == "RemoveDevice":
+                return SimpleNamespace(message_type=MessageType.METHOD_RETURN, body=[])
+            return SimpleNamespace(message_type=MessageType.ERROR, body=[])
+
+        def disconnect(self):
+            pass
+
+    class _MockMessageBus:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            return _MockBus()
+
+    monkeypatch.setattr(message_bus, "MessageBus", _MockMessageBus)
+
+    paired = asyncio.run(bluez._bluez_is_paired("C1:8D:32:97:D5:BB"))
+    assert paired is True
+
+    removed = asyncio.run(bluez._bluez_remove_device("C1:8D:32:97:D5:BB"))
+    assert removed is True
+    assert any(
+        member == "RemoveDevice" and path == "/org/bluez/hci0"
+        for member, path, _ in calls
+    )
