@@ -404,10 +404,10 @@ async def test_pairing_clears_stale_bluez_bond_before_connect_and_on_failure(
     assert len(removed) == 2
 
 
-async def test_pairing_failure_shows_menu_and_allows_reselecting_model(
+async def test_pairing_failure_keeps_reselect_model_and_allows_reselecting(
     hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When pairing fails, a menu is shown to retry pairing or select a different model."""
+    """When pairing fails, error is shown along with reselect_model option."""
     result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
 
     step_pairing = await hass.config_entries.flow.async_configure(
@@ -435,18 +435,19 @@ async def test_pairing_failure_shows_menu_and_allows_reselecting_model(
         lambda *args, **kwargs: BLEDevice(ADDRESS, "HEM-7146T2", {}),
     )
 
-    failed_menu = await hass.config_entries.flow.async_configure(
+    failed_form = await hass.config_entries.flow.async_configure(
         step_pairing["flow_id"],
         user_input={},
     )
-    assert failed_menu["type"] is FlowResultType.MENU
-    assert failed_menu["step_id"] == "pairing_failed"
-    assert failed_menu["menu_options"] == ["pairing_os", "select_model"]
+    assert failed_form["type"] is FlowResultType.FORM
+    assert failed_form["step_id"] == "pairing_os"
+    assert failed_form["errors"] == {"base": "pairing_failed"}
+    assert "reselect_model" in {str(k) for k in failed_form["data_schema"].schema}
 
-    # Choose select_model from menu
+    # Reselect model from pairing form
     model_step_again = await hass.config_entries.flow.async_configure(
-        failed_menu["flow_id"],
-        user_input={"next_step_id": "select_model"},
+        failed_form["flow_id"],
+        user_input={"reselect_model": True},
     )
     assert model_step_again["type"] is FlowResultType.FORM
     assert model_step_again["step_id"] == "select_model"
@@ -471,39 +472,6 @@ async def test_pairing_step_reselect_model_checkbox_redirects_to_select_model(
     )
     assert back_to_model["type"] is FlowResultType.FORM
     assert back_to_model["step_id"] == "select_model"
-
-
-async def test_user_step_aborts_stale_in_progress_discovery_flow(
-    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """User step clears any in-progress flow for the chosen device instead of failing with already_in_progress."""
-    from homeassistant.const import CONF_ADDRESS
-
-    disc_result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
-    flow_id_1 = disc_result["flow_id"]
-    assert flow_id_1 in hass.config_entries.flow._progress
-
-    info = service_info(
-        ADDRESS, name="HEM-7155T", manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD}
-    )
-    monkeypatch.setattr(
-        config_flow, "async_discovered_service_info", lambda *args, **kwargs: [info]
-    )
-
-    user_init = await hass.config_entries.flow.async_init(
-        DOMAIN,
-        context={"source": "user"},
-    )
-    assert user_init["type"] is FlowResultType.FORM
-    assert user_init["step_id"] == "user"
-
-    user_select = await hass.config_entries.flow.async_configure(
-        user_init["flow_id"],
-        user_input={CONF_ADDRESS: ADDRESS},
-    )
-    assert user_select["type"] is FlowResultType.FORM
-    assert user_select["step_id"] == "select_model"
-    assert flow_id_1 not in hass.config_entries.flow._progress
 
 
 async def test_user_aliases_step_reselect_model_checkbox_redirects_to_select_model(

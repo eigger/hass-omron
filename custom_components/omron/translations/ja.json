@@ -60,15 +60,6 @@
           "device_model": "機器モデル",
           "scan_interval": "更新間隔（秒、0 = 無効）"
         }
-      },
-      "pairing_failed": {
-        "title": "ペアリング失敗",
-        "description": "{model} のペアリングに失敗しました。機器がペアリングモード（画面に -P- 表示）になっていることを確認するか、誤ったプロファイルを選択した場合は別のモデルを選択してください。",
-        "menu_options": {
-          "pairing": "ペアリングを再試行",
-          "pairing_os": "ペアリングを再試行",
-          "select_model": "別の機器モデルを選択"
-        }
       }
     },
     "error": {

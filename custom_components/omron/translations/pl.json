@@ -60,15 +60,6 @@
           "device_model": "Model urządzenia",
           "scan_interval": "Interwał odświeżania (sekundy, 0 = wyłączone)"
         }
-      },
-      "pairing_failed": {
-        "title": "Parowanie nie powiodło się",
-        "description": "Parowanie z {model} nie powiodło się. Upewnij się, że urządzenie jest w trybie parowania (-P- na wyświetlaczu) lub wybierz inny model, jeśli wybrano nieprawidłowy profil.",
-        "menu_options": {
-          "pairing": "Spróbuj sparować ponownie",
-          "pairing_os": "Spróbuj sparować ponownie",
-          "select_model": "Wybierz inny model urządzenia"
-        }
       }
     },
     "error": {

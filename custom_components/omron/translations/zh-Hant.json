@@ -60,15 +60,6 @@
           "device_model": "裝置型號",
           "scan_interval": "更新間隔（秒，0 = 關閉）"
         }
-      },
-      "pairing_failed": {
-        "title": "配對失敗",
-        "description": "與 {model} 配對失敗。請確保裝置處於配對模式（螢幕顯示 -P-），若選擇了錯誤的設定檔，請選取其他型號。",
-        "menu_options": {
-          "pairing": "重試配對",
-          "pairing_os": "重試配對",
-          "select_model": "選取其他裝置型號"
-        }
       }
     },
     "error": {

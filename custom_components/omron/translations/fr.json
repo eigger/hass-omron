@@ -60,15 +60,6 @@
           "device_model": "Modèle",
           "scan_interval": "Intervalle de mise à jour (secondes, 0 = désactivé)"
         }
-      },
-      "pairing_failed": {
-        "title": "Échec de l'appairage",
-        "description": "L'appairage avec {model} a échoué. Assurez-vous que l'appareil est en mode appairage (-P- à l'écran) ou sélectionnez un autre modèle si un mauvais profil a été choisi.",
-        "menu_options": {
-          "pairing": "Réessayer l'appairage",
-          "pairing_os": "Réessayer l'appairage",
-          "select_model": "Sélectionner un autre modèle d'appareil"
-        }
       }
     },
     "error": {

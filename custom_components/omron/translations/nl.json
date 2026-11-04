@@ -60,15 +60,6 @@
           "device_model": "Apparaatmodel",
           "scan_interval": "Bijwerkinterval (seconden, 0 = uit)"
         }
-      },
-      "pairing_failed": {
-        "title": "Koppelen mislukt",
-        "description": "Koppelen met {model} is mislukt. Zorg ervoor dat het apparaat in de koppelingsmodus staat (-P- op het display) of selecteer een ander model als het verkeerde profiel is gekozen.",
-        "menu_options": {
-          "pairing": "Opnieuw proberen te koppelen",
-          "pairing_os": "Opnieuw proberen te koppelen",
-          "select_model": "Ander apparaatmodel selecteren"
-        }
       }
     },
     "error": {

@@ -532,10 +532,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self._async_get_or_create_entry(model=self._selected_model)
             except ConnectionError as exc:
                 _log_pairing_exception("Pairing failed (ConnectionError)", exc)
-                return await self.async_step_pairing_failed()
+                errors["base"] = "pairing_failed"
             except Exception as exc:
                 _log_pairing_exception("Unexpected error during pairing", exc)
-                return await self.async_step_pairing_failed()
+                errors["base"] = "pairing_failed"
 
         model = self._require_selected_model()
         config = get_device_config(model)
@@ -565,37 +565,6 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 "device_name": device_name,
                 "interval_seconds": str(interval_seconds),
                 "device_address": device_address,
-            },
-        )
-
-    async def async_step_pairing_failed(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
-        """Handle pairing failure menu."""
-        if user_input is not None:
-            next_step = user_input.get("next_step_id")
-            if next_step == "select_model":
-                if self._discovery_info:
-                    await discard_probe_session(self.hass, self._discovery_info.address)
-                return await self.async_step_select_model()
-            if next_step in ("pairing", "pairing_os"):
-                return await self._async_step_pairing()
-
-        model = self._require_selected_model()
-        config = get_device_config(model)
-        retry_step = (
-            "pairing_os"
-            if config.host_pairing_mode == HostPairingMode.OS_BONDING
-            else "pairing"
-        )
-        return self.async_show_menu(
-            step_id="pairing_failed",
-            menu_options=[retry_step, "select_model"],
-            description_placeholders={
-                "model": model,
-                "device_name": str(
-                    (self.context.get("title_placeholders") or {}).get("name") or model
-                ),
             },
         )
 
@@ -733,12 +702,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the user step to pick discovered device."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
-            await self.async_set_unique_id(address, raise_on_progress=False)
+            await self.async_set_unique_id(address)
             self._abort_if_unique_id_configured()
-            for progress in self._async_in_progress(
-                include_uninitialized=True, match_context={"unique_id": address}
-            ):
-                self.hass.config_entries.flow.async_abort(progress["flow_id"])
             discovery = self._discovered_devices[address]
 
             self.context["title_placeholders"] = {"name": discovery.title}

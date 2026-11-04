@@ -60,15 +60,6 @@
           "device_model": "Modelo del dispositivo",
           "scan_interval": "Intervalo de actualización (segundos, 0 = desactivado)"
         }
-      },
-      "pairing_failed": {
-        "title": "Error de emparejamiento",
-        "description": "Falló el emparejamiento con {model}. Asegúrese de que el dispositivo esté en modo de emparejamiento (-P- en pantalla) o seleccione otro modelo si eligió el perfil incorrecto.",
-        "menu_options": {
-          "pairing": "Intentar emparejar de nuevo",
-          "pairing_os": "Intentar emparejar de nuevo",
-          "select_model": "Seleccionar otro modelo de dispositivo"
-        }
       }
     },
     "error": {

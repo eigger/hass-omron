@@ -60,15 +60,6 @@
           "device_model": "设备型号",
           "scan_interval": "更新间隔（秒，0 = 关闭）"
         }
-      },
-      "pairing_failed": {
-        "title": "配对失败",
-        "description": "与 {model} 配对失败。请确保设备处于配对模式（屏幕显示 -P-），如果选择了错误的配置，请选择其他型号。",
-        "menu_options": {
-          "pairing": "重试配对",
-          "pairing_os": "重试配对",
-          "select_model": "选择其他设备型号"
-        }
       }
     },
     "error": {

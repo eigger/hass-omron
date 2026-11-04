@@ -60,15 +60,6 @@
           "device_model": "Modelo do dispositivo",
           "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)"
         }
-      },
-      "pairing_failed": {
-        "title": "Falha no emparelhamento",
-        "description": "Falha no emparelhamento com {model}. Certifique-se de que o dispositivo está em modo de emparelhamento (-P- no visor) ou selecione outro modelo se escolheu o perfil errado.",
-        "menu_options": {
-          "pairing": "Tentar emparelhar novamente",
-          "pairing_os": "Tentar emparelhar novamente",
-          "select_model": "Selecionar outro modelo de dispositivo"
-        }
       }
     },
     "error": {

@@ -60,15 +60,6 @@
           "device_model": "Modello del dispositivo",
           "scan_interval": "Intervallo di aggiornamento (secondi, 0 = disattivato)"
         }
-      },
-      "pairing_failed": {
-        "title": "Accoppiamento non riuscito",
-        "description": "Accoppiamento non riuscito con {model}. Assicurati che il dispositivo sia in modalità di accoppiamento (-P- sul display) o seleziona un modello diverso se è stato scelto il profilo errato.",
-        "menu_options": {
-          "pairing": "Riprova l'accoppiamento",
-          "pairing_os": "Riprova l'accoppiamento",
-          "select_model": "Seleziona un modello di dispositivo diverso"
-        }
       }
     },
     "error": {

@@ -60,15 +60,6 @@
           "device_model": "Device Model",
           "scan_interval": "Update Interval (seconds, 0 = off)"
         }
-      },
-      "pairing_failed": {
-        "title": "Pairing Failed",
-        "description": "Pairing failed for {model}. Make sure the device is in pairing mode (-P- on display) or select a different model if the wrong profile was chosen.",
-        "menu_options": {
-          "pairing": "Try pairing again",
-          "pairing_os": "Try pairing again",
-          "select_model": "Select a different device model"
-        }
       }
     },
     "error": {

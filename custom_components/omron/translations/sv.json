@@ -60,15 +60,6 @@
           "device_model": "Enhetsmodell",
           "scan_interval": "Uppdateringsintervall (sekunder, 0 = av)"
         }
-      },
-      "pairing_failed": {
-        "title": "Parkoppling misslyckades",
-        "description": "Parkoppling med {model} misslyckades. Se till att enheten är i parkopplingsläge (-P- på displayen) eller välj en annan modell om fel profil valdes.",
-        "menu_options": {
-          "pairing": "Försök parkoppla igen",
-          "pairing_os": "Försök parkoppla igen",
-          "select_model": "Välj en annan enhetsmodell"
-        }
       }
     },
     "error": {

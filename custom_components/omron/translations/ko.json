@@ -60,15 +60,6 @@
         "data": {
           "address": "기기"
         }
-      },
-      "pairing_failed": {
-        "title": "페어링 실패",
-        "description": "{model} 페어링에 실패했습니다. 기기가 페어링 모드(화면에 -P- 표시)인지 확인하거나, 잘못된 프로파일을 선택한 경우 다른 모델을 선택하세요.",
-        "menu_options": {
-          "pairing": "페어링 다시 시도",
-          "pairing_os": "페어링 다시 시도",
-          "select_model": "다른 기기 모델 선택"
-        }
       }
     },
     "error": {
