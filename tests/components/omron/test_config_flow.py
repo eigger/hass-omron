@@ -483,8 +483,12 @@ async def test_user_step_aborts_stale_in_progress_discovery_flow(
     flow_id_1 = disc_result["flow_id"]
     assert flow_id_1 in hass.config_entries.flow._progress
 
-    info = service_info(ADDRESS, name="HEM-7155T", manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD})
-    monkeypatch.setattr(config_flow, "async_discovered_service_info", lambda *args, **kwargs: [info])
+    info = service_info(
+        ADDRESS, name="HEM-7155T", manufacturer_data={OMRON_MANUFACTURER_ID: _QUIET_MSD}
+    )
+    monkeypatch.setattr(
+        config_flow, "async_discovered_service_info", lambda *args, **kwargs: [info]
+    )
 
     user_init = await hass.config_entries.flow.async_init(
         DOMAIN,

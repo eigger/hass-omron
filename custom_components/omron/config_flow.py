@@ -554,9 +554,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema({
-                vol.Optional("reselect_model", default=False): bool,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional("reselect_model", default=False): bool,
+                }
+            ),
             errors=errors,
             description_placeholders={
                 "model": model,
