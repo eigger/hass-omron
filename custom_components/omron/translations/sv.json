@@ -27,16 +27,23 @@
           "user_alias_1": "Namn för användare 1",
           "user_alias_2": "Namn för användare 2",
           "user_alias_3": "Namn för användare 3",
-          "user_alias_4": "Namn för användare 4"
+          "user_alias_4": "Namn för användare 4",
+          "reselect_model": "Välj en annan enhetsmodell"
         }
       },
       "pairing": {
         "title": "Parkoppla {model}",
-        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först manschetten i parkopplingsläge — på de flesta modeller, håll Bluetooth-knappen tills **-P-** visas — och tryck sedan på Skicka."
+        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först manschetten i parkopplingsläge — på de flesta modeller, håll Bluetooth-knappen tills **-P-** visas — och tryck sedan på Skicka.",
+        "data": {
+          "reselect_model": "Välj en annan enhetsmodell"
+        }
       },
       "pairing_os": {
         "title": "Parkoppla {model}",
-        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först enheten i parkopplings- eller upptäckbart läge enligt manualen och tryck sedan på Skicka."
+        "description": "Skicka (Bekräfta) startar parkoppling från Home Assistant. Sätt först enheten i parkopplings- eller upptäckbart läge enligt manualen och tryck sedan på Skicka.",
+        "data": {
+          "reselect_model": "Välj en annan enhetsmodell"
+        }
       },
       "select_model_unknown": {
         "title": "Välj enhetsmodell",
@@ -52,6 +59,15 @@
         "data": {
           "device_model": "Enhetsmodell",
           "scan_interval": "Uppdateringsintervall (sekunder, 0 = av)"
+        }
+      },
+      "pairing_failed": {
+        "title": "Parkoppling misslyckades",
+        "description": "Parkoppling med {model} misslyckades. Se till att enheten är i parkopplingsläge (-P- på displayen) eller välj en annan modell om fel profil valdes.",
+        "menu_options": {
+          "pairing": "Försök parkoppla igen",
+          "pairing_os": "Försök parkoppla igen",
+          "select_model": "Välj en annan enhetsmodell"
         }
       }
     },

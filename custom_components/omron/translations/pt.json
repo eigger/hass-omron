@@ -27,16 +27,23 @@
           "user_alias_1": "Nome do utilizador 1",
           "user_alias_2": "Nome do utilizador 2",
           "user_alias_3": "Nome do utilizador 3",
-          "user_alias_4": "Nome do utilizador 4"
+          "user_alias_4": "Nome do utilizador 4",
+          "reselect_model": "Selecionar outro modelo de dispositivo"
         }
       },
       "pairing": {
         "title": "Emparelhar {model}",
-        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro a braçadeira no modo de emparelhamento — na maioria dos modelos, mantenha o botão Bluetooth até aparecer **-P-** — e depois prima Enviar."
+        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro a braçadeira no modo de emparelhamento — na maioria dos modelos, mantenha o botão Bluetooth até aparecer **-P-** — e depois prima Enviar.",
+        "data": {
+          "reselect_model": "Selecionar outro modelo de dispositivo"
+        }
       },
       "pairing_os": {
         "title": "Emparelhar {model}",
-        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro o dispositivo no modo de emparelhamento ou detetável, como no manual, e depois prima Enviar."
+        "description": "Enviar (Confirmar) inicia o emparelhamento a partir do Home Assistant. Coloque primeiro o dispositivo no modo de emparelhamento ou detetável, como no manual, e depois prima Enviar.",
+        "data": {
+          "reselect_model": "Selecionar outro modelo de dispositivo"
+        }
       },
       "select_model_unknown": {
         "title": "Selecionar modelo",
@@ -52,6 +59,15 @@
         "data": {
           "device_model": "Modelo do dispositivo",
           "scan_interval": "Intervalo de atualização (segundos, 0 = desativado)"
+        }
+      },
+      "pairing_failed": {
+        "title": "Falha no emparelhamento",
+        "description": "Falha no emparelhamento com {model}. Certifique-se de que o dispositivo está em modo de emparelhamento (-P- no visor) ou selecione outro modelo se escolheu o perfil errado.",
+        "menu_options": {
+          "pairing": "Tentar emparelhar novamente",
+          "pairing_os": "Tentar emparelhar novamente",
+          "select_model": "Selecionar outro modelo de dispositivo"
         }
       }
     },

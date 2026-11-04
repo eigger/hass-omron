@@ -27,16 +27,23 @@
           "user_alias_1": "Name Benutzer 1",
           "user_alias_2": "Name Benutzer 2",
           "user_alias_3": "Name Benutzer 3",
-          "user_alias_4": "Name Benutzer 4"
+          "user_alias_4": "Name Benutzer 4",
+          "reselect_model": "Anderes Gerätemodell auswählen"
         }
       },
       "pairing": {
         "title": "{model} koppeln",
-        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie die Manschette zuerst in den Kopplungsmodus — bei den meisten Modellen die Bluetooth-Taste halten, bis **-P-** erscheint — und drücken Sie dann Senden."
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie die Manschette zuerst in den Kopplungsmodus — bei den meisten Modellen die Bluetooth-Taste halten, bis **-P-** erscheint — und drücken Sie dann Senden.",
+        "data": {
+          "reselect_model": "Anderes Gerätemodell auswählen"
+        }
       },
       "pairing_os": {
         "title": "{model} koppeln",
-        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie das Gerät zuerst laut Anleitung in den Kopplungs- oder Sichtbarkeitsmodus und drücken Sie dann Senden."
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie das Gerät zuerst laut Anleitung in den Kopplungs- oder Sichtbarkeitsmodus und drücken Sie dann Senden.",
+        "data": {
+          "reselect_model": "Anderes Gerätemodell auswählen"
+        }
       },
       "select_model_unknown": {
         "title": "Gerätemodell auswählen",
@@ -52,6 +59,15 @@
         "data": {
           "device_model": "Gerätemodell",
           "scan_interval": "Aktualisierungsintervall (Sekunden, 0 = aus)"
+        }
+      },
+      "pairing_failed": {
+        "title": "Kopplung fehlgeschlagen",
+        "description": "Die Kopplung mit {model} ist fehlgeschlagen. Stellen Sie sicher, dass sich das Gerät im Kopplungsmodus befindet (-P- auf dem Display), oder wählen Sie ein anderes Modell, falls das falsche Profil gewählt wurde.",
+        "menu_options": {
+          "pairing": "Kopplung erneut versuchen",
+          "pairing_os": "Kopplung erneut versuchen",
+          "select_model": "Anderes Gerätemodell auswählen"
         }
       }
     },

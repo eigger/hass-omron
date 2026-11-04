@@ -96,6 +96,7 @@ def _user_aliases_schema(
         key = f"user_alias_{i}"
         def_val = str(defaults.get(key, f"user{i}") or f"user{i}")
         fields[vol.Required(key, default=def_val)] = vol.All(str, vol.Length(max=64))
+    fields[vol.Optional("reselect_model", default=False)] = bool
     return vol.Schema(fields)
 
 
@@ -235,6 +236,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._model_form: tuple[Any, ...] | None = None
         self._user_aliases: dict[str, str] = {}
         self._removed = False
+        self._probed_model_name: str | None = None
 
     @callback
     def async_remove(self) -> None:
@@ -292,6 +294,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             self._user_aliases = {}
             return await self.async_step_pairing()
 
+        self._selected_model = None
+        self._user_aliases = {}
+
         models = get_supported_models()
         model_dict = {m: m for m in models}
         stats = get_supported_model_stats()
@@ -308,6 +313,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             inferred = infer_model_id_from_local_name(self._discovery_info.name)
             if inferred is not None:
                 inferred_model = inferred
+            elif self._probed_model_name is not None:
+                probed_name = self._probed_model_name
+                inferred = infer_model_id_from_local_name(probed_name)
+                if inferred:
+                    inferred_model = inferred
             else:
                 # If we cannot infer from the advertised model name, actively connect to read Model Number.
                 ble_device = async_ble_device_from_address(
@@ -330,6 +340,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                                 probe_session,
                             )
                     if model_num:
+                        self._probed_model_name = model_num
                         probed_name = model_num
                         inferred = infer_model_id_from_local_name(model_num)
                         if inferred:
@@ -450,6 +461,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect display names for each device user slot (multi-user models only)."""
+        if user_input is not None and user_input.get("reselect_model"):
+            if self._discovery_info:
+                await discard_probe_session(self.hass, self._discovery_info.address)
+            return await self.async_step_select_model()
+
         model = self._require_selected_model()
         cfg = get_device_config(model)
         if cfg.num_users <= 1:
@@ -502,6 +518,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Shared pairing: form step_id must match async_step_<step_id> on the next POST."""
+        if user_input is not None and user_input.get("reselect_model"):
+            if self._discovery_info:
+                await discard_probe_session(self.hass, self._discovery_info.address)
+            return await self.async_step_select_model()
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -511,10 +532,10 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self._async_get_or_create_entry(model=self._selected_model)
             except ConnectionError as exc:
                 _log_pairing_exception("Pairing failed (ConnectionError)", exc)
-                errors["base"] = "pairing_failed"
+                return await self.async_step_pairing_failed()
             except Exception as exc:
                 _log_pairing_exception("Unexpected error during pairing", exc)
-                errors["base"] = "pairing_failed"
+                return await self.async_step_pairing_failed()
 
         model = self._require_selected_model()
         config = get_device_config(model)
@@ -533,13 +554,46 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema({
+                vol.Optional("reselect_model", default=False): bool,
+            }),
             errors=errors,
             description_placeholders={
                 "model": model,
                 "device_name": device_name,
                 "interval_seconds": str(interval_seconds),
                 "device_address": device_address,
+            },
+        )
+
+    async def async_step_pairing_failed(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle pairing failure menu."""
+        if user_input is not None:
+            next_step = user_input.get("next_step_id")
+            if next_step == "select_model":
+                if self._discovery_info:
+                    await discard_probe_session(self.hass, self._discovery_info.address)
+                return await self.async_step_select_model()
+            if next_step in ("pairing", "pairing_os"):
+                return await self._async_step_pairing()
+
+        model = self._require_selected_model()
+        config = get_device_config(model)
+        retry_step = (
+            "pairing_os"
+            if config.host_pairing_mode == HostPairingMode.OS_BONDING
+            else "pairing"
+        )
+        return self.async_show_menu(
+            step_id="pairing_failed",
+            menu_options=[retry_step, "select_model"],
+            description_placeholders={
+                "model": model,
+                "device_name": str(
+                    (self.context.get("title_placeholders") or {}).get("name") or model
+                ),
             },
         )
 
@@ -677,8 +731,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the user step to pick discovered device."""
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
-            await self.async_set_unique_id(address)
+            await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
+            for progress in self._async_in_progress(
+                include_uninitialized=True, match_context={"unique_id": address}
+            ):
+                self.hass.config_entries.flow.async_abort(progress["flow_id"])
             discovery = self._discovered_devices[address]
 
             self.context["title_placeholders"] = {"name": discovery.title}

@@ -27,16 +27,23 @@
           "user_alias_1": "Nom de l’utilisateur 1",
           "user_alias_2": "Nom de l’utilisateur 2",
           "user_alias_3": "Nom de l’utilisateur 3",
-          "user_alias_4": "Nom de l’utilisateur 4"
+          "user_alias_4": "Nom de l’utilisateur 4",
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
         }
       },
       "pairing": {
         "title": "Appairer {model}",
-        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord le brassard en mode appairage — sur la plupart des modèles, maintenez le bouton Bluetooth jusqu’à ce que **-P-** s’affiche — puis appuyez sur Envoyer."
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord le brassard en mode appairage — sur la plupart des modèles, maintenez le bouton Bluetooth jusqu’à ce que **-P-** s’affiche — puis appuyez sur Envoyer.",
+        "data": {
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
+        }
       },
       "pairing_os": {
         "title": "Appairer {model}",
-        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord l’appareil en mode appairage ou détectable comme indiqué dans le manuel, puis appuyez sur Envoyer."
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord l’appareil en mode appairage ou détectable comme indiqué dans le manuel, puis appuyez sur Envoyer.",
+        "data": {
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
+        }
       },
       "select_model_unknown": {
         "title": "Sélectionner le modèle",
@@ -52,6 +59,15 @@
         "data": {
           "device_model": "Modèle",
           "scan_interval": "Intervalle de mise à jour (secondes, 0 = désactivé)"
+        }
+      },
+      "pairing_failed": {
+        "title": "Échec de l'appairage",
+        "description": "L'appairage avec {model} a échoué. Assurez-vous que l'appareil est en mode appairage (-P- à l'écran) ou sélectionnez un autre modèle si un mauvais profil a été choisi.",
+        "menu_options": {
+          "pairing": "Réessayer l'appairage",
+          "pairing_os": "Réessayer l'appairage",
+          "select_model": "Sélectionner un autre modèle d'appareil"
         }
       }
     },
