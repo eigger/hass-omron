@@ -28,6 +28,7 @@ from sensor_state_data import (
 from .advertisement import _decode_omron_msd_fields
 from .bls import _parse_bp_measurement
 from .const import (
+    BATTERY_LEVEL_UUID,
     FIRMWARE_REVISION_UUID,
     HARDWARE_REVISION_UUID,
     MANUFACTURER_NAME_UUID,
@@ -1254,6 +1255,27 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
 
         with trace.timed("device_info"):
+            try:
+                char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                if char_bat:
+                    bat_bytes = await client.read_gatt_char(char_bat)
+                    _LOGGER.debug(
+                        "Battery characteristic 0x2A19 raw data for %s: %s",
+                        ble_device.address,
+                        bat_bytes.hex(),
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Battery characteristic 0x2A19 not found for %s",
+                        ble_device.address,
+                    )
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Failed to read battery characteristic 0x2A19 for %s: %s",
+                    ble_device.address,
+                    exc,
+                )
+
             try:
                 char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
                 if char_fw:
