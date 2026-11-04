@@ -27,16 +27,23 @@
           "user_alias_1": "使用者 1 名稱",
           "user_alias_2": "使用者 2 名稱",
           "user_alias_3": "使用者 3 名稱",
-          "user_alias_4": "使用者 4 名稱"
+          "user_alias_4": "使用者 4 名稱",
+          "reselect_model": "選取其他裝置型號"
         }
       },
       "pairing": {
         "title": "配對 {model}",
-        "description": "按提交（確認）後，Home Assistant 會開始配對。請先將壓脈帶置於配對模式——大多數型號需按住藍牙按鈕直到出現 **-P-**——然後再按提交。"
+        "description": "按提交（確認）後，Home Assistant 會開始配對。請先將壓脈帶置於配對模式——大多數型號需按住藍牙按鈕直到出現 **-P-**——然後再按提交。",
+        "data": {
+          "reselect_model": "選取其他裝置型號"
+        }
       },
       "pairing_os": {
         "title": "配對 {model}",
-        "description": "按提交（確認）後，Home Assistant 會開始配對。請先按說明書將裝置置於配對或可被發現模式，然後再按提交。"
+        "description": "按提交（確認）後，Home Assistant 會開始配對。請先按說明書將裝置置於配對或可被發現模式，然後再按提交。",
+        "data": {
+          "reselect_model": "選取其他裝置型號"
+        }
       },
       "select_model_unknown": {
         "title": "選擇裝置型號",

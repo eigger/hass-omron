@@ -96,6 +96,7 @@ def _user_aliases_schema(
         key = f"user_alias_{i}"
         def_val = str(defaults.get(key, f"user{i}") or f"user{i}")
         fields[vol.Required(key, default=def_val)] = vol.All(str, vol.Length(max=64))
+    fields[vol.Optional("reselect_model", default=False)] = bool
     return vol.Schema(fields)
 
 
@@ -235,6 +236,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self._model_form: tuple[Any, ...] | None = None
         self._user_aliases: dict[str, str] = {}
         self._removed = False
+        self._probed_model_name: str | None = None
 
     @callback
     def async_remove(self) -> None:
@@ -292,6 +294,9 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             self._user_aliases = {}
             return await self.async_step_pairing()
 
+        self._selected_model = None
+        self._user_aliases = {}
+
         models = get_supported_models()
         model_dict = {m: m for m in models}
         stats = get_supported_model_stats()
@@ -308,6 +313,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             inferred = infer_model_id_from_local_name(self._discovery_info.name)
             if inferred is not None:
                 inferred_model = inferred
+            elif self._probed_model_name is not None:
+                probed_name = self._probed_model_name
+                inferred = infer_model_id_from_local_name(probed_name)
+                if inferred:
+                    inferred_model = inferred
             else:
                 # If we cannot infer from the advertised model name, actively connect to read Model Number.
                 ble_device = async_ble_device_from_address(
@@ -330,6 +340,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                                 probe_session,
                             )
                     if model_num:
+                        self._probed_model_name = model_num
                         probed_name = model_num
                         inferred = infer_model_id_from_local_name(model_num)
                         if inferred:
@@ -384,7 +395,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id = "select_model"
 
         self._model_form = (step_id, desc_ph, inferred_model, model_dict)
-        return self._show_model_form(*self._model_form)
+        return self._show_model_form(*self._model_form, interval=self._scan_interval)
 
     def _show_model_form(
         self,
@@ -394,7 +405,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         model_dict: dict[str, str],
         *,
         errors: dict[str, str] | None = None,
-        interval: int = 300,
+        interval: int | None = None,
         chosen_model: str | None = None,
     ) -> ConfigFlowResult:
         """The model form. Kept so a rejected interval re-shows it without re-probing.
@@ -402,6 +413,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         ``chosen_model`` keeps what the user picked, so a typo in the interval
         does not put the auto-detected model back.
         """
+        if interval is None:
+            interval = getattr(self, "_scan_interval", 300)
         default_model = chosen_model or inferred_model
         return self.async_show_form(
             step_id=step_id,
@@ -450,6 +463,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect display names for each device user slot (multi-user models only)."""
+        if user_input is not None and user_input.get("reselect_model"):
+            if self._discovery_info:
+                await discard_probe_session(self.hass, self._discovery_info.address)
+            return await self.async_step_select_model()
+
         model = self._require_selected_model()
         cfg = get_device_config(model)
         if cfg.num_users <= 1:
@@ -502,6 +520,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Shared pairing: form step_id must match async_step_<step_id> on the next POST."""
+        if user_input is not None and user_input.get("reselect_model"):
+            if self._discovery_info:
+                await discard_probe_session(self.hass, self._discovery_info.address)
+            return await self.async_step_select_model()
+
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -533,7 +556,11 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id=step_id,
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional("reselect_model", default=False): bool,
+                }
+            ),
             errors=errors,
             description_placeholders={
                 "model": model,

@@ -27,16 +27,23 @@
           "user_alias_1": "Nom de l’utilisateur 1",
           "user_alias_2": "Nom de l’utilisateur 2",
           "user_alias_3": "Nom de l’utilisateur 3",
-          "user_alias_4": "Nom de l’utilisateur 4"
+          "user_alias_4": "Nom de l’utilisateur 4",
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
         }
       },
       "pairing": {
         "title": "Appairer {model}",
-        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord le brassard en mode appairage — sur la plupart des modèles, maintenez le bouton Bluetooth jusqu’à ce que **-P-** s’affiche — puis appuyez sur Envoyer."
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord le brassard en mode appairage — sur la plupart des modèles, maintenez le bouton Bluetooth jusqu’à ce que **-P-** s’affiche — puis appuyez sur Envoyer.",
+        "data": {
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
+        }
       },
       "pairing_os": {
         "title": "Appairer {model}",
-        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord l’appareil en mode appairage ou détectable comme indiqué dans le manuel, puis appuyez sur Envoyer."
+        "description": "Envoyer (Confirmer) lance l’appairage depuis Home Assistant. Mettez d’abord l’appareil en mode appairage ou détectable comme indiqué dans le manuel, puis appuyez sur Envoyer.",
+        "data": {
+          "reselect_model": "Sélectionner un autre modèle d'appareil"
+        }
       },
       "select_model_unknown": {
         "title": "Sélectionner le modèle",

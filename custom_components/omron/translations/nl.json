@@ -27,16 +27,23 @@
           "user_alias_1": "Naam gebruiker 1",
           "user_alias_2": "Naam gebruiker 2",
           "user_alias_3": "Naam gebruiker 3",
-          "user_alias_4": "Naam gebruiker 4"
+          "user_alias_4": "Naam gebruiker 4",
+          "reselect_model": "Ander apparaatmodel selecteren"
         }
       },
       "pairing": {
         "title": "{model} koppelen",
-        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet de manchet eerst in de koppelmodus — bij de meeste modellen de Bluetooth-knop ingedrukt houden tot **-P-** verschijnt — en druk daarna op Verzenden."
+        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet de manchet eerst in de koppelmodus — bij de meeste modellen de Bluetooth-knop ingedrukt houden tot **-P-** verschijnt — en druk daarna op Verzenden.",
+        "data": {
+          "reselect_model": "Ander apparaatmodel selecteren"
+        }
       },
       "pairing_os": {
         "title": "{model} koppelen",
-        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet het apparaat eerst in de koppel- of zichtbare modus zoals in de handleiding en druk daarna op Verzenden."
+        "description": "Verzenden (Bevestigen) start het koppelen vanuit Home Assistant. Zet het apparaat eerst in de koppel- of zichtbare modus zoals in de handleiding en druk daarna op Verzenden.",
+        "data": {
+          "reselect_model": "Ander apparaatmodel selecteren"
+        }
       },
       "select_model_unknown": {
         "title": "Apparaatmodel kiezen",

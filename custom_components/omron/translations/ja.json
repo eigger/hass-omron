@@ -27,16 +27,23 @@
           "user_alias_1": "ユーザー 1 の名前",
           "user_alias_2": "ユーザー 2 の名前",
           "user_alias_3": "ユーザー 3 の名前",
-          "user_alias_4": "ユーザー 4 の名前"
+          "user_alias_4": "ユーザー 4 の名前",
+          "reselect_model": "別の機器モデルを選択"
         }
       },
       "pairing": {
         "title": "{model} のペアリング",
-        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まずカフをペアリングモードにしてください（多くのモデルは、**-P-** が表示されるまで Bluetooth ボタンを長押し）。その後、送信を押してください。"
+        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まずカフをペアリングモードにしてください（多くのモデルは、**-P-** が表示されるまで Bluetooth ボタンを長押し）。その後、送信を押してください。",
+        "data": {
+          "reselect_model": "別の機器モデルを選択"
+        }
       },
       "pairing_os": {
         "title": "{model} のペアリング",
-        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まず説明書どおりに機器をペアリングまたは検出可能にしてから、送信を押してください。"
+        "description": "送信（確認）を押すと、Home Assistant からペアリングを開始します。まず説明書どおりに機器をペアリングまたは検出可能にしてから、送信を押してください。",
+        "data": {
+          "reselect_model": "別の機器モデルを選択"
+        }
       },
       "select_model_unknown": {
         "title": "機器モデルの選択",

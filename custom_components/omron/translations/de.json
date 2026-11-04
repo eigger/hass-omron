@@ -27,16 +27,23 @@
           "user_alias_1": "Name Benutzer 1",
           "user_alias_2": "Name Benutzer 2",
           "user_alias_3": "Name Benutzer 3",
-          "user_alias_4": "Name Benutzer 4"
+          "user_alias_4": "Name Benutzer 4",
+          "reselect_model": "Anderes Gerätemodell auswählen"
         }
       },
       "pairing": {
         "title": "{model} koppeln",
-        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie die Manschette zuerst in den Kopplungsmodus — bei den meisten Modellen die Bluetooth-Taste halten, bis **-P-** erscheint — und drücken Sie dann Senden."
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie die Manschette zuerst in den Kopplungsmodus — bei den meisten Modellen die Bluetooth-Taste halten, bis **-P-** erscheint — und drücken Sie dann Senden.",
+        "data": {
+          "reselect_model": "Anderes Gerätemodell auswählen"
+        }
       },
       "pairing_os": {
         "title": "{model} koppeln",
-        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie das Gerät zuerst laut Anleitung in den Kopplungs- oder Sichtbarkeitsmodus und drücken Sie dann Senden."
+        "description": "Senden (Bestätigen) startet die Kopplung aus Home Assistant. Versetzen Sie das Gerät zuerst laut Anleitung in den Kopplungs- oder Sichtbarkeitsmodus und drücken Sie dann Senden.",
+        "data": {
+          "reselect_model": "Anderes Gerätemodell auswählen"
+        }
       },
       "select_model_unknown": {
         "title": "Gerätemodell auswählen",

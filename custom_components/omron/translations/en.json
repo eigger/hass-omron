@@ -27,16 +27,23 @@
           "user_alias_1": "User 1 name",
           "user_alias_2": "User 2 name",
           "user_alias_3": "User 3 name",
-          "user_alias_4": "User 4 name"
+          "user_alias_4": "User 4 name",
+          "reselect_model": "Select a different device model"
         }
       },
       "pairing": {
         "title": "Pair {model}",
-        "description": "Submit (Confirm) will start pairing from Home Assistant. First put the cuff in pairing mode—for most models, hold the Bluetooth button until **-P-** appears—then press Submit."
+        "description": "Submit (Confirm) will start pairing from Home Assistant. First put the cuff in pairing mode—for most models, hold the Bluetooth button until **-P-** appears—then press Submit.",
+        "data": {
+          "reselect_model": "Select a different device model"
+        }
       },
       "pairing_os": {
         "title": "Pair {model}",
-        "description": "Submit (Confirm) will start pairing from Home Assistant. First set the device to pairing or discoverable mode as in the manual, then press Submit."
+        "description": "Submit (Confirm) will start pairing from Home Assistant. First set the device to pairing or discoverable mode as in the manual, then press Submit.",
+        "data": {
+          "reselect_model": "Select a different device model"
+        }
       },
       "select_model_unknown": {
         "title": "Select Device Model",

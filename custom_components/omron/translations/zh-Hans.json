@@ -27,16 +27,23 @@
           "user_alias_1": "用户 1 名称",
           "user_alias_2": "用户 2 名称",
           "user_alias_3": "用户 3 名称",
-          "user_alias_4": "用户 4 名称"
+          "user_alias_4": "用户 4 名称",
+          "reselect_model": "选择其他设备型号"
         }
       },
       "pairing": {
         "title": "配对 {model}",
-        "description": "按提交（确认）后，Home Assistant 会开始配对。请先将袖带置于配对模式——大多数型号需按住蓝牙按钮直到出现 **-P-**——然后再按提交。"
+        "description": "按提交（确认）后，Home Assistant 会开始配对。请先将袖带置于配对模式——大多数型号需按住蓝牙按钮直到出现 **-P-**——然后再按提交。",
+        "data": {
+          "reselect_model": "选择其他设备型号"
+        }
       },
       "pairing_os": {
         "title": "配对 {model}",
-        "description": "按提交（确认）后，Home Assistant 会开始配对。请先按说明书将设备置于配对或可发现模式，然后再按提交。"
+        "description": "按提交（确认）后，Home Assistant 会开始配对。请先按说明书将设备置于配对或可发现模式，然后再按提交。",
+        "data": {
+          "reselect_model": "选择其他设备型号"
+        }
       },
       "select_model_unknown": {
         "title": "选择设备型号",

@@ -27,16 +27,23 @@
           "user_alias_1": "Nazwa użytkownika 1",
           "user_alias_2": "Nazwa użytkownika 2",
           "user_alias_3": "Nazwa użytkownika 3",
-          "user_alias_4": "Nazwa użytkownika 4"
+          "user_alias_4": "Nazwa użytkownika 4",
+          "reselect_model": "Wybierz inny model urządzenia"
         }
       },
       "pairing": {
         "title": "Paruj {model}",
-        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw przełącz mankiet w tryb parowania — w większości modeli przytrzymaj przycisk Bluetooth, aż pojawi się **-P-** — a potem naciśnij Wyślij."
+        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw przełącz mankiet w tryb parowania — w większości modeli przytrzymaj przycisk Bluetooth, aż pojawi się **-P-** — a potem naciśnij Wyślij.",
+        "data": {
+          "reselect_model": "Wybierz inny model urządzenia"
+        }
       },
       "pairing_os": {
         "title": "Paruj {model}",
-        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw ustaw urządzenie w tryb parowania lub wykrywania zgodnie z instrukcją, a potem naciśnij Wyślij."
+        "description": "Wyślij (Potwierdź) rozpocznie parowanie z Home Assistant. Najpierw ustaw urządzenie w tryb parowania lub wykrywania zgodnie z instrukcją, a potem naciśnij Wyślij.",
+        "data": {
+          "reselect_model": "Wybierz inny model urządzenia"
+        }
       },
       "select_model_unknown": {
         "title": "Wybierz model urządzenia",

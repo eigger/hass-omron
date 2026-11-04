@@ -27,16 +27,23 @@
           "user_alias_1": "Nome utente 1",
           "user_alias_2": "Nome utente 2",
           "user_alias_3": "Nome utente 3",
-          "user_alias_4": "Nome utente 4"
+          "user_alias_4": "Nome utente 4",
+          "reselect_model": "Seleziona un modello di dispositivo diverso"
         }
       },
       "pairing": {
         "title": "Associa {model}",
-        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Metti prima il bracciale in modalità di associazione — sulla maggior parte dei modelli tieni premuto il pulsante Bluetooth finché compare **-P-** — poi premi Invia."
+        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Metti prima il bracciale in modalità di associazione — sulla maggior parte dei modelli tieni premuto il pulsante Bluetooth finché compare **-P-** — poi premi Invia.",
+        "data": {
+          "reselect_model": "Seleziona un modello di dispositivo diverso"
+        }
       },
       "pairing_os": {
         "title": "Associa {model}",
-        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Imposta prima il dispositivo in modalità di associazione o rilevabile come nel manuale, poi premi Invia."
+        "description": "Invia (Conferma) avvia l’associazione da Home Assistant. Imposta prima il dispositivo in modalità di associazione o rilevabile come nel manuale, poi premi Invia.",
+        "data": {
+          "reselect_model": "Seleziona un modello di dispositivo diverso"
+        }
       },
       "select_model_unknown": {
         "title": "Seleziona il modello",

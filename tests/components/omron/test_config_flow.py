@@ -402,3 +402,97 @@ async def test_pairing_clears_stale_bluez_bond_before_connect_and_on_failure(
             await flow._async_do_pairing()
 
     assert len(removed) == 2
+
+
+async def test_pairing_failure_keeps_reselect_model_and_allows_reselecting(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When pairing fails, error is shown along with reselect_model option."""
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+
+    step_pairing = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7146T2", CONF_SCAN_INTERVAL: 300},
+    )
+    assert step_pairing["type"] is FlowResultType.FORM
+    assert step_pairing["step_id"] == "pairing_os"
+    assert "reselect_model" in {str(k) for k in step_pairing["data_schema"].schema}
+
+    class _FailingSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            raise ConnectionError("failed to connect")
+
+        async def aclose(self):
+            pass
+
+    monkeypatch.setattr(config_flow, "OmronDeviceSession", _FailingSession)
+    monkeypatch.setattr(
+        config_flow,
+        "async_ble_device_from_address",
+        lambda *args, **kwargs: BLEDevice(ADDRESS, "HEM-7146T2", {}),
+    )
+
+    failed_form = await hass.config_entries.flow.async_configure(
+        step_pairing["flow_id"],
+        user_input={},
+    )
+    assert failed_form["type"] is FlowResultType.FORM
+    assert failed_form["step_id"] == "pairing_os"
+    assert failed_form["errors"] == {"base": "pairing_failed"}
+    assert "reselect_model" in {str(k) for k in failed_form["data_schema"].schema}
+
+    # Reselect model from pairing form
+    model_step_again = await hass.config_entries.flow.async_configure(
+        failed_form["flow_id"],
+        user_input={"reselect_model": True},
+    )
+    assert model_step_again["type"] is FlowResultType.FORM
+    assert model_step_again["step_id"] == "select_model"
+
+
+async def test_pairing_step_reselect_model_checkbox_redirects_to_select_model(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checking reselect_model on the pairing form goes back to select_model and keeps interval."""
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+
+    step_pairing = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7142T2", CONF_SCAN_INTERVAL: 0},
+    )
+    assert step_pairing["type"] is FlowResultType.FORM
+    assert step_pairing["step_id"] == "pairing_os"
+
+    back_to_model = await hass.config_entries.flow.async_configure(
+        step_pairing["flow_id"],
+        user_input={"reselect_model": True},
+    )
+    assert back_to_model["type"] is FlowResultType.FORM
+    assert back_to_model["step_id"] == "select_model"
+    assert _default(_field(back_to_model["data_schema"], CONF_SCAN_INTERVAL)) == 0
+
+
+async def test_user_aliases_step_reselect_model_checkbox_redirects_to_select_model(
+    hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checking reselect_model on the user_aliases form goes back to select_model and keeps interval."""
+    result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
+
+    step_aliases = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 0},
+    )
+    assert step_aliases["type"] is FlowResultType.FORM
+    assert step_aliases["step_id"] == "user_aliases"
+    assert "reselect_model" in {str(k) for k in step_aliases["data_schema"].schema}
+
+    back_to_model = await hass.config_entries.flow.async_configure(
+        step_aliases["flow_id"],
+        user_input={"reselect_model": True},
+    )
+    assert back_to_model["type"] is FlowResultType.FORM
+    assert back_to_model["step_id"] == "select_model"
+    assert _default(_field(back_to_model["data_schema"], CONF_SCAN_INTERVAL)) == 0

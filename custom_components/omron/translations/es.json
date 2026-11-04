@@ -27,16 +27,23 @@
           "user_alias_1": "Nombre del usuario 1",
           "user_alias_2": "Nombre del usuario 2",
           "user_alias_3": "Nombre del usuario 3",
-          "user_alias_4": "Nombre del usuario 4"
+          "user_alias_4": "Nombre del usuario 4",
+          "reselect_model": "Seleccionar otro modelo de dispositivo"
         }
       },
       "pairing": {
         "title": "Emparejar {model}",
-        "description": "Enviar (Confirmar) inicia el emparejamiento desde Home Assistant. Ponga primero el manguito en modo de emparejamiento —en la mayoría de modelos, mantenga el botón Bluetooth hasta que aparezca **-P-**— y luego pulse Enviar."
+        "description": "Enviar (Confirmar) inicia el emparejamiento desde Home Assistant. Ponga primero el manguito en modo de emparejamiento —en la mayoría de modelos, mantenga el botón Bluetooth hasta que aparezca **-P-**— y luego pulse Enviar.",
+        "data": {
+          "reselect_model": "Seleccionar otro modelo de dispositivo"
+        }
       },
       "pairing_os": {
         "title": "Emparejar {model}",
-        "description": "Enviar (Confirmar) inicia el emparejamiento desde Home Assistant. Ponga primero el dispositivo en modo de emparejamiento o detectable según el manual y luego pulse Enviar."
+        "description": "Enviar (Confirmar) inicia el emparejamiento desde Home Assistant. Ponga primero el dispositivo en modo de emparejamiento o detectable según el manual y luego pulse Enviar.",
+        "data": {
+          "reselect_model": "Seleccionar otro modelo de dispositivo"
+        }
       },
       "select_model_unknown": {
         "title": "Seleccionar modelo",

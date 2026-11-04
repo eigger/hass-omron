@@ -21,16 +21,23 @@
           "user_alias_1": "사용자 1 이름",
           "user_alias_2": "사용자 2 이름",
           "user_alias_3": "사용자 3 이름",
-          "user_alias_4": "사용자 4 이름"
+          "user_alias_4": "사용자 4 이름",
+          "reselect_model": "다른 기기 모델 선택"
         }
       },
       "pairing": {
         "title": "{model} 페어링",
-        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 커프를 페어링 모드로 전환하세요(대부분 모델은 블루투스 버튼을 길게 눌러 **-P-** 표시). 그 다음 제출을 누르세요."
+        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 커프를 페어링 모드로 전환하세요(대부분 모델은 블루투스 버튼을 길게 눌러 **-P-** 표시). 그 다음 제출을 누르세요.",
+        "data": {
+          "reselect_model": "다른 기기 모델 선택"
+        }
       },
       "pairing_os": {
         "title": "{model} 페어링",
-        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 설명서대로 기기를 페어링/검색 가능 상태로 만든 뒤 제출을 누르세요."
+        "description": "제출(확인)을 누르면 Home Assistant에서 페어링을 시작합니다. 먼저 설명서대로 기기를 페어링/검색 가능 상태로 만든 뒤 제출을 누르세요.",
+        "data": {
+          "reselect_model": "다른 기기 모델 선택"
+        }
       },
       "select_model_unknown": {
         "title": "기기 모델 선택",
