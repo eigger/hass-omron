@@ -846,9 +846,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> No
         ble_device = async_ble_device_from_address(hass, address)
         target: Any = ble_device if ble_device is not None else address
         try:
-            if await _bluez_is_paired(target):
+            if await _bluez_is_paired(target, all_adapters=True):
                 _LOGGER.debug("Removing BlueZ bond for %s upon entry removal", address)
-                await _bluez_remove_device(target)
+                await _bluez_remove_device(target, all_adapters=True)
         except Exception as exc:
             _LOGGER.debug(
                 "Could not remove BlueZ bond for %s on entry removal: %s", address, exc

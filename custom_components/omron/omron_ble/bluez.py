@@ -257,14 +257,70 @@ async def _bluez_find_device_path(address_or_path: str) -> str | None:
     return paths[0] if paths else None
 
 
-async def _bluez_remove_device(client: BleakClient | BLEDevice | str) -> bool:
+async def _bluez_resolve_device_paths(
+    client: BleakClient | BLEDevice | str,
+    *,
+    all_adapters: bool = False,
+) -> list[str]:
+    """Resolve BlueZ DBus object path(s) for a client, device, or MAC address.
+
+    When all_adapters is False (the default for session queries and recovery),
+    if client carries a specific connection path (an active BleakClient or a
+    local BLEDevice) or is already a BlueZ object path, only that connection's
+    path is returned.
+    When all_adapters is True (deletion and initialization paths) or client is
+    a bare MAC address string, all matching paths across all local adapters
+    are discovered via ObjectManager and returned.
+    """
+    if not all_adapters:
+        if (
+            isinstance(client, str)
+            and client.startswith("/org/bluez/")
+            and "/dev_" in client
+        ):
+            return [client]
+        if not isinstance(client, str):
+            dev_path = _bluez_device_path(client)
+            if dev_path:
+                return [dev_path]
+            return []
+
+    if (
+        isinstance(client, str)
+        and client.startswith("/org/bluez/")
+        and "/dev_" in client
+    ):
+        addr = client.rsplit("/dev_", 1)[1].replace("_", ":")
+    else:
+        addr = client if isinstance(client, str) else getattr(client, "address", None)
+
+    if addr and isinstance(addr, str) and not addr.startswith("/org/bluez/"):
+        paths = await _bluez_find_device_paths(addr)
+        if paths:
+            return paths
+
+    if not isinstance(client, str):
+        dev_path = _bluez_device_path(client)
+        if dev_path:
+            return [dev_path]
+
+    return []
+
+
+async def _bluez_remove_device(
+    client: BleakClient | BLEDevice | str,
+    *,
+    all_adapters: bool = False,
+) -> bool:
     """Remove the BlueZ device + bond via DBus Adapter1.RemoveDevice.
 
     Used because BleakClient.unpair() is a no-op on the HA/habluetooth backend.
     Accepts a bare BLEDevice or MAC address str too, so a bond can still be cleared
     after a connect attempt failed or when an integration entry is removed.
-    In multi-adapter environments, removing by address clears the device and its bond
-    across all local adapters.
+    When all_adapters is True (deletion and initialization paths) or client is an
+    address string, removing clears the device and its bond across all local adapters.
+    During active sessions (all_adapters=False), only the connection's adapter is
+    removed.
     Returns True on success; False otherwise (caller falls back to unpair()).
     """
     try:
@@ -274,20 +330,7 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice | str) -> bool:
     except ImportError:
         return False
 
-    if (
-        isinstance(client, str)
-        and client.startswith("/org/bluez/")
-        and "/dev_" in client
-    ):
-        paths = [client]
-    else:
-        addr = client if isinstance(client, str) else getattr(client, "address", None)
-        paths = await _bluez_find_device_paths(str(addr)) if addr else []
-        if not paths and not isinstance(client, str):
-            dev_path = _bluez_device_path(client)
-            if dev_path:
-                paths = [dev_path]
-
+    paths = await _bluez_resolve_device_paths(client, all_adapters=all_adapters)
     if not paths:
         return False
 
@@ -327,12 +370,19 @@ async def _bluez_remove_device(client: BleakClient | BLEDevice | str) -> bool:
         bus.disconnect()
 
 
-async def _bluez_is_paired(client: BleakClient | BLEDevice | str) -> bool | None:
+async def _bluez_is_paired(
+    client: BleakClient | BLEDevice | str,
+    *,
+    all_adapters: bool = False,
+) -> bool | None:
     """Whether BlueZ currently holds a bond for this device.
 
-    In multi-adapter environments, returns True if the device is paired on ANY
-    local adapter, False if found on at least one adapter but none are paired,
-    and None when it cannot be determined.
+    When all_adapters is False (default) and client carries a specific connection
+    path (BleakClient or BLEDevice on a local adapter), only that connection's
+    adapter is checked.
+    When all_adapters is True or client is a MAC address string, returns True if
+    paired on ANY local adapter, False if found on at least one adapter but none
+    are paired, and None when it cannot be determined.
     """
     try:
         from dbus_fast.aio.message_bus import MessageBus
@@ -341,20 +391,7 @@ async def _bluez_is_paired(client: BleakClient | BLEDevice | str) -> bool | None
     except ImportError:
         return None
 
-    if (
-        isinstance(client, str)
-        and client.startswith("/org/bluez/")
-        and "/dev_" in client
-    ):
-        paths = [client]
-    else:
-        addr = client if isinstance(client, str) else getattr(client, "address", None)
-        paths = await _bluez_find_device_paths(str(addr)) if addr else []
-        if not paths and not isinstance(client, str):
-            dev_path = _bluez_device_path(client)
-            if dev_path:
-                paths = [dev_path]
-
+    paths = await _bluez_resolve_device_paths(client, all_adapters=all_adapters)
     if not paths:
         return None
 

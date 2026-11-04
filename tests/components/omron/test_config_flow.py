@@ -372,10 +372,10 @@ async def test_pairing_clears_stale_bluez_bond_before_connect_and_on_failure(
 
     removed = []
 
-    async def _mock_is_paired(device):
+    async def _mock_is_paired(device, *args, **kwargs):
         return True
 
-    async def _mock_remove(device):
+    async def _mock_remove(device, *args, **kwargs):
         removed.append(device)
         return True
 

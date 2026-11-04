@@ -117,10 +117,10 @@ async def test_removing_entry_cleans_up_bluez_bond_if_paired(
 
     removed_targets = []
 
-    async def _mock_is_paired(target):
+    async def _mock_is_paired(target, *args, **kwargs):
         return True
 
-    async def _mock_remove(target):
+    async def _mock_remove(target, *args, **kwargs):
         removed_targets.append(target)
         return True
 
