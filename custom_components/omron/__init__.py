@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
+from typing import Any
 import asyncio
 import logging
 import time
@@ -21,6 +22,7 @@ from .session_handoff import (
 )
 from .omron_ble import OmronBluetoothDeviceData
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
+from .omron_ble.bluez import _bluez_is_paired, _bluez_remove_device
 from .omron_ble.devices import get_device_config
 from homeassistant.components.bluetooth import (
     BluetoothScanningMode,
@@ -839,6 +841,18 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 async def async_remove_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     """Drop the stored-record sync position with the entry."""
     await async_remove_history(hass, entry.entry_id)
+    address = entry.unique_id
+    if address:
+        ble_device = async_ble_device_from_address(hass, address)
+        target: Any = ble_device if ble_device is not None else address
+        try:
+            if await _bluez_is_paired(target, all_adapters=True):
+                _LOGGER.debug("Removing BlueZ bond for %s upon entry removal", address)
+                await _bluez_remove_device(target, all_adapters=True)
+        except Exception as exc:
+            _LOGGER.debug(
+                "Could not remove BlueZ bond for %s on entry removal: %s", address, exc
+            )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

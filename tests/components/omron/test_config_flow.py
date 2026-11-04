@@ -350,3 +350,55 @@ async def test_options_flow_offers_stored_record_sync_only_where_supported(
         user_input={CONF_SCAN_INTERVAL: 300, CONF_SYNC_STORED_RECORDS: True},
     )
     assert enabled["data"][CONF_SYNC_STORED_RECORDS] is True
+
+
+async def test_pairing_clears_stale_bluez_bond_before_connect_and_on_failure(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Config flow removes stale BlueZ bond before pairing and cleans up if pairing fails."""
+    from unittest.mock import patch
+
+    flow = config_flow.OmronConfigFlow()
+    flow.hass = hass
+    flow._selected_model = "HEM-7188T1"
+    info = service_info(address=ADDRESS, name="HEM-7188T1")
+    flow._discovery_info = info
+
+    ble_dev = BLEDevice(
+        address=ADDRESS,
+        name="HEM-7188T1",
+        details={"path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_11"},
+    )
+
+    removed = []
+
+    async def _mock_is_paired(device, *args, **kwargs):
+        return True
+
+    async def _mock_remove(device, *args, **kwargs):
+        removed.append(device)
+        return True
+
+    class _FailSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            raise ConnectionError("failed to discover services, device disconnected")
+
+        async def aclose(self):
+            pass
+
+    with (
+        patch(
+            "custom_components.omron.config_flow.async_ble_device_from_address",
+            return_value=ble_dev,
+        ),
+        patch("custom_components.omron.config_flow._bluez_is_paired", _mock_is_paired),
+        patch("custom_components.omron.config_flow._bluez_remove_device", _mock_remove),
+        patch("custom_components.omron.config_flow.OmronDeviceSession", _FailSession),
+    ):
+        with pytest.raises(ConnectionError):
+            await flow._async_do_pairing()
+
+    assert len(removed) == 2
