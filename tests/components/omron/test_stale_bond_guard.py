@@ -328,3 +328,70 @@ def test_bluez_remove_device_and_is_paired_with_address_string(monkeypatch):
         member == "RemoveDevice" and path == "/org/bluez/hci0"
         for member, path, _ in calls
     )
+
+
+def test_bluez_multi_adapter_bond_detection_and_removal(monkeypatch):
+    """다중 어댑터(hci0, hci1) 환경에서 hci1에만 본드가 있어도 감지하고 양쪽 모두 삭제한다."""
+    from dbus_fast.aio import message_bus
+    from dbus_fast.constants import MessageType
+    from types import SimpleNamespace
+
+    path_hci0 = "/org/bluez/hci0/dev_C1_8D_32_97_D5_BB"
+    path_hci1 = "/org/bluez/hci1/dev_C1_8D_32_97_D5_BB"
+
+    objects = {
+        path_hci0: {
+            "org.bluez.Device1": {
+                "Address": SimpleNamespace(value="C1:8D:32:97:D5:BB"),
+                "Paired": SimpleNamespace(value=False),
+            }
+        },
+        path_hci1: {
+            "org.bluez.Device1": {
+                "Address": SimpleNamespace(value="C1:8D:32:97:D5:BB"),
+                "Paired": SimpleNamespace(value=True),
+            }
+        },
+    }
+    calls = []
+
+    class _MockBus:
+        async def call(self, msg):
+            calls.append((msg.member, msg.path, getattr(msg, "body", None)))
+            if msg.member == "GetManagedObjects":
+                return SimpleNamespace(
+                    message_type=MessageType.METHOD_RETURN, body=[objects]
+                )
+            if msg.member == "Get":
+                is_paired = msg.path == path_hci1
+                return SimpleNamespace(
+                    message_type=MessageType.METHOD_RETURN,
+                    body=[SimpleNamespace(value=is_paired)],
+                )
+            if msg.member == "RemoveDevice":
+                return SimpleNamespace(message_type=MessageType.METHOD_RETURN, body=[])
+            return SimpleNamespace(message_type=MessageType.ERROR, body=[])
+
+        def disconnect(self):
+            pass
+
+    class _MockMessageBus:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def connect(self):
+            return _MockBus()
+
+    monkeypatch.setattr(message_bus, "MessageBus", _MockMessageBus)
+
+    # 1. hci0은 False여도 hci1이 True이므로 is_paired는 True를 반환해야 한다
+    paired = asyncio.run(bluez._bluez_is_paired("C1:8D:32:97:D5:BB"))
+    assert paired is True
+
+    # 2. remove_device는 hci0과 hci1 모두에서 RemoveDevice를 호출해야 한다
+    removed = asyncio.run(bluez._bluez_remove_device("C1:8D:32:97:D5:BB"))
+    assert removed is True
+
+    removed_adapters = [path for member, path, _ in calls if member == "RemoveDevice"]
+    assert "/org/bluez/hci0" in removed_adapters
+    assert "/org/bluez/hci1" in removed_adapters
