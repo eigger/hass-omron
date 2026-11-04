@@ -395,7 +395,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id = "select_model"
 
         self._model_form = (step_id, desc_ph, inferred_model, model_dict)
-        return self._show_model_form(*self._model_form)
+        return self._show_model_form(*self._model_form, interval=self._scan_interval)
 
     def _show_model_form(
         self,
@@ -405,7 +405,7 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         model_dict: dict[str, str],
         *,
         errors: dict[str, str] | None = None,
-        interval: int = 300,
+        interval: int | None = None,
         chosen_model: str | None = None,
     ) -> ConfigFlowResult:
         """The model form. Kept so a rejected interval re-shows it without re-probing.
@@ -413,6 +413,8 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         ``chosen_model`` keeps what the user picked, so a typo in the interval
         does not put the auto-detected model back.
         """
+        if interval is None:
+            interval = getattr(self, "_scan_interval", 300)
         default_model = chosen_model or inferred_model
         return self.async_show_form(
             step_id=step_id,

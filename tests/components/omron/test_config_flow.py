@@ -456,12 +456,12 @@ async def test_pairing_failure_keeps_reselect_model_and_allows_reselecting(
 async def test_pairing_step_reselect_model_checkbox_redirects_to_select_model(
     hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Checking reselect_model on the pairing form goes back to select_model."""
+    """Checking reselect_model on the pairing form goes back to select_model and keeps interval."""
     result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
 
     step_pairing = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={CONF_DEVICE_MODEL: "HEM-7142T2", CONF_SCAN_INTERVAL: 300},
+        user_input={CONF_DEVICE_MODEL: "HEM-7142T2", CONF_SCAN_INTERVAL: 0},
     )
     assert step_pairing["type"] is FlowResultType.FORM
     assert step_pairing["step_id"] == "pairing_os"
@@ -472,17 +472,18 @@ async def test_pairing_step_reselect_model_checkbox_redirects_to_select_model(
     )
     assert back_to_model["type"] is FlowResultType.FORM
     assert back_to_model["step_id"] == "select_model"
+    assert _default(_field(back_to_model["data_schema"], CONF_SCAN_INTERVAL)) == 0
 
 
 async def test_user_aliases_step_reselect_model_checkbox_redirects_to_select_model(
     hass: HomeAssistant, enable_bluetooth: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Checking reselect_model on the user_aliases form goes back to select_model."""
+    """Checking reselect_model on the user_aliases form goes back to select_model and keeps interval."""
     result = await _open_model_step(hass, "HEM-7155T", monkeypatch)
 
     step_aliases = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 300},
+        user_input={CONF_DEVICE_MODEL: "HEM-7155T", CONF_SCAN_INTERVAL: 0},
     )
     assert step_aliases["type"] is FlowResultType.FORM
     assert step_aliases["step_id"] == "user_aliases"
@@ -494,3 +495,4 @@ async def test_user_aliases_step_reselect_model_checkbox_redirects_to_select_mod
     )
     assert back_to_model["type"] is FlowResultType.FORM
     assert back_to_model["step_id"] == "select_model"
+    assert _default(_field(back_to_model["data_schema"], CONF_SCAN_INTERVAL)) == 0
