@@ -33,7 +33,7 @@ Omron Bluetooth LE 혈압계와 체중계에 직접 연결해 측정값을 읽�
 | **HEM-7156T** | BP7250 | 상완형 | ✅ |
 | **HEM-716BT2** | BP5255/M4 Smart | 상완형 | ✅ |
 | **HEM-7188T1** | M2+ / X2+ Connect | 상완형 | ✅ |
-| **HEM-7196T1** | M4 Connect AFib / X4 Connect AFib | 상완형 | 프로파일 제공. FLE에서 [로컬 폴링 사례](https://github.com/eigger/hass-omron/issues/268)가 보고됐습니다. |
+| **HEM-7196T1** | M4 Connect AFib / X4 Connect AFib | 상완형 | ✅ |
 | **HEM-7320T** | BP7450/M7 Intelli IT | 상완형 | ✅ |
 | **HEM-7322T** | BP786/M6 Intelli IT | 상완형 | ✅ |
 | **HEM-7343T** | BP5450/Platinum Series | 상완형 | ✅ |
