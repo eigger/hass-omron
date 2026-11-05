@@ -16,8 +16,6 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
-The Downloads badge counts GitHub release asset downloads of the current release, not active installations.
-
 | Device | Model |
 | :---: | :---: |
 | <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="280" alt="Omron HEM-7142T2"> | **HEM-7142T2** |
