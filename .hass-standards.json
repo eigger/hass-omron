@@ -23,10 +23,10 @@
     "source": "README.md Supported Models: Omron BLE blood pressure monitors and weight/body-composition scales measure personal health; reviewed against the central HA category taxonomy on 2026-10-21."
   },
   "readme": {
-    "title": "Omron BLE Home Assistant Integration (hass-omron)",
+    "title": "Omron BLE for Home Assistant",
     "descriptions": {
-      "en": "A HACS custom integration (not part of Home Assistant Core) to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors and weight scales.",
-      "ko": "Omron Bluetooth Low Energy(BLE) 혈압계와 체중계에 직접 연결해 측정값을 가져오는 Home Assistant 커스텀 통합(HACS)입니다. Home Assistant Core에 포함된 공식 통합이 아닙니다."
+      "en": "A Home Assistant custom integration that reads measurements directly from Omron Bluetooth Low Energy blood pressure monitors and scales.",
+      "ko": "Omron Bluetooth LE 혈압계와 체중계에 직접 연결해 측정값을 읽는 Home Assistant 커스텀 통합입니다."
     },
     "issues": true,
     "discussions": true,
