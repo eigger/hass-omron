@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
-# Omron BLE Home Assistant Integration (hass-omron)
+# Omron BLE for Home Assistant
 
-Omron Bluetooth Low Energy(BLE) 혈압계와 체중계에 직접 연결해 측정값을 가져오는 Home Assistant 커스텀 통합(HACS)입니다. Home Assistant Core에 포함된 공식 통합이 아닙니다.
+Omron Bluetooth LE 혈압계와 체중계에 직접 연결해 측정값을 읽는 Home Assistant 커스텀 통합입니다.
 
 [English](README.md) | **한국어**
 
@@ -15,8 +15,6 @@ Omron Bluetooth Low Energy(BLE) 혈압계와 체중계에 직접 연결해 측�
 [![Downloads](https://img.shields.io/github/downloads/eigger/hass-omron/latest/total?style=flat&color=41BDF5&label=Downloads)](https://github.com/eigger/hass-omron/releases)
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
-
-Downloads 배지는 현재 GitHub 릴리스의 첨부 asset 다운로드 합계이며 활성 설치 수가 아닙니다.
 
 | 기기 | 모델 |
 | :---: | :---: |
@@ -35,6 +33,7 @@ Downloads 배지는 현재 GitHub 릴리스의 첨부 asset 다운로드 합계�
 | **HEM-7156T** | BP7250 | 상완형 | ✅ |
 | **HEM-716BT2** | BP5255/M4 Smart | 상완형 | ✅ |
 | **HEM-7188T1** | M2+ / X2+ Connect | 상완형 | ✅ |
+| **HEM-7196T1** | M4 Connect AFib / X4 Connect AFib | 상완형 | ✅ |
 | **HEM-7320T** | BP7450/M7 Intelli IT | 상완형 | ✅ |
 | **HEM-7322T** | BP786/M6 Intelli IT | 상완형 | ✅ |
 | **HEM-7343T** | BP5450/Platinum Series | 상완형 | ✅ |
@@ -54,7 +53,8 @@ Downloads 배지는 현재 GitHub 릴리스의 첨부 asset 다운로드 합계�
 
 ## 요구사항
 
-Home Assistant 2025.12.0 이상(`hacs.json` 참고)과 Bluetooth 어댑터 또는 ESPHome Bluetooth 프록시가 필요합니다. 연결 안정성과 통신 범위를 위해 Bluetooth 프록시 사용을 강력히 권장합니다.
+- **Home Assistant:** 2025.12.0 이상.
+- **Bluetooth:** Bluetooth 어댑터 또는 ESPHome Bluetooth 프록시. 안정성과 통신 범위를 위해 프록시를 권장합니다.
 
 ## 설치
 
@@ -62,11 +62,13 @@ Home Assistant 2025.12.0 이상(`hacs.json` 참고)과 Bluetooth 어댑터 또�
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-omron)
 <!-- hass-standards:installation:end -->
 
-1. **HACS**: HACS가 설치된 상태에서 HACS를 열고 **Omron**을 검색한 뒤 통합을 열어 다운로드합니다. HACS 기본 저장소 목록에 포함되어 있으므로 커스텀 저장소를 추가할 필요가 없습니다.
-   **수동 설치**: 또는 `custom_components/omron` 디렉터리를 Home Assistant의 `custom_components` 폴더에 복사합니다.
-2. Home Assistant를 재시작합니다.
+1. 위 배지를 클릭해 마켓플레이스에서 저장소를 엽니다.
+2. 저장소를 직접 추가하려면 **설정 → 마켓플레이스 → 링크에서 추가**에서 <https://github.com/eigger/hass-omron>을 입력합니다. 안내가 표시되면 GitHub 계정을 연결합니다.
+3. **설치**를 선택합니다. 재시작 안내가 표시되면 Home Assistant를 재시작합니다. 설치가 끝나면 [설정](#설정)으로 이동합니다.
 
-## 페어링 및 설정
+<a name="페어링-및-설정"></a>
+
+## 설정
 
 기기 설정과 페어링은 모두 Home Assistant UI에서 진행합니다.
 
