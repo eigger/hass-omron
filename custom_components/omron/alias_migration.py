@@ -71,15 +71,15 @@ def async_migrate_alias_unique_ids(
             )
         )
 
-    # A user may move only if every target id is free, or is held by an entity
-    # of a user that moves away too. Dropping one user can block another, so
-    # repeat until nothing changes. This also keeps a chain from stopping
-    # halfway.
+    # A user moves only if nothing is left under the new slug: no entity that
+    # stays put (one left by an earlier name, of any kind, would be picked up
+    # again after the reload and split the user), and no user that stays put
+    # because it was blocked itself. A user that moves away frees its slug for
+    # another user, which is what makes swaps and rotations work. Blocking one
+    # user can block another, so repeat until nothing changes.
     slot_of = {entity_id: slug for entity_id, _, slug in moving}
-    moving_slots = set(slot_of.values())
-    # An entity of another kind may already use a new slug (a status flag left
-    # by an earlier name, say). It would be picked up again after the reload and
-    # split the user, so such a user stays where it was.
+    entity_slots = set(slot_of.values())
+    moving_slots = set(entity_slots)
     leftover_slugs: set[str] = set()
     for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if reg_entry.platform != DOMAIN or reg_entry.domain not in _MEASUREMENT_DOMAINS:
@@ -89,21 +89,14 @@ def async_migrate_alias_unique_ids(
         slug = user_alias_slug_from_entity_key(reg_entry.unique_id[len(prefix) :])
         if slug is not None:
             leftover_slugs.add(slug)
-    moving_slots = {
-        slug for slug in moving_slots if new_slug_by_old[slug] not in leftover_slugs
-    }
     changed = True
     while changed:
         changed = False
-        for entity_id, new_unique_id, slug in moving:
-            if slug not in moving_slots:
-                continue
-            reg_entry = registry.async_get(entity_id)
-            assert reg_entry is not None
-            taken = registry.async_get_entity_id(
-                reg_entry.domain, DOMAIN, new_unique_id
-            )
-            if taken is not None and slot_of.get(taken) not in moving_slots:
+        for slug in sorted(moving_slots):
+            target = new_slug_by_old[slug]
+            if target in leftover_slugs or (
+                target in entity_slots and target not in moving_slots
+            ):
                 moving_slots.discard(slug)
                 changed = True
     candidates = {

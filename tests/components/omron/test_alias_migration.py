@@ -308,3 +308,51 @@ def test_a_leftover_entity_of_another_kind_under_the_new_name_keeps_the_user_put
     assert moved == 0
     assert _unique_id(hass, sensor) == f"{PREFIX}blood_pressure_systolic_dad"
     assert _unique_id(hass, leftover) == f"{PREFIX}body_movement_grandpa"
+
+
+def test_a_user_whose_target_name_belongs_to_a_blocked_user_stays_put(
+    hass: HomeAssistant,
+) -> None:
+    """a -> b and b -> c, with c taken: b stays, so nothing may move into b."""
+    entry = _entry(hass)
+    first = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_a")
+    second = _add(hass, entry, "sensor", f"{PREFIX}weight_b")
+    leftover = _add(hass, entry, "binary_sensor", f"{PREFIX}body_movement_c")
+
+    moved = async_migrate_alias_unique_ids(
+        hass, entry, {1: "a", 2: "b"}, {1: "b", 2: "c"}, 2
+    )
+
+    assert moved == 0
+    assert _unique_id(hass, first) == f"{PREFIX}heart_rate_a"
+    assert _unique_id(hass, second) == f"{PREFIX}weight_b"
+    assert _unique_id(hass, leftover) == f"{PREFIX}body_movement_c"
+
+
+def test_a_same_kind_leftover_blocks_the_whole_chain_too(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    first = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_a")
+    second = _add(hass, entry, "sensor", f"{PREFIX}weight_b")
+    _add(hass, entry, "sensor", f"{PREFIX}weight_c")
+
+    moved = async_migrate_alias_unique_ids(
+        hass, entry, {1: "a", 2: "b"}, {1: "b", 2: "c"}, 2
+    )
+
+    assert moved == 0
+    assert _unique_id(hass, first) == f"{PREFIX}heart_rate_a"
+    assert _unique_id(hass, second) == f"{PREFIX}weight_b"
+
+
+def test_a_chain_moves_when_nothing_blocks_its_end(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    first = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_a")
+    second = _add(hass, entry, "sensor", f"{PREFIX}weight_b")
+
+    moved = async_migrate_alias_unique_ids(
+        hass, entry, {1: "a", 2: "b"}, {1: "b", 2: "c"}, 2
+    )
+
+    assert moved == 2
+    assert _unique_id(hass, first) == f"{PREFIX}heart_rate_b"
+    assert _unique_id(hass, second) == f"{PREFIX}weight_c"
