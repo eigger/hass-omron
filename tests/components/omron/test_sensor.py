@@ -349,7 +349,9 @@ async def test_status_flags_restore_only_for_current_users(
 
 
 async def test_restored_entities_are_not_duplicated_by_the_first_poll(
-    hass: HomeAssistant, enable_bluetooth: None
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     entry = _entry(BP_MODEL)
     await _setup(hass, entry)
@@ -363,6 +365,9 @@ async def test_restored_entities_are_not_duplicated_by_the_first_poll(
     await hass.async_block_till_done()
 
     assert _by_domain(hass, entry)["sensor"] == before["sensor"]
+    # Home Assistant drops a second entity with a known unique id and logs it,
+    # which the registry alone would not show.
+    assert "does not generate unique IDs" not in caplog.text
     assert (
         _state(
             hass, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user1"
