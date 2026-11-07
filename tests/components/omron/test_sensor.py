@@ -375,3 +375,29 @@ async def test_restored_entities_are_not_duplicated_by_the_first_poll(
         == "120"
     )
     await _unload(hass, entry)
+
+
+async def test_restored_status_flag_is_not_duplicated_by_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A flag restored at startup is the one the first readout updates."""
+    entry = _entry(BP_MODEL)
+    flag = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user1"
+    )
+    mock_restore_cache(hass, [State(flag, "off")])
+    await _setup(hass, entry)
+    assert hass.states.get(flag).state == "off"
+
+    runtime = entry.runtime_data
+    runtime.device_data._update_measurement_sensors(_RECORD, user=1, multi_user=True)
+    runtime.poll_coordinator.async_set_updated_data(
+        runtime.device_data._finish_update()
+    )
+    await hass.async_block_till_done()
+
+    assert "does not generate unique IDs" not in caplog.text
+    assert hass.states.get(flag).state == "on"
+    await _unload(hass, entry)
