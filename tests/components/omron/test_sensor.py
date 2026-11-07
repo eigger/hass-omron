@@ -401,3 +401,46 @@ async def test_restored_status_flag_is_not_duplicated_by_the_first_poll(
     assert "does not generate unique IDs" not in caplog.text
     assert hass.states.get(flag).state == "on"
     await _unload(hass, entry)
+
+
+async def test_status_flags_follow_the_configured_user_aliases(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """With an alias set, the alias key returns and the default key does not."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title=f"{BP_MODEL} EEFF",
+        data={CONF_DEVICE_MODEL: BP_MODEL, "user_aliases": {"1": "Dad", "2": "Mom"}},
+    )
+    aliased = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_dad"
+    )
+    default = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user1"
+    )
+    mock_restore_cache(hass, [State(aliased, "on"), State(default, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(aliased).state == "on"
+    default_state = hass.states.get(default)
+    assert default_state is None or default_state.state != "on"
+    await _unload(hass, entry)
+
+
+async def test_status_flag_without_user_suffix_is_not_restored_on_a_two_user_cuff(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A flag left from when the model had one user is not brought back."""
+    entry = _entry(BP_MODEL)
+    single = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement"
+    )
+    mock_restore_cache(hass, [State(single, "on")])
+
+    await _setup(hass, entry)
+
+    single_state = hass.states.get(single)
+    assert single_state is None or single_state.state != "on"
+    await _unload(hass, entry)
