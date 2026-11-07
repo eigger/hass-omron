@@ -32,7 +32,7 @@ async def _publish(hass: HomeAssistant, entry, record: dict, *, user, multi_user
     await hass.async_block_till_done()
 
 
-async def test_a_reading_replaces_the_restored_value_and_stays(
+async def test_a_reading_replaces_the_restored_value_and_a_later_one_replaces_it(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = _entry(SINGLE_USER_MODEL)
@@ -118,7 +118,7 @@ async def test_only_the_user_who_measured_gets_a_new_value(
             State(user1, "121"),
             State(user2, "132"),
             State(flag1, "off"),
-            State(flag2, "off"),
+            State(flag2, "on"),
         ],
     )
 
@@ -131,5 +131,6 @@ async def test_only_the_user_who_measured_gets_a_new_value(
     assert hass.states.get(user1).state == "120"
     assert hass.states.get(flag1).state == "on"
     assert hass.states.get(user2).state == "132"
-    assert hass.states.get(flag2).state == "off"
+    # Restored "on" differs from a measured False, so an overwrite would show.
+    assert hass.states.get(flag2).state == "on"
     await _unload(hass, entry)
