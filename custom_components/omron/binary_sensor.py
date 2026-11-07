@@ -27,11 +27,13 @@ from homeassistant.const import (
     STATE_UNKNOWN,
     EntityCategory,
 )
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
@@ -79,6 +81,14 @@ POLL_BINARY_SENSOR_DESCRIPTIONS = {
         icon="mdi:seat-recline-normal",
     ),
 }
+
+# Per-user status flags a readout can set; the ones restored from the registry.
+_RESTORE_STATUS_FLAG_BASES = (
+    OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT.value,
+    OmronExtendedBinarySensorDeviceClass.CUFF_FIT.value,
+    OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE.value,
+    OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION.value,
+)
 
 ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {
     OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER: BinarySensorEntityDescription(
@@ -240,6 +250,42 @@ async def async_setup_entry(
     initial_entities = _build_new_entities(poll_coordinator.data)
     if initial_entities:
         async_add_entities(initial_entities)
+
+    # Status flags have no seed, so they only appear with a readout. Re-add the
+    # ones already registered so they restore their last value while the cuff
+    # is asleep. Only keys valid for the current user count and aliases qualify,
+    # so an entity left over from an old alias is not brought back.
+    uid_prefix = runtime.entity_unique_id("none_")
+    valid_suffixes = runtime.device_data.measurement_key_suffixes()
+    registry = er.async_get(hass)
+    restored_entities: list[BinarySensorEntity] = []
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.domain != "binary_sensor" or reg_entry.platform != DOMAIN:
+            continue
+        if reg_entry.disabled or not reg_entry.unique_id.startswith(uid_prefix):
+            continue
+        key = reg_entry.unique_id[len(uid_prefix) :]
+        base = next((b for b in _RESTORE_STATUS_FLAG_BASES if key.startswith(b)), None)
+        if base is None or key[len(base) :] not in valid_suffixes:
+            continue
+        device_key = DeviceKey(key=key, device_id=None)
+        entity_key = device_key_entity_id_suffix(device_key)
+        if entity_key in known_entity_keys:
+            continue
+        restored_entities.append(
+            OmronBluetoothBinarySensorEntity(
+                entry=entry,
+                coordinator=poll_coordinator,
+                device_key=device_key,
+                description=POLL_BINARY_SENSOR_DESCRIPTIONS[
+                    OmronExtendedBinarySensorDeviceClass(base)
+                ],
+                sensor_name=key,
+            )
+        )
+        known_entity_keys.add(entity_key)
+    if restored_entities:
+        async_add_entities(restored_entities)
 
     @callback
     def _handle_poll_update() -> None:

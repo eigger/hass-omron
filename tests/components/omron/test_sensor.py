@@ -15,7 +15,11 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.core import State
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.omron import PLATFORMS
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
@@ -111,13 +115,17 @@ async def test_blood_pressure_entry_loads_every_platform(
         "hem_7155t_eeff_retry_pairing",
     }
     assert grouped["text"] == {"hem_7155t_eeff_device_alias"}
-    # Measurement sensors appear with the first readout; diagnostics at setup.
-    assert grouped["sensor"] == {
+    # Diagnostics and the seeded measurement sensors exist at setup, so the
+    # measurements can restore their last value while the cuff is asleep.
+    assert {
         "hem_7155t_eeff_duration",
         "hem_7155t_eeff_last_readout",
         "hem_7155t_eeff_last_failure",
         "hem_7155t_eeff_failure_count",
-    }
+        "hem_7155t_eeff_none_blood_pressure_systolic_user1",
+        "hem_7155t_eeff_none_blood_pressure_systolic_user2",
+    } <= grouped["sensor"]
+    assert not any("signal_strength" in uid for uid in grouped["sensor"])
     assert "number" not in grouped
     assert set(grouped) <= {platform.value for platform in PLATFORMS}
 
@@ -282,3 +290,83 @@ async def test_removing_the_entry_removes_its_entities_and_device(
 
     assert not er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
     assert _device(hass, entry) is None
+
+
+def _preregister(
+    hass: HomeAssistant, entry: MockConfigEntry, domain: str, unique_id: str
+) -> str:
+    """Put an entity in the registry as an earlier run would have left it."""
+    entry.add_to_hass(hass)
+    return (
+        er.async_get(hass)
+        .async_get_or_create(
+            domain, DOMAIN, unique_id, config_entry=entry, suggested_object_id=unique_id
+        )
+        .entity_id
+    )
+
+
+async def test_measurement_sensors_restore_last_value_before_first_poll(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Both users of a two-user cuff get their own last value back (#284)."""
+    entry = _entry(BP_MODEL)
+    user1 = _preregister(
+        hass, entry, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user1"
+    )
+    user2 = _preregister(
+        hass, entry, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user2"
+    )
+    mock_restore_cache(hass, [State(user1, "121"), State(user2, "132")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(user1).state == "121"
+    assert hass.states.get(user2).state == "132"
+    await _unload(hass, entry)
+
+
+async def test_status_flags_restore_only_for_current_users(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A flag of a current user returns; one left by an old alias does not."""
+    entry = _entry(BP_MODEL)
+    current = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user2"
+    )
+    stale = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_dad"
+    )
+    mock_restore_cache(hass, [State(current, "on"), State(stale, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(current).state == "on"
+    # Not re-added, so it never restored (core only writes unavailable on start).
+    stale_state = hass.states.get(stale)
+    assert stale_state is None or stale_state.state != "on"
+    await _unload(hass, entry)
+
+
+async def test_restored_entities_are_not_duplicated_by_the_first_poll(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(BP_MODEL)
+    await _setup(hass, entry)
+    before = _by_domain(hass, entry)
+
+    runtime = entry.runtime_data
+    runtime.device_data._update_measurement_sensors(_RECORD, user=1, multi_user=True)
+    runtime.poll_coordinator.async_set_updated_data(
+        runtime.device_data._finish_update()
+    )
+    await hass.async_block_till_done()
+
+    assert _by_domain(hass, entry)["sensor"] == before["sensor"]
+    assert (
+        _state(
+            hass, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user1"
+        ).state
+        == "120"
+    )
+    await _unload(hass, entry)
