@@ -51,7 +51,7 @@ from .devices import (
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
-from .util import slugify_for_entity_key
+from .util import user_slot_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -490,10 +490,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         label = self._user_aliases.get(user)
         if not label:
             label = f"user{user}"
-        slug = slugify_for_entity_key(label)
-        if not slug:
-            slug = f"user{user}"
-        return f"_{slug}", f" ({label})"
+        return f"_{user_slot_slug(self._user_aliases, user)}", f" ({label})"
 
     def _publish_measurement_sensor(
         self,

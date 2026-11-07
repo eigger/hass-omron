@@ -39,6 +39,8 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 from homeassistant.data_entry_flow import AbortFlow
 
+from .alias_migration import async_migrate_alias_unique_ids
+from .util import aliases_dict_from_entry
 from .session_handoff import (
     stash_handoff_session,
     close_probe_session,
@@ -843,6 +845,14 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 out[CONF_USER_ALIASES] = {
                     str(i): resolved[i - 1] for i in range(1, cfg.num_users + 1)
                 }
+                # Keep each user's entities (and history) under the new alias.
+                async_migrate_alias_unique_ids(
+                    self.hass,
+                    entry,
+                    aliases_dict_from_entry(entry),
+                    {i: resolved[i - 1] for i in range(1, cfg.num_users + 1)},
+                    cfg.num_users,
+                )
             else:
                 out[CONF_USER_ALIASES] = {}
             return self.async_create_entry(title="", data=out)
