@@ -224,6 +224,44 @@ class OmronBluetoothDeviceData(BluetoothData):
                 ExtendedSensorDeviceClass,
             )
 
+    def measurement_key_suffixes(self) -> frozenset[str]:
+        """Per-user key suffixes valid now (``""`` for a single-user device).
+
+        Built from the current user count and aliases, so a key left over from
+        an earlier alias or user count is not among them.
+        """
+        multi_user_mode = self._device_config.num_users > 1
+        if not multi_user_mode:
+            return frozenset({""})
+        return frozenset(
+            self._measurement_user_suffixes(user, True)[0]
+            for user in range(1, self._device_config.num_users + 1)
+        )
+
+    def seed_update(self) -> SensorUpdate:
+        """Return the measurement sensors known before any poll, without side effects.
+
+        Lets the platforms create the entities of the current model, user count
+        and user aliases at setup, so a cuff that is asleep at startup still has
+        its registered sensors added and their last value restored. Unlike
+        ``_finish_update`` this does not commit the pending update or change any state.
+        """
+        return SensorUpdate(
+            title=self._title,
+            devices=dict(self._device_id_info),
+            entity_descriptions={
+                **self._sensor_descriptions,
+                **self._sensor_descriptions_updates,
+            },
+            entity_values={
+                **self._sensor_values,
+                **self._sensor_values_updates,
+            },
+            binary_entity_descriptions={},
+            binary_entity_values={},
+            events={},
+        )
+
     def _seed_measurement_specs(
         self, sensor_classes: Any
     ) -> tuple[tuple[str, str | None, Any, str], ...]:

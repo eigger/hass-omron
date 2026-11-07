@@ -15,7 +15,11 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.core import State
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    mock_restore_cache,
+)
 
 from custom_components.omron import PLATFORMS
 from custom_components.omron.const import CONF_DEVICE_MODEL, DOMAIN
@@ -111,13 +115,17 @@ async def test_blood_pressure_entry_loads_every_platform(
         "hem_7155t_eeff_retry_pairing",
     }
     assert grouped["text"] == {"hem_7155t_eeff_device_alias"}
-    # Measurement sensors appear with the first readout; diagnostics at setup.
-    assert grouped["sensor"] == {
+    # Diagnostics and the seeded measurement sensors exist at setup, so the
+    # measurements can restore their last value while the cuff is asleep.
+    assert {
         "hem_7155t_eeff_duration",
         "hem_7155t_eeff_last_readout",
         "hem_7155t_eeff_last_failure",
         "hem_7155t_eeff_failure_count",
-    }
+        "hem_7155t_eeff_none_blood_pressure_systolic_user1",
+        "hem_7155t_eeff_none_blood_pressure_systolic_user2",
+    } <= grouped["sensor"]
+    assert not any("signal_strength" in uid for uid in grouped["sensor"])
     assert "number" not in grouped
     assert set(grouped) <= {platform.value for platform in PLATFORMS}
 
@@ -282,3 +290,240 @@ async def test_removing_the_entry_removes_its_entities_and_device(
 
     assert not er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
     assert _device(hass, entry) is None
+
+
+def _preregister(
+    hass: HomeAssistant, entry: MockConfigEntry, domain: str, unique_id: str
+) -> str:
+    """Put an entity in the registry as an earlier run would have left it."""
+    entry.add_to_hass(hass)
+    return (
+        er.async_get(hass)
+        .async_get_or_create(
+            domain, DOMAIN, unique_id, config_entry=entry, suggested_object_id=unique_id
+        )
+        .entity_id
+    )
+
+
+async def test_measurement_sensors_restore_last_value_before_first_poll(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Both users of a two-user cuff get their own last value back (#284)."""
+    entry = _entry(BP_MODEL)
+    user1 = _preregister(
+        hass, entry, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user1"
+    )
+    user2 = _preregister(
+        hass, entry, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user2"
+    )
+    mock_restore_cache(hass, [State(user1, "121"), State(user2, "132")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(user1).state == "121"
+    assert hass.states.get(user2).state == "132"
+    await _unload(hass, entry)
+
+
+async def test_status_flags_restore_only_for_current_users(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A flag of a current user returns; one left by an old alias does not."""
+    entry = _entry(BP_MODEL)
+    current = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user2"
+    )
+    stale = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_dad"
+    )
+    mock_restore_cache(hass, [State(current, "on"), State(stale, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(current).state == "on"
+    # Not re-added, so it never restored (core only writes unavailable on start).
+    stale_state = hass.states.get(stale)
+    assert stale_state is None or stale_state.state != "on"
+    await _unload(hass, entry)
+
+
+async def test_restored_entities_are_not_duplicated_by_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    entry = _entry(BP_MODEL)
+    await _setup(hass, entry)
+    before = _by_domain(hass, entry)
+
+    runtime = entry.runtime_data
+    runtime.device_data._update_measurement_sensors(_RECORD, user=1, multi_user=True)
+    runtime.poll_coordinator.async_set_updated_data(
+        runtime.device_data._finish_update()
+    )
+    await hass.async_block_till_done()
+
+    assert _by_domain(hass, entry)["sensor"] == before["sensor"]
+    # Home Assistant drops a second entity with a known unique id and logs it,
+    # which the registry alone would not show.
+    assert "does not generate unique IDs" not in caplog.text
+    assert (
+        _state(
+            hass, "sensor", "hem_7155t_eeff_none_blood_pressure_systolic_user1"
+        ).state
+        == "120"
+    )
+    await _unload(hass, entry)
+
+
+async def test_restored_status_flag_is_not_duplicated_by_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A flag restored at startup is the one the first readout updates."""
+    entry = _entry(BP_MODEL)
+    flag = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user1"
+    )
+    mock_restore_cache(hass, [State(flag, "off")])
+    await _setup(hass, entry)
+    assert hass.states.get(flag).state == "off"
+
+    runtime = entry.runtime_data
+    runtime.device_data._update_measurement_sensors(_RECORD, user=1, multi_user=True)
+    runtime.poll_coordinator.async_set_updated_data(
+        runtime.device_data._finish_update()
+    )
+    await hass.async_block_till_done()
+
+    assert "does not generate unique IDs" not in caplog.text
+    assert hass.states.get(flag).state == "on"
+    await _unload(hass, entry)
+
+
+async def test_status_flags_follow_the_configured_user_aliases(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """With an alias set, the alias key returns and the default key does not."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        title=f"{BP_MODEL} EEFF",
+        data={CONF_DEVICE_MODEL: BP_MODEL, "user_aliases": {"1": "Dad", "2": "Mom"}},
+    )
+    aliased = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_dad"
+    )
+    default = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement_user1"
+    )
+    mock_restore_cache(hass, [State(aliased, "on"), State(default, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(aliased).state == "on"
+    default_state = hass.states.get(default)
+    assert default_state is None or default_state.state != "on"
+    await _unload(hass, entry)
+
+
+async def test_status_flag_without_user_suffix_is_not_restored_on_a_two_user_cuff(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A flag left from when the model had one user is not brought back."""
+    entry = _entry(BP_MODEL)
+    single = _preregister(
+        hass, entry, "binary_sensor", "hem_7155t_eeff_none_body_movement"
+    )
+    mock_restore_cache(hass, [State(single, "on")])
+
+    await _setup(hass, entry)
+
+    single_state = hass.states.get(single)
+    assert single_state is None or single_state.state != "on"
+    await _unload(hass, entry)
+
+
+async def test_single_user_cuff_restores_its_status_flag(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A one-user cuff keeps the plain flag key, with no user suffix."""
+    entry = _entry("HEM-7600T")
+    flag = _preregister(
+        hass, entry, "binary_sensor", "hem_7600t_eeff_none_body_movement"
+    )
+    systolic = _preregister(
+        hass, entry, "sensor", "hem_7600t_eeff_none_blood_pressure_systolic"
+    )
+    mock_restore_cache(hass, [State(flag, "on"), State(systolic, "118")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(flag).state == "on"
+    assert hass.states.get(systolic).state == "118"
+    await _unload(hass, entry)
+
+
+async def test_advertisement_flag_in_the_registry_does_not_break_setup(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Advertisement flags share the id shape; they are skipped, not parsed."""
+    entry = _entry(BP_MODEL)
+    _preregister(hass, entry, "binary_sensor", "hem_7155t_eeff_none_forced_transfer")
+
+    await _setup(hass, entry)
+
+    assert "Error while setting up" not in caplog.text
+    assert "hem_7155t_eeff_connection" in _by_domain(hass, entry)["binary_sensor"]
+    await _unload(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "flag", ["body_movement", "cuff_fit", "irregular_pulse", "improper_position"]
+)
+async def test_every_status_flag_is_restored(
+    hass: HomeAssistant, enable_bluetooth: None, flag: str
+) -> None:
+    entry = _entry(BP_MODEL)
+    entity_id = _preregister(
+        hass, entry, "binary_sensor", f"hem_7155t_eeff_none_{flag}_user1"
+    )
+    mock_restore_cache(hass, [State(entity_id, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(entity_id).state == "on"
+    await _unload(hass, entry)
+
+
+async def test_registry_entries_of_other_domains_platforms_or_devices_are_ignored(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Only this device's own binary_sensor entries are re-created."""
+    entry = _entry(BP_MODEL)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    uid = "hem_7155t_eeff_none_cuff_fit_user1"
+    registry.async_get_or_create(
+        "sensor", DOMAIN, uid, config_entry=entry, suggested_object_id="as_sensor"
+    )
+    registry.async_get_or_create(
+        "binary_sensor", "other", uid, config_entry=entry, suggested_object_id="other"
+    )
+    registry.async_get_or_create(
+        "binary_sensor",
+        DOMAIN,
+        "hem_7155t_aaaa_none_cuff_fit_user1",
+        config_entry=entry,
+        suggested_object_id="other_device",
+    )
+
+    await _setup(hass, entry)
+
+    # Re-creating any of them would register this device's own cuff-fit flag.
+    assert registry.async_get_entity_id("binary_sensor", DOMAIN, uid) is None
+    await _unload(hass, entry)
