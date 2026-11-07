@@ -85,7 +85,7 @@ def test_clearing_an_alias_goes_back_to_the_default_slot_name(
     entry = _entry(hass)
     sensor = _add(hass, entry, "sensor", f"{PREFIX}weight_dad")
 
-    async_migrate_alias_unique_ids(hass, entry, {1: "Dad"}, {1: "user1"}, 2)
+    assert async_migrate_alias_unique_ids(hass, entry, {1: "Dad"}, {1: "user1"}, 2) == 1
 
     assert _unique_id(hass, sensor) == f"{PREFIX}weight_user1"
 
@@ -116,13 +116,13 @@ def test_entities_of_another_device_are_not_touched(hass: HomeAssistant) -> None
     entry = _entry(hass)
     other = _add(hass, entry, "sensor", "hem_7155t_aaaa_none_weight_user1")
 
-    async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2)
+    assert async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2) == 0
 
     assert _unique_id(hass, other) == "hem_7155t_aaaa_none_weight_user1"
 
 
 async def test_saving_new_aliases_in_the_options_flow_moves_the_entities(
-    hass: HomeAssistant,
+    hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = _entry(hass)
     sensor = _add(hass, entry, "sensor", f"{PREFIX}blood_pressure_systolic_user1")
@@ -207,7 +207,7 @@ def test_a_free_move_still_happens_beside_a_blocked_one(hass: HomeAssistant) -> 
 
 
 async def test_a_second_alias_change_starts_from_the_saved_aliases(
-    hass: HomeAssistant,
+    hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -257,3 +257,38 @@ def test_an_entry_without_an_address_moves_nothing(hass: HomeAssistant) -> None:
 
     assert async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2) == 0
     assert _unique_id(hass, sensor) == f"{PREFIX}weight_user1"
+
+
+def test_a_user_is_never_split_across_old_and_new_entities(
+    hass: HomeAssistant,
+) -> None:
+    """One blocked sensor keeps the whole user where it is."""
+    entry = _entry(hass)
+    weight = _add(hass, entry, "sensor", f"{PREFIX}weight_dad")
+    body_fat = _add(hass, entry, "sensor", f"{PREFIX}body_fat_dad")
+    leftover = _add(hass, entry, "sensor", f"{PREFIX}weight_grandpa")
+
+    moved = async_migrate_alias_unique_ids(hass, entry, {1: "Dad"}, {1: "Grandpa"}, 4)
+
+    assert moved == 0
+    assert _unique_id(hass, weight) == f"{PREFIX}weight_dad"
+    assert _unique_id(hass, body_fat) == f"{PREFIX}body_fat_dad"
+    assert _unique_id(hass, leftover) == f"{PREFIX}weight_grandpa"
+
+
+def test_four_users_can_rotate_aliases(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    names = ["a", "b", "c", "d"]
+    ids = {n: _add(hass, entry, "sensor", f"{PREFIX}weight_{n}") for n in names}
+
+    moved = async_migrate_alias_unique_ids(
+        hass,
+        entry,
+        dict(enumerate(names, 1)),
+        dict(enumerate(names[1:] + names[:1], 1)),
+        4,
+    )
+
+    assert moved == 4
+    for n, m in zip(names, names[1:] + names[:1]):
+        assert _unique_id(hass, ids[n]) == f"{PREFIX}weight_{m}"

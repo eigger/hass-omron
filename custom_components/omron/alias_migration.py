@@ -30,9 +30,11 @@ def async_migrate_alias_unique_ids(
 ) -> int:
     """Move per-user entities from the old alias slugs to the new ones.
 
-    Returns how many entities were renamed. Entity ids are kept. A slot whose
-    new slug is already taken by another entity is left alone, and so are
-    entities whose slug matches no slot (for example left by an older alias).
+    Returns how many entities were renamed. Entity ids are kept. A user's
+    entities move together or not at all: if the new id of any of them is held
+    by an entity that does not move (for example one left by an older alias),
+    that user is left alone, so a user is never split across two sets of
+    entities. Entities whose slug matches no user are not touched.
     """
     if entry.unique_id is None:
         return 0
@@ -50,7 +52,7 @@ def async_migrate_alias_unique_ids(
         return 0
 
     registry = er.async_get(hass)
-    moving: list[tuple[str, str]] = []
+    moving: list[tuple[str, str, str]] = []
     for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if reg_entry.platform != DOMAIN or reg_entry.domain not in _MEASUREMENT_DOMAINS:
             continue
@@ -62,25 +64,38 @@ def async_migrate_alias_unique_ids(
             continue
         base = key[: -len(old_slug) - 1]
         moving.append(
-            (reg_entry.entity_id, f"{prefix}{base}_{new_slug_by_old[old_slug]}")
+            (
+                reg_entry.entity_id,
+                f"{prefix}{base}_{new_slug_by_old[old_slug]}",
+                old_slug,
+            )
         )
 
-    # An entity may move only if its target id is free, or is held by an entity
-    # that moves away too. Dropping one move can block another, so repeat until
-    # nothing changes. This keeps a chain from stopping halfway.
-    candidates = dict(moving)
+    # A user may move only if every target id is free, or is held by an entity
+    # of a user that moves away too. Dropping one user can block another, so
+    # repeat until nothing changes. This also keeps a chain from stopping
+    # halfway.
+    slot_of = {entity_id: slug for entity_id, _, slug in moving}
+    moving_slots = set(slot_of.values())
     changed = True
     while changed:
         changed = False
-        for entity_id, new_unique_id in list(candidates.items()):
+        for entity_id, new_unique_id, slug in moving:
+            if slug not in moving_slots:
+                continue
             reg_entry = registry.async_get(entity_id)
             assert reg_entry is not None
             taken = registry.async_get_entity_id(
                 reg_entry.domain, DOMAIN, new_unique_id
             )
-            if taken is not None and taken not in candidates:
-                del candidates[entity_id]
+            if taken is not None and slot_of.get(taken) not in moving_slots:
+                moving_slots.discard(slug)
                 changed = True
+    candidates = {
+        entity_id: new_unique_id
+        for entity_id, new_unique_id, slug in moving
+        if slug in moving_slots
+    }
 
     # Two steps so that two users swapping aliases do not collide halfway.
     moves: list[tuple[str, str, str]] = []
