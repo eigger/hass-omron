@@ -154,7 +154,7 @@ async def test_the_last_value_is_still_restored_under_the_new_alias(
     sensor = _add(hass, entry, "sensor", f"{PREFIX}blood_pressure_systolic_user1")
     mock_restore_cache(hass, [State(sensor, "127")])
 
-    async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2)
+    assert async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2) == 1
     hass.config_entries.async_update_entry(
         entry, options={"user_aliases": {"1": "Dad", "2": "Mom"}}
     )
@@ -219,7 +219,7 @@ async def test_a_second_alias_change_starts_from_the_saved_aliases(
     sensor = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_dad")
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
-    await hass.config_entries.options.async_configure(
+    done = await hass.config_entries.options.async_configure(
         result["flow_id"],
         user_input={
             "scan_interval": 0,
@@ -229,6 +229,7 @@ async def test_a_second_alias_change_starts_from_the_saved_aliases(
         },
     )
 
+    assert done["type"] is FlowResultType.CREATE_ENTRY
     assert _unique_id(hass, sensor) == f"{PREFIX}heart_rate_grandpa"
 
 
@@ -292,3 +293,18 @@ def test_four_users_can_rotate_aliases(hass: HomeAssistant) -> None:
     assert moved == 4
     for n, m in zip(names, names[1:] + names[:1]):
         assert _unique_id(hass, ids[n]) == f"{PREFIX}weight_{m}"
+
+
+def test_a_leftover_entity_of_another_kind_under_the_new_name_keeps_the_user_put(
+    hass: HomeAssistant,
+) -> None:
+    """A flag left under the new name would split the user after the reload."""
+    entry = _entry(hass)
+    sensor = _add(hass, entry, "sensor", f"{PREFIX}blood_pressure_systolic_dad")
+    leftover = _add(hass, entry, "binary_sensor", f"{PREFIX}body_movement_grandpa")
+
+    moved = async_migrate_alias_unique_ids(hass, entry, {1: "Dad"}, {1: "Grandpa"}, 2)
+
+    assert moved == 0
+    assert _unique_id(hass, sensor) == f"{PREFIX}blood_pressure_systolic_dad"
+    assert _unique_id(hass, leftover) == f"{PREFIX}body_movement_grandpa"

@@ -77,6 +77,21 @@ def async_migrate_alias_unique_ids(
     # halfway.
     slot_of = {entity_id: slug for entity_id, _, slug in moving}
     moving_slots = set(slot_of.values())
+    # An entity of another kind may already use a new slug (a status flag left
+    # by an earlier name, say). It would be picked up again after the reload and
+    # split the user, so such a user stays where it was.
+    leftover_slugs: set[str] = set()
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.platform != DOMAIN or reg_entry.domain not in _MEASUREMENT_DOMAINS:
+            continue
+        if not reg_entry.unique_id.startswith(prefix) or reg_entry.entity_id in slot_of:
+            continue
+        slug = user_alias_slug_from_entity_key(reg_entry.unique_id[len(prefix) :])
+        if slug is not None:
+            leftover_slugs.add(slug)
+    moving_slots = {
+        slug for slug in moving_slots if new_slug_by_old[slug] not in leftover_slugs
+    }
     changed = True
     while changed:
         changed = False
