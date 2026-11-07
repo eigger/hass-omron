@@ -592,7 +592,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-6232T-E",
             "HEM-6232T-Z",
             "HEM-6233T",
-            "HEM-6232T-D/E",
         ),
     ),
     "HEM-1026T2": DeviceConfig(
@@ -726,7 +725,6 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-6161T-RU",
             "HEM-6161T2-BR",
             "HEM-7271L-SH3",
-            "HEM-6161T-D/E",
         ),
     ),
     # Single-user 60-slot variant of the 7530T EEPROM family (0x260/0x2E8).

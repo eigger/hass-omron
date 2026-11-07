@@ -29,14 +29,11 @@ Resolvable in principle: the stacks expose different parent service UUIDs,
 visible on connect. That needs the device in hand, so it is left for later.
 
 An alias is a product or marketing name (BP7000, Evolv, X2+) standing for a
-model code. A name that is itself a model code (HEM-*, HCR-*, HN-*, HBF-*)
-is not an alias: list it in its profile's equivalent_model_ids, which also
-offers it in the dropdown. test_aliases_are_names_not_model_codes enforces this.
-
-Resolution aliases only: get_supported_models does not offer them in the
-config-flow dropdown, which stays on the HEM designations. A name that should
-be selectable (the HCR-* cartons) belongs in its profile's equivalent_model_ids
-instead.
+model code, and only resolves: get_supported_models does not offer aliases in
+the config-flow dropdown. A name that is itself a model code (HEM-*, HCR-*,
+HN-*, HBF-*) is not an alias: list it in its profile's equivalent_model_ids,
+which also offers it in the dropdown. test_aliases_are_names_not_model_codes
+enforces this.
 """
 
 from __future__ import annotations
