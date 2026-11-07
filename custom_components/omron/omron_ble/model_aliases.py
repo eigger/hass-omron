@@ -29,7 +29,9 @@ Resolvable in principle: the stacks expose different parent service UUIDs,
 visible on connect. That needs the device in hand, so it is left for later.
 
 Resolution aliases only: get_supported_models does not offer them in the
-config-flow dropdown, which stays on the HEM designations.
+config-flow dropdown, which stays on the HEM designations. A name that should
+be selectable (the HCR-* cartons) belongs in its profile's equivalent_model_ids
+instead.
 """
 
 from __future__ import annotations
@@ -71,15 +73,6 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "BP786|CAN": "HEM-7321T_TI-Z",
     "BP7900": "HEM-7530T-Z",
     "BP8000": "HEM-6410T-Z",
-    "HCR-1901T2": "HEM-1026T2-AJC",
-    "HCR-1902T2": "HEM-1026T2-AJE",
-    "HCR-7206T2": "HEM-7146T2-JD",
-    "HCR-7308T2": "HEM-7146T2-JF",
-    "HCR-7608T2": "HEM-7600T2-JF",
-    "HCR-7612T2": "HEM-7346T2-AJE32",
-    "HCR-761AT2": "HEM-7346T2-AJC32",
-    "HCR-7711T2": "HEM-7347T2-AJC32",
-    "HCR-7712T2": "HEM-7347T2-AJE32",
     "HEM-6161T-D/E": "HEM-6161T-E",
     "HEM-6232T-D/E": "HEM-6232T-D",
     "HEM-7140T1": "HEM-7140T1-AP",
@@ -101,12 +94,6 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "Complete(HEM-7530T1)": "HEM-7530T1-BR3",
     "EVOLV": "HEM-7600T-E",
     "Evolv": "HEM-7600T-Z",
-    "HCR-7501T": "HEM-7158T-JC",
-    "HCR-7502T": "HEM-7346T-AJE3",
-    "HCR-750AT": "HEM-7346T-AJC3",
-    "HCR-7601T": "HEM-7347T-AJC3",
-    "HCR-7602T": "HEM-7347T-AJE3",
-    "HCR-7800T": "HEM-7530T_J3",
     "HEM-7141T1": "HEM-7141T1-AP",
     "HEM-7143T1": "HEM-7143T1-AP",
     "HEM-7143T2": "HEM-7143T2-E",

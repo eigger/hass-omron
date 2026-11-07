@@ -685,14 +685,20 @@ def _name_candidates(token: str) -> tuple[str, ...]:
     return tuple(seen)
 
 
-def _exact_catalog_model_id(token: str) -> str | None:
-    """Catalog model id for an exact name, ignoring case and inner spaces."""
-    supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
-    candidates = _name_candidates(token)
-    # Before the catalog lookup: HEM-7155T_ESL is itself a catalog id and also
-    # what its K4 sibling reports.
+def _catalog_ids() -> set[str]:
+    """Every id the catalog answers to directly: profile keys and variants."""
+    return set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)
+
+
+def _resolve_candidates(candidates: tuple[str, ...]) -> str | None:
+    """Catalog id for the first spelling that names one, else the first alias.
+
+    Ambiguous names are refused before the catalog lookup: HEM-7155T_ESL is
+    itself a catalog id and also what its K4 sibling reports.
+    """
     if any(cand in AMBIGUOUS_MODEL_NAMES for cand in candidates):
         return None
+    supported = _catalog_ids()
     for cand in candidates:
         if cand in supported:
             return cand
@@ -701,6 +707,11 @@ def _exact_catalog_model_id(token: str) -> str | None:
         if alias:
             return alias
     return None
+
+
+def _exact_catalog_model_id(token: str) -> str | None:
+    """Catalog model id for an exact name, ignoring case and inner spaces."""
+    return _resolve_candidates(_name_candidates(token))
 
 
 def infer_model_id_from_local_name(local_name: str | None) -> str | None:
@@ -722,18 +733,7 @@ def infer_model_id_from_local_name(local_name: str | None) -> str | None:
         # resolves; anything else still infers nothing.
         return _exact_catalog_model_id(name)
     token = match.group(1).strip()
-    candidates = _name_candidates(token) + (token.replace(" ", ""),)
-    supported = set(CANONICAL_DEVICE_PROFILES.keys()) | set(MODEL_VARIANT_MAP.keys())
-    if any(cand in AMBIGUOUS_MODEL_NAMES for cand in candidates):
-        return None
-    for cand in candidates:
-        if cand in supported:
-            return cand
-    for cand in candidates:
-        alias = MODEL_NUMBER_ALIASES.get(cand)
-        if alias:
-            return alias
-    return None
+    return _resolve_candidates(_name_candidates(token) + (token.replace(" ", ""),))
 
 
 def resolve_profile_model_id(model: str) -> str:

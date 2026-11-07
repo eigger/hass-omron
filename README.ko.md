@@ -120,7 +120,6 @@ bluetooth_proxy:
 - [HEM-7374T1 노트](docs/hem-7374t1.md) (영어)
 - [체성분 체중계 노트](docs/body-composition-scales-notes.md) (영어)
 - [HN-300T2 메모리 맵](docs/hn-300t2-memory-map.md) (영어)
-- [로드맵](docs/roadmap.md) (영어)
 - [개발과 테스트](CONTRIBUTING.md) (영어)
 - 참고: [omblepy (userx14)](https://github.com/userx14/omblepy)
 
