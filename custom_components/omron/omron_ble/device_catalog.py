@@ -277,6 +277,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7321T-ZV",
             "HEM-7322T-D",
             "HEM-7322T-E",
+            "HEM-7280T",
         ),
     ),
     "HEM-7511T": DeviceConfig(
@@ -479,6 +480,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-9601T-J3",
             "HEM-9601T2-BR3",
             "HEM-9601T_E3",
+            "HEM-9601T-E3",
         ),
     ),
     # HEM-9700T ("HeartGuide" 1000-slot variant)
@@ -590,6 +592,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-6232T-E",
             "HEM-6232T-Z",
             "HEM-6233T",
+            "HEM-6232T-D/E",
         ),
     ),
     "HEM-1026T2": DeviceConfig(
@@ -723,6 +726,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-6161T-RU",
             "HEM-6161T2-BR",
             "HEM-7271L-SH3",
+            "HEM-6161T-D/E",
         ),
     ),
     # Single-user 60-slot variant of the 7530T EEPROM family (0x260/0x2E8).
@@ -894,6 +898,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7156T-LA",
             "HEM-7156T_AAP",
             "HEM-7156T_AP",
+            "HEM-7156T",
+            "HEM-7156T-A",
+            "HEM-7156T-AAP",
         ),
     ),
     # HEM-7157T / HEM-7158T: same layout as HEM-7150T but has 100 record slots
@@ -1017,6 +1024,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7340T-CA",
             "HEM-7340T-Z",
             "HEM-7341T-Z",
+            "HEM-7155T-AP",
         ),
     ),
     # HEM-7155T modern stack V2 — OS bonding only, same EEPROM addresses as V1
@@ -1223,6 +1231,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7146T2-JD",
             "HEM-7146T2-JF",
             "HEM-716DT2-LA",
+            "HEM-7143T1",
+            "HEM-7143T1-EBK",
+            "HEM-7143T2",
+            "HEM-7143T2-ESL",
+            "HEM-7144T1",
         ),
     ),
     "HEM-7342T": DeviceConfig(
@@ -1857,6 +1870,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7142T2-Z",
             "HEM-7142T2-ZAZ",
             "HEM-7142T2_JAZ",
+            "HEM-7140T1",
+            "HEM-7141T1",
+            "HEM-7142T1",
         ),
     ),
     # HN-300T2 -- weight-only scale on the same modern stack and WLD1.0 memory

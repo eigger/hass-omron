@@ -48,7 +48,8 @@ def test_model_number_aliases_resolve_to_a_profile() -> None:
     # a carton code shows up; without the alias table these fall through to
     # "unidentified" even though the catalog covers them.
     assert infer_model_id_from_local_name("BP7360") == "HEM-7376T1-Z"
-    assert infer_model_id_from_local_name("HEM-7140T1") == "HEM-7140T1-AP"
+    # A model code the catalog lists is selected as itself, not rewritten.
+    assert infer_model_id_from_local_name("HEM-7140T1") == "HEM-7140T1"
 
 
 def test_unknown_names_stay_unknown() -> None:
