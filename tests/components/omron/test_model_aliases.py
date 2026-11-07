@@ -89,6 +89,7 @@ def test_aliases_are_names_not_model_codes():
 def test_moved_model_codes_stay_in_their_profiles():
     expected = {
         "HEM-6161T-D/E": None,
+        "HEM-6232T-D/E": None,
         "HEM-7140T1": "HEM-7142T2",
         "HEM-7141T1": "HEM-7142T2",
         "HEM-7142T1": "HEM-7142T2",
