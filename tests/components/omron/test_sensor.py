@@ -444,3 +444,23 @@ async def test_status_flag_without_user_suffix_is_not_restored_on_a_two_user_cuf
     single_state = hass.states.get(single)
     assert single_state is None or single_state.state != "on"
     await _unload(hass, entry)
+
+
+async def test_single_user_cuff_restores_its_status_flag(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """A one-user cuff keeps the plain flag key, with no user suffix."""
+    entry = _entry("HEM-7600T")
+    flag = _preregister(
+        hass, entry, "binary_sensor", "hem_7600t_eeff_none_body_movement"
+    )
+    systolic = _preregister(
+        hass, entry, "sensor", "hem_7600t_eeff_none_blood_pressure_systolic"
+    )
+    mock_restore_cache(hass, [State(flag, "on"), State(systolic, "118")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(flag).state == "on"
+    assert hass.states.get(systolic).state == "118"
+    await _unload(hass, entry)
