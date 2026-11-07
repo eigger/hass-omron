@@ -464,3 +464,66 @@ async def test_single_user_cuff_restores_its_status_flag(
     assert hass.states.get(flag).state == "on"
     assert hass.states.get(systolic).state == "118"
     await _unload(hass, entry)
+
+
+async def test_advertisement_flag_in_the_registry_does_not_break_setup(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Advertisement flags share the id shape; they are skipped, not parsed."""
+    entry = _entry(BP_MODEL)
+    _preregister(hass, entry, "binary_sensor", "hem_7155t_eeff_none_forced_transfer")
+
+    await _setup(hass, entry)
+
+    assert "Error while setting up" not in caplog.text
+    assert "hem_7155t_eeff_connection" in _by_domain(hass, entry)["binary_sensor"]
+    await _unload(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "flag", ["body_movement", "cuff_fit", "irregular_pulse", "improper_position"]
+)
+async def test_every_status_flag_is_restored(
+    hass: HomeAssistant, enable_bluetooth: None, flag: str
+) -> None:
+    entry = _entry(BP_MODEL)
+    entity_id = _preregister(
+        hass, entry, "binary_sensor", f"hem_7155t_eeff_none_{flag}_user1"
+    )
+    mock_restore_cache(hass, [State(entity_id, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(entity_id).state == "on"
+    await _unload(hass, entry)
+
+
+async def test_registry_entries_of_other_domains_platforms_or_devices_are_ignored(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    """Only this device's own binary_sensor entries are re-created."""
+    entry = _entry(BP_MODEL)
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    uid = "hem_7155t_eeff_none_cuff_fit_user1"
+    registry.async_get_or_create(
+        "sensor", DOMAIN, uid, config_entry=entry, suggested_object_id="as_sensor"
+    )
+    registry.async_get_or_create(
+        "binary_sensor", "other", uid, config_entry=entry, suggested_object_id="other"
+    )
+    registry.async_get_or_create(
+        "binary_sensor",
+        DOMAIN,
+        "hem_7155t_aaaa_none_cuff_fit_user1",
+        config_entry=entry,
+        suggested_object_id="other_device",
+    )
+
+    await _setup(hass, entry)
+
+    # Re-creating any of them would register this device's own cuff-fit flag.
+    assert registry.async_get_entity_id("binary_sensor", DOMAIN, uid) is None
+    await _unload(hass, entry)
