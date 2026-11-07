@@ -2,12 +2,14 @@
 
 커프는 자기 카톤에 적힌 이름을 Model Number String 으로 답한다. 그 이름이
 프로파일 키도, 이미 등록된 변형도 아닌 경우가 많다 — BP5465 는
-HEM-7382T1-AZAZ 이고, 스스로를 HEM-7140T1 이라 부르는 기기는 HEM-7140T1-AP 다.
+HEM-7382T1-AZAZ 이고, 스스로를 HEM-7140T1 이라 부르는 기기는 HEM-7142T2 프로파일로 읽는다.
 매핑이 없으면 아무것도 안 걸려 기본 프로파일로 폴백하고, 그러면 EEPROM 을 엉뚱한
 레이아웃으로 읽는다.
 
 표는 OMRON connect 안드로이드 앱이 들고 있는 기기 목록에서 뽑았다.
 """
+
+import re
 
 from custom_components.omron.omron_ble.device_catalog import (
     CANONICAL_DEVICE_PROFILES,
@@ -25,6 +27,9 @@ from custom_components.omron.omron_ble.model_aliases import (
     AMBIGUOUS_MODEL_NAMES,
     MODEL_NUMBER_ALIASES,
 )
+
+
+_MODEL_CODE_PREFIX = re.compile(r"(HEM|HCR|HN|HBF)-", re.IGNORECASE)
 
 
 def test_the_reported_cuff_shows_its_hem_designation():
@@ -69,6 +74,46 @@ def test_every_alias_points_at_something_the_catalog_knows():
     known = set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)
     dangling = {a: t for a, t in MODEL_NUMBER_ALIASES.items() if t not in known}
     assert not dangling, dangling
+
+
+def test_aliases_are_names_not_model_codes():
+    """별칭은 BP7000·Evolv 같은 제품명을 모델 코드로 바꾸는 표다.
+
+    HEM-/HCR- 같은 모델 코드가 키로 오면 그건 별칭이 아니라 프로파일의
+    equivalent_model_ids 다 — 거기 넣어야 드롭다운에도 나온다.
+    """
+    codes = [a for a in MODEL_NUMBER_ALIASES if _MODEL_CODE_PREFIX.match(a)]
+    assert not codes, f"move to equivalent_model_ids: {codes}"
+
+
+def test_moved_model_codes_stay_in_their_profiles():
+    expected = {
+        "HEM-6161T-D/E": None,
+        "HEM-6232T-D/E": None,
+        "HEM-7140T1": "HEM-7142T2",
+        "HEM-7141T1": "HEM-7142T2",
+        "HEM-7142T1": "HEM-7142T2",
+        "HEM-7143T1": "HEM-7146T",
+        "HEM-7143T1-EBK": "HEM-7146T",
+        "HEM-7143T2": "HEM-7146T",
+        "HEM-7143T2-ESL": "HEM-7146T",
+        "HEM-7144T1": "HEM-7146T",
+        "HEM-7155T-AP": "HEM-7155T",
+        "HEM-7156T": "HEM-7150T",
+        "HEM-7156T-A": "HEM-7150T",
+        "HEM-7156T-AAP": "HEM-7150T",
+        "HEM-7280T": "HEM-7322T",
+        "HEM-9601T-E3": "HEM-9601T",
+    }
+    for code, profile in expected.items():
+        if profile is None:
+            assert code not in MODEL_VARIANT_MAP, code
+        else:
+            assert MODEL_VARIANT_MAP[code] == profile, code
+
+
+def test_a_model_code_is_never_both_variant_and_alias():
+    assert not set(MODEL_NUMBER_ALIASES) & set(MODEL_VARIANT_MAP)
 
 
 def test_aliases_do_not_grow_the_dropdown():
