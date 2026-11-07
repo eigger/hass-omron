@@ -70,7 +70,7 @@ The **Blood Pressure Category** sensor classifies readings according to the **AC
 
 - Some Omron models store **two (or more) user profiles** on the cuff. After you choose such a model, the setup flow asks for a **display name per profile** (defaults: `user1`, `user2`, …). Those names are used in sensor labels and in the internal sensor key (slug), so they replace the old `_user1` / `_user2`-style suffix in `entity_id`s when you customize them.
 - **Single-user models** do not show this step.
-- **Changing a name** later under **Configure** re-creates sensors for that profile slot (new `entity_id`, new long-term statistics for those entities).
+- **Changing a name** later under **Configure** keeps the sensors of that profile slot: their `entity_id`, history and long-term statistics stay, and only the display name changes. Names can also be swapped between profiles. An entity already left over from an older name change (before this was supported) is not recovered.
 - **Last value after restart**: non-diagnostic measurement sensors restore their last recorded state from Home Assistant so they can show the previous reading when the cuff is off or not yet polled. The **Connection** binary sensor still reflects whether a poll connection is active. Stale readings are possible if the device has not synced—use the connection sensor and timestamps as context.
 
 ## Measurements taken between polls

@@ -65,15 +65,28 @@ def async_migrate_alias_unique_ids(
             (reg_entry.entity_id, f"{prefix}{base}_{new_slug_by_old[old_slug]}")
         )
 
+    # An entity may move only if its target id is free, or is held by an entity
+    # that moves away too. Dropping one move can block another, so repeat until
+    # nothing changes. This keeps a chain from stopping halfway.
+    candidates = dict(moving)
+    changed = True
+    while changed:
+        changed = False
+        for entity_id, new_unique_id in list(candidates.items()):
+            reg_entry = registry.async_get(entity_id)
+            assert reg_entry is not None
+            taken = registry.async_get_entity_id(
+                reg_entry.domain, DOMAIN, new_unique_id
+            )
+            if taken is not None and taken not in candidates:
+                del candidates[entity_id]
+                changed = True
+
     # Two steps so that two users swapping aliases do not collide halfway.
-    moving_ids = {entity_id for entity_id, _ in moving}
     moves: list[tuple[str, str, str]] = []
-    for entity_id, new_unique_id in moving:
+    for entity_id, new_unique_id in candidates.items():
         reg_entry = registry.async_get(entity_id)
         assert reg_entry is not None
-        taken = registry.async_get_entity_id(reg_entry.domain, DOMAIN, new_unique_id)
-        if taken is not None and taken not in moving_ids:
-            continue
         moves.append((entity_id, reg_entry.unique_id, new_unique_id))
     for entity_id, old_unique_id, _ in moves:
         registry.async_update_entity(

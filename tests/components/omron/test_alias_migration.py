@@ -169,3 +169,91 @@ async def test_the_last_value_is_still_restored_under_the_new_alias(
     assert f"{PREFIX}blood_pressure_systolic_dad" in uids
     assert f"{PREFIX}blood_pressure_systolic_user1" not in uids
     await hass.config_entries.async_unload(entry.entry_id)
+
+
+def test_a_skipped_move_does_not_leave_another_entity_half_moved(
+    hass: HomeAssistant,
+) -> None:
+    """Dad -> Mom is blocked once Mom -> Kid is, so neither moves."""
+    entry = _entry(hass)
+    dad = _add(hass, entry, "sensor", f"{PREFIX}weight_dad")
+    mom = _add(hass, entry, "sensor", f"{PREFIX}weight_mom")
+    leftover = _add(hass, entry, "sensor", f"{PREFIX}weight_kid")
+
+    moved = async_migrate_alias_unique_ids(
+        hass, entry, {1: "Dad", 2: "Mom"}, {1: "Mom", 2: "Kid"}, 2
+    )
+
+    assert moved == 0
+    assert _unique_id(hass, dad) == f"{PREFIX}weight_dad"
+    assert _unique_id(hass, mom) == f"{PREFIX}weight_mom"
+    assert _unique_id(hass, leftover) == f"{PREFIX}weight_kid"
+
+
+def test_a_free_move_still_happens_beside_a_blocked_one(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    blocked = _add(hass, entry, "sensor", f"{PREFIX}weight_dad")
+    leftover = _add(hass, entry, "sensor", f"{PREFIX}weight_grandpa")
+    free = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_mom")
+
+    moved = async_migrate_alias_unique_ids(
+        hass, entry, {1: "Dad", 2: "Mom"}, {1: "Grandpa", 2: "Nana"}, 2
+    )
+
+    assert moved == 1
+    assert _unique_id(hass, blocked) == f"{PREFIX}weight_dad"
+    assert _unique_id(hass, leftover) == f"{PREFIX}weight_grandpa"
+    assert _unique_id(hass, free) == f"{PREFIX}heart_rate_nana"
+
+
+async def test_a_second_alias_change_starts_from_the_saved_aliases(
+    hass: HomeAssistant,
+) -> None:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=ADDRESS,
+        data={CONF_DEVICE_MODEL: "HEM-7155T"},
+        options={"user_aliases": {"1": "Dad", "2": "Mom"}},
+    )
+    entry.add_to_hass(hass)
+    sensor = _add(hass, entry, "sensor", f"{PREFIX}heart_rate_dad")
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "scan_interval": 0,
+            "sync_stored_records": False,
+            "user_alias_1": "Grandpa",
+            "user_alias_2": "Mom",
+        },
+    )
+
+    assert _unique_id(hass, sensor) == f"{PREFIX}heart_rate_grandpa"
+
+
+def test_only_this_integrations_measurement_entities_are_moved(
+    hass: HomeAssistant,
+) -> None:
+    entry = _entry(hass)
+    registry = er.async_get(hass)
+    uid = f"{PREFIX}weight_user1"
+    foreign = registry.async_get_or_create(
+        "sensor", "other", uid, config_entry=entry, suggested_object_id="foreign"
+    ).entity_id
+    other_domain = registry.async_get_or_create(
+        "number", DOMAIN, uid, config_entry=entry, suggested_object_id="number"
+    ).entity_id
+
+    assert async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2) == 0
+    assert _unique_id(hass, foreign) == uid
+    assert _unique_id(hass, other_domain) == uid
+
+
+def test_an_entry_without_an_address_moves_nothing(hass: HomeAssistant) -> None:
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_DEVICE_MODEL: "HEM-7155T"})
+    entry.add_to_hass(hass)
+    sensor = _add(hass, entry, "sensor", f"{PREFIX}weight_user1")
+
+    assert async_migrate_alias_unique_ids(hass, entry, {}, {1: "Dad"}, 2) == 0
+    assert _unique_id(hass, sensor) == f"{PREFIX}weight_user1"
