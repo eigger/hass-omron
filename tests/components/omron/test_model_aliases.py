@@ -16,6 +16,7 @@ from custom_components.omron.omron_ble.devices import (
     MODEL_VARIANT_MAP,
     ambiguous_model_candidates,
     get_device_config,
+    get_supported_model_stats,
     get_supported_models,
     infer_model_id_from_local_name,
     resolve_profile_model_id,
@@ -76,6 +77,41 @@ def test_aliases_do_not_grow_the_dropdown():
 
     # BP5465 는 원래 카탈로그 변형으로 등록돼 있어 예외다.
     assert added <= {"BP5465"}, added
+
+
+def test_dropdown_counts_match_the_stats_shown_in_the_flow():
+    stats = get_supported_model_stats()
+    assert stats["total"] == len(get_supported_models())
+    assert stats["profiles"] + stats["extra_variants"] == stats["total"]
+
+
+def test_hcr_names_are_selectable_variants():
+    """박스에 HCR-* 만 적힌 기기: 드롭다운에서 고를 수 있고 프로파일로 풀린다."""
+    expected = {
+        "HCR-1901T2": "HEM-1026T2",
+        "HCR-1902T2": "HEM-1026T2",
+        "HCR-7206T2": "HEM-7146T",
+        "HCR-7308T2": "HEM-7146T",
+        "HCR-7501T": "HEM-7157T",
+        "HCR-7502T": "HEM-7342T",
+        "HCR-750AT": "HEM-7342T",
+        "HCR-7601T": "HEM-7342T",
+        "HCR-7602T": "HEM-7342T",
+        "HCR-7608T2": "HEM-7600T",
+        "HCR-7612T2": "HEM-7342T",
+        "HCR-761AT2": "HEM-7342T",
+        "HCR-7711T2": "HEM-7342T",
+        "HCR-7712T2": "HEM-7342T",
+        "HCR-7800T": "HEM-7530T",
+    }
+    offered = set(get_supported_models())
+    for name, profile in expected.items():
+        assert name in offered, name
+        assert resolve_profile_model_id(name) == profile, name
+        assert get_device_config(name).display_model == profile, name
+        # A cuff reporting the carton name is stored under it, not under a
+        # HEM variant, so entity ids follow the name the owner sees.
+        assert infer_model_id_from_local_name(name) == name, name
 
 
 def test_marketing_names_resolve() -> None:

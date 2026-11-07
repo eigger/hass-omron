@@ -424,6 +424,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # byte-aligned classic_vital_14 yielded dia>sys / bpm=26 / no date)
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
+            "HCR-7608T2",
             "HEM-7270C",
             "HEM-7271T",
             "HEM-7600T",
@@ -630,6 +631,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-1901T2",
+            "HCR-1902T2",
             "HEM-1026T2-AJC",
             "HEM-1026T2-AJE",
             "HEM-1026T2-AKA",
@@ -669,6 +672,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # classic_vital_14 yields bpm=26 and no valid datetime on this family).
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
+            "HCR-7800T",
             "HEM-6231T2-JC",
             "HEM-6231T2-JE",
             "HEM-6231T2-JT3",
@@ -923,6 +927,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7501T",
             "HEM-7157T-AP",
             "HEM-7158T-JC",
             "HEM-7158T_AP3",
@@ -1199,6 +1204,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7206T2",
+            "HCR-7308T2",
             "HEM-7143T1-AIN",
             "HEM-7143T1-AP",
             "HEM-7143T1-D",
@@ -1260,6 +1267,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7502T",
+            "HCR-750AT",
+            "HCR-7601T",
+            "HCR-7602T",
+            "HCR-7612T2",
+            "HCR-761AT2",
+            "HCR-7711T2",
+            "HCR-7712T2",
             "HEM-7159T_AP3",
             "HEM-7342T-CA",
             "HEM-7342T-Z",

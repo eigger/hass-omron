@@ -120,7 +120,6 @@ bluetooth_proxy:
 - [HEM-7374T1 notes](docs/hem-7374t1.md)
 - [Body composition scale notes](docs/body-composition-scales-notes.md)
 - [HN-300T2 memory map](docs/hn-300t2-memory-map.md)
-- [Roadmap](docs/roadmap.md)
 - [Development and tests](CONTRIBUTING.md)
 - Reference: [omblepy (userx14)](https://github.com/userx14/omblepy)
 
