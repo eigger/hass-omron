@@ -244,7 +244,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         Lets the platforms create the entities of the current model, user count
         and user aliases at setup, so a cuff that is asleep at startup still has
         its registered sensors added and their last value restored. Unlike
-        ``_finish_update`` this does not commit or consume any pending update.
+        ``_finish_update`` this does not commit the pending update or change any state.
         """
         return SensorUpdate(
             title=self._title,
