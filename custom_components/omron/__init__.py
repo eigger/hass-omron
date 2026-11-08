@@ -21,6 +21,7 @@ from .session_handoff import (
     run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData
+from .omron_ble.clock import set_time_zone_provider
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.bluez import _bluez_is_paired, _bluez_remove_device
 from .omron_ble.devices import get_device_config
@@ -34,6 +35,7 @@ from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import (
@@ -664,6 +666,16 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
                 await preconnected_session.aclose()
             except Exception:
                 pass
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Point the library's clock at Home Assistant's time zone.
+
+    Here rather than per entry: the config flow stamps a cuff clock before any
+    entry exists.
+    """
+    set_time_zone_provider(lambda: dt_util.DEFAULT_TIME_ZONE)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

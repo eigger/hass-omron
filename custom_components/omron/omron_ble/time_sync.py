@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from bleak import BleakClient
 from blesession import NotificationTimeout, Notifications, guarded_write
 
+from .clock import local_now
 from .connection import _bleak_refresh_services
 from .const import CTS_CHARACTERISTIC_UUID, LOCAL_TIME_INFO_UUID
 from .devices import get_device_config
@@ -69,7 +70,7 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
     if char_cts is None:
         return False
 
-    now = dt.datetime.now().astimezone()
+    now = local_now()
     payload = build_cts_payload(now)
     cts_snapshot_ok = False
     cts_notify_ok = False
