@@ -9,6 +9,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
+from .clock import local_tz, local_wall_now
 from .devices import DeviceConfig, HostPairingMode
 from .memory_protocol import MemoryReadRefused
 from .session import OmronDeviceSession
@@ -173,7 +174,7 @@ class OmronDeviceDriver:
     def __init__(self, config: DeviceConfig) -> None:
         self._config = config
         self._cached_settings: bytearray | None = None
-        self._now_func = dt.datetime.now
+        self._now_func = local_wall_now
         self._counter_probe_logged = False
 
     async def sync_eeprom_time(
@@ -227,7 +228,7 @@ class OmronDeviceDriver:
         # Normalize to local timezone-aware datetime so comparisons with parsed
         # EEPROM timestamps never fail on naive/aware mismatch.
         if now.tzinfo is None or now.tzinfo.utcoffset(now) is None:
-            now = now.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+            now = now.replace(tzinfo=local_tz())
 
         await transport.unlock()
 
@@ -293,7 +294,7 @@ class OmronDeviceDriver:
             layout = self._config.resolved_time_sync_layout()
             device_dt = _decode_eeprom_time_payload(layout, cached)
             # Use local timezone to match the `now` timezone we compare against
-            device_dt = device_dt.replace(tzinfo=dt.datetime.now().astimezone().tzinfo)
+            device_dt = device_dt.replace(tzinfo=local_tz())
             return device_dt
         except Exception:
             _LOGGER.warning(

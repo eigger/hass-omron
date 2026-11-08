@@ -21,6 +21,7 @@ from .session_handoff import (
     run_post_pairing_poll,
 )
 from .omron_ble import OmronBluetoothDeviceData
+from .omron_ble.clock import set_time_zone_provider
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.bluez import _bluez_is_paired, _bluez_remove_device
 from .omron_ble.devices import get_device_config
@@ -65,6 +66,20 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.TEXT,
 ]
+
+
+def use_ha_time_zone() -> None:
+    """Point the library's clock at Home Assistant's time zone.
+
+    Called on import rather than from async_setup: a config flow can stamp a
+    cuff before any entry exists, and Home Assistant only runs async_setup for
+    a domain that has entries or YAML. The provider reads the zone on every
+    call, so a later change of Home Assistant's zone is picked up.
+    """
+    set_time_zone_provider(lambda: dt_util.DEFAULT_TIME_ZONE)
+
+
+use_ha_time_zone()
 
 _LOGGER = logging.getLogger(__name__)
 

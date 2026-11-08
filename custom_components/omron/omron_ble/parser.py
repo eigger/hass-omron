@@ -27,6 +27,7 @@ from sensor_state_data import (
 
 from .advertisement import _decode_omron_msd_fields
 from .bls import _parse_bp_measurement
+from .clock import local_tz
 from .const import (
     BATTERY_LEVEL_UUID,
     FIRMWARE_REVISION_UUID,
@@ -836,9 +837,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not isinstance(value, dt.datetime):
             return value
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            tz = (
-                self._get_tz() if self._get_tz else None
-            ) or dt.datetime.now().astimezone().tzinfo
+            tz = (self._get_tz() if self._get_tz else None) or local_tz()
             return value.replace(tzinfo=tz)
         return value
 
