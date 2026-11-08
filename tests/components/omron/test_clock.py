@@ -1,6 +1,7 @@
 """The cuff clock follows the configured zone, not the process zone."""
 
 import datetime as dt
+import importlib
 
 import pytest
 
@@ -72,7 +73,9 @@ def test_the_integration_points_the_clock_at_the_ha_zone() -> None:
 
     from custom_components import omron
 
-    omron.use_ha_time_zone()
+    # The provider is empty here (see the fixture); loading the package alone
+    # has to fill it, because a first config flow runs before any entry.
+    importlib.reload(omron)
     assert clock.local_tz() is dt_util.DEFAULT_TIME_ZONE
 
 
