@@ -35,7 +35,6 @@ from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
-from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import (
@@ -67,6 +66,20 @@ PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.TEXT,
 ]
+
+
+def use_ha_time_zone() -> None:
+    """Point the library's clock at Home Assistant's time zone.
+
+    Called on import rather than from async_setup: a config flow can stamp a
+    cuff before any entry exists, and Home Assistant only runs async_setup for
+    a domain that has entries or YAML. The provider reads the zone on every
+    call, so a later change of Home Assistant's zone is picked up.
+    """
+    set_time_zone_provider(lambda: dt_util.DEFAULT_TIME_ZONE)
+
+
+use_ha_time_zone()
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -666,16 +679,6 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
                 await preconnected_session.aclose()
             except Exception:
                 pass
-
-
-async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Point the library's clock at Home Assistant's time zone.
-
-    Here rather than per entry: the config flow stamps a cuff clock before any
-    entry exists.
-    """
-    set_time_zone_provider(lambda: dt_util.DEFAULT_TIME_ZONE)
-    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

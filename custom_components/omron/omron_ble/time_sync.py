@@ -22,6 +22,25 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def build_lti_payload(now: dt.datetime) -> bytes | None:
+    """Local Time Information (0x2A0F): standard-time offset, then DST offset.
+
+    The zone byte is the offset *without* summer time and the DST byte carries
+    the summer-time hour, so a receiver adds them. ``utcoffset()`` already
+    includes DST, which has to come back out or it would count twice.
+    """
+    utcoffset = now.utcoffset()
+    if utcoffset is None:
+        return None
+    dst = now.dst() or dt.timedelta(0)
+    standard_mins = int((utcoffset - dst).total_seconds() // 60)
+    tz_byte = (standard_mins // 15) & 0xFF
+    dst_byte = {0: 0x00, 30: 0x02, 60: 0x04, 120: 0x08}.get(
+        int(dst.total_seconds() // 60), 0xFF
+    )
+    return bytes([tz_byte, dst_byte])
+
+
 def build_cts_payload(now: dt.datetime) -> bytearray:
     """Build Bluetooth CTS payload (10 bytes) from timezone-aware datetime."""
     payload = bytearray()
@@ -141,17 +160,8 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
             char_lti = services.get_characteristic(LOCAL_TIME_INFO_UUID)
             if char_lti:
                 try:
-                    utcoffset = now.utcoffset()
-                    if utcoffset is not None:
-                        offset_mins = int(utcoffset.total_seconds() // 60)
-                        tz_offset_15m = int(offset_mins // 15)
-                        tz_byte = tz_offset_15m & 0xFF
-
-                        dst_byte = 0x00
-                        if now.dst() and now.dst().total_seconds() > 0:
-                            dst_byte = 0x04
-
-                        lti_payload = bytes([tz_byte, dst_byte])
+                    lti_payload = build_lti_payload(now)
+                    if lti_payload is not None:
                         await guarded_write(
                             client,
                             LOCAL_TIME_INFO_UUID,
@@ -160,10 +170,9 @@ async def _sync_time_via_cts(client: BleakClient, model: str) -> bool:
                             response=True,
                         )
                         _LOGGER.debug(
-                            "Local Time Info sync success for %s (tz_offset_15m=%d, dst=%d)",
+                            "Local Time Info sync success for %s (payload=%s)",
                             model,
-                            tz_offset_15m,
-                            dst_byte,
+                            lti_payload.hex(),
                         )
                 except Exception as exc:
                     _LOGGER.debug("Local Time Info sync failed for %s: %s", model, exc)

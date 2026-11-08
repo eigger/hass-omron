@@ -13,10 +13,13 @@ NEW_YORK = dt.timezone(dt.timedelta(hours=-5))
 
 
 @pytest.fixture(autouse=True)
-def _reset_provider():
+def _isolated_provider():
+    """Start from no provider, and leave the integration's own behind."""
     clock.set_time_zone_provider(None)
     yield
-    clock.set_time_zone_provider(None)
+    from custom_components import omron
+
+    omron.use_ha_time_zone()
 
 
 def test_without_a_provider_the_process_zone_is_used() -> None:
@@ -63,13 +66,29 @@ def test_the_driver_stamps_the_configured_zone_on_the_device_time() -> None:
     )
 
 
-async def test_integration_setup_points_the_clock_at_the_ha_zone(hass) -> None:
-    from homeassistant.setup import async_setup_component
+def test_the_integration_points_the_clock_at_the_ha_zone() -> None:
+    """Importing the package wires it: a first config flow has no entry yet."""
     from homeassistant.util import dt as dt_util
 
-    from custom_components.omron.const import DOMAIN
+    from custom_components import omron
 
-    await hass.config.async_set_time_zone("Asia/Seoul")
-    assert await async_setup_component(hass, DOMAIN, {})
+    omron.use_ha_time_zone()
     assert clock.local_tz() is dt_util.DEFAULT_TIME_ZONE
-    assert clock.local_now().utcoffset() == dt.timedelta(hours=9)
+
+
+def test_lti_sends_the_standard_offset_and_the_summer_hour_separately() -> None:
+    from zoneinfo import ZoneInfo
+
+    from custom_components.omron.omron_ble.time_sync import build_lti_payload
+
+    new_york = ZoneInfo("America/New_York")
+    summer = build_lti_payload(dt.datetime(2026, 7, 1, 12, tzinfo=new_york))
+    winter = build_lti_payload(dt.datetime(2026, 1, 1, 12, tzinfo=new_york))
+    assert summer == bytes([(-20) & 0xFF, 0x04])  # -5 h standard, +1 h DST
+    assert winter == bytes([(-20) & 0xFF, 0x00])
+
+
+def test_lti_for_a_zone_without_summer_time_is_unchanged() -> None:
+    from custom_components.omron.omron_ble.time_sync import build_lti_payload
+
+    assert build_lti_payload(dt.datetime(2026, 7, 1, tzinfo=SEOUL)) == bytes([36, 0x00])
