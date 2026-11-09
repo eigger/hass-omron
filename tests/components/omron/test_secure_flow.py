@@ -16,6 +16,8 @@ from custom_components.omron.omron_ble.secure_flow import (
 
 
 class Crypto:
+    auth_states = [1]
+
     def __init__(self, stored_ltk=None):
         self.ltk = stored_ltk or bytes(range(16))
 
@@ -41,7 +43,9 @@ class Crypto:
 
     def decrypt(self, payload):
         assert payload == b"\xc0"
-        return b"\xa0\x01\x00\x01"
+        states = type(self).auth_states
+        state = states.pop(0) if len(states) > 1 else states[0]
+        return bytes([0xA0, 0x01, 0x00, state])
 
 
 def make_session(pairing, close_code=b"\x00"):
@@ -346,3 +350,37 @@ def test_a_token_that_never_comes_back_releases_the_control_subscription(monkeyp
     with pytest.raises(TimeoutError):
         asyncio.run(prepare_secure_token(session, 0.01))
     assert client.subscribed == {}
+
+
+def test_system_auth_repeats_while_pending(monkeypatch):
+    monkeypatch.setattr(Crypto, "auth_states", [0, 0, 1])
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow._SYSTEM_AUTH_RETRY_DELAY_SEC", 0
+    )
+    session, events = make_session(False)
+    run(session, bytes(range(16)))
+    assert events.count(b"\xc0") == 3
+    assert session._unlocked is True
+
+
+def test_system_auth_denied_is_an_error(monkeypatch):
+    monkeypatch.setattr(Crypto, "auth_states", [2])
+    session, _ = make_session(False)
+    with pytest.raises(ConnectionError, match="denied"):
+        run(session, bytes(range(16)))
+    assert session._unlocked is False
+
+
+def test_system_auth_gives_up_after_the_timeout(monkeypatch):
+    monkeypatch.setattr(Crypto, "auth_states", [0])
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow._SYSTEM_AUTH_TIMEOUT_SEC", 0.05
+    )
+    monkeypatch.setattr(
+        "custom_components.omron.omron_ble.secure_flow._SYSTEM_AUTH_RETRY_DELAY_SEC",
+        0.01,
+    )
+    session, _ = make_session(False)
+    with pytest.raises(ConnectionError, match="did not complete"):
+        run(session, bytes(range(16)))
+    assert session._unlocked is False

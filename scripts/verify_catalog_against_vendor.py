@@ -137,6 +137,11 @@ def load_vendor():
     return models
 
 
+def _hex(value, spec: str) -> str:
+    """``0x..`` for a catalog value, ``None`` when the catalog does not set it."""
+    return "None" if value is None else f"0x{value:{spec}}"
+
+
 def hx(v: str) -> int:
     return int(v, 16)
 
@@ -335,17 +340,17 @@ def check(model_id, cfg, ven):
                 "write_cursor_offset"
             ):
                 issues.append(
-                    f"user{u + 1} write_cursor_offset 0x{ru.get('write_cursor_offset'):02X} != vendor {vu['cursor']}"
+                    f"user{u + 1} write_cursor_offset {_hex(ru.get('write_cursor_offset'), '02X')} != vendor {vu['cursor']}"
                 )
             if vu["unread"] is not None and vu["unread"] != ru.get(
                 "unread_counter_offset"
             ):
                 issues.append(
-                    f"user{u + 1} unread_counter_offset 0x{ru.get('unread_counter_offset'):02X} != vendor {vu['unread']}"
+                    f"user{u + 1} unread_counter_offset {_hex(ru.get('unread_counter_offset'), '02X')} != vendor {vu['unread']}"
                 )
             if vu["mask"] is not None and vu["mask"] != ru.get("write_cursor_mask"):
                 issues.append(
-                    f"user{u + 1} write_cursor_mask 0x{ru.get('write_cursor_mask'):02X} != vendor 0x{vu['mask']:02X}"
+                    f"user{u + 1} write_cursor_mask {_hex(ru.get('write_cursor_mask'), '02X')} != vendor 0x{vu['mask']:02X}"
                 )
             if vu["bias"] != ru.get("slot_index_bias"):
                 issues.append(
@@ -355,7 +360,7 @@ def check(model_id, cfg, ven):
                 rclear = ru.get("clear_value", 0x8000)
                 if rclear != vu["clear"]:
                     issues.append(
-                        f"user{u + 1} clear_value 0x{rclear:04X} != vendor 0x{vu['clear']:04X}"
+                        f"user{u + 1} clear_value {_hex(rclear, '04X')} != vendor 0x{vu['clear']:04X}"
                     )
             vmax = (
                 vu["max"] if vu["max"] is not None else (count - 1 if count else None)

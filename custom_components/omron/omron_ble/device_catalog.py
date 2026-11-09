@@ -1592,15 +1592,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7389T1-JM3",
         ),
     ),
-    # HEM-7377T1 family (7 Series Upper Arm / BP5360) — 2-user, 100 records per
-    # user (data_1=0x01CC, data_2=0x080C), write address 0x0058, +4 time offset.
-    #
-    # The bank is 100 slots, so user 2 starts where user 1 ends. The previous
-    # 80-slot count put user 2 at 0x0D0C, inside user 1's own range.
-    #
-    # This cuff writes both users' records into the 0x080C bank and tells them
-    # apart by a byte inside the record, leaving 0x01CC empty, so user 1 can
-    # read as empty here.
+    # HEM-7377T1 family (7 Series Upper Arm / BP5360) — 2-user, 80 records per
+    # user (data_1=0x080C, data_2=0x0D0C), write address 0x0058, +4 time offset.
     "HEM-7377T1": DeviceConfig(
         **_MODERN_OS_BONDING_BASE,
         model="HEM-7377T1",
@@ -1623,8 +1616,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             ),
         ),
         endianness=Endianness.LITTLE,
-        user_start_addresses=[0x01CC, 0x080C],
-        per_user_records_count=[100, 100],
+        user_start_addresses=[0x080C, 0x0D0C],
+        per_user_records_count=[80, 80],
         record_byte_size=0x10,
         transmission_block_size=0x38,
         settings_read_address=0x0010,
@@ -1640,7 +1633,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                     "unread_counter_offset": 0x04,
                     "write_cursor_mask": 0xFF,
                     "slot_index_min": 0,
-                    "slot_index_max": 99,
+                    "slot_index_max": 79,
                     "slot_index_bias": -1,
                 },
                 {
@@ -1648,7 +1641,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                     "unread_counter_offset": 0x06,
                     "write_cursor_mask": 0xFF,
                     "slot_index_min": 0,
-                    "slot_index_max": 99,
+                    "slot_index_max": 79,
                     "slot_index_bias": -1,
                 },
             ],

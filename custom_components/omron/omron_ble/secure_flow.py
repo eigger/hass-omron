@@ -39,6 +39,11 @@ _PRE_HANDSHAKE_DIS_UUIDS = (
 )
 # System authentication, sent encrypted once the session key exists.
 _SYSTEM_AUTH_REQUEST = b"\x20\x01\x00" + bytes(17)
+# Reply `A0 01 xx state`: 0 pending, 1 done, 2 denied. Resent until done.
+_SYSTEM_AUTH_DONE = 1
+_SYSTEM_AUTH_DENIED = 2
+_SYSTEM_AUTH_TIMEOUT_SEC: float = 30.0
+_SYSTEM_AUTH_RETRY_DELAY_SEC: float = 0.5
 
 
 def _secure_error_frame_code(resp: bytes | bytearray | None) -> int | None:
@@ -188,10 +193,21 @@ async def establish_secure_session(
         response = await exchange(start_request, b"\xf0\x85")
         response = await exchange(crypto.build_challenge_req(response), b"\xf0\x86")
         crypto.process_challenge_resp(response)
-        request = crypto.encrypt(_SYSTEM_AUTH_REQUEST)
-        response = crypto.decrypt(await exchange(request, b"\xc0"))
-        if len(response) != 4 or response[0] != 0xA0 or response[2] != 0:
-            raise ConnectionError("Secure session system authentication rejected")
+        deadline = asyncio.get_running_loop().time() + _SYSTEM_AUTH_TIMEOUT_SEC
+        while True:
+            request = crypto.encrypt(_SYSTEM_AUTH_REQUEST)
+            response = crypto.decrypt(await exchange(request, b"\xc0"))
+            if len(response) != 4 or response[0] != 0xA0 or response[2] != 0:
+                raise ConnectionError("Secure session system authentication rejected")
+            if response[3] == _SYSTEM_AUTH_DONE:
+                break
+            if response[3] == _SYSTEM_AUTH_DENIED:
+                raise ConnectionError("Secure session system authentication denied")
+            if asyncio.get_running_loop().time() >= deadline:
+                raise ConnectionError(
+                    "Secure session system authentication did not complete"
+                )
+            await asyncio.sleep(_SYSTEM_AUTH_RETRY_DELAY_SEC)
         session._unlocked = True
 
         if layout is not None:

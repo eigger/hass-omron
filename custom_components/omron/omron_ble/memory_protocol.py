@@ -373,8 +373,10 @@ class MemoryProtocol:
             # End-of-transmission packet: error code is in byte 6
             self._last_reply_payload = bytes(frame_bytes[6:7])
         else:
-            # Control frame (e.g. 0x8000 session open, 0x81c0 write response): response code in byte 6
-            self._last_reply_payload = bytes(frame_bytes[6:7])
+            # Control frame (0x8000 session open, 0x81c0 write response): the
+            # result code is the byte before the checksum. The session-open
+            # reply carries the 16-byte product index ahead of it.
+            self._last_reply_payload = bytes(frame_bytes[-2:-1])
 
         self._reply_ready.set()
 

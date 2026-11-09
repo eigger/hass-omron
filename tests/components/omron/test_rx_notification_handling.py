@@ -57,6 +57,23 @@ class TestRxNotificationHandling:
         assert self.session.memory._last_reply_packet_type == b"\x80\x00"
         assert self.session.memory._last_reply_payload == b"\x00"
 
+    def test_session_open_8000_result_is_read_after_the_product_index(self):
+        # The reply can carry the 16-byte product index; its first byte is not
+        # the result code, which sits just before the checksum.
+        frame = _build_valid_frame(b"\x80\x00", 0x0000, bytes([0x7F] * 16), 0x00)
+        self.session.memory._expected_reply_packet_type = b"\x80\x00"
+        self.session.memory._on_notify_channel_data(0, frame)
+
+        assert self.session.memory._reply_ready.is_set()
+        assert self.session.memory._last_reply_payload == b"\x00"
+
+    def test_session_open_8000_rejection_code_is_read_from_the_end(self):
+        frame = _build_valid_frame(b"\x80\x00", 0x0000, bytes(16), 0x02)
+        self.session.memory._expected_reply_packet_type = b"\x80\x00"
+        self.session.memory._on_notify_channel_data(0, frame)
+
+        assert self.session.memory._last_reply_payload == b"\x02"
+
     def test_session_close_8f00_frame_accepted_with_nonzero_byte5(self):
         # Control frame 8f00 with non-zero byte[5] and response code 0
         raw = bytearray([0x08, 0x8F, 0x00, 0x00, 0x00, 0x10, 0x00])
