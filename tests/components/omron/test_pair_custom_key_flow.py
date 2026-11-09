@@ -66,6 +66,16 @@ async def test_pairing_programs_the_key_and_releases_both_subscriptions():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ack", [b"\x80", b"\x80\x01", b"\x80\x04"])
+async def test_any_result_code_on_the_key_ack_is_accepted(ack):
+    """Models differ on the success code (#27, #30, #35): only the 0x80 prefix counts."""
+    client = FakeClient()
+    _cuff(client, key_ack=ack)
+    await _pair_custom_key(_session(client), KEY)
+    assert _commands(client) == [0x02, 0x00]
+
+
+@pytest.mark.asyncio
 async def test_a_programming_mode_frame_that_arrives_late_is_not_asked_for_again():
     """The cuff answers during the pause between two attempts: that answer counts."""
     client = FakeClient()

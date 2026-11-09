@@ -50,37 +50,47 @@ def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x82
 
 
-# Result code in byte 1 of a 0x80/0x81 reply: 0 is success.
-_UNLOCK_RESULT_MESSAGES = {
-    1: "the key is not registered on the device",
-    3: "device hardware error",
-    4: "device encryption setup incomplete",
+# Byte 1 of a 0x80/0x81 reply is a result code, but models answer with
+# different values on success (#11, #27, #30, #35), so it is only logged.
+_REGISTER_RESULT_NAMES = {
+    1: "communication mode",
+    2: "hardware error",
+    4: "encryption not complete",
+}
+_AUTH_RESULT_NAMES = {
+    1: "not registered",
+    3: "hardware error",
+    4: "encryption not complete",
 }
 
 
-def _unlock_result_code(resp: bytes | bytearray | None, prefix: int) -> int | None:
-    """Result code of a ``prefix`` reply, or None if it is not one."""
-    if resp is None or len(resp) < 2 or resp[0] != prefix:
-        return None
-    return resp[1]
-
-
-def _unlock_failure_reason(resp: bytes | bytearray | None, prefix: int) -> str:
-    """Why a 0x80/0x81 reply was not a success, for the error message."""
-    code = _unlock_result_code(resp, prefix)
-    if code is None:
-        return "unexpected reply"
-    return _UNLOCK_RESULT_MESSAGES.get(code, f"result code {code}")
+def _log_unlock_result(resp: bytes | bytearray | None, prefix: int) -> None:
+    """Log the result code of a 0x80 (register) or 0x81 (auth) reply."""
+    if resp is None or len(resp) < 2 or resp[0] != prefix or resp[1] == 0:
+        return
+    names = _REGISTER_RESULT_NAMES if prefix == 0x80 else _AUTH_RESULT_NAMES
+    _LOGGER.debug(
+        "Unlock reply 0x%02x carries result code %d (%s)",
+        prefix,
+        resp[1],
+        names.get(resp[1], "unknown"),
+    )
 
 
 def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: new pairing key accepted (0x80, result 0)."""
-    return _unlock_result_code(resp, 0x80) == 0
+    """Unlock notify: new pairing key accepted (prefix 0x80; result code in byte 1, not matched)."""
+    if resp is None or len(resp) < 1:
+        return False
+    _log_unlock_result(resp, 0x80)
+    return resp[0] == 0x80
 
 
 def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: current pairing key accepted for auth/unlock (0x81, result 0)."""
-    return _unlock_result_code(resp, 0x81) == 0
+    """Unlock notify: current pairing key accepted for auth/unlock (prefix 0x81; result code in byte 1, not matched)."""
+    if resp is None or len(resp) < 1:
+        return False
+    _log_unlock_result(resp, 0x81)
+    return resp[0] == 0x81
 
 
 def _is_token_unlock_ack(resp: bytes | bytearray | None, token: bytes) -> bool:
@@ -470,8 +480,7 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
 
     if not _is_unlock_pairing_key_ack(resp):
         raise ConnectionError(
-            f"Failed to program pairing key: {_unlock_failure_reason(resp, 0x80)}. "
-            f"Response: {resp.hex() if resp else 'None'}"
+            f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}"
         )
 
     _LOGGER.debug("Device paired successfully with new key")

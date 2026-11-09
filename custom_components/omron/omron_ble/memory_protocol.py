@@ -376,9 +376,7 @@ class MemoryProtocol:
             # Control frame (0x8000 session open, 0x81c0 write response): the
             # result code is the byte before the checksum. The session-open
             # reply carries the 16-byte product index ahead of it.
-            self._last_reply_payload = bytes(
-                frame_bytes[-2:-1] if len(frame_bytes) > 8 else frame_bytes[6:7]
-            )
+            self._last_reply_payload = bytes(frame_bytes[-2:-1])
 
         self._reply_ready.set()
 
