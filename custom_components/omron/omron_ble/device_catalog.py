@@ -1904,6 +1904,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.WEIGHT_16,
         equivalent_model_ids=(
+            "HN-300T2-Z",
             "HN-300T2_AP",
             "HN-300T2_E-BK",
             "HN-300T2_E-GY",
@@ -1950,6 +1951,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         record_parser=RecordParser.HBF_32,
         staged_classic_notifications=True,
         keep_notify_subscriptions=True,
-        equivalent_model_ids=("HBF-222T_E",),
+        equivalent_model_ids=(
+            "HBF-222T-AP",
+            "HBF-222T_E",
+            "HBF-222T_Z",
+        ),
     ),
 }
