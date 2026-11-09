@@ -374,7 +374,13 @@ async def async_setup_entry(
             known_entity_keys.add(entity_key)
         return new_entities
 
-    initial_entities = _build_new_entities(poll_coordinator.data)
+    # Before the first poll the cuff is usually asleep, so there is no poll
+    # data yet. Build the entities from the parser's seed instead (current model,
+    # user count and aliases), so they are added at startup and can restore
+    # their last value rather than being marked unavailable by Home Assistant.
+    initial_entities = _build_new_entities(
+        poll_coordinator.data or runtime.device_data.seed_update()
+    )
     if initial_entities:
         async_add_entities(initial_entities)
 

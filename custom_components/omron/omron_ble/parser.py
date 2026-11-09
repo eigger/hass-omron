@@ -27,7 +27,9 @@ from sensor_state_data import (
 
 from .advertisement import _decode_omron_msd_fields
 from .bls import _parse_bp_measurement
+from .clock import local_tz
 from .const import (
+    BATTERY_LEVEL_UUID,
     FIRMWARE_REVISION_UUID,
     HARDWARE_REVISION_UUID,
     MANUFACTURER_NAME_UUID,
@@ -50,7 +52,7 @@ from .devices import (
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
-from .util import slugify_for_entity_key
+from .util import user_slot_slug
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -222,6 +224,44 @@ class OmronBluetoothDeviceData(BluetoothData):
                 name_suffix,
                 ExtendedSensorDeviceClass,
             )
+
+    def measurement_key_suffixes(self) -> frozenset[str]:
+        """Per-user key suffixes valid now (``""`` for a single-user device).
+
+        Built from the current user count and aliases, so a key left over from
+        an earlier alias or user count is not among them.
+        """
+        multi_user_mode = self._device_config.num_users > 1
+        if not multi_user_mode:
+            return frozenset({""})
+        return frozenset(
+            self._measurement_user_suffixes(user, True)[0]
+            for user in range(1, self._device_config.num_users + 1)
+        )
+
+    def seed_update(self) -> SensorUpdate:
+        """Return the measurement sensors known before any poll, without side effects.
+
+        Lets the platforms create the entities of the current model, user count
+        and user aliases at setup, so a cuff that is asleep at startup still has
+        its registered sensors added and their last value restored. Unlike
+        ``_finish_update`` this does not commit the pending update or change any state.
+        """
+        return SensorUpdate(
+            title=self._title,
+            devices=dict(self._device_id_info),
+            entity_descriptions={
+                **self._sensor_descriptions,
+                **self._sensor_descriptions_updates,
+            },
+            entity_values={
+                **self._sensor_values,
+                **self._sensor_values_updates,
+            },
+            binary_entity_descriptions={},
+            binary_entity_values={},
+            events={},
+        )
 
     def _seed_measurement_specs(
         self, sensor_classes: Any
@@ -451,10 +491,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         label = self._user_aliases.get(user)
         if not label:
             label = f"user{user}"
-        slug = slugify_for_entity_key(label)
-        if not slug:
-            slug = f"user{user}"
-        return f"_{slug}", f" ({label})"
+        return f"_{user_slot_slug(self._user_aliases, user)}", f" ({label})"
 
     def _publish_measurement_sensor(
         self,
@@ -800,9 +837,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         if not isinstance(value, dt.datetime):
             return value
         if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-            tz = (
-                self._get_tz() if self._get_tz else None
-            ) or dt.datetime.now().astimezone().tzinfo
+            tz = (self._get_tz() if self._get_tz else None) or local_tz()
             return value.replace(tzinfo=tz)
         return value
 
@@ -1254,6 +1289,27 @@ class OmronBluetoothDeviceData(BluetoothData):
             )
 
         with trace.timed("device_info"):
+            try:
+                char_bat = client.services.get_characteristic(BATTERY_LEVEL_UUID)
+                if char_bat:
+                    bat_bytes = await client.read_gatt_char(char_bat)
+                    _LOGGER.debug(
+                        "Battery characteristic 0x2A19 raw data for %s: %s",
+                        ble_device.address,
+                        bat_bytes.hex(),
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Battery characteristic 0x2A19 not found for %s",
+                        ble_device.address,
+                    )
+            except Exception as exc:
+                _LOGGER.debug(
+                    "Failed to read battery characteristic 0x2A19 for %s: %s",
+                    ble_device.address,
+                    exc,
+                )
+
             try:
                 char_fw = client.services.get_characteristic(FIRMWARE_REVISION_UUID)
                 if char_fw:

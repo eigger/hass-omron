@@ -1,7 +1,7 @@
 <!-- hass-standards:header:start -->
-# Omron BLE Home Assistant Integration (hass-omron)
+# Omron BLE for Home Assistant
 
-A HACS custom integration (not part of Home Assistant Core) to connect and poll data directly from Omron Bluetooth Low Energy (BLE) blood pressure monitors and weight scales.
+A Home Assistant custom integration that reads measurements directly from Omron Bluetooth Low Energy blood pressure monitors and scales.
 
 **English** | [한국어](README.ko.md)
 
@@ -16,13 +16,13 @@ A HACS custom integration (not part of Home Assistant Core) to connect and poll 
 <!-- hass-standards:badges:end -->
 <!-- hass-standards:header:end -->
 
-The Downloads badge counts GitHub release asset downloads of the current release, not active installations.
-
 | Device | Model |
 | :---: | :---: |
 | <img src="https://raw.githubusercontent.com/eigger/hass-omron/master/docs/images/bpm.jpg" width="280" alt="Omron HEM-7142T2"> | **HEM-7142T2** |
 
-## Supported Models
+<a name="supported-models"></a>
+
+## Supported devices
 
 | Model | Global Model | Type | Verified |
 | :--- | :--- | :--- | :---: |
@@ -55,7 +55,8 @@ The Downloads badge counts GitHub release asset downloads of the current release
 
 ## Requirements
 
-Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or ESPHome Bluetooth proxy (a Bluetooth proxy is strongly recommended for connection stability and range).
+- **Home Assistant:** 2025.12.0 or later.
+- **Bluetooth:** A Bluetooth adapter or ESPHome Bluetooth proxy. A proxy is recommended for stability and range.
 
 ## Installation
 
@@ -63,11 +64,13 @@ Home Assistant 2025.12.0 or newer (see `hacs.json`) and a Bluetooth adapter or E
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eigger&repository=hass-omron)
 <!-- hass-standards:installation:end -->
 
-1. **HACS**: With HACS installed, open HACS, search for **Omron**, open the integration, and download it. This integration is included in the default HACS repository list, so no custom repository is needed.
-   **Manual**: Alternatively, copy the `custom_components/omron` directory into your Home Assistant `custom_components` folder.
-2. Restart Home Assistant.
+1. Click the badge above to open the repository in Marketplace.
+2. If you need to add it yourself, go to **Settings → Marketplace → Add from link** and enter <https://github.com/eigger/hass-omron>. Connect GitHub if prompted.
+3. Select **Install**. Restart Home Assistant if prompted, then continue to [Configuration](#configuration).
 
-## Pairing & Configuration
+<a name="pairing--configuration"></a>
+
+## Configuration
 
 Device setup and pairing are done entirely through the Home Assistant UI.
 
@@ -90,7 +93,7 @@ Device setup and pairing are done entirely through the Home Assistant UI.
    - HA will securely perform the pairing sequence (programming its pairing key or performing OS-level bonding).
    - The monitor screen will display an `[OK]` symbol when successful.
 
-## Quick Start
+## Quick start
 
 Recommended ESPHome Bluetooth proxy configuration (keep the default scan interval):
 
@@ -103,7 +106,7 @@ bluetooth_proxy:
   active: true
 ```
 
-## Important Limitations
+## Important limitations
 
 - **One paired host at a time**: Omron blood pressure monitors only support one paired device at a time. If you have already paired your monitor with the official Omron Connect smartphone app, you **must unpair/forget** the device from your phone's Bluetooth settings before connecting it to Home Assistant. Using both simultaneously is not supported by the hardware.
 - **Bluetooth proxy requirements**: `bluetooth_proxy` must always have `active: true`, and `scan_parameters` should remain at default intervals. For hardware recommendations, see [Great ESP32 Board for an ESPHome Bluetooth Proxy](https://community.home-assistant.io/t/great-esp32-board-for-an-esphome-bluetooth-proxy/916767/31). Proxy setup, recommended devices and the connection-problem checklist: [Bluetooth proxy setup](https://github.com/eigger/blesession/blob/main/docs/bluetooth.md). Model-specific wake/pairing conditions, error-by-error fixes, and diagnostics (`Last Failure`, `Duration`) are in [Troubleshooting](docs/troubleshooting.md).
@@ -117,7 +120,6 @@ bluetooth_proxy:
 - [HEM-7374T1 notes](docs/hem-7374t1.md)
 - [Body composition scale notes](docs/body-composition-scales-notes.md)
 - [HN-300T2 memory map](docs/hn-300t2-memory-map.md)
-- [Roadmap](docs/roadmap.md)
 - [Development and tests](CONTRIBUTING.md)
 - Reference: [omblepy (userx14)](https://github.com/userx14/omblepy)
 

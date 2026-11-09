@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 
 def slugify_for_entity_key(raw: str) -> str:
@@ -13,6 +14,11 @@ def slugify_for_entity_key(raw: str) -> str:
     s = re.sub(r"[^a-z0-9_]+", "_", s)
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:48]
+
+
+def user_slot_slug(aliases: Mapping[int, str], user: int) -> str:
+    """Entity-key fragment of a user slot: its alias slug, else ``user<N>``."""
+    return slugify_for_entity_key(aliases.get(user) or f"user{user}") or f"user{user}"
 
 
 def user_alias_slug_from_entity_key(key: str) -> str | None:

@@ -277,6 +277,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7321T-ZV",
             "HEM-7322T-D",
             "HEM-7322T-E",
+            "HEM-7280T",
         ),
     ),
     "HEM-7511T": DeviceConfig(
@@ -424,6 +425,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # byte-aligned classic_vital_14 yielded dia>sys / bpm=26 / no date)
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
+            "HCR-7608T2",
             "HEM-7270C",
             "HEM-7271T",
             "HEM-7600T",
@@ -478,6 +480,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-9601T-J3",
             "HEM-9601T2-BR3",
             "HEM-9601T_E3",
+            "HEM-9601T-E3",
         ),
     ),
     # HEM-9700T ("HeartGuide" 1000-slot variant)
@@ -630,6 +633,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-1901T2",
+            "HCR-1902T2",
             "HEM-1026T2-AJC",
             "HEM-1026T2-AJE",
             "HEM-1026T2-AKA",
@@ -669,6 +674,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         # classic_vital_14 yields bpm=26 and no valid datetime on this family).
         record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
+            "HCR-7800T",
             "HEM-6231T2-JC",
             "HEM-6231T2-JE",
             "HEM-6231T2-JT3",
@@ -890,6 +896,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7156T-LA",
             "HEM-7156T_AAP",
             "HEM-7156T_AP",
+            "HEM-7156T",
+            "HEM-7156T-A",
+            "HEM-7156T-AAP",
         ),
     ),
     # HEM-7157T / HEM-7158T: same layout as HEM-7150T but has 100 record slots
@@ -923,6 +932,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7501T",
             "HEM-7157T-AP",
             "HEM-7158T-JC",
             "HEM-7158T_AP3",
@@ -1012,6 +1022,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7340T-CA",
             "HEM-7340T-Z",
             "HEM-7341T-Z",
+            "HEM-7155T-AP",
         ),
     ),
     # HEM-7155T modern stack V2 — OS bonding only, same EEPROM addresses as V1
@@ -1199,6 +1210,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7206T2",
+            "HCR-7308T2",
             "HEM-7143T1-AIN",
             "HEM-7143T1-AP",
             "HEM-7143T1-D",
@@ -1216,6 +1229,11 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7146T2-JD",
             "HEM-7146T2-JF",
             "HEM-716DT2-LA",
+            "HEM-7143T1",
+            "HEM-7143T1-EBK",
+            "HEM-7143T2",
+            "HEM-7143T2-ESL",
+            "HEM-7144T1",
         ),
     ),
     "HEM-7342T": DeviceConfig(
@@ -1260,6 +1278,14 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         },
         record_parser=RecordParser.CLASSIC_VITAL_14,
         equivalent_model_ids=(
+            "HCR-7502T",
+            "HCR-750AT",
+            "HCR-7601T",
+            "HCR-7602T",
+            "HCR-7612T2",
+            "HCR-761AT2",
+            "HCR-7711T2",
+            "HCR-7712T2",
             "HEM-7159T_AP3",
             "HEM-7342T-CA",
             "HEM-7342T-Z",
@@ -1835,6 +1861,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
             "HEM-7142T2-Z",
             "HEM-7142T2-ZAZ",
             "HEM-7142T2_JAZ",
+            "HEM-7140T1",
+            "HEM-7141T1",
+            "HEM-7142T1",
         ),
     ),
     # HN-300T2 -- weight-only scale on the same modern stack and WLD1.0 memory

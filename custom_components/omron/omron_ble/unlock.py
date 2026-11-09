@@ -7,7 +7,6 @@ holds the ack checks and the handshakes those entries dispatch to.
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import contextlib
 import logging
 import secrets
@@ -22,6 +21,7 @@ from blesession import (
     stop_notify_best_effort,
 )
 
+from .clock import local_wall_now
 from .connection import (
     _NOTIFY_SUBSCRIBE_SETTLE_SEC,
     _bleak_refresh_services,
@@ -163,7 +163,7 @@ async def _secure_unlock(session) -> None:
         # Re-pairing establishes a fresh credential rather than resuming
         # one, which is also what the device expects in its -P- window.
         stored_ltk=None if session._pairing_session else session._credential,
-        now=dt.datetime.now(),
+        now=local_wall_now(),
     )
     if credential != session._credential:
         session._credential = credential

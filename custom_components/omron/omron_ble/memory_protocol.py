@@ -12,7 +12,6 @@ frames, and ``_require_connected`` / ``_ensure_services_cache`` /
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
@@ -25,6 +24,7 @@ from blesession import (
     stop_notify_best_effort,
 )
 
+from .clock import local_now
 from .connection import (
     _NOTIFY_SUBSCRIBE_SETTLE_SEC,
     _bleak_refresh_services,
@@ -721,9 +721,7 @@ class MemoryProtocol:
                 f"Short clock read for registration: {len(tail)} of "
                 f"{layout.clock_write_size}"
             )
-        stamped = clock_block(
-            tail, dt.datetime.now().astimezone(), layout.clock_write_size
-        )
+        stamped = clock_block(tail, local_now(), layout.clock_write_size)
         await self.write_memory_range(
             layout.clock_write_address, bytearray(stamped), block_size=len(stamped)
         )

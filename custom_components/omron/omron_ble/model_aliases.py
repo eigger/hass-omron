@@ -28,8 +28,12 @@ cannot connect or connects and transfers nothing.
 Resolvable in principle: the stacks expose different parent service UUIDs,
 visible on connect. That needs the device in hand, so it is left for later.
 
-Resolution aliases only: get_supported_models does not offer them in the
-config-flow dropdown, which stays on the HEM designations.
+An alias is a product or marketing name (BP7000, Evolv, X2+) standing for a
+model code, and only resolves: get_supported_models does not offer aliases in
+the config-flow dropdown. A name that is itself a model code (HEM-*, HCR-*,
+HN-*, HBF-*) is not an alias: list it in its profile's equivalent_model_ids,
+which also offers it in the dropdown. test_aliases_are_names_not_model_codes
+enforces this.
 """
 
 from __future__ import annotations
@@ -71,25 +75,6 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "BP786|CAN": "HEM-7321T_TI-Z",
     "BP7900": "HEM-7530T-Z",
     "BP8000": "HEM-6410T-Z",
-    "HCR-1901T2": "HEM-1026T2-AJC",
-    "HCR-1902T2": "HEM-1026T2-AJE",
-    "HCR-7206T2": "HEM-7146T2-JD",
-    "HCR-7308T2": "HEM-7146T2-JF",
-    "HCR-7608T2": "HEM-7600T2-JF",
-    "HCR-7612T2": "HEM-7346T2-AJE32",
-    "HCR-761AT2": "HEM-7346T2-AJC32",
-    "HCR-7711T2": "HEM-7347T2-AJC32",
-    "HCR-7712T2": "HEM-7347T2-AJE32",
-    "HEM-6161T-D/E": "HEM-6161T-E",
-    "HEM-6232T-D/E": "HEM-6232T-D",
-    "HEM-7140T1": "HEM-7140T1-AP",
-    "HEM-7142T1": "HEM-7142T1-AP",
-    "HEM-7143T1-EBK": "HEM-7143T1-E",
-    "HEM-7143T2-ESL": "HEM-7143T2-E",
-    "HEM-7155T-AP": "HEM-7155T_AP",
-    "HEM-7156T": "HEM-7156T_AP",
-    "HEM-7156T-AAP": "HEM-7156T_AAP",
-    "HEM-9601T-E3": "HEM-9601T_E3",
     # Marketing and series names, which some firmware answers with
     # instead of a code -- a HEM-7188T1-LEO reports "X2+ Connect".
     "10 Series Wrist": "HEM-6321T-Z",
@@ -101,18 +86,6 @@ MODEL_NUMBER_ALIASES: dict[str, str] = {
     "Complete(HEM-7530T1)": "HEM-7530T1-BR3",
     "EVOLV": "HEM-7600T-E",
     "Evolv": "HEM-7600T-Z",
-    "HCR-7501T": "HEM-7158T-JC",
-    "HCR-7502T": "HEM-7346T-AJE3",
-    "HCR-750AT": "HEM-7346T-AJC3",
-    "HCR-7601T": "HEM-7347T-AJC3",
-    "HCR-7602T": "HEM-7347T-AJE3",
-    "HCR-7800T": "HEM-7530T_J3",
-    "HEM-7141T1": "HEM-7141T1-AP",
-    "HEM-7143T1": "HEM-7143T1-AP",
-    "HEM-7143T2": "HEM-7143T2-E",
-    "HEM-7144T1": "HEM-7144T1-AU",
-    "HEM-7156T-A": "HEM-7156T_AAP",
-    "HEM-7280T": "HEM-7280T-AP",
     "HeartGuide": "HEM-6410T-Z",
     "HeartVue": "HEM-6402T-Z",
     "JPN610T": "HEM-7158T_AP3",
