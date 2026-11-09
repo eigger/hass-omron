@@ -36,7 +36,7 @@ def _session(client):
     )
 
 
-def _cuff(client, *, ready_after=0, key_ack=b"\x80"):
+def _cuff(client, *, ready_after=0, key_ack=b"\x80\x00"):
     """Answers the Nth 0x02 request with 0x82 (programming mode) and the key write with ``key_ack``."""
     seen = {"requests": 0}
 
@@ -77,7 +77,7 @@ async def test_a_programming_mode_frame_that_arrives_late_is_not_asked_for_again
 
     def key_ack(_uuid, data):
         if data[0] == 0x00:
-            client.reply(b"\x80", UNLOCK)
+            client.reply(b"\x80\x00", UNLOCK)
 
     client.on_write = key_ack
     await _pair_custom_key(_session(client), KEY)
@@ -112,7 +112,7 @@ async def test_the_last_frame_after_the_key_write_is_the_answer():
             client.reply(b"\x82\x00", UNLOCK)
         else:
             client.reply(b"\x82\x00", UNLOCK)  # a state frame first ...
-            client.reply(b"\x80", UNLOCK)  # ... then the verdict
+            client.reply(b"\x80\x00", UNLOCK)  # ... then the verdict
 
     client.on_write = on_write
     await _pair_custom_key(_session(client), KEY)

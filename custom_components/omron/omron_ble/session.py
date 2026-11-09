@@ -50,6 +50,7 @@ from .session_trace import SessionTrace, traced
 from .unlock import (
     _UNLOCK_AUTH_WAIT_TIMEOUT_SEC,
     _is_unlock_auth_key_ack,
+    _unlock_failure_reason,
     _maybe_send_unlock_probe,
     _pair_custom_key,
     _secure_unlock,
@@ -678,7 +679,10 @@ class OmronDeviceSession:
                         len(response),
                         _hex(response),
                     )
-                    raise ConnectionError("Unlock failed: pairing key mismatch")
+                    raise ConnectionError(
+                        "Unlock failed: pairing key mismatch "
+                        f"({_unlock_failure_reason(response, 0x81)})"
+                    )
 
                 self._unlocked = True
             except WriteTimeout:

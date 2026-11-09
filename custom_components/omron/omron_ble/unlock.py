@@ -50,18 +50,37 @@ def _is_unlock_key_programming_ready(resp: bytes | bytearray | None) -> bool:
     return resp[0] == 0x82
 
 
+# Result code in byte 1 of a 0x80/0x81 reply: 0 is success.
+_UNLOCK_RESULT_MESSAGES = {
+    1: "the key is not registered on the device",
+    3: "device hardware error",
+    4: "device encryption setup incomplete",
+}
+
+
+def _unlock_result_code(resp: bytes | bytearray | None, prefix: int) -> int | None:
+    """Result code of a ``prefix`` reply, or None if it is not one."""
+    if resp is None or len(resp) < 2 or resp[0] != prefix:
+        return None
+    return resp[1]
+
+
+def _unlock_failure_reason(resp: bytes | bytearray | None, prefix: int) -> str:
+    """Why a 0x80/0x81 reply was not a success, for the error message."""
+    code = _unlock_result_code(resp, prefix)
+    if code is None:
+        return "unexpected reply"
+    return _UNLOCK_RESULT_MESSAGES.get(code, f"result code {code}")
+
+
 def _is_unlock_pairing_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: new pairing key accepted (prefix 0x80; sub-type in byte 1, not matched)."""
-    if resp is None or len(resp) < 1:
-        return False
-    return resp[0] == 0x80
+    """Unlock notify: new pairing key accepted (0x80, result 0)."""
+    return _unlock_result_code(resp, 0x80) == 0
 
 
 def _is_unlock_auth_key_ack(resp: bytes | bytearray | None) -> bool:
-    """Unlock notify: current pairing key accepted for auth/unlock (prefix 0x81)."""
-    if resp is None or len(resp) < 1:
-        return False
-    return resp[0] == 0x81
+    """Unlock notify: current pairing key accepted for auth/unlock (0x81, result 0)."""
+    return _unlock_result_code(resp, 0x81) == 0
 
 
 def _is_token_unlock_ack(resp: bytes | bytearray | None, token: bytes) -> bool:
@@ -451,7 +470,8 @@ async def _pair_custom_key(session, pair_key: bytearray) -> None:
 
     if not _is_unlock_pairing_key_ack(resp):
         raise ConnectionError(
-            f"Failed to program pairing key. Response: {resp.hex() if resp else 'None'}"
+            f"Failed to program pairing key: {_unlock_failure_reason(resp, 0x80)}. "
+            f"Response: {resp.hex() if resp else 'None'}"
         )
 
     _LOGGER.debug("Device paired successfully with new key")

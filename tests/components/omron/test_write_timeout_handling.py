@@ -48,7 +48,7 @@ def _fast(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_classic_unlock_succeeds_and_releases_both_subscriptions():
-    client = _UnlockClient(b"\x81")
+    client = _UnlockClient(b"\x81\x00")
     session = _session(client)
     await session.unlock()
     assert session._unlocked
@@ -78,7 +78,7 @@ async def test_classic_unlock_with_a_rejected_key_is_a_key_mismatch():
 @pytest.mark.asyncio
 async def test_classic_unlock_does_not_turn_a_write_timeout_into_a_notify_timeout():
     """A write that never returned is the adapter or proxy, not a silent cuff."""
-    client = _UnlockClient(b"\x81")
+    client = _UnlockClient(b"\x81\x00")
     client.write_delay_s = 3600
     with pytest.raises(WriteTimeout):
         await _session(client).unlock()
@@ -95,3 +95,14 @@ async def test_a_hung_write_raises_write_timeout_naming_the_step():
         )
     assert raised.value.step == "unlock"
     assert isinstance(raised.value, TimeoutError)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "text"),
+    [(1, "not registered"), (3, "hardware"), (4, "encryption")],
+)
+async def test_classic_unlock_names_the_result_code(code, text):
+    client = _UnlockClient(bytes([0x81, code]))
+    with pytest.raises(ConnectionError, match=text):
+        await _session(client).unlock()
