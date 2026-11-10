@@ -451,3 +451,9 @@ def test_a_retail_name_is_not_also_a_catalog_id():
     catalog_ids = set(CANONICAL_DEVICE_PROFILES) | set(MODEL_VARIANT_MAP)
     shadowed = sorted(catalog_ids & set(MODEL_NUMBER_ALIASES))
     assert not shadowed, f"소매명이 카탈로그 id 로도 등록돼 별칭이 가려진다: {shadowed}"
+
+
+def test_scale_catalog_variant_resolution():
+    assert resolve_profile_model_id("HN-300T2-Z") == "HN-300T2"
+    assert resolve_profile_model_id("HBF-222T_Z") == "HBF-222T"
+    assert resolve_profile_model_id("HBF-222T-AP") == "HBF-222T"

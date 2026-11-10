@@ -121,6 +121,8 @@ async def _maybe_send_unlock_probe(session, replies: Notifications) -> None:
             step="unlock_probe",
             response=True,
         )
+    except WriteTimeout:
+        raise
     except Exception:
         pass
 

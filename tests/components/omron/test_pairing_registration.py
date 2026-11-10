@@ -549,6 +549,7 @@ class TestItNeverBlocksTheClose:
         target = SimpleNamespace(
             _config=get_device_config("HEM-7386T1"),
             _memory_session_active=True,
+            _memory_session_failed=False,
             address="C1:8D:32:97:D5:BB",
             _last_reply_packet_type=bytearray.fromhex("8f00"),
             _last_reply_payload=bytes(1),

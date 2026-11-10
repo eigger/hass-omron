@@ -401,15 +401,17 @@ def check(model_id, cfg, ven):
             expected_start = clock_off - CLOCK_OFFSET_IN_WINDOW.get(layout, 0)
             if cfg.settings_time_sync_bytes[0] != expected_start:
                 issues.append(
-                    f"settings_time_sync_bytes window start 0x{cfg.settings_time_sync_bytes[0]:02X} != "
+                    f"settings_time_sync_bytes window start {_hex(cfg.settings_time_sync_bytes[0], '02X')} != "
                     f"expected 0x{expected_start:02X} (clock offset {clock_off} in SettingWriteIndex for layout {layout})"
                 )
         else:
             blocks = vendor_setting_blocks(s)
             want = tuple(cfg.settings_time_sync_bytes)
-            if blocks and not any(start <= want[0] < end for start, end in blocks):
+            if blocks and not any(
+                want[0] is not None and start <= want[0] < end for start, end in blocks
+            ):
                 issues.append(
-                    f"settings_time_sync_bytes starts at 0x{want[0]:02X}, which is not inside a vendor "
+                    f"settings_time_sync_bytes starts at {_hex(want[0], '02X')}, which is not inside a vendor "
                     f"setting-block boundary {['0x%02X..0x%02X' % (a, b) for a, b in blocks]}"
                 )
 

@@ -39,6 +39,7 @@ class _FakeSession:
     def __init__(self, config):
         self._config = config
         self._memory_session_active = True
+        self._memory_session_failed = False
         self.address = "C1:8D:32:97:D5:BB"
         self.commands: list[str] = []
         self._last_reply_packet_type = bytearray.fromhex("8f00")
