@@ -27,12 +27,13 @@ def parse_classic_vital_14_bitpacked(
 
     Unlike ``parse_classic_vital_14`` (byte-aligned fields), this layout packs
     sys/dia/bpm/date into a continuous bitfield read big-endian.  Used by the
-    HEM-7322T and HEM-7600T families.
+    HEM-7322T, HEM-7600T, HEM-6320T, HEM-6321T and HEM-7320T families.  The year
+    is 6 bits; the top 2 bits of that byte are another field on some models.
     """
     record: dict[str, Any] = {}
     record["dia"] = _bytearray_bits_to_int(data, endianness, 0, 7)
     record["sys"] = _bytearray_bits_to_int(data, endianness, 8, 15) + 25
-    year = _bytearray_bits_to_int(data, endianness, 16, 23) + 2000
+    year = _bytearray_bits_to_int(data, endianness, 18, 23) + 2000
     record["bpm"] = _bytearray_bits_to_int(data, endianness, 24, 31)
     # BE mappings derived from standard bit packing
     record["mov"] = _bytearray_bits_to_int(data, endianness, 32, 32)

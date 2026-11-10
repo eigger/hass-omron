@@ -52,7 +52,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0F74,
         settings_write_address=0x0F9A,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.AT_2,
+        time_sync_layout=TimeSyncLayout.AT_2_SWAPPED,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -67,7 +67,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 },
             ],
         },
-        record_parser=RecordParser.CLASSIC_VITAL_14,
+        # Vendor map: same record and clock layout as HEM-7322T (reverseSendData=1).
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-6320T-SH",
             "HEM-6320T-Z",
@@ -87,7 +88,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0F74,
         settings_write_address=0x0F9A,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.AT_2,
+        time_sync_layout=TimeSyncLayout.AT_2_SWAPPED,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -110,7 +111,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 },
             ],
         },
-        record_parser=RecordParser.CLASSIC_VITAL_14,
+        # Vendor map: same record and clock layout as HEM-7322T (reverseSendData=1).
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-6321T-Z",
             "HEM-6324T",
@@ -194,7 +196,7 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
         settings_read_address=0x0260,
         settings_write_address=0x0286,
         settings_time_sync_bytes=[0x14, 0x1E],
-        time_sync_layout=TimeSyncLayout.AT_2,
+        time_sync_layout=TimeSyncLayout.AT_2_SWAPPED,
         index_pointer_layout={
             "index_region_byte_size": 0x08,
             "endianness": "big",
@@ -217,7 +219,8 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                 },
             ],
         },
-        record_parser=RecordParser.CLASSIC_VITAL_14,
+        # Vendor map: same record and clock layout as HEM-7322T (reverseSendData=1).
+        record_parser=RecordParser.CLASSIC_VITAL_14_BITPACKED,
         equivalent_model_ids=(
             "HEM-7320T-CA",
             "HEM-7320T-CACS",
