@@ -309,6 +309,51 @@ class TestRxNotificationHandling:
         assert writes[-1] == "080fffffff0000f8"
         assert not self.session.memory.memory_session_active
 
+    def test_failed_error_close_does_not_mask_original_exception(self, monkeypatch):
+        import asyncio
+        from unittest.mock import AsyncMock
+        import pytest
+
+        client = MagicMock()
+        client.start_notify = AsyncMock()
+        client.stop_notify = AsyncMock()
+
+        async def fake_write(uuid, data, response=True):
+            if data[1] == 0x00:
+                open_reply = bytearray.fromhex("0880000000100098")
+                self.session.memory._on_notify_channel_data(0, open_reply)
+            # The 0x0F close command is never answered.
+
+        client.write_gatt_char.side_effect = fake_write
+        client.is_connected = True
+        self.session._client = client
+
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol.DISCONNECT_TIMEOUT_S",
+            0.05,
+        )
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC",
+            0.05,
+        )
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_RETRY_BACKOFF_SEC",
+            0,
+        )
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_TX_MAX_RETRIES",
+            2,
+        )
+
+        async def run_context():
+            async with self.session.memory.memory_session():
+                raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(run_context())
+
+        assert not self.session.memory.memory_session_active
+
     def test_unopened_session_does_not_send_stop_command(self):
         import asyncio
 
@@ -382,3 +427,60 @@ class TestRxNotificationHandling:
         assert len(writes) == 1
         assert session.memory._reply_ready.is_set()
         assert session.memory._last_reply_payload == bytes(range(16))
+
+    def test_missing_channel_zero_is_retried_without_direct_read(self, monkeypatch):
+        import asyncio
+        import pytest
+
+        multi_config = DeviceConfig(
+            model="HEM-7322T",
+            rx_channel_uuids=[
+                "51220002-0000-1000-8000-00805f9b34fb",
+                "51220003-0000-1000-8000-00805f9b34fb",
+                "51220004-0000-1000-8000-00805f9b34fb",
+                "51220005-0000-1000-8000-00805f9b34fb",
+            ],
+            tx_channel_uuids=[
+                "51220001-0000-1000-8000-00805f9b34fb",
+                "51220006-0000-1000-8000-00805f9b34fb",
+            ],
+        )
+        session = OmronDeviceSession(MagicMock(), multi_config)
+        session._debug_ble_link = lambda *_a: None
+        client = MagicMock()
+        writes = []
+        reads = []
+
+        async def fake_write(uuid, data, response=True):
+            # No channel notification arrives at all.
+            writes.append(bytes(data).hex())
+
+        async def fake_read(uuid):
+            reads.append(uuid)
+            return b""
+
+        client.write_gatt_char.side_effect = fake_write
+        client.read_gatt_char.side_effect = fake_read
+        client.is_connected = True
+        session._client = client
+
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_REPLY_TIMEOUT_SEC",
+            0.05,
+        )
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_RETRY_BACKOFF_SEC",
+            0,
+        )
+        monkeypatch.setattr(
+            "custom_components.omron.omron_ble.memory_protocol._MEMORY_PROTOCOL_TX_MAX_RETRIES",
+            2,
+        )
+
+        cmd = bytearray.fromhex("0801000010100009")
+        session.memory._expected_reply_packet_type = b"\x81\x00"
+        with pytest.raises(ConnectionError, match="Failed to receive response after"):
+            asyncio.run(session.memory._write_command_and_wait_reply(cmd, timeout=0.05))
+
+        assert len(writes) == 2
+        assert reads == []

@@ -84,7 +84,7 @@ async def test_probe_sent_when_aggressive():
 
 
 @pytest.mark.asyncio
-async def test_auth_write_retries_with_response_on_notification_timeout():
+async def test_auth_write_retries_without_response_on_notification_timeout():
     client = FakeClient()
     session = _classic_session(client, aggressive=False)
 
@@ -94,8 +94,8 @@ async def test_auth_write_retries_with_response_on_notification_timeout():
         nonlocal attempts
         if value[0] == 0x01:
             attempts += 1
-            # First attempt (response=False): drop notification
-            # Second attempt (response=True): send ack
+            # First attempt (response=True): drop notification
+            # Second attempt (response=False): send ack
             if attempts == 2:
                 client.reply(b"\x81\x00", UNLOCK)
 
@@ -106,8 +106,8 @@ async def test_auth_write_retries_with_response_on_notification_timeout():
     auth_writes = [
         (data[0], resp) for _u, data, resp in client.writes if data[0] == 0x01
     ]
-    # First attempt response=False, second attempt response=True
-    assert auth_writes == [(0x01, False), (0x01, True)]
+    # First attempt response=True, second attempt response=False
+    assert auth_writes == [(0x01, True), (0x01, False)]
 
 
 @pytest.mark.asyncio
@@ -122,4 +122,4 @@ async def test_auth_write_fails_when_both_retries_time_out():
     auth_writes = [
         (data[0], resp) for _u, data, resp in client.writes if data[0] == 0x01
     ]
-    assert auth_writes == [(0x01, False), (0x01, True)]
+    assert auth_writes == [(0x01, True), (0x01, False)]

@@ -665,9 +665,9 @@ class OmronDeviceSession:
                 # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
                 await _maybe_send_unlock_probe(self, replies)
 
-                # Prefer write-without-response; fall back to write-with-response
-                # when stacks/proxies drop command writes (matching token unlock).
-                for use_response in (False, True):
+                # Write with response first; fall back to write without response
+                # on a notify timeout.
+                for use_response in (True, False):
                     try:
                         response = await replies.request(
                             UNLOCK_CHARACTERISTIC_UUID,
@@ -690,14 +690,14 @@ class OmronDeviceSession:
                     except WriteTimeout:
                         raise
                     except (NotificationTimeout, TimeoutError):
-                        if use_response:
+                        if not use_response:
                             self._debug_ble_link("unlock_notify_timeout")
                             raise ConnectionError(
                                 "Unlock failed: notify timeout"
                             ) from None
                         _LOGGER.debug(
-                            "Classic unlock notify timeout with response=False; "
-                            "retrying write with response=True"
+                            "Classic unlock notify timeout with response=True; "
+                            "retrying write with response=False"
                         )
             except WriteTimeout:
                 raise

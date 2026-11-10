@@ -562,30 +562,26 @@ class MemoryProtocol:
         ):
             return False
         try:
-            # If channel 0 is missing, try reading it directly
+            # Without channel 0 the command may not have arrived; resend instead.
             if self._channel_fragments[0] is None:
-                uuid0 = self._config.rx_channel_uuids[0]
-                data0 = await self._client.read_gatt_char(uuid0)
-                if data0:
-                    self._on_notify_channel_data(uuid0, bytearray(data0))
+                return False
 
             if self._reply_ready.is_set():
                 return True
 
-            if self._channel_fragments[0] is not None:
-                packet_size = self._channel_fragments[0][0]
-                if 0 < packet_size <= 64:
-                    num_channels = (packet_size + 15) // 16
-                    for ch in range(
-                        1, min(num_channels, len(self._config.rx_channel_uuids))
-                    ):
-                        if self._channel_fragments[ch] is None:
-                            uuid = self._config.rx_channel_uuids[ch]
-                            data = await self._client.read_gatt_char(uuid)
-                            if data:
-                                self._on_notify_channel_data(uuid, bytearray(data))
-                            if self._reply_ready.is_set():
-                                return True
+            packet_size = self._channel_fragments[0][0]
+            if 0 < packet_size <= 64:
+                num_channels = (packet_size + 15) // 16
+                for ch in range(
+                    1, min(num_channels, len(self._config.rx_channel_uuids))
+                ):
+                    if self._channel_fragments[ch] is None:
+                        uuid = self._config.rx_channel_uuids[ch]
+                        data = await self._client.read_gatt_char(uuid)
+                        if data:
+                            self._on_notify_channel_data(uuid, bytearray(data))
+                        if self._reply_ready.is_set():
+                            return True
             return self._reply_ready.is_set()
         except Exception as exc:
             _LOGGER.debug("Missed RX notification recovery attempt failed: %s", exc)
@@ -792,7 +788,7 @@ class MemoryProtocol:
         ):
             return
 
-        is_failed = error or getattr(self, "_memory_session_failed", False)
+        is_failed = error or self._memory_session_failed
 
         try:
             stop_cmd = (
@@ -800,8 +796,14 @@ class MemoryProtocol:
                 if is_failed
                 else bytearray.fromhex("080f000000000007")
             )
-            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
-                await self._write_command_and_wait_reply(stop_cmd)
+            try:
+                async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                    await self._write_command_and_wait_reply(stop_cmd)
+            except Exception as exc:
+                if not is_failed:
+                    raise
+                _LOGGER.debug("Error-close stop command failed: %s", exc)
+                return
             if self._last_reply_packet_type != bytearray.fromhex("8f00"):
                 _LOGGER.warning("Invalid response to data readout end")
             elif self._last_reply_payload and self._last_reply_payload[0]:
