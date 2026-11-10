@@ -97,6 +97,7 @@ class MemoryProtocol:
         self._notify_handle_to_channel: dict[int, int] = {}
         self._memory_session_active = False
         self._memory_session_start_attempted = False
+        self._memory_session_failed = False
         # A pairing session commits its registration once per link. The two
         # writes are tracked apart: the head write steps the cuff's transfer
         # count and must never repeat, the clock write can be redone.
@@ -204,10 +205,12 @@ class MemoryProtocol:
             channel_index = self._notify_handle_to_channel.get(char, -1)
         else:
             # Try UUID-based mapping first, then handle-based
-            if char.uuid in self._config.rx_channel_uuids:
-                channel_index = self._config.rx_channel_uuids.index(char.uuid)
+            char_uuid = getattr(char, "uuid", char if isinstance(char, str) else None)
+            if char_uuid in self._config.rx_channel_uuids:
+                channel_index = self._config.rx_channel_uuids.index(char_uuid)
             else:
-                channel_index = self._notify_handle_to_channel.get(char.handle, -1)
+                char_handle = getattr(char, "handle", -1)
+                channel_index = self._notify_handle_to_channel.get(char_handle, -1)
 
         if channel_index < 0:
             _LOGGER.warning("Received data on unknown handle/uuid: %s", char)
@@ -380,6 +383,19 @@ class MemoryProtocol:
 
         self._reply_ready.set()
 
+    def _check_reply_rejection(self, command: bytearray) -> None:
+        """Raise ConnectionError if device rejected the command with 0x8f00."""
+        if (
+            self._expected_reply_packet_type is not None
+            and self._last_reply_packet_type == b"\x8f\x00"
+            and self._expected_reply_packet_type != b"\x8f\x00"
+        ):
+            code = self._last_reply_payload[0] if self._last_reply_payload else -1
+            raise ConnectionError(
+                f"Device rejected command {_hex(command[:3])} "
+                f"(error frame 0x8f00, code 0x{code:02x})"
+            )
+
     async def _write_command_and_wait_reply(
         self,
         command: bytearray,
@@ -388,7 +404,12 @@ class MemoryProtocol:
         """Send a command and wait for response with retry logic."""
         # Derive expected reply packet type from plaintext command before optional encryption
         if len(command) >= 3:
-            self._expected_reply_packet_type = bytes([command[1] | 0x80, command[2]])
+            if command[1] == 0x0F:
+                self._expected_reply_packet_type = b"\x8f\x00"
+            else:
+                self._expected_reply_packet_type = bytes(
+                    [command[1] | 0x80, command[2]]
+                )
         else:
             self._expected_reply_packet_type = None
         # The address a reply must echo back from the command asking for it.
@@ -497,22 +518,17 @@ class MemoryProtocol:
                         f"await_reply attempt={retry + 1} cmd_head={_hex(command[:8])}"
                     )
                     await asyncio.wait_for(self._reply_ready.wait(), timeout=timeout)
-                    if (
-                        self._expected_reply_packet_type is not None
-                        and self._last_reply_packet_type == b"\x8f\x00"
-                        and self._expected_reply_packet_type != b"\x8f\x00"
-                    ):
-                        code = (
-                            self._last_reply_payload[0]
-                            if self._last_reply_payload
-                            else -1
-                        )
-                        raise ConnectionError(
-                            f"Device rejected command {_hex(command[:3])} "
-                            f"(error frame 0x8f00, code 0x{code:02x})"
-                        )
+                    self._check_reply_rejection(command)
                     return  # Success
                 except asyncio.TimeoutError:
+                    if not self._config.is_single_channel:
+                        recovered = await self._recover_missed_rx_fragments()
+                        if recovered and self._reply_ready.is_set():
+                            self._check_reply_rejection(command)
+                            _LOGGER.debug(
+                                "Recovered missed notification fragments via direct GATT read"
+                            )
+                            return  # Success
                     _LOGGER.warning("TX timeout, retry %d/%d", retry + 1, max_retries)
                     self._debug_ble_link(
                         f"reply_timeout attempt={retry + 1} cmd_head={_hex(command[:8])}"
@@ -537,6 +553,40 @@ class MemoryProtocol:
             self._expected_reply_packet_type = None
             self._expected_reply_memory_address = None
 
+    async def _recover_missed_rx_fragments(self) -> bool:
+        """Attempt to recover missing response fragments on 4-channel devices by direct GATT read."""
+        if (
+            self._config.is_single_channel
+            or not self._client
+            or not getattr(self._client, "is_connected", False)
+        ):
+            return False
+        try:
+            # Without channel 0 the command may not have arrived; resend instead.
+            if self._channel_fragments[0] is None:
+                return False
+
+            if self._reply_ready.is_set():
+                return True
+
+            packet_size = self._channel_fragments[0][0]
+            if 0 < packet_size <= 64:
+                num_channels = (packet_size + 15) // 16
+                for ch in range(
+                    1, min(num_channels, len(self._config.rx_channel_uuids))
+                ):
+                    if self._channel_fragments[ch] is None:
+                        uuid = self._config.rx_channel_uuids[ch]
+                        data = await self._client.read_gatt_char(uuid)
+                        if data:
+                            self._on_notify_channel_data(uuid, bytearray(data))
+                        if self._reply_ready.is_set():
+                            return True
+            return self._reply_ready.is_set()
+        except Exception as exc:
+            _LOGGER.debug("Missed RX notification recovery attempt failed: %s", exc)
+            return False
+
     @property
     def memory_session_active(self) -> bool:
         """True while the EEPROM readout GATT session is open."""
@@ -548,8 +598,11 @@ class MemoryProtocol:
         await self.open_memory_session()
         try:
             yield
+        except BaseException:
+            self._memory_session_failed = True
+            raise
         finally:
-            await self.close_memory_session()
+            await self.close_memory_session(error=self._memory_session_failed)
 
     @traced("memory_open")
     async def open_memory_session(self) -> None:
@@ -572,6 +625,7 @@ class MemoryProtocol:
                     f"Device rejected memory session open (error code 0x{self._last_reply_payload[0]:02x})"
                 )
             self._memory_session_active = True
+            self._memory_session_failed = False
             self._debug_ble_link("open_memory_session_ok")
             _LOGGER.debug("Memory session opened for %s", self.address)
         except BaseException:
@@ -588,12 +642,11 @@ class MemoryProtocol:
                         await self._write_command_and_wait_reply(stop_cmd)
                 except Exception as stop_exc:
                     _LOGGER.debug(
-                        "Best-effort memory session end failed for %s: %s",
-                        self.address,
+                        "Failed to stop readout session during failure cleanup: %s",
                         stop_exc,
                     )
-                finally:
-                    self._memory_session_start_attempted = False
+            self._memory_session_start_attempted = False
+            self._memory_session_failed = False
             await self._unsubscribe_notify_channels(force=True)
             raise
 
@@ -728,17 +781,29 @@ class MemoryProtocol:
         self._pairing_registration_clock_done = True
 
     @traced("memory_close")
-    async def close_memory_session(self) -> None:
+    async def close_memory_session(self, *, error: bool = False) -> None:
         """End a data readout session (no-op if not open)."""
         if not self._memory_session_active and not getattr(
             self, "_memory_session_start_attempted", False
         ):
             return
 
+        is_failed = error or self._memory_session_failed
+
         try:
-            stop_cmd = bytearray.fromhex("080f000000000007")
-            async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
-                await self._write_command_and_wait_reply(stop_cmd)
+            stop_cmd = (
+                bytearray.fromhex("080fffffff0000f8")
+                if is_failed
+                else bytearray.fromhex("080f000000000007")
+            )
+            try:
+                async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
+                    await self._write_command_and_wait_reply(stop_cmd)
+            except Exception as exc:
+                if not is_failed:
+                    raise
+                _LOGGER.debug("Error-close stop command failed: %s", exc)
+                return
             if self._last_reply_packet_type != bytearray.fromhex("8f00"):
                 _LOGGER.warning("Invalid response to data readout end")
             elif self._last_reply_payload and self._last_reply_payload[0]:
@@ -749,6 +814,7 @@ class MemoryProtocol:
         finally:
             self._memory_session_active = False
             self._memory_session_start_attempted = False
+            self._memory_session_failed = False
             await self._unsubscribe_notify_channels()
             _LOGGER.debug("Memory session closed for %s", self.address)
 

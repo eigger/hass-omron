@@ -13,6 +13,7 @@ from bleak.exc import BleakError
 from blesession import (
     DISCONNECT_TIMEOUT_S,
     WRITE_TIMEOUT_S,
+    NotificationTimeout,
     Notifications,
     WriteTimeout,
     probe_link,
@@ -664,23 +665,40 @@ class OmronDeviceSession:
                 # Some classic custom-key models are more stable with a 0x02 probe before auth-key unlock.
                 await _maybe_send_unlock_probe(self, replies)
 
-                response = await replies.request(
-                    UNLOCK_CHARACTERISTIC_UUID,
-                    b"\x01" + unlock_key,
-                    timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC,
-                    write_timeout=WRITE_TIMEOUT_S,
-                    step="unlock",
-                    response=True,
-                )
-                if not _is_unlock_auth_key_ack(response):
-                    _LOGGER.debug(
-                        "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
-                        len(response),
-                        _hex(response),
-                    )
-                    raise ConnectionError("Unlock failed: pairing key mismatch")
+                # Write with response first; fall back to write without response
+                # on a notify timeout.
+                for use_response in (True, False):
+                    try:
+                        response = await replies.request(
+                            UNLOCK_CHARACTERISTIC_UUID,
+                            b"\x01" + unlock_key,
+                            timeout=_UNLOCK_AUTH_WAIT_TIMEOUT_SEC,
+                            write_timeout=WRITE_TIMEOUT_S,
+                            step="unlock",
+                            response=use_response,
+                        )
+                        if not _is_unlock_auth_key_ack(response):
+                            _LOGGER.debug(
+                                "Unlock failed (pairing key mismatch): notify len=%s hex=%s",
+                                len(response),
+                                _hex(response),
+                            )
+                            raise ConnectionError("Unlock failed: pairing key mismatch")
 
-                self._unlocked = True
+                        self._unlocked = True
+                        break
+                    except WriteTimeout:
+                        raise
+                    except (NotificationTimeout, TimeoutError):
+                        if not use_response:
+                            self._debug_ble_link("unlock_notify_timeout")
+                            raise ConnectionError(
+                                "Unlock failed: notify timeout"
+                            ) from None
+                        _LOGGER.debug(
+                            "Classic unlock notify timeout with response=True; "
+                            "retrying write with response=False"
+                        )
             except WriteTimeout:
                 raise
             except TimeoutError:

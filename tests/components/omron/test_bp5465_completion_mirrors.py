@@ -19,6 +19,7 @@ class _CompletionTransport:
     def __init__(self, model: str, *, active: bool = True) -> None:
         self._config = get_device_config(model)
         self._memory_session_active = active
+        self._memory_session_failed = False
         self._last_reply_packet_type = bytearray.fromhex("8f00")
         self._last_reply_payload = bytearray([0])
         self.address = "test-device"
