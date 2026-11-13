@@ -10,7 +10,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .clock import local_tz, local_wall_now
-from .devices import DeviceConfig, HostPairingMode
+from .devices import (
+    SEQUENCE_CURSOR,
+    SEQUENCE_RECORD_ID,
+    DeviceConfig,
+    HostPairingMode,
+    stored_record_sequence_kind,
+)
 from .memory_protocol import MemoryReadRefused
 from .session import OmronDeviceSession
 from .settings_mirror import SettingsMirrorLayout, clock_block
@@ -43,6 +49,18 @@ class StoredUserRecords:
     lost: int = 0
     rebased: bool = False
     complete: bool = True
+    # Only for a user whose sequence is made up from the write cursor: where
+    # the host has to resume (``{"slot": ..., "newest": [...]}``). None
+    # otherwise.
+    cursor: dict[str, Any] | None = None
+
+
+def _older_than(stamp: Any, other: Any) -> bool:
+    """Whether the ISO time ``stamp`` is before ``other``; False if either is missing."""
+    try:
+        return dt.datetime.fromisoformat(stamp) < dt.datetime.fromisoformat(other)
+    except (TypeError, ValueError):
+        return False
 
 
 def _decode_eeprom_time_payload(layout: str, cached: bytearray) -> dt.datetime:
@@ -614,15 +632,18 @@ class OmronDeviceDriver:
         last_seq_by_user: dict[int, int],
         *,
         max_reads: int,
+        cursor_by_user: dict[int, dict[str, Any]] | None = None,
     ) -> dict[int, StoredUserRecords]:
         """Read the records stored since each user's ``last_seq``.
 
-        Only users whose index layout carries ``latest_sequence_offset`` take
-        part. A user with no ``last_seq`` yet is only baselined: nothing is
-        read and ``next_seq`` is the cuff's current counter, so setting the
-        integration up never replays the memory. Reads are bounded by
-        ``max_reads`` per user, oldest first, so a long backlog drains over
-        several polls instead of one long link.
+        Only users whose index layout can number their records take part: a
+        counter in the index, a number in each record, or (``cursor_by_user``
+        carries where the last poll stopped) the write cursor. A user with no
+        ``last_seq`` yet is only baselined: nothing is read and ``next_seq``
+        is the device's current counter, so setting the integration up never
+        replays the memory. Reads are bounded by ``max_reads`` per user,
+        oldest first, so a long backlog drains over several polls instead of
+        one long link.
         """
         layout = self._config.index_pointer_layout
         if (
@@ -633,11 +654,7 @@ class OmronDeviceDriver:
             return {}
         user_layouts = layout.get("users", [])
         index_region_byte_size = int(layout.get("index_region_byte_size", 0))
-        if not any(
-            u.get("latest_sequence_offset") is not None
-            or u.get("sequence_source") == "record_id"
-            for u in user_layouts
-        ):
+        if not any(stored_record_sequence_kind(u) is not None for u in user_layouts):
             return {}
         record_addresses = (
             layout.get("record_addresses") or self._config.user_start_addresses
@@ -654,13 +671,29 @@ class OmronDeviceDriver:
         )
         results: dict[int, StoredUserRecords] = {}
         for idx, user_cfg in enumerate(user_layouts):
-            seq_offset = user_cfg.get("latest_sequence_offset")
-            sequence_in_record = user_cfg.get("sequence_source") == "record_id"
-            if (seq_offset is None and not sequence_in_record) or idx >= len(
-                record_addresses
-            ):
+            kind = stored_record_sequence_kind(user_cfg)
+            if kind is None or idx >= len(record_addresses):
                 continue
             user = idx + 1
+            if kind == SEQUENCE_CURSOR:
+                outcome = await self._cursor_records_since(
+                    transport,
+                    idx=idx,
+                    user_cfg=user_cfg,
+                    index_bytes=index_bytes,
+                    ptr_endian=ptr_endian,
+                    record_addresses=record_addresses,
+                    record_byte_size=record_byte_size,
+                    record_step=record_step,
+                    last=last_seq_by_user.get(user),
+                    state=(cursor_by_user or {}).get(user),
+                    max_reads=max_reads,
+                )
+                if outcome is not None:
+                    results[user] = outcome
+                continue
+            seq_offset = user_cfg.get("latest_sequence_offset")
+            sequence_in_record = kind == SEQUENCE_RECORD_ID
             latest_slot: int | None = None
             if sequence_in_record:
                 cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
@@ -871,6 +904,233 @@ class OmronDeviceDriver:
             )
             results[user] = outcome
         return results
+
+    def _cursor_fingerprint(self, parsed: dict[str, Any]) -> list[Any]:
+        """Time and values of a record, as plain JSON, to tell it from another."""
+        when = parsed.get("datetime")
+        stamp = when.isoformat() if isinstance(when, dt.datetime) else None
+        if self._config.is_blood_pressure:
+            return [stamp, parsed.get("sys"), parsed.get("dia"), parsed.get("bpm")]
+        return [stamp, parsed.get("weight")]
+
+    async def _read_cursor_record(
+        self,
+        transport: OmronDeviceSession,
+        address: int,
+        size: int,
+        slot: int,
+    ) -> tuple[bytes, dict[str, Any] | None]:
+        """Raw bytes of one slot and its record, None if it is not a plausible one."""
+        raw = bytes(
+            await transport.memory.read_memory_range(
+                address, size, self._config.transmission_block_size
+            )
+        )
+        try:
+            parsed = self._config.parse_record(raw)
+            parsed["_slot_index"] = slot
+            plausible = self._is_record_plausible(parsed)
+        except Exception:
+            return raw, None
+        return raw, parsed if plausible else None
+
+    async def _cursor_records_since(
+        self,
+        transport: OmronDeviceSession,
+        *,
+        idx: int,
+        user_cfg: dict,
+        index_bytes: bytes | bytearray,
+        ptr_endian: str,
+        record_addresses,
+        record_byte_size: int,
+        record_step: int,
+        last: int | None,
+        state: dict[str, Any] | None,
+        max_reads: int,
+    ) -> StoredUserRecords | None:
+        """New records of a user whose profile has no counter, from the write cursor.
+
+        The sequence is made up: ``last`` is the one handed out to the last
+        record handled, ``state`` where that record sat (``slot``) and what it
+        looked like (``newest``). The number of new records is how far the
+        cursor moved since, modulo the ring. A cursor cannot tell two things
+        apart, so they are caught by the newest record instead and answered
+        with a rebase (nothing emitted, start again from here): the ring
+        written exactly once round, or memory cleared and refilled (the cursor
+        did not move but the newest record changed), and a newest record that
+        is older than the one handled last. Derived from the memory map; not
+        checked on hardware.
+        """
+        user = idx + 1
+        latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
+        if latest_slot is None:
+            return None
+        pointer_min = int(user_cfg.get("slot_index_min", 0))
+        pointer_max = int(
+            user_cfg.get("slot_index_max", self._config.per_user_records_count[idx] - 1)
+        )
+        ring = pointer_max - pointer_min + 1
+        if ring <= 0:
+            return None
+        base_addr = int(record_addresses[idx])
+
+        def address_of(slot: int) -> int:
+            return base_addr + (slot - pointer_min) * record_step
+
+        try:
+            newest_raw, newest = await self._read_cursor_record(
+                transport, address_of(latest_slot), record_byte_size, latest_slot
+            )
+        except Exception as exc:
+            _LOGGER.debug(
+                "User%d [%s]: could not read the newest record at slot %d: %s",
+                user,
+                self._config.model,
+                latest_slot,
+                exc,
+            )
+            return None
+        newest_fp = self._cursor_fingerprint(newest) if newest is not None else None
+        clear_value = user_cfg.get("clear_value")
+        cursor_offset = int(user_cfg.get("write_cursor_offset", -1))
+        cursor_width = int(user_cfg.get("cursor_width", 2))
+        cursor_word = (
+            int.from_bytes(
+                index_bytes[cursor_offset : cursor_offset + cursor_width], ptr_endian
+            )
+            if cursor_offset >= 0 and cursor_offset + cursor_width <= len(index_bytes)
+            else None
+        )
+        if (
+            clear_value is not None
+            and cursor_word == int(clear_value)
+            and newest is None
+        ):
+            # The marker for "nothing recorded", and the slot it would point at
+            # holds nothing either.
+            return None
+
+        previous_slot = state.get("slot") if isinstance(state, dict) else None
+        if (
+            last is None
+            or not isinstance(previous_slot, int)
+            or isinstance(previous_slot, bool)
+            or not pointer_min <= previous_slot <= pointer_max
+        ):
+            baseline = last if last is not None else 0
+            _LOGGER.debug(
+                "User%d [%s]: first sync from the write cursor, taking slot %d "
+                "as the baseline",
+                user,
+                self._config.model,
+                latest_slot,
+            )
+            return StoredUserRecords(
+                next_seq=baseline,
+                index_seq=baseline,
+                cursor={"slot": latest_slot, "newest": newest_fp},
+            )
+        stored_fp = state.get("newest") if isinstance(state, dict) else None
+        advance = (latest_slot - previous_slot) % ring
+
+        def rebase(why: str) -> StoredUserRecords:
+            _LOGGER.warning(
+                "User%d [%s]: %s; resuming from the current write cursor",
+                user,
+                self._config.model,
+                why,
+            )
+            return StoredUserRecords(
+                next_seq=last,
+                index_seq=last,
+                rebased=True,
+                cursor={"slot": latest_slot, "newest": newest_fp},
+            )
+
+        if advance == 0:
+            if (
+                newest_fp is not None
+                and isinstance(stored_fp, list)
+                and newest_fp != stored_fp
+            ):
+                return rebase(
+                    "the write cursor did not move but the newest record changed"
+                )
+            return StoredUserRecords(
+                next_seq=last,
+                index_seq=last,
+                cursor={
+                    "slot": previous_slot,
+                    "newest": newest_fp if newest_fp is not None else stored_fp,
+                },
+            )
+        if (
+            newest_fp is not None
+            and isinstance(stored_fp, list)
+            and _older_than(newest_fp[0], stored_fp[0] if stored_fp else None)
+        ):
+            return rebase("the newest record is older than the one handled last")
+
+        outcome = StoredUserRecords(
+            next_seq=last,
+            index_seq=(last + advance) & 0xFFFF,
+        )
+        handled_slot = previous_slot
+        handled_fp = stored_fp
+        _LOGGER.debug(
+            "User%d [%s]: write cursor moved %d slot(s) (%d -> %d, ring=%d), "
+            "reading %d (max_reads=%d)",
+            user,
+            self._config.model,
+            advance,
+            previous_slot,
+            latest_slot,
+            ring,
+            min(advance, max_reads),
+            max_reads,
+        )
+        for step in range(min(advance, max_reads)):
+            slot = pointer_min + (previous_slot - pointer_min + 1 + step) % ring
+            try:
+                if slot == latest_slot:
+                    raw, parsed = newest_raw, newest
+                else:
+                    raw, parsed = await self._read_cursor_record(
+                        transport, address_of(slot), record_byte_size, slot
+                    )
+            except Exception as exc:
+                _LOGGER.debug(
+                    "User%d [%s] slot=%d history read failed: %s",
+                    user,
+                    self._config.model,
+                    slot,
+                    exc,
+                )
+                outcome.complete = False
+                break
+            outcome.next_seq = (outcome.next_seq + 1) & 0xFFFF
+            handled_slot = slot
+            _LOGGER.debug(
+                "User%d [%s] seq=%d slot=%d raw=%s",
+                user,
+                self._config.model,
+                outcome.next_seq,
+                slot,
+                raw.hex(),
+            )
+            if parsed is None:
+                outcome.lost += 1
+                handled_fp = None
+                continue
+            handled_fp = self._cursor_fingerprint(parsed)
+            record = self._finalize_public_latest_record(parsed, user)
+            record["sequence"] = outcome.next_seq
+            outcome.records.append(record)
+        if outcome.next_seq != outcome.index_seq:
+            outcome.complete = False
+        outcome.cursor = {"slot": handled_slot, "newest": handled_fp}
+        return outcome
 
     @staticmethod
     def _zero_pointer_reads_as_clear(user_cfg: dict) -> bool:

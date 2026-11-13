@@ -47,6 +47,40 @@ def _int_map(raw: Any) -> dict[int, int]:
     return result
 
 
+def _cursor_map(raw: Any) -> dict[int, dict[str, Any]]:
+    """The saved write-cursor positions, dropping anything that does not fit."""
+    result: dict[int, dict[str, Any]] = {}
+    if not isinstance(raw, dict):
+        return result
+    for key, value in raw.items():
+        try:
+            user = int(key)
+        except (TypeError, ValueError):
+            continue
+        slot = value.get("slot") if isinstance(value, dict) else None
+        if not isinstance(slot, int) or isinstance(slot, bool):
+            continue
+        newest = value.get("newest")
+        result[user] = {
+            "slot": slot,
+            "newest": list(newest) if isinstance(newest, list) else None,
+        }
+    return result
+
+
+async def _async_load_all(
+    hass: HomeAssistant, entry_id: str
+) -> tuple[dict[int, int], dict[int, int], dict[int, dict[str, Any]]]:
+    stored = await _store(hass, entry_id).async_load()
+    if not isinstance(stored, dict):
+        return {}, {}, {}
+    return (
+        _int_map(stored.get("last_seq")),
+        _int_map(stored.get("shown")),
+        _cursor_map(stored.get("cursor")),
+    )
+
+
 async def async_load_history_state(
     hass: HomeAssistant, entry_id: str
 ) -> tuple[dict[int, int], dict[int, int]]:
@@ -54,10 +88,8 @@ async def async_load_history_state(
 
     Both are empty before the first sync.
     """
-    stored = await _store(hass, entry_id).async_load()
-    if not isinstance(stored, dict):
-        return {}, {}
-    return _int_map(stored.get("last_seq")), _int_map(stored.get("shown"))
+    last_seq, shown, _ = await _async_load_all(hass, entry_id)
+    return last_seq, shown
 
 
 async def async_setup_history(
@@ -80,7 +112,8 @@ async def async_setup_history(
         (
             device_data.history_last_seq,
             device_data.history_shown,
-        ) = await async_load_history_state(hass, entry_id)
+            device_data.history_cursor,
+        ) = await _async_load_all(hass, entry_id)
     else:
         await async_remove_history(hass, entry_id)
 
@@ -138,17 +171,27 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     # instead of dropping them.
     last_seq = {**(device_data.history_last_seq or {}), **pending["next_seq"]}
     shown = {**device_data.history_shown, **pending.get("shown", {})}
+    # Only profiles whose sequence is made up from the write cursor have one.
+    old_cursor = getattr(device_data, "history_cursor", None) or {}
+    cursor = {**old_cursor, **pending.get("cursor", {})}
     # Most polls change nothing (no new record); do not
     # rewrite the file for those.
-    if last_seq != device_data.history_last_seq or shown != device_data.history_shown:
-        await _store(hass, entry.entry_id).async_save(
-            {
-                "last_seq": {str(user): seq for user, seq in last_seq.items()},
-                "shown": {str(user): seq for user, seq in shown.items()},
-            }
-        )
+    if (
+        last_seq != device_data.history_last_seq
+        or shown != device_data.history_shown
+        or cursor != old_cursor
+    ):
+        saved: dict[str, Any] = {
+            "last_seq": {str(user): seq for user, seq in last_seq.items()},
+            "shown": {str(user): seq for user, seq in shown.items()},
+        }
+        if cursor:
+            saved["cursor"] = {str(user): state for user, state in cursor.items()}
+        await _store(hass, entry.entry_id).async_save(saved)
     device_data.history_last_seq = last_seq
     device_data.history_shown = shown
+    if cursor or old_cursor:
+        device_data.history_cursor = cursor
     if pending["events"]:
         _LOGGER.debug(
             "Published %d stored measurement(s) for %s",

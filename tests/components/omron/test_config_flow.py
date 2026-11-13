@@ -9,9 +9,11 @@ flow actually puts on the form.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
+from unittest.mock import patch
 
 from bleak.backends.device import BLEDevice
 from homeassistant.config_entries import SOURCE_BLUETOOTH
@@ -325,12 +327,23 @@ async def test_options_flow_offers_stored_record_sync_only_where_supported(
         domain=DOMAIN, unique_id=ADDRESS, data={CONF_DEVICE_MODEL: "HEM-7322T"}
     )
     entry.add_to_hass(hass)
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-    assert CONF_SYNC_STORED_RECORDS not in result["data_schema"].schema
-    done = await hass.config_entries.options.async_configure(
-        result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+    # Every catalog profile can number its stored records now (by a counter, by
+    # the records' own number, or from the write cursor), so the profile that
+    # has no way to is a stand-in with no index layout at all.
+    no_index = dataclasses.replace(
+        config_flow.get_device_config("HEM-7322T"), index_pointer_layout=None
     )
+    assert not no_index.supports_stored_record_sync
+    with patch.object(config_flow, "get_device_config", return_value=no_index):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        assert CONF_SYNC_STORED_RECORDS not in result["data_schema"].schema
+        done = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={CONF_SCAN_INTERVAL: 300}
+        )
     assert CONF_SYNC_STORED_RECORDS not in done["data"]
+    # HEM-7322T itself has a write cursor, so it offers the option.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert CONF_SYNC_STORED_RECORDS in {str(k) for k in result["data_schema"].schema}
 
     supported = MockConfigEntry(
         domain=DOMAIN,

@@ -209,15 +209,25 @@ def test_counter_going_backwards_rebases_without_events():
     assert out[1].rebased and out[1].records == [] and out[1].next_seq == 5
 
 
+def _without_cursor(config: DeviceConfig, *users: int) -> DeviceConfig:
+    """The profile with those users (0-based) having no write cursor either."""
+    for index in users:
+        del config.index_pointer_layout["users"][index]["write_cursor_offset"]
+    return config
+
+
 def test_users_without_a_sequence_field_are_left_out():
-    cuff = Cuff(_config(seq_offsets=(0x08, None)), newest=(3, 3))
+    # No counter and no write cursor to make one from: nothing numbers them.
+    cuff = Cuff(_without_cursor(_config(seq_offsets=(0x08, None)), 1), newest=(3, 3))
     out = _sync(cuff, {1: 1, 2: 1})
     assert set(out) == {1}
 
 
 def test_profile_without_the_field_does_nothing():
-    cuff = Cuff(_config(seq_offsets=(None, None)), newest=(3, 3))
+    config = _without_cursor(_config(seq_offsets=(None, None)), 0, 1)
+    cuff = Cuff(config, newest=(3, 3))
     assert _sync(cuff, {1: 1}) == {}
+    assert not config.supports_stored_record_sync
 
 
 OPTED_IN = {
@@ -242,13 +252,24 @@ OPTED_IN = {
 }
 
 
-def test_only_the_listed_profiles_opt_in():
+def test_only_the_listed_profiles_have_a_counter_or_a_record_number():
     from custom_components.omron.omron_ble.device_catalog import (
         CANONICAL_DEVICE_PROFILES,
     )
+    from custom_components.omron.omron_ble.devices import (
+        SEQUENCE_COUNTER,
+        SEQUENCE_RECORD_ID,
+    )
 
+    # Profiles that count their own records. The others that sync number them
+    # from the write cursor (test_cursor_stored_records.py).
     opted = {
-        m for m, c in CANONICAL_DEVICE_PROFILES.items() if c.supports_stored_record_sync
+        m
+        for m, c in CANONICAL_DEVICE_PROFILES.items()
+        if any(
+            kind in (SEQUENCE_COUNTER, SEQUENCE_RECORD_ID)
+            for kind in c.stored_record_sequence_kinds
+        )
     }
     assert opted == OPTED_IN
     for model in opted:

@@ -130,6 +130,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         # the latest, oldest first, for the host to push before the poll's
         # own result.
         self.history_last_seq: dict[int, int] | None = None
+        # Per user whose records are numbered from the write cursor (profiles
+        # with neither a counter nor a record number): where the host left off,
+        # as the driver returned it. Persisted by the host with the sequence.
+        self.history_cursor: dict[int, dict[str, Any]] = {}
         self.pending_history: dict[str, Any] | None = None
         self.history_updates: list[SensorUpdate] = []
         # Per user, the cuff counter of the newest record a poll has shown, so
@@ -955,6 +959,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     session,
                     dict(self.history_last_seq or {}),
                     max_reads=HISTORY_MAX_READS,
+                    cursor_by_user=dict(self.history_cursor),
                 )
         except Exception as exc:
             trace.forgive("history")
@@ -968,6 +973,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         next_seq: dict[int, int] = {}
         shown: dict[int, int] = {}
         rebased: dict[int, bool] = {}
+        cursor: dict[int, dict[str, Any]] = {}
         # TruRead profiles store a session as three raw readings that the poll
         # shows as their average; raw states would mix with the averages.
         states_wanted = not (self._device_config.index_pointer_layout or {}).get(
@@ -976,6 +982,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         for user, outcome in sorted(found.items()):
             next_seq[user] = outcome.next_seq
             rebased[user] = bool(outcome.rebased)
+            if outcome.cursor is not None:
+                cursor[user] = outcome.cursor
             if outcome.lost:
                 _LOGGER.warning(
                     "%d stored measurement(s) for user %d were overwritten or "
@@ -1034,6 +1042,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             "events": events,
             "shown": shown,
             "rebased": rebased,
+            # Only where the sequence is made up from the write cursor.
+            **({"cursor": cursor} if cursor else {}),
         }
 
     def _history_event(self, user: int, record: dict[str, Any]) -> dict[str, Any]:

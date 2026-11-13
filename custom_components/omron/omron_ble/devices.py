@@ -30,6 +30,29 @@ from .record_parsers import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# How a user's stored records are numbered for the sync (see
+# ``stored_record_sequence_kind``).
+SEQUENCE_COUNTER = "counter"
+SEQUENCE_RECORD_ID = "record_id"
+SEQUENCE_CURSOR = "cursor"
+
+
+def stored_record_sequence_kind(user_layout: dict[str, Any]) -> str | None:
+    """What numbers one user's stored records, or None if nothing can.
+
+    ``counter``: the index carries a record counter. ``record_id``: every
+    record carries its own number. ``cursor``: neither, so a sequence is made
+    up from how far the write cursor moved (derived from the memory map, not
+    seen on hardware). None: not even a write cursor.
+    """
+    if user_layout.get("latest_sequence_offset") is not None:
+        return SEQUENCE_COUNTER
+    if user_layout.get("sequence_source") == "record_id":
+        return SEQUENCE_RECORD_ID
+    if user_layout.get("write_cursor_offset") is not None:
+        return SEQUENCE_CURSOR
+    return None
+
 
 class UnlockMode(str, Enum):
     """Transport unlock strategy for a device profile."""
@@ -482,14 +505,25 @@ class DeviceConfig:
         return self.measurement_kind == MeasurementKind.BLOOD_PRESSURE
 
     @property
-    def supports_stored_record_sync(self) -> bool:
-        """Whether the index layout carries a per-user record counter."""
+    def stored_record_sequence_kinds(self) -> list[str | None]:
+        """Per user slot, how its stored records are numbered (see the function)."""
         users = (self.index_pointer_layout or {}).get("users", [])
-        return any(
-            u.get("latest_sequence_offset") is not None
-            or u.get("sequence_source") == "record_id"
-            for u in users
-        )
+        return [stored_record_sequence_kind(u) for u in users]
+
+    @property
+    def supports_stored_record_sync(self) -> bool:
+        """Whether the stored records can be told apart and walked in order.
+
+        Through a counter in the index, a number in every record, or, where a
+        profile has neither, the write cursor (the sequence is then made up).
+        """
+        if self.settings_read_address is None or self.record_byte_size <= 0:
+            # Nothing to read an index from.
+            return any(
+                kind in (SEQUENCE_COUNTER, SEQUENCE_RECORD_ID)
+                for kind in self.stored_record_sequence_kinds
+            )
+        return any(kind is not None for kind in self.stored_record_sequence_kinds)
 
     @property
     def num_users(self) -> int:
