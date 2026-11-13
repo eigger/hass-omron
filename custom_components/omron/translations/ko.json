@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "측정 시각"
+      },
+      "user_last_decision": {
+        "name": "마지막 배정 판단",
+        "state": {
+          "assigned": "이 사용자에게 배정됨",
+          "other_user": "다른 사용자에게 배정됨",
+          "ambiguous": "여러 사용자에 해당",
+          "not_matched": "해당 없음",
+          "no_time": "기록에 시각 없음",
+          "left_over": "등록 전 기록",
+          "skipped": "건너뜀"
+        }
       }
     },
     "binary_sensor": {

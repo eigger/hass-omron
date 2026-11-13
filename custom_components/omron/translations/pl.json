@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Zmierzono o"
+      },
+      "user_last_decision": {
+        "name": "Ostatnia decyzja o przypisaniu",
+        "state": {
+          "assigned": "Przypisano temu użytkownikowi",
+          "other_user": "Przypisano innemu użytkownikowi",
+          "ambiguous": "Niejednoznaczne",
+          "not_matched": "Nie pasuje",
+          "no_time": "Brak czasu w zapisie",
+          "left_over": "Pozostałość sprzed rejestracji",
+          "skipped": "Pominięto"
+        }
       }
     },
     "binary_sensor": {

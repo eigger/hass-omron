@@ -1175,6 +1175,7 @@ async def test_adding_a_user_reloads_the_entry_and_adds_the_sensors(
     assert added == {
         f"{entry.entry_id}_{subentry_id}_weight",
         f"{entry.entry_id}_{subentry_id}_bmi",
+        f"{entry.entry_id}_{subentry_id}_last_decision",
     }
     await _unload(hass, entry)
 
@@ -1247,6 +1248,8 @@ async def test_a_cuff_user_has_the_reading_metric_and_flag_entities(
         "body_movement",
         "cuff_fit",
         "improper_position",
+        # Why the latest measurement was or was not given to this user.
+        "last_decision",
     }
     assert {e.domain for e in own.values()} == {"sensor", "binary_sensor"}
     assert own["irregular_pulse"].domain == "binary_sensor"
