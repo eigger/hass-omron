@@ -87,12 +87,13 @@ A poll normally surfaces only the newest reading. On the models listed below, th
   | `sequence` | the cuff's running record number; use it to ignore a repeated event |
   | `measured_at` | time of the reading with your time zone applied |
   | `device_time` | the cuff's own clock reading, unmodified |
-  | `sys`, `dia`, `bpm` | the reading |
-  | `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position` | status flags |
+  | `sys`, `dia`, `bpm` | the reading (blood pressure monitors) |
+  | `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position` | status flags (blood pressure monitors) |
+  | `weight`, and for body-composition scales `body_fat`, `skeletal_muscle`, `visceral_fat`, `basal_metabolic_rate`, `bmi` | the reading (scales) |
 
 - Setting this up (or turning it on) never replays what is already in the cuff: it starts from the next reading. Up to 30 readings per user are read per poll; a longer backlog is read over the next polls. Readings the cuff overwrote before a poll can no longer be recovered, and a warning says how many.
 - It is **off by default**. Turn it on under **Configure** with **Publish every measurement stored since the last poll** (the option only appears for the models below). While it is off, polls do not read anything extra; turning it on starts from the cuff's current reading, not from what piled up meanwhile.
-- Models: HEM-7361T, HEM-7342T, HEM-7155T, HEM-7155T-K4, HEM-1026T2, HEM-7153JT, HEM-7150T, HEM-7157T, HEM-7151T, HEM-7142T2, HEM-6161T, HEM-6231T, HEM-7530T, HEM-7136T and HEM-6232T. Only the HEM-7361T was checked against a real index dump; for the others the counter position comes from the manufacturer's memory map, so report a problem with a debug log (`Index block` and `record counter` lines). On the HEM-7342T a TruRead set arrives as its three individual readings in the events only; the sensors show the set's average. Models whose cuff keeps no record counter, and scales, are not covered yet. With [users](#users-on-single-slot-devices) registered, the synced readings are also assigned to them.
+- Models: HEM-7361T, HEM-7342T, HEM-7155T, HEM-7155T-K4, HEM-1026T2, HEM-7153JT, HEM-7150T, HEM-7157T, HEM-7151T, HEM-7142T2, HEM-6161T, HEM-6231T, HEM-7530T, HEM-7136T and HEM-6232T, plus the scales HBF-222T and HN-300T2, which number every record themselves (the sync follows that number instead of a counter in the index). Only the HEM-7361T was checked against a real index dump; for the others the counter position comes from the manufacturer's memory map, so report a problem with a debug log (`Index block` and `record counter` lines). **The HN-300T2 sync has not been tried on a scale**: it follows the record layout and cursor of one reporter's Bluetooth capture. A scale's backlog arrives as weight (and, for the HBF-222T, body-composition) state changes and events. On the HEM-7342T a TruRead set arrives as its three individual readings in the events only; the sensors show the set's average. With [users](#users-on-single-slot-devices) registered, the synced readings are also assigned to them.
 
 ## Users on single-slot devices
 
@@ -124,7 +125,7 @@ The sensors keep their last values across restarts. A measurement that cannot be
 
 **Limits to know about**
 
-- A device is read by polling, so what is assigned is what the device reports at the time of the poll. Without **Publish every measurement stored since the last poll** (all scales, and monitors such as the HEM-7600T, which have no record counter) **only the newest measurement of each poll is assigned**: if several people measure between two polls, the earlier measurements are not assigned and not announced. With that option on (models listed above), every stored measurement is assigned, oldest first by the cuff's record number. Registering a user does not change that option.
+- A device is read by polling, so what is assigned is what the device reports at the time of the poll. Without **Publish every measurement stored since the last poll** (off by default; monitors such as the HEM-7600T have no record counter yet) **only the newest measurement of each poll is assigned**: if several people measure between two polls, the earlier measurements are not assigned and not announced. With that option on (models listed above, which now include the HN-300T2 scale), every stored measurement is assigned, oldest first by the device's record number. Registering a user does not change that option.
 - **The first measurement after you add the first user may not be assigned.** The first poll only notes where the device stands, so a measurement the device still held from before is never given to someone. A measurement taken afterwards is assigned normally.
 - A measurement is told from the previous one by its time and values. If the device sends no time, two identical measurements in a row look like one, and the second is missed. Rules with time windows cannot decide a measurement without a time (`no_time`).
 - Time windows use the **device's clock**, which can be wrong; if it is, every time rule is wrong. The HEM-7600T supports clock sync.

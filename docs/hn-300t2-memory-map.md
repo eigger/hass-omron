@@ -64,6 +64,18 @@ checksum of the six time bytes. The app keeps the pad byte as it read it
 (`0xFF` on the captured scale). The scale keeps local time; there is no zone
 field.
 
+## Stored-record sync (unverified)
+
+With the option **Publish every measurement stored since the last poll** on,
+the integration follows the record's own sequence number (bytes 9-10, 16-bit,
+big-endian) instead of an index counter: the index sequence at +8 is
+big-endian inside a little-endian block, so the record's number is the one
+read. On each poll it reads the index and the newest record; the records
+between the last handled number and the newest come back oldest first, up to
+30 per poll. The cursor byte 0x80 means "pointer 0" as well as "cleared" on
+this scale (odd parity), so a cursor of 0x80 is told from an empty scale by
+reading the record it points at. None of this has been tried on a scale.
+
 ## Not known
 
 - What the scale does when the unread counter is never cleared.

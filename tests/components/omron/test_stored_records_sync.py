@@ -238,10 +238,11 @@ OPTED_IN = {
     "HEM-7136T",
     "HEM-6232T",
     "HBF-222T",
+    "HN-300T2",
 }
 
 
-def test_only_the_listed_blood_pressure_profiles_opt_in():
+def test_only_the_listed_profiles_opt_in():
     from custom_components.omron.omron_ble.device_catalog import (
         CANONICAL_DEVICE_PROFILES,
     )
@@ -253,11 +254,11 @@ def test_only_the_listed_blood_pressure_profiles_opt_in():
     for model in opted:
         config = CANONICAL_DEVICE_PROFILES[model]
         layout = config.index_pointer_layout
-        if model == "HBF-222T":
+        if model in ("HBF-222T", "HN-300T2"):
             assert not config.is_blood_pressure
             assert [user.get("sequence_source") for user in layout["users"]] == [
                 "record_id"
-            ] * 4
+            ] * config.num_users
             continue
         assert config.is_blood_pressure
         offsets = [u.get("latest_sequence_offset") for u in layout["users"]]

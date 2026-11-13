@@ -1902,6 +1902,10 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
                     "slot_index_min": 0,
                     "slot_index_max": 29,
                     "slot_index_bias": -1,
+                    # The index's own sequence (+8) is big-endian in a little-
+                    # endian block; the record's number (bytes 9-10) is the one
+                    # the stored-record sync follows. Unverified on a scale.
+                    "sequence_source": "record_id",
                 },
             ],
         },

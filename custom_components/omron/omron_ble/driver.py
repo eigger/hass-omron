@@ -675,8 +675,15 @@ class OmronDeviceDriver:
                     else None
                 )
                 clear_value = user_cfg.get("clear_value")
-                if clear_value is not None and cursor_word == int(clear_value):
+                if (
+                    clear_value is not None
+                    and cursor_word == int(clear_value)
+                    and not self._zero_pointer_reads_as_clear(user_cfg)
+                ):
                     continue
+                # Otherwise the cursor is read for what it points at: where the
+                # marker is also a live pointer, an empty user fails the read
+                # of the newest record below and is skipped there.
                 latest_slot = self._latest_slot(idx, user_cfg, index_bytes, ptr_endian)
                 if latest_slot is None:
                     continue
@@ -864,6 +871,20 @@ class OmronDeviceDriver:
             )
             results[user] = outcome
         return results
+
+    @staticmethod
+    def _zero_pointer_reads_as_clear(user_cfg: dict) -> bool:
+        """Whether a cursor pointing at slot 0 looks like the "cleared" marker.
+
+        An odd-parity cursor byte keeps bit 7 set for an all-zero pointer, which
+        is 0x80: the same byte the scale shows when nothing was recorded.
+        """
+        clear_value = user_cfg.get("clear_value")
+        return (
+            clear_value is not None
+            and int(clear_value) == 0x80
+            and user_cfg.get("cursor_parity") == "odd"
+        )
 
     def _latest_slot(
         self,
