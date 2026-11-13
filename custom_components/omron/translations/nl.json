@@ -93,34 +93,106 @@
             "name": "Naam",
             "expected_weight": "Gebruikelijk gewicht (kg)",
             "height_cm": "Lengte (cm, voor de BMI)"
+          },
+          "data_description": {
+            "name": "Wordt getoond als naam van het apparaat en de sensoren van deze gebruiker. Elke gebruiker heeft een andere naam nodig. Voorbeeld: Mama",
+            "expected_weight": "Een recent gewicht van deze persoon. Het geldt voor de eerste metingen; daarna volgt het de gewichten die aan de persoon zijn toegewezen. Voorbeeld: 62,5",
+            "height_cm": "Alleen gebruikt om de BMI te berekenen. Voorbeeld: 168"
           }
         },
         "rules": {
           "title": "Gebruiker",
-          "description": "Elke nieuwe meting gaat naar de ene gebruiker van wie alle regels kloppen. Laat een regel leeg om hem te negeren. Schrijf tijdvensters als HH:MM-HH:MM, gescheiden door komma's; een venster mag over middernacht gaan (22:00-02:00). Waardebereiken zijn slechts een hint en kunnen verkeerd toewijzen. Een meting die bij meerdere gebruikers of bij niemand past, wordt aan niemand toegewezen en gemeld in een `omron_unassigned_measurement`-gebeurtenis. De tijd is die welke het apparaat heeft vastgelegd, dus de klok van het apparaat moet kloppen.",
+          "description": "Deze instellingen zijn geen gezondheidsdrempels. Ze bepalen alleen van wie een meting is. Een weging gaat naar een gebruiker alleen als alle voorwaarden van precies één gebruiker kloppen; als er geen of meerdere kloppen, gaat ze naar niemand en wordt ze gemeld in een `omron_unassigned_measurement`-gebeurtenis. Voorbeeld voor een gezin: de ene persoon weegt zich 's ochtends van 06:00 tot 08:00, de andere 's avonds van 21:00 tot 23:00. Een lege voorwaarde wordt genegeerd. De tijd is die welke het apparaat heeft vastgelegd, dus de klok moet kloppen.\n\n{extra_windows}",
           "data": {
             "name": "Naam",
-            "height_cm": "Lengte (cm, voor de BMI)",
-            "time_windows": "Tijdvensters (HH:MM-HH:MM, gescheiden door komma's)",
-            "weight_min": "Gewicht vanaf (kg)",
-            "weight_max": "Gewicht tot (kg)"
+            "height_cm": "Lengte (cm, voor de BMI)"
+          },
+          "data_description": {
+            "name": "Wordt getoond als naam van het apparaat en de sensoren van deze gebruiker. Elke gebruiker heeft een andere naam nodig. Voorbeeld: Mama",
+            "height_cm": "Alleen gebruikt om de BMI te berekenen. Voorbeeld: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Wanneer meten ze?",
+              "description": "Stel maximaal twee tijdvensters in waarin deze persoon meestal meet. Laat beide leeg om de tijd te negeren. Een venster begint op de eerste tijd en eindigt vlak voor de tweede; een einde vóór het begin is een venster over middernacht (bijvoorbeeld 22:00 tot 02:00).",
+              "data": {
+                "window1_start": "Tijdvenster 1: begin",
+                "window1_end": "Tijdvenster 1: einde",
+                "window2_start": "Tijdvenster 2: begin",
+                "window2_end": "Tijdvenster 2: einde"
+              },
+              "data_description": {
+                "window1_start": "Het venster begint op dit tijdstip. Voorbeeld: 06:00",
+                "window1_end": "Het venster eindigt vlak voor dit tijdstip. Kies voor een venster over middernacht een einde vóór het begin. Voorbeeld: 08:00",
+                "window2_start": "Optioneel tweede venster, bijvoorbeeld voor de avond. Vul begin en einde allebei in. Voorbeeld: 20:00",
+                "window2_end": "Het tweede venster eindigt vlak voor dit tijdstip. Voorbeeld: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Gebruikelijk bereik (optioneel)",
+              "description": "Slechts een aanwijzing: het gewicht verschilt van dag tot dag binnen één persoon en de bereiken van verschillende mensen kunnen overlappen, dus een bereik kan een weging aan de verkeerde persoon geven. Gebruik het alleen als de tijd alleen niet genoeg is. Laat leeg om te negeren.",
+              "data": {
+                "weight_min": "Gewicht vanaf (kg)",
+                "weight_max": "Gewicht tot (kg)"
+              },
+              "data_description": {
+                "weight_min": "Alleen wegingen vanaf dit gewicht tellen als van hen. Voorbeeld: 55",
+                "weight_max": "Alleen wegingen tot dit gewicht tellen als van hen. Voorbeeld: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Gebruiker",
-          "description": "Elke nieuwe meting gaat naar de ene gebruiker van wie alle regels kloppen. Laat een regel leeg om hem te negeren. Schrijf tijdvensters als HH:MM-HH:MM, gescheiden door komma's; een venster mag over middernacht gaan (22:00-02:00). Waardebereiken zijn slechts een hint en kunnen verkeerd toewijzen. Een meting die bij meerdere gebruikers of bij niemand past, wordt aan niemand toegewezen en gemeld in een `omron_unassigned_measurement`-gebeurtenis. De tijd is die welke het apparaat heeft vastgelegd, dus de klok van het apparaat moet kloppen.",
+          "description": "Deze instellingen zijn geen gezondheidsdrempels. Ze bepalen alleen van wie een meting is. Een meting gaat naar een gebruiker alleen als alle voorwaarden van precies één gebruiker kloppen; als er geen of meerdere kloppen, gaat ze naar niemand en wordt ze gemeld in een `omron_unassigned_measurement`-gebeurtenis. Voorbeeld voor een gezin: de ene persoon meet 's ochtends van 06:00 tot 08:00, de andere 's avonds van 21:00 tot 23:00. Een lege voorwaarde wordt genegeerd. De tijd is die welke het apparaat heeft vastgelegd, dus de klok moet kloppen.\n\n{extra_windows}",
           "data": {
-            "name": "Naam",
-            "time_windows": "Tijdvensters (HH:MM-HH:MM, gescheiden door komma's)",
-            "sys_min": "Systolisch vanaf (mmHg)",
-            "sys_max": "Systolisch tot (mmHg)",
-            "dia_min": "Diastolisch vanaf (mmHg)",
-            "dia_max": "Diastolisch tot (mmHg)"
+            "name": "Naam"
+          },
+          "data_description": {
+            "name": "Wordt getoond als naam van het apparaat en de sensoren van deze gebruiker. Elke gebruiker heeft een andere naam nodig. Voorbeeld: Mama"
+          },
+          "sections": {
+            "when": {
+              "name": "Wanneer meten ze?",
+              "description": "Stel maximaal twee tijdvensters in waarin deze persoon meestal meet. Laat beide leeg om de tijd te negeren. Een venster begint op de eerste tijd en eindigt vlak voor de tweede; een einde vóór het begin is een venster over middernacht (bijvoorbeeld 22:00 tot 02:00).",
+              "data": {
+                "window1_start": "Tijdvenster 1: begin",
+                "window1_end": "Tijdvenster 1: einde",
+                "window2_start": "Tijdvenster 2: begin",
+                "window2_end": "Tijdvenster 2: einde"
+              },
+              "data_description": {
+                "window1_start": "Het venster begint op dit tijdstip. Voorbeeld: 06:00",
+                "window1_end": "Het venster eindigt vlak voor dit tijdstip. Kies voor een venster over middernacht een einde vóór het begin. Voorbeeld: 08:00",
+                "window2_start": "Optioneel tweede venster, bijvoorbeeld voor de avond. Vul begin en einde allebei in. Voorbeeld: 20:00",
+                "window2_end": "Het tweede venster eindigt vlak voor dit tijdstip. Voorbeeld: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Gebruikelijk bereik (optioneel)",
+              "description": "Slechts een aanwijzing: de bloeddruk varieert sterk binnen één persoon en de bereiken van verschillende mensen overlappen, dus een bereik kan een meting aan de verkeerde persoon geven. Gebruik het alleen als de tijd alleen niet genoeg is. Laat leeg om te negeren.",
+              "data": {
+                "sys_min": "Systolisch vanaf (mmHg)",
+                "sys_max": "Systolisch tot (mmHg)",
+                "dia_min": "Diastolisch vanaf (mmHg)",
+                "dia_max": "Diastolisch tot (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Alleen metingen met een systolische waarde vanaf deze waarde tellen als van hen. Voorbeeld: 130",
+                "sys_max": "Alleen metingen met een systolische waarde tot deze waarde tellen als van hen. Voorbeeld: 160",
+                "dia_min": "Alleen metingen met een diastolische waarde vanaf deze waarde tellen als van hen. Voorbeeld: 80",
+                "dia_max": "Alleen metingen met een diastolische waarde tot deze waarde tellen als van hen. Voorbeeld: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Geen regels",
           "description": "{name} heeft geen regels, dus elke meting past bij deze gebruiker, en een meting die ook bij een andere gebruiker past, wordt aan niemand toegewezen. Druk op Verzenden om toch op te slaan, of sluit dit venster en voeg een regel toe."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Geen enkele meting kan worden toegewezen",
+          "description": "{name} heeft geen regels, en deze gebruikers ook niet: {others}. Een gebruiker zonder regels past bij elke meting, dus elke meting zou bij meer dan één gebruiker passen en aan niemand worden toegewezen. Druk op Verzenden om toch op te slaan, of sluit dit venster en voeg tijdvensters of bereiken toe."
         },
         "confirm_overlap": {
           "title": "Overlappende tijdvensters",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Voer een naam in die geen andere gebruiker heeft.",
-        "invalid_time_windows": "Voer tijdvensters in zoals 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "De ondergrens mag niet hoger zijn dan de bovengrens."
+        "time_window_incomplete": "Vul zowel het begin als het einde van het tijdvenster in, of laat beide leeg.",
+        "time_window_empty": "Begin en einde moeten verschillen. Zet voor een venster over middernacht het einde vóór het begin.",
+        "invalid_range": "De ondergrens mag niet hoger zijn dan de bovengrens.",
+        "extra_windows_note": "Voor deze gebruiker zijn nog meer tijdvensters opgeslagen: {windows}. Bij opslaan blijven alleen de twee hier getoonde vensters behouden; de rest wordt verwijderd."
       }
     }
   },

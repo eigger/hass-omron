@@ -93,34 +93,106 @@
             "name": "Name",
             "expected_weight": "Übliches Gewicht (kg)",
             "height_cm": "Größe (cm, für den BMI)"
+          },
+          "data_description": {
+            "name": "Wird als Name des Geräts und der Sensoren dieses Benutzers angezeigt. Jeder Benutzer braucht einen anderen Namen. Beispiel: Mama",
+            "expected_weight": "Ein aktuelles Gewicht dieser Person. Es gilt für die ersten Messungen; danach folgt es den ihr zugeordneten Gewichten. Beispiel: 62,5",
+            "height_cm": "Wird nur für den BMI verwendet. Beispiel: 168"
           }
         },
         "rules": {
           "title": "Nutzer",
-          "description": "Jede neue Messung geht an den einen Nutzer, dessen Regeln alle zutreffen. Eine leere Regel wird ignoriert. Zeitfenster als HH:MM-HH:MM, durch Kommas getrennt; ein Fenster darf über Mitternacht reichen (22:00-02:00). Wertebereiche sind nur ein Hinweis und können falsch zuordnen. Eine Messung, die zu mehreren Nutzern oder zu keinem passt, wird niemandem zugeordnet und in einem `omron_unassigned_measurement`-Ereignis gemeldet. Es gilt die vom Gerät aufgezeichnete Uhrzeit, daher muss seine Uhr stimmen.",
+          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Wiegung es ist. Eine Wiegung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person wiegt sich morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.\n\n{extra_windows}",
           "data": {
             "name": "Name",
-            "height_cm": "Größe (cm, für den BMI)",
-            "time_windows": "Zeitfenster (HH:MM-HH:MM, durch Kommas getrennt)",
-            "weight_min": "Gewicht ab (kg)",
-            "weight_max": "Gewicht bis (kg)"
+            "height_cm": "Größe (cm, für den BMI)"
+          },
+          "data_description": {
+            "name": "Wird als Name des Geräts und der Sensoren dieses Benutzers angezeigt. Jeder Benutzer braucht einen anderen Namen. Beispiel: Mama",
+            "height_cm": "Wird nur für den BMI verwendet. Beispiel: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Wann wird gemessen?",
+              "description": "Lege bis zu zwei Zeitfenster fest, in denen diese Person üblicherweise misst. Sind beide leer, wird die Uhrzeit ignoriert. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00).",
+              "data": {
+                "window1_start": "Zeitfenster 1: Beginn",
+                "window1_end": "Zeitfenster 1: Ende",
+                "window2_start": "Zeitfenster 2: Beginn",
+                "window2_end": "Zeitfenster 2: Ende"
+              },
+              "data_description": {
+                "window1_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
+                "window1_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
+                "window2_start": "Optionales zweites Fenster, z. B. für den Abend. Beginn und Ende gemeinsam angeben. Beispiel: 20:00",
+                "window2_end": "Das zweite Fenster endet kurz vor dieser Uhrzeit. Beispiel: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Üblicher Bereich (optional)",
+              "description": "Nur ein Hinweis: Das Gewicht schwankt auch bei einer Person von Tag zu Tag und die Bereiche verschiedener Personen können sich überschneiden, daher kann ein Bereich eine Wiegung der falschen Person zuordnen. Nur nutzen, wenn die Uhrzeit allein nicht reicht. Leer lassen, um ihn zu ignorieren.",
+              "data": {
+                "weight_min": "Gewicht ab (kg)",
+                "weight_max": "Gewicht bis (kg)"
+              },
+              "data_description": {
+                "weight_min": "Nur Wiegungen ab diesem Gewicht gelten als ihre. Beispiel: 55",
+                "weight_max": "Nur Wiegungen bis zu diesem Gewicht gelten als ihre. Beispiel: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Nutzer",
-          "description": "Jede neue Messung geht an den einen Nutzer, dessen Regeln alle zutreffen. Eine leere Regel wird ignoriert. Zeitfenster als HH:MM-HH:MM, durch Kommas getrennt; ein Fenster darf über Mitternacht reichen (22:00-02:00). Wertebereiche sind nur ein Hinweis und können falsch zuordnen. Eine Messung, die zu mehreren Nutzern oder zu keinem passt, wird niemandem zugeordnet und in einem `omron_unassigned_measurement`-Ereignis gemeldet. Es gilt die vom Gerät aufgezeichnete Uhrzeit, daher muss seine Uhr stimmen.",
+          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Messung es ist. Eine Messung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person misst morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.\n\n{extra_windows}",
           "data": {
-            "name": "Name",
-            "time_windows": "Zeitfenster (HH:MM-HH:MM, durch Kommas getrennt)",
-            "sys_min": "Systolisch ab (mmHg)",
-            "sys_max": "Systolisch bis (mmHg)",
-            "dia_min": "Diastolisch ab (mmHg)",
-            "dia_max": "Diastolisch bis (mmHg)"
+            "name": "Name"
+          },
+          "data_description": {
+            "name": "Wird als Name des Geräts und der Sensoren dieses Benutzers angezeigt. Jeder Benutzer braucht einen anderen Namen. Beispiel: Mama"
+          },
+          "sections": {
+            "when": {
+              "name": "Wann wird gemessen?",
+              "description": "Lege bis zu zwei Zeitfenster fest, in denen diese Person üblicherweise misst. Sind beide leer, wird die Uhrzeit ignoriert. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00).",
+              "data": {
+                "window1_start": "Zeitfenster 1: Beginn",
+                "window1_end": "Zeitfenster 1: Ende",
+                "window2_start": "Zeitfenster 2: Beginn",
+                "window2_end": "Zeitfenster 2: Ende"
+              },
+              "data_description": {
+                "window1_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
+                "window1_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
+                "window2_start": "Optionales zweites Fenster, z. B. für den Abend. Beginn und Ende gemeinsam angeben. Beispiel: 20:00",
+                "window2_end": "Das zweite Fenster endet kurz vor dieser Uhrzeit. Beispiel: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Üblicher Bereich (optional)",
+              "description": "Nur ein Hinweis: Der Blutdruck schwankt auch bei einer Person stark und die Bereiche verschiedener Personen überschneiden sich, daher kann ein Bereich eine Messung der falschen Person zuordnen. Nur nutzen, wenn die Uhrzeit allein nicht reicht. Leer lassen, um ihn zu ignorieren.",
+              "data": {
+                "sys_min": "Systolisch ab (mmHg)",
+                "sys_max": "Systolisch bis (mmHg)",
+                "dia_min": "Diastolisch ab (mmHg)",
+                "dia_max": "Diastolisch bis (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Nur Messungen mit systolischem Wert ab diesem Wert gelten als ihre. Beispiel: 130",
+                "sys_max": "Nur Messungen mit systolischem Wert bis zu diesem Wert gelten als ihre. Beispiel: 160",
+                "dia_min": "Nur Messungen mit diastolischem Wert ab diesem Wert gelten als ihre. Beispiel: 80",
+                "dia_max": "Nur Messungen mit diastolischem Wert bis zu diesem Wert gelten als ihre. Beispiel: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Keine Regeln",
           "description": "{name} hat keine Regeln, daher passt jede Messung zu diesem Nutzer, und eine Messung, die auch zu einem anderen Nutzer passt, wird niemandem zugeordnet. Drücken Sie Senden, um trotzdem zu speichern, oder schließen Sie den Dialog und fügen Sie eine Regel hinzu."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Keine Messung kann zugeordnet werden",
+          "description": "{name} hat keine Regeln, und auch diese Benutzer haben keine: {others}. Ein Benutzer ohne Regeln passt zu jeder Messung, daher würde jede Messung zu mehr als einem Benutzer passen und niemandem zugeordnet werden. Mit „Senden“ trotzdem speichern, oder dieses Fenster schließen und Zeitfenster oder Bereiche ergänzen."
         },
         "confirm_overlap": {
           "title": "Überschneidende Zeitfenster",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Geben Sie einen Namen ein, den kein anderer Nutzer hat.",
-        "invalid_time_windows": "Geben Sie Zeitfenster wie 06:00-09:00, 18:00-21:00 ein.",
-        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen."
+        "time_window_incomplete": "Gib Beginn und Ende des Zeitfensters an oder lass beides leer.",
+        "time_window_empty": "Beginn und Ende dürfen nicht gleich sein. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn.",
+        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen.",
+        "extra_windows_note": "Für diesen Benutzer sind weitere Zeitfenster gespeichert: {windows}. Beim Speichern bleiben nur die beiden hier gezeigten Fenster erhalten, die übrigen werden entfernt."
       }
     }
   },

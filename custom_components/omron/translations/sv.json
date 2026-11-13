@@ -93,34 +93,106 @@
             "name": "Namn",
             "expected_weight": "Vanlig vikt (kg)",
             "height_cm": "Längd (cm, för BMI)"
+          },
+          "data_description": {
+            "name": "Visas som namn på den här användarens enhet och sensorer. Varje användare behöver ett eget namn. Exempel: Mamma",
+            "expected_weight": "En nyligen uppmätt vikt för personen. Den används för de första mätningarna; därefter följer den vikterna som tilldelats personen. Exempel: 62,5",
+            "height_cm": "Används bara för att räkna ut BMI. Exempel: 168"
           }
         },
         "rules": {
           "title": "Användare",
-          "description": "Varje ny mätning går till den enda användare vars regler alla stämmer. Lämna en regel tom för att ignorera den. Skriv tidsfönster som HH:MM-HH:MM åtskilda med kommatecken; ett fönster får gå över midnatt (22:00-02:00). Värdeintervall är bara en fingervisning och kan tilldela fel. En mätning som passar flera användare, eller ingen, tilldelas ingen och meddelas i en `omron_unassigned_measurement`-händelse. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.",
+          "description": "De här inställningarna är inga hälsogränser. De avgör bara vems mätningen är. En vägning går till en användare bara när alla villkor för exakt en användare stämmer; om ingen eller flera stämmer går den till ingen och meddelas i en `omron_unassigned_measurement`-händelse. Exempel för en familj: en person väger sig på morgonen 06:00–08:00, en annan på kvällen 21:00–23:00. Tomma villkor ignoreras. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.\n\n{extra_windows}",
           "data": {
             "name": "Namn",
-            "height_cm": "Längd (cm, för BMI)",
-            "time_windows": "Tidsfönster (HH:MM-HH:MM, åtskilda med kommatecken)",
-            "weight_min": "Vikt från (kg)",
-            "weight_max": "Vikt till (kg)"
+            "height_cm": "Längd (cm, för BMI)"
+          },
+          "data_description": {
+            "name": "Visas som namn på den här användarens enhet och sensorer. Varje användare behöver ett eget namn. Exempel: Mamma",
+            "height_cm": "Används bara för att räkna ut BMI. Exempel: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "När mäter de?",
+              "description": "Ange upp till två tidsfönster då personen brukar mäta. Lämna båda tomma för att ignorera tiden. Ett fönster börjar vid den första tiden och slutar strax före den andra; ett slut före starten är ett fönster över midnatt (till exempel 22:00 till 02:00).",
+              "data": {
+                "window1_start": "Tidsfönster 1: start",
+                "window1_end": "Tidsfönster 1: slut",
+                "window2_start": "Tidsfönster 2: start",
+                "window2_end": "Tidsfönster 2: slut"
+              },
+              "data_description": {
+                "window1_start": "Fönstret börjar vid den här tiden. Exempel: 06:00",
+                "window1_end": "Fönstret slutar strax före den här tiden. För ett fönster över midnatt, välj ett slut före starten. Exempel: 08:00",
+                "window2_start": "Valfritt andra fönster, till exempel för kvällen. Fyll i både start och slut. Exempel: 20:00",
+                "window2_end": "Det andra fönstret slutar strax före den här tiden. Exempel: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Vanligt intervall (valfritt)",
+              "description": "Bara en ledtråd: vikten varierar från dag till dag hos en och samma person och olika personers intervall kan överlappa, så ett intervall kan ge en vägning till fel person. Använd det bara när enbart tiden inte räcker. Lämna tomt för att ignorera.",
+              "data": {
+                "weight_min": "Vikt från (kg)",
+                "weight_max": "Vikt till (kg)"
+              },
+              "data_description": {
+                "weight_min": "Bara vägningar på den här vikten eller mer räknas som deras. Exempel: 55",
+                "weight_max": "Bara vägningar på den här vikten eller mindre räknas som deras. Exempel: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Användare",
-          "description": "Varje ny mätning går till den enda användare vars regler alla stämmer. Lämna en regel tom för att ignorera den. Skriv tidsfönster som HH:MM-HH:MM åtskilda med kommatecken; ett fönster får gå över midnatt (22:00-02:00). Värdeintervall är bara en fingervisning och kan tilldela fel. En mätning som passar flera användare, eller ingen, tilldelas ingen och meddelas i en `omron_unassigned_measurement`-händelse. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.",
+          "description": "De här inställningarna är inga hälsogränser. De avgör bara vems mätningen är. En mätning går till en användare bara när alla villkor för exakt en användare stämmer; om ingen eller flera stämmer går den till ingen och meddelas i en `omron_unassigned_measurement`-händelse. Exempel för en familj: en person mäter på morgonen 06:00–08:00, en annan på kvällen 21:00–23:00. Tomma villkor ignoreras. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.\n\n{extra_windows}",
           "data": {
-            "name": "Namn",
-            "time_windows": "Tidsfönster (HH:MM-HH:MM, åtskilda med kommatecken)",
-            "sys_min": "Systoliskt från (mmHg)",
-            "sys_max": "Systoliskt till (mmHg)",
-            "dia_min": "Diastoliskt från (mmHg)",
-            "dia_max": "Diastoliskt till (mmHg)"
+            "name": "Namn"
+          },
+          "data_description": {
+            "name": "Visas som namn på den här användarens enhet och sensorer. Varje användare behöver ett eget namn. Exempel: Mamma"
+          },
+          "sections": {
+            "when": {
+              "name": "När mäter de?",
+              "description": "Ange upp till två tidsfönster då personen brukar mäta. Lämna båda tomma för att ignorera tiden. Ett fönster börjar vid den första tiden och slutar strax före den andra; ett slut före starten är ett fönster över midnatt (till exempel 22:00 till 02:00).",
+              "data": {
+                "window1_start": "Tidsfönster 1: start",
+                "window1_end": "Tidsfönster 1: slut",
+                "window2_start": "Tidsfönster 2: start",
+                "window2_end": "Tidsfönster 2: slut"
+              },
+              "data_description": {
+                "window1_start": "Fönstret börjar vid den här tiden. Exempel: 06:00",
+                "window1_end": "Fönstret slutar strax före den här tiden. För ett fönster över midnatt, välj ett slut före starten. Exempel: 08:00",
+                "window2_start": "Valfritt andra fönster, till exempel för kvällen. Fyll i både start och slut. Exempel: 20:00",
+                "window2_end": "Det andra fönstret slutar strax före den här tiden. Exempel: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Vanligt intervall (valfritt)",
+              "description": "Bara en ledtråd: blodtrycket varierar mycket hos en och samma person och olika personers intervall överlappar, så ett intervall kan ge en mätning till fel person. Använd det bara när enbart tiden inte räcker. Lämna tomt för att ignorera.",
+              "data": {
+                "sys_min": "Systoliskt från (mmHg)",
+                "sys_max": "Systoliskt till (mmHg)",
+                "dia_min": "Diastoliskt från (mmHg)",
+                "dia_max": "Diastoliskt till (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Bara mätningar med systoliskt värde på det här värdet eller högre räknas som deras. Exempel: 130",
+                "sys_max": "Bara mätningar med systoliskt värde på det här värdet eller lägre räknas som deras. Exempel: 160",
+                "dia_min": "Bara mätningar med diastoliskt värde på det här värdet eller högre räknas som deras. Exempel: 80",
+                "dia_max": "Bara mätningar med diastoliskt värde på det här värdet eller lägre räknas som deras. Exempel: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Inga regler",
           "description": "{name} har inga regler, så varje mätning passar den här användaren, och en mätning som även passar en annan användare tilldelas ingen. Tryck på Skicka för att spara ändå, eller stäng dialogrutan och lägg till en regel."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Ingen mätning kan tilldelas",
+          "description": "{name} har inga regler, och det har inte heller: {others}. En användare utan regler passar alla mätningar, så varje mätning skulle passa fler än en användare och inte tilldelas någon. Tryck på Skicka för att spara ändå, eller stäng den här dialogrutan och lägg till tidsfönster eller intervall."
         },
         "confirm_overlap": {
           "title": "Överlappande tidsfönster",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Ange ett namn som ingen annan användare har.",
-        "invalid_time_windows": "Ange tidsfönster som 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Det lägre värdet får inte vara högre än det övre."
+        "time_window_incomplete": "Ange både start och slut för tidsfönstret, eller lämna båda tomma.",
+        "time_window_empty": "Start och slut måste skilja sig åt. För ett fönster över midnatt, sätt slutet före starten.",
+        "invalid_range": "Det lägre värdet får inte vara högre än det övre.",
+        "extra_windows_note": "Den här användaren har fler tidsfönster sparade: {windows}. När du sparar behålls bara de två fönster som visas här; de andra tas bort."
       }
     }
   },

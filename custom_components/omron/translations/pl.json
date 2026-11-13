@@ -93,34 +93,106 @@
             "name": "Nazwa",
             "expected_weight": "Zwykła waga (kg)",
             "height_cm": "Wzrost (cm, do BMI)"
+          },
+          "data_description": {
+            "name": "Wyświetlana jako nazwa urządzenia i czujników tego użytkownika. Każdy użytkownik potrzebuje innej nazwy. Przykład: Mama",
+            "expected_weight": "Niedawna masa ciała tej osoby. Dotyczy pierwszych pomiarów; potem podąża za wagami przypisanymi do tej osoby. Przykład: 62,5",
+            "height_cm": "Używany tylko do obliczenia BMI. Przykład: 168"
           }
         },
         "rules": {
           "title": "Użytkownik",
-          "description": "Każdy nowy pomiar trafia do jedynego użytkownika, którego wszystkie reguły są spełnione. Puste pole reguły jest pomijane. Okna czasowe zapisz jako HH:MM-HH:MM, oddzielone przecinkami; okno może przechodzić przez północ (22:00-02:00). Zakresy wartości to tylko wskazówka i mogą prowadzić do błędnego przypisania. Pomiar pasujący do kilku użytkowników lub do żadnego nie jest przypisywany nikomu i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Używany jest czas zapisany przez urządzenie, więc jego zegar musi być poprawny.",
+          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Ważenie trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszane w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba waży się rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.\n\n{extra_windows}",
           "data": {
             "name": "Nazwa",
-            "height_cm": "Wzrost (cm, do BMI)",
-            "time_windows": "Okna czasowe (HH:MM-HH:MM, oddzielone przecinkami)",
-            "weight_min": "Waga od (kg)",
-            "weight_max": "Waga do (kg)"
+            "height_cm": "Wzrost (cm, do BMI)"
+          },
+          "data_description": {
+            "name": "Wyświetlana jako nazwa urządzenia i czujników tego użytkownika. Każdy użytkownik potrzebuje innej nazwy. Przykład: Mama",
+            "height_cm": "Używany tylko do obliczenia BMI. Przykład: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Kiedy mierzą?",
+              "description": "Ustaw do dwóch przedziałów czasu, w których ta osoba zwykle mierzy. Zostaw oba puste, aby pominąć godzinę. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00).",
+              "data": {
+                "window1_start": "Przedział 1: początek",
+                "window1_end": "Przedział 1: koniec",
+                "window2_start": "Przedział 2: początek",
+                "window2_end": "Przedział 2: koniec"
+              },
+              "data_description": {
+                "window1_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
+                "window1_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
+                "window2_start": "Opcjonalny drugi przedział, np. na wieczór. Wypełnij początek i koniec. Przykład: 20:00",
+                "window2_end": "Drugi przedział kończy się tuż przed tą godziną. Przykład: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Zwykły zakres (opcjonalnie)",
+              "description": "To tylko wskazówka: masa ciała zmienia się z dnia na dzień nawet u jednej osoby, a zakresy różnych osób mogą się nakładać, więc zakres może przypisać ważenie niewłaściwej osobie. Używaj go tylko wtedy, gdy sama godzina nie wystarcza. Zostaw puste, aby pominąć.",
+              "data": {
+                "weight_min": "Waga od (kg)",
+                "weight_max": "Waga do (kg)"
+              },
+              "data_description": {
+                "weight_min": "Tylko ważenia od tej masy wzwyż liczą się jako jej. Przykład: 55",
+                "weight_max": "Tylko ważenia do tej masy liczą się jako jej. Przykład: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Użytkownik",
-          "description": "Każdy nowy pomiar trafia do jedynego użytkownika, którego wszystkie reguły są spełnione. Puste pole reguły jest pomijane. Okna czasowe zapisz jako HH:MM-HH:MM, oddzielone przecinkami; okno może przechodzić przez północ (22:00-02:00). Zakresy wartości to tylko wskazówka i mogą prowadzić do błędnego przypisania. Pomiar pasujący do kilku użytkowników lub do żadnego nie jest przypisywany nikomu i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Używany jest czas zapisany przez urządzenie, więc jego zegar musi być poprawny.",
+          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Pomiar trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba mierzy rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.\n\n{extra_windows}",
           "data": {
-            "name": "Nazwa",
-            "time_windows": "Okna czasowe (HH:MM-HH:MM, oddzielone przecinkami)",
-            "sys_min": "Skurczowe od (mmHg)",
-            "sys_max": "Skurczowe do (mmHg)",
-            "dia_min": "Rozkurczowe od (mmHg)",
-            "dia_max": "Rozkurczowe do (mmHg)"
+            "name": "Nazwa"
+          },
+          "data_description": {
+            "name": "Wyświetlana jako nazwa urządzenia i czujników tego użytkownika. Każdy użytkownik potrzebuje innej nazwy. Przykład: Mama"
+          },
+          "sections": {
+            "when": {
+              "name": "Kiedy mierzą?",
+              "description": "Ustaw do dwóch przedziałów czasu, w których ta osoba zwykle mierzy. Zostaw oba puste, aby pominąć godzinę. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00).",
+              "data": {
+                "window1_start": "Przedział 1: początek",
+                "window1_end": "Przedział 1: koniec",
+                "window2_start": "Przedział 2: początek",
+                "window2_end": "Przedział 2: koniec"
+              },
+              "data_description": {
+                "window1_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
+                "window1_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
+                "window2_start": "Opcjonalny drugi przedział, np. na wieczór. Wypełnij początek i koniec. Przykład: 20:00",
+                "window2_end": "Drugi przedział kończy się tuż przed tą godziną. Przykład: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Zwykły zakres (opcjonalnie)",
+              "description": "To tylko wskazówka: ciśnienie krwi bardzo się zmienia nawet u jednej osoby, a zakresy różnych osób się nakładają, więc zakres może przypisać pomiar niewłaściwej osobie. Używaj go tylko wtedy, gdy sama godzina nie wystarcza. Zostaw puste, aby pominąć.",
+              "data": {
+                "sys_min": "Skurczowe od (mmHg)",
+                "sys_max": "Skurczowe do (mmHg)",
+                "dia_min": "Rozkurczowe od (mmHg)",
+                "dia_max": "Rozkurczowe do (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Tylko pomiary z ciśnieniem skurczowym równym tej wartości lub wyższym liczą się jako jej. Przykład: 130",
+                "sys_max": "Tylko pomiary z ciśnieniem skurczowym równym tej wartości lub niższym liczą się jako jej. Przykład: 160",
+                "dia_min": "Tylko pomiary z ciśnieniem rozkurczowym równym tej wartości lub wyższym liczą się jako jej. Przykład: 80",
+                "dia_max": "Tylko pomiary z ciśnieniem rozkurczowym równym tej wartości lub niższym liczą się jako jej. Przykład: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Brak reguł",
           "description": "{name} nie ma reguł, więc każdy pomiar pasuje do tego użytkownika, a pomiar pasujący także do innego użytkownika nie jest przypisywany nikomu. Naciśnij Prześlij, aby mimo to zapisać, lub zamknij to okno i dodaj regułę."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Żaden pomiar nie zostanie przypisany",
+          "description": "{name} nie ma reguł, a także ci użytkownicy ich nie mają: {others}. Użytkownik bez reguł pasuje do każdego pomiaru, więc każdy pomiar pasowałby do więcej niż jednego użytkownika i nie zostałby przypisany nikomu. Naciśnij Prześlij, aby mimo to zapisać, lub zamknij to okno i dodaj przedziały czasu albo zakresy."
         },
         "confirm_overlap": {
           "title": "Nakładające się okna czasowe",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Wpisz nazwę, której nie ma żaden inny użytkownik.",
-        "invalid_time_windows": "Wpisz okna czasowe w postaci 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Dolna wartość nie może być większa od górnej."
+        "time_window_incomplete": "Podaj początek i koniec przedziału czasu albo zostaw oba puste.",
+        "time_window_empty": "Początek i koniec muszą się różnić. Dla przedziału przez północ ustaw koniec wcześniejszy niż początek.",
+        "invalid_range": "Dolna wartość nie może być większa od górnej.",
+        "extra_windows_note": "Dla tego użytkownika zapisano więcej przedziałów czasu: {windows}. Zapisanie zachowa tylko dwa pokazane tutaj przedziały; pozostałe zostaną usunięte."
       }
     }
   },

@@ -93,34 +93,106 @@
             "name": "Nom",
             "expected_weight": "Poids habituel (kg)",
             "height_cm": "Taille (cm, pour l'IMC)"
+          },
+          "data_description": {
+            "name": "Affiché comme nom de l'appareil et des capteurs de cet utilisateur. Chaque utilisateur doit avoir un nom différent. Exemple : Maman",
+            "expected_weight": "Un poids récent de cette personne. Il sert pour ses premières mesures ; ensuite il suit les poids qui lui sont attribués. Exemple : 62,5",
+            "height_cm": "Sert uniquement à calculer l'IMC. Exemple : 168"
           }
         },
         "rules": {
           "title": "Utilisateur",
-          "description": "Chaque nouvelle mesure va à l'unique utilisateur dont toutes les règles correspondent. Laissez une règle vide pour l'ignorer. Écrivez les plages horaires sous la forme HH:MM-HH:MM séparées par des virgules ; une plage peut passer minuit (22:00-02:00). Les plages de valeurs ne sont qu'un indice et peuvent mal attribuer. Une mesure qui convient à plusieurs utilisateurs, ou à aucun, n'est attribuée à personne et signalée par un évènement `omron_unassigned_measurement`. L'heure est celle enregistrée par l'appareil : son horloge doit donc être juste.",
+          "description": "Ces réglages ne sont pas des seuils de santé. Ils servent uniquement à décider à qui appartient la pesée. Une pesée est attribuée à un utilisateur seulement si toutes les conditions d'un seul utilisateur sont remplies ; si aucun ou plusieurs correspondent, elle n'est attribuée à personne et est signalée dans un événement `omron_unassigned_measurement`. Exemple pour une famille : une personne se pèse le matin de 06:00 à 08:00, une autre le soir de 21:00 à 23:00. Une condition laissée vide est ignorée. L'heure utilisée est celle enregistrée par l'appareil, son horloge doit donc être juste.\n\n{extra_windows}",
           "data": {
             "name": "Nom",
-            "height_cm": "Taille (cm, pour l'IMC)",
-            "time_windows": "Plages horaires (HH:MM-HH:MM, séparées par des virgules)",
-            "weight_min": "Poids à partir de (kg)",
-            "weight_max": "Poids jusqu'à (kg)"
+            "height_cm": "Taille (cm, pour l'IMC)"
+          },
+          "data_description": {
+            "name": "Affiché comme nom de l'appareil et des capteurs de cet utilisateur. Chaque utilisateur doit avoir un nom différent. Exemple : Maman",
+            "height_cm": "Sert uniquement à calculer l'IMC. Exemple : 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Quand mesurent-ils ?",
+              "description": "Définissez jusqu'à deux plages horaires pendant lesquelles cette personne mesure habituellement. Laissez les deux vides pour ignorer l'heure. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00).",
+              "data": {
+                "window1_start": "Plage 1 : début",
+                "window1_end": "Plage 1 : fin",
+                "window2_start": "Plage 2 : début",
+                "window2_end": "Plage 2 : fin"
+              },
+              "data_description": {
+                "window1_start": "La plage commence à cette heure. Exemple : 06:00",
+                "window1_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
+                "window2_start": "Seconde plage facultative, par exemple pour le soir. Renseignez le début et la fin. Exemple : 20:00",
+                "window2_end": "La seconde plage finit juste avant cette heure. Exemple : 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Plage habituelle (facultatif)",
+              "description": "Simple indication : le poids varie d'un jour à l'autre chez une même personne et les plages de personnes différentes peuvent se recouper, une plage peut donc attribuer une pesée à la mauvaise personne. À n'utiliser que si l'heure seule ne suffit pas. Laissez vide pour l'ignorer.",
+              "data": {
+                "weight_min": "Poids à partir de (kg)",
+                "weight_max": "Poids jusqu'à (kg)"
+              },
+              "data_description": {
+                "weight_min": "Seules les pesées d'au moins ce poids sont considérées comme les siennes. Exemple : 55",
+                "weight_max": "Seules les pesées d'au plus ce poids sont considérées comme les siennes. Exemple : 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Utilisateur",
-          "description": "Chaque nouvelle mesure va à l'unique utilisateur dont toutes les règles correspondent. Laissez une règle vide pour l'ignorer. Écrivez les plages horaires sous la forme HH:MM-HH:MM séparées par des virgules ; une plage peut passer minuit (22:00-02:00). Les plages de valeurs ne sont qu'un indice et peuvent mal attribuer. Une mesure qui convient à plusieurs utilisateurs, ou à aucun, n'est attribuée à personne et signalée par un évènement `omron_unassigned_measurement`. L'heure est celle enregistrée par l'appareil : son horloge doit donc être juste.",
+          "description": "Ces réglages ne sont pas des seuils de santé. Ils servent uniquement à décider à qui appartient la mesure. Une mesure est attribuée à un utilisateur seulement si toutes les conditions d'un seul utilisateur sont remplies ; si aucun ou plusieurs correspondent, elle n'est attribuée à personne et est signalée dans un événement `omron_unassigned_measurement`. Exemple pour une famille : une personne mesure le matin de 06:00 à 08:00, une autre le soir de 21:00 à 23:00. Une condition laissée vide est ignorée. L'heure utilisée est celle enregistrée par l'appareil, son horloge doit donc être juste.\n\n{extra_windows}",
           "data": {
-            "name": "Nom",
-            "time_windows": "Plages horaires (HH:MM-HH:MM, séparées par des virgules)",
-            "sys_min": "Systolique à partir de (mmHg)",
-            "sys_max": "Systolique jusqu'à (mmHg)",
-            "dia_min": "Diastolique à partir de (mmHg)",
-            "dia_max": "Diastolique jusqu'à (mmHg)"
+            "name": "Nom"
+          },
+          "data_description": {
+            "name": "Affiché comme nom de l'appareil et des capteurs de cet utilisateur. Chaque utilisateur doit avoir un nom différent. Exemple : Maman"
+          },
+          "sections": {
+            "when": {
+              "name": "Quand mesurent-ils ?",
+              "description": "Définissez jusqu'à deux plages horaires pendant lesquelles cette personne mesure habituellement. Laissez les deux vides pour ignorer l'heure. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00).",
+              "data": {
+                "window1_start": "Plage 1 : début",
+                "window1_end": "Plage 1 : fin",
+                "window2_start": "Plage 2 : début",
+                "window2_end": "Plage 2 : fin"
+              },
+              "data_description": {
+                "window1_start": "La plage commence à cette heure. Exemple : 06:00",
+                "window1_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
+                "window2_start": "Seconde plage facultative, par exemple pour le soir. Renseignez le début et la fin. Exemple : 20:00",
+                "window2_end": "La seconde plage finit juste avant cette heure. Exemple : 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Plage habituelle (facultatif)",
+              "description": "Simple indication : la tension varie beaucoup chez une même personne et les plages de personnes différentes se recoupent, une plage peut donc attribuer une mesure à la mauvaise personne. À n'utiliser que si l'heure seule ne suffit pas. Laissez vide pour l'ignorer.",
+              "data": {
+                "sys_min": "Systolique à partir de (mmHg)",
+                "sys_max": "Systolique jusqu'à (mmHg)",
+                "dia_min": "Diastolique à partir de (mmHg)",
+                "dia_max": "Diastolique jusqu'à (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Seules les mesures dont la systolique est au moins égale à cette valeur sont considérées comme les siennes. Exemple : 130",
+                "sys_max": "Seules les mesures dont la systolique est au plus égale à cette valeur sont considérées comme les siennes. Exemple : 160",
+                "dia_min": "Seules les mesures dont la diastolique est au moins égale à cette valeur sont considérées comme les siennes. Exemple : 80",
+                "dia_max": "Seules les mesures dont la diastolique est au plus égale à cette valeur sont considérées comme les siennes. Exemple : 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Aucune règle",
           "description": "{name} n'a aucune règle : toutes les mesures conviennent donc à cet utilisateur, et une mesure qui convient aussi à un autre utilisateur n'est attribuée à personne. Appuyez sur Valider pour enregistrer quand même, ou fermez cette fenêtre et ajoutez une règle."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Aucune mesure ne pourra être attribuée",
+          "description": "{name} n'a aucune règle, et ces utilisateurs n'en ont pas non plus : {others}. Un utilisateur sans règle correspond à toutes les mesures, donc chaque mesure correspondrait à plus d'un utilisateur et ne serait attribuée à personne. Appuyez sur Valider pour enregistrer quand même, ou fermez cette fenêtre et ajoutez des plages horaires ou des plages de valeurs."
         },
         "confirm_overlap": {
           "title": "Plages horaires qui se chevauchent",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Saisissez un nom qu'aucun autre utilisateur n'a.",
-        "invalid_time_windows": "Saisissez des plages horaires comme 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "La valeur basse ne doit pas dépasser la valeur haute."
+        "time_window_incomplete": "Indiquez le début et la fin de la plage horaire, ou laissez les deux vides.",
+        "time_window_empty": "Le début et la fin doivent être différents. Pour une plage qui passe minuit, mettez la fin avant le début.",
+        "invalid_range": "La valeur basse ne doit pas dépasser la valeur haute.",
+        "extra_windows_note": "Cet utilisateur a d'autres plages horaires enregistrées : {windows}. L'enregistrement ne conserve que les deux plages affichées ici ; les autres sont supprimées."
       }
     }
   },
