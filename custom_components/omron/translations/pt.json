@@ -93,34 +93,106 @@
             "name": "Nome",
             "expected_weight": "Peso habitual (kg)",
             "height_cm": "Altura (cm, para o IMC)"
+          },
+          "data_description": {
+            "name": "Mostrado como nome do dispositivo e dos sensores deste utilizador. Cada utilizador precisa de um nome diferente. Exemplo: Mãe",
+            "expected_weight": "Um peso recente desta pessoa. É usado nas primeiras medições; depois acompanha os pesos que lhe são atribuídos. Exemplo: 62,5",
+            "height_cm": "Usada apenas para calcular o IMC. Exemplo: 168"
           }
         },
         "rules": {
           "title": "Utilizador",
-          "description": "Cada nova medição vai para o único utilizador cujas regras se cumprem todas. Deixe uma regra vazia para a ignorar. Escreva as janelas de tempo como HH:MM-HH:MM separadas por vírgulas; uma janela pode passar da meia-noite (22:00-02:00). Os intervalos de valores são apenas uma pista e podem atribuir mal. Uma medição que serve a vários utilizadores, ou a nenhum, não é atribuída a ninguém e é comunicada num evento `omron_unassigned_measurement`. Usa-se a hora registada pelo dispositivo, por isso o seu relógio tem de estar certo.",
+          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a pesagem. Uma pesagem é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa pesa-se de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.\n\n{extra_windows}",
           "data": {
             "name": "Nome",
-            "height_cm": "Altura (cm, para o IMC)",
-            "time_windows": "Janelas de tempo (HH:MM-HH:MM, separadas por vírgulas)",
-            "weight_min": "Peso desde (kg)",
-            "weight_max": "Peso até (kg)"
+            "height_cm": "Altura (cm, para o IMC)"
+          },
+          "data_description": {
+            "name": "Mostrado como nome do dispositivo e dos sensores deste utilizador. Cada utilizador precisa de um nome diferente. Exemplo: Mãe",
+            "height_cm": "Usada apenas para calcular o IMC. Exemplo: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Quando medem?",
+              "description": "Defina até dois intervalos de tempo em que esta pessoa costuma medir. Deixe ambos vazios para ignorar a hora. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00).",
+              "data": {
+                "window1_start": "Intervalo 1: início",
+                "window1_end": "Intervalo 1: fim",
+                "window2_start": "Intervalo 2: início",
+                "window2_end": "Intervalo 2: fim"
+              },
+              "data_description": {
+                "window1_start": "O intervalo começa a esta hora. Exemplo: 06:00",
+                "window1_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
+                "window2_start": "Segundo intervalo opcional, por exemplo para a noite. Preencha o início e o fim. Exemplo: 20:00",
+                "window2_end": "O segundo intervalo termina mesmo antes desta hora. Exemplo: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Intervalo habitual (opcional)",
+              "description": "É apenas uma pista: o peso muda de dia para dia na mesma pessoa e os intervalos de pessoas diferentes podem sobrepor-se, por isso um intervalo pode atribuir uma pesagem à pessoa errada. Use-o só quando a hora não chega para as distinguir. Deixe vazio para ignorar.",
+              "data": {
+                "weight_min": "Peso desde (kg)",
+                "weight_max": "Peso até (kg)"
+              },
+              "data_description": {
+                "weight_min": "Só as pesagens iguais ou superiores a este peso contam como suas. Exemplo: 55",
+                "weight_max": "Só as pesagens iguais ou inferiores a este peso contam como suas. Exemplo: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Utilizador",
-          "description": "Cada nova medição vai para o único utilizador cujas regras se cumprem todas. Deixe uma regra vazia para a ignorar. Escreva as janelas de tempo como HH:MM-HH:MM separadas por vírgulas; uma janela pode passar da meia-noite (22:00-02:00). Os intervalos de valores são apenas uma pista e podem atribuir mal. Uma medição que serve a vários utilizadores, ou a nenhum, não é atribuída a ninguém e é comunicada num evento `omron_unassigned_measurement`. Usa-se a hora registada pelo dispositivo, por isso o seu relógio tem de estar certo.",
+          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a medição. Uma medição é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa mede de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.\n\n{extra_windows}",
           "data": {
-            "name": "Nome",
-            "time_windows": "Janelas de tempo (HH:MM-HH:MM, separadas por vírgulas)",
-            "sys_min": "Sistólica desde (mmHg)",
-            "sys_max": "Sistólica até (mmHg)",
-            "dia_min": "Diastólica desde (mmHg)",
-            "dia_max": "Diastólica até (mmHg)"
+            "name": "Nome"
+          },
+          "data_description": {
+            "name": "Mostrado como nome do dispositivo e dos sensores deste utilizador. Cada utilizador precisa de um nome diferente. Exemplo: Mãe"
+          },
+          "sections": {
+            "when": {
+              "name": "Quando medem?",
+              "description": "Defina até dois intervalos de tempo em que esta pessoa costuma medir. Deixe ambos vazios para ignorar a hora. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00).",
+              "data": {
+                "window1_start": "Intervalo 1: início",
+                "window1_end": "Intervalo 1: fim",
+                "window2_start": "Intervalo 2: início",
+                "window2_end": "Intervalo 2: fim"
+              },
+              "data_description": {
+                "window1_start": "O intervalo começa a esta hora. Exemplo: 06:00",
+                "window1_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
+                "window2_start": "Segundo intervalo opcional, por exemplo para a noite. Preencha o início e o fim. Exemplo: 20:00",
+                "window2_end": "O segundo intervalo termina mesmo antes desta hora. Exemplo: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Intervalo habitual (opcional)",
+              "description": "É apenas uma pista: a pressão arterial varia muito na mesma pessoa e os intervalos de pessoas diferentes sobrepõem-se, por isso um intervalo pode atribuir uma medição à pessoa errada. Use-o só quando a hora não chega para as distinguir. Deixe vazio para ignorar.",
+              "data": {
+                "sys_min": "Sistólica desde (mmHg)",
+                "sys_max": "Sistólica até (mmHg)",
+                "dia_min": "Diastólica desde (mmHg)",
+                "dia_max": "Diastólica até (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Só as medições com sistólica igual ou superior a este valor contam como suas. Exemplo: 130",
+                "sys_max": "Só as medições com sistólica igual ou inferior a este valor contam como suas. Exemplo: 160",
+                "dia_min": "Só as medições com diastólica igual ou superior a este valor contam como suas. Exemplo: 80",
+                "dia_max": "Só as medições com diastólica igual ou inferior a este valor contam como suas. Exemplo: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Sem regras",
           "description": "{name} não tem regras, pelo que qualquer medição serve a este utilizador, e uma medição que sirva também a outro utilizador não é atribuída a ninguém. Prima Submeter para guardar mesmo assim, ou feche esta janela e adicione uma regra."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Nenhuma medição poderá ser atribuída",
+          "description": "{name} não tem regras, e estes utilizadores também não: {others}. Um utilizador sem regras corresponde a todas as medições, por isso cada medição corresponderia a mais de um utilizador e não seria atribuída a ninguém. Prima Submeter para guardar mesmo assim, ou feche esta janela e adicione intervalos de tempo ou de valores."
         },
         "confirm_overlap": {
           "title": "Janelas de tempo sobrepostas",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Introduza um nome que nenhum outro utilizador tenha.",
-        "invalid_time_windows": "Introduza janelas de tempo como 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "O valor mínimo não pode ser superior ao máximo."
+        "time_window_incomplete": "Indique o início e o fim do intervalo de tempo, ou deixe ambos vazios.",
+        "time_window_empty": "O início e o fim têm de ser diferentes. Para um intervalo que passa a meia-noite, ponha o fim antes do início.",
+        "invalid_range": "O valor mínimo não pode ser superior ao máximo.",
+        "extra_windows_note": "Este utilizador tem mais intervalos de tempo guardados: {windows}. Ao guardar, só ficam os dois intervalos mostrados aqui; os outros são removidos."
       }
     }
   },

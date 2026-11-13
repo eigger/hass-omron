@@ -93,34 +93,106 @@
             "name": "Nombre",
             "expected_weight": "Peso habitual (kg)",
             "height_cm": "Altura (cm, para el IMC)"
+          },
+          "data_description": {
+            "name": "Se muestra como nombre del dispositivo y de los sensores de este usuario. Cada usuario necesita un nombre distinto. Ejemplo: Mamá",
+            "expected_weight": "Un peso reciente de esta persona. Se usa en sus primeras mediciones; después sigue los pesos que se le asignan. Ejemplo: 62,5",
+            "height_cm": "Solo se usa para calcular el IMC. Ejemplo: 168"
           }
         },
         "rules": {
           "title": "Usuario",
-          "description": "Cada nueva medición va al único usuario cuyas reglas se cumplen todas. Deja una regla vacía para ignorarla. Escribe las franjas horarias como HH:MM-HH:MM separadas por comas; una franja puede cruzar la medianoche (22:00-02:00). Los rangos de valores son solo una pista y pueden asignar mal. Una medición que encaja con varios usuarios, o con ninguno, no se asigna a nadie y se notifica en un evento `omron_unassigned_measurement`. Se usa la hora que registró el dispositivo, así que su reloj debe estar bien.",
+          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la medición. Un pesaje se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona se pesa por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.\n\n{extra_windows}",
           "data": {
             "name": "Nombre",
-            "height_cm": "Altura (cm, para el IMC)",
-            "time_windows": "Franjas horarias (HH:MM-HH:MM, separadas por comas)",
-            "weight_min": "Peso desde (kg)",
-            "weight_max": "Peso hasta (kg)"
+            "height_cm": "Altura (cm, para el IMC)"
+          },
+          "data_description": {
+            "name": "Se muestra como nombre del dispositivo y de los sensores de este usuario. Cada usuario necesita un nombre distinto. Ejemplo: Mamá",
+            "height_cm": "Solo se usa para calcular el IMC. Ejemplo: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "¿Cuándo miden?",
+              "description": "Define hasta dos franjas horarias en las que esta persona suele medir. Si dejas ambas vacías, se ignora la hora. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00).",
+              "data": {
+                "window1_start": "Franja 1: inicio",
+                "window1_end": "Franja 1: fin",
+                "window2_start": "Franja 2: inicio",
+                "window2_end": "Franja 2: fin"
+              },
+              "data_description": {
+                "window1_start": "La franja empieza a esta hora. Ejemplo: 06:00",
+                "window1_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
+                "window2_start": "Segunda franja opcional, por ejemplo para la noche. Rellena inicio y fin. Ejemplo: 20:00",
+                "window2_end": "La segunda franja termina justo antes de esta hora. Ejemplo: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Rango habitual (opcional)",
+              "description": "Solo es una pista: el peso cambia de un día a otro en una misma persona y los rangos de distintas personas pueden solaparse, por lo que un rango puede asignar un pesaje a la persona equivocada. Úsalo solo si la hora no basta para distinguirlas. Déjalo vacío para ignorarlo.",
+              "data": {
+                "weight_min": "Peso desde (kg)",
+                "weight_max": "Peso hasta (kg)"
+              },
+              "data_description": {
+                "weight_min": "Solo los pesajes iguales o superiores a este peso cuentan como suyos. Ejemplo: 55",
+                "weight_max": "Solo los pesajes iguales o inferiores a este peso cuentan como suyos. Ejemplo: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Usuario",
-          "description": "Cada nueva medición va al único usuario cuyas reglas se cumplen todas. Deja una regla vacía para ignorarla. Escribe las franjas horarias como HH:MM-HH:MM separadas por comas; una franja puede cruzar la medianoche (22:00-02:00). Los rangos de valores son solo una pista y pueden asignar mal. Una medición que encaja con varios usuarios, o con ninguno, no se asigna a nadie y se notifica en un evento `omron_unassigned_measurement`. Se usa la hora que registró el dispositivo, así que su reloj debe estar bien.",
+          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la lectura. Una lectura se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona mide por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.\n\n{extra_windows}",
           "data": {
-            "name": "Nombre",
-            "time_windows": "Franjas horarias (HH:MM-HH:MM, separadas por comas)",
-            "sys_min": "Sistólica desde (mmHg)",
-            "sys_max": "Sistólica hasta (mmHg)",
-            "dia_min": "Diastólica desde (mmHg)",
-            "dia_max": "Diastólica hasta (mmHg)"
+            "name": "Nombre"
+          },
+          "data_description": {
+            "name": "Se muestra como nombre del dispositivo y de los sensores de este usuario. Cada usuario necesita un nombre distinto. Ejemplo: Mamá"
+          },
+          "sections": {
+            "when": {
+              "name": "¿Cuándo miden?",
+              "description": "Define hasta dos franjas horarias en las que esta persona suele medir. Si dejas ambas vacías, se ignora la hora. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00).",
+              "data": {
+                "window1_start": "Franja 1: inicio",
+                "window1_end": "Franja 1: fin",
+                "window2_start": "Franja 2: inicio",
+                "window2_end": "Franja 2: fin"
+              },
+              "data_description": {
+                "window1_start": "La franja empieza a esta hora. Ejemplo: 06:00",
+                "window1_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
+                "window2_start": "Segunda franja opcional, por ejemplo para la noche. Rellena inicio y fin. Ejemplo: 20:00",
+                "window2_end": "La segunda franja termina justo antes de esta hora. Ejemplo: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Rango habitual (opcional)",
+              "description": "Solo es una pista: la presión arterial varía mucho en una misma persona y los rangos de distintas personas se solapan, por lo que un rango puede asignar una lectura a la persona equivocada. Úsalo solo si la hora no basta para distinguirlas. Déjalo vacío para ignorarlo.",
+              "data": {
+                "sys_min": "Sistólica desde (mmHg)",
+                "sys_max": "Sistólica hasta (mmHg)",
+                "dia_min": "Diastólica desde (mmHg)",
+                "dia_max": "Diastólica hasta (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Solo las lecturas con sistólica igual o superior a este valor cuentan como suyas. Ejemplo: 130",
+                "sys_max": "Solo las lecturas con sistólica igual o inferior a este valor cuentan como suyas. Ejemplo: 160",
+                "dia_min": "Solo las lecturas con diastólica igual o superior a este valor cuentan como suyas. Ejemplo: 80",
+                "dia_max": "Solo las lecturas con diastólica igual o inferior a este valor cuentan como suyas. Ejemplo: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Sin reglas",
           "description": "{name} no tiene reglas, así que cualquier medición encaja con este usuario, y una medición que también encaje con otro usuario no se asigna a nadie. Pulsa Enviar para guardar de todos modos, o cierra este cuadro y añade una regla."
+        },
+        "confirm_no_rules_shared": {
+          "title": "No se podrá asignar ninguna medición",
+          "description": "{name} no tiene reglas, y tampoco las tienen: {others}. Un usuario sin reglas encaja con cualquier medición, así que toda medición encajaría con más de un usuario y no se asignaría a nadie. Pulsa Enviar para guardar de todos modos, o cierra este cuadro y añade franjas horarias o rangos."
         },
         "confirm_overlap": {
           "title": "Franjas horarias solapadas",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Introduce un nombre que no tenga otro usuario.",
-        "invalid_time_windows": "Introduce franjas horarias como 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "El valor inferior no puede ser mayor que el superior."
+        "time_window_incomplete": "Indica el inicio y el fin de la franja horaria, o deja ambos vacíos.",
+        "time_window_empty": "El inicio y el fin deben ser distintos. Para una franja que cruza la medianoche, pon el fin antes del inicio.",
+        "invalid_range": "El valor inferior no puede ser mayor que el superior.",
+        "extra_windows_note": "Este usuario tiene más franjas horarias guardadas: {windows}. Al guardar solo se conservan las dos franjas mostradas aquí; las demás se eliminan."
       }
     }
   },

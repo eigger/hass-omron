@@ -144,15 +144,23 @@ def test_translation_files_share_the_multi_user_strings() -> None:
             "rules",
             "pressure",
             "confirm_no_rules",
+            "confirm_no_rules_shared",
             "confirm_overlap",
         }
         assert "{name}" in user["step"]["confirm_no_rules"]["description"]
         assert "{name}" in user["step"]["confirm_overlap"]["description"]
         assert "{others}" in user["step"]["confirm_overlap"]["description"]
+        assert "{name}" in user["step"]["confirm_no_rules_shared"]["description"]
+        assert "{others}" in user["step"]["confirm_no_rules_shared"]["description"]
+        for step in ("rules", "pressure"):
+            assert "{extra_windows}" in user["step"][step]["description"], path.name
+        assert "{windows}" in user["error"]["extra_windows_note"], path.name
         assert set(user["error"]) == {
             "invalid_name",
-            "invalid_time_windows",
+            "time_window_incomplete",
+            "time_window_empty",
             "invalid_range",
+            "extra_windows_note",
         }
         for name in _USER_SENSOR_KEYS:
             assert "{user}" not in doc["entity"]["sensor"][name]["name"]
