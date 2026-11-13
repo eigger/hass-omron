@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Gewichtstolerantie (%)"
         },
         "data_description": {
-          "assignment_strategy": "Gewicht: de gebruiker wiens gebruikelijke gewicht het dichtstbij ligt. Regels: de per gebruiker ingestelde tijdvensters en waardebereiken. Wijzigen wist de tot nu toe geleerde gewichten.",
+          "assignment_strategy": "Gewicht: de gebruiker wiens gebruikelijke gewicht het dichtstbij ligt. Regels: de per gebruiker ingestelde tijdvensters en waardebereiken. Wijzigen wist de tot nu toe geleerde gewichten. Bewerk na het wijzigen elke gebruiker: toewijzen op gewicht vereist het gebruikelijke gewicht, toewijzen op regels vereist de regels. Een gebruiker zonder gebruikelijk gewicht krijgt op gewicht nooit een meting toegewezen.",
           "weight_tolerance_pct": "Hoe ver een gewicht van het gebruikelijke gewicht van een gebruiker mag afwijken, in procenten (1–5); de tolerantie blijft tussen 1,0 en 4,0 kg. Gebruikers wier gebruikelijke gewichten minder dan ongeveer 5,5 kg (bij 75 kg) uit elkaar liggen, blijven vaak ongekoppeld."
         }
       }

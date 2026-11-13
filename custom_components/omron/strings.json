@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Weight tolerance (%)"
         },
         "data_description": {
-          "assignment_strategy": "Weight: the user whose usual weight is closest. Rules: the time windows and value ranges set per user. Changing this forgets the weights learned so far.",
+          "assignment_strategy": "Weight: the user whose usual weight is closest. Rules: the time windows and value ranges set per user. Changing this forgets the weights learned so far. After changing it, edit each user: assigning by weight needs their usual weight, assigning by rules needs their rules. A user without a usual weight is never assigned by weight.",
           "weight_tolerance_pct": "How far a weight may be from a user's usual weight, in percent (1–5); the tolerance is held between 1.0 and 4.0 kg. Users whose usual weights are closer than about 5.5 kg (at 75 kg) are often left unassigned."
         }
       }

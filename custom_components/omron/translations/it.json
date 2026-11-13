@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Tolleranza del peso (%)"
         },
         "data_description": {
-          "assignment_strategy": "Peso: l'utente il cui peso abituale è più vicino. Regole: le fasce orarie e gli intervalli di valori impostati per utente. Cambiarlo fa dimenticare i pesi appresi finora.",
+          "assignment_strategy": "Peso: l'utente il cui peso abituale è più vicino. Regole: le fasce orarie e gli intervalli di valori impostati per utente. Cambiarlo fa dimenticare i pesi appresi finora. Dopo la modifica, modifica ogni utente: l'assegnazione per peso richiede il peso abituale, quella per regole richiede le regole. Un utente senza peso abituale non riceve mai misurazioni per peso.",
           "weight_tolerance_pct": "Quanto un peso può discostarsi dal peso abituale di un utente, in percentuale (1–5); la tolleranza resta tra 1,0 e 4,0 kg. Gli utenti i cui pesi abituali distano meno di circa 5,5 kg (a 75 kg) restano spesso non assegnati."
         }
       }

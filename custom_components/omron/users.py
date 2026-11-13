@@ -231,6 +231,20 @@ async def async_setup_users(
         return None
     users = OmronUsers(hass, entry.entry_id, strategy_for(entry, is_scale=is_scale))
     await users.async_load(set(subentries))
+    if users.strategy == STRATEGY_WEIGHT:
+        # A user added while the scale assigned by rules has no usual weight,
+        # and the weight-based strategy has nothing to place them by.
+        missing = [
+            subentry.title
+            for subentry in subentries.values()
+            if _number(subentry.data, CONF_USER_EXPECTED_WEIGHT) is None
+        ]
+        if missing:
+            _LOGGER.warning(
+                "Measurements are assigned by weight, but %s has no usual weight "
+                "and will never be assigned one: edit the user to enter it",
+                ", ".join(missing),
+            )
     return users
 
 

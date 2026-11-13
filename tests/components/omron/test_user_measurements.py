@@ -831,6 +831,28 @@ async def test_changing_the_strategy_forgets_the_learned_weights_only(
     assert _sensor(hass, entry, "alice", "weight").state == "62.4"
 
 
+async def test_a_user_without_a_usual_weight_is_warned_about_and_never_assigned(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    unassigned: list,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A user added under the rule strategy, after the scale went back to weight."""
+    users = [
+        ALICE_BOB[0],
+        _user("carol", "Carol", weight_min=50.0),
+    ]
+    entry = _entry(hass, SCALE, users)
+    await _setup(hass, entry)
+    assert "Carol has no usual weight" in caplog.text
+
+    await _poll(hass, entry, _scale("2026-09-20T07:00:00", 70.0))  # baseline
+    await _poll(hass, entry, _scale("2026-09-21T07:30:00", 55.0))
+
+    assert _sensor(hass, entry, "carol", "weight").state == "unknown"
+    assert [c["user_id"] for c in unassigned[0].data["candidates"]] == ["alice"]
+
+
 async def test_a_wider_tolerance_is_used(
     hass: HomeAssistant, enable_bluetooth: None, unassigned: list
 ) -> None:

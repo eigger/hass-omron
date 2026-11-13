@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Vikttolerans (%)"
         },
         "data_description": {
-          "assignment_strategy": "Vikt: användaren vars vanliga vikt ligger närmast. Regler: tidsfönster och värdeintervall som anges per användare. Om du ändrar detta glöms de hittills inlärda vikterna.",
+          "assignment_strategy": "Vikt: användaren vars vanliga vikt ligger närmast. Regler: tidsfönster och värdeintervall som anges per användare. Om du ändrar detta glöms de hittills inlärda vikterna. Redigera varje användare efter ändringen: tilldelning efter vikt kräver den vanliga vikten och tilldelning efter regler kräver reglerna. En användare utan vanlig vikt tilldelas aldrig mätningar efter vikt.",
           "weight_tolerance_pct": "Hur långt en vikt får avvika från en användares vanliga vikt, i procent (1–5); toleransen hålls mellan 1,0 och 4,0 kg. Användare vars vanliga vikter ligger närmare varandra än cirka 5,5 kg (vid 75 kg) blir ofta utan tilldelning."
         }
       }

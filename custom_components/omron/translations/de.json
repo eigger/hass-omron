@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Gewichtstoleranz (%)"
         },
         "data_description": {
-          "assignment_strategy": "Gewicht: der Nutzer, dessen übliches Gewicht am nächsten liegt. Regeln: die pro Nutzer festgelegten Zeitfenster und Wertebereiche. Eine Änderung verwirft die bisher gelernten Gewichte.",
+          "assignment_strategy": "Gewicht: der Nutzer, dessen übliches Gewicht am nächsten liegt. Regeln: die pro Nutzer festgelegten Zeitfenster und Wertebereiche. Eine Änderung verwirft die bisher gelernten Gewichte. Bearbeiten Sie nach der Änderung jeden Benutzer: Die Zuordnung nach Gewicht benötigt das übliche Gewicht, die Zuordnung nach Regeln die Regeln. Ein Benutzer ohne übliches Gewicht wird nach Gewicht nie zugeordnet.",
           "weight_tolerance_pct": "Wie weit ein Gewicht vom üblichen Gewicht eines Nutzers abweichen darf, in Prozent (1–5); die Toleranz wird auf 1,0 bis 4,0 kg begrenzt. Nutzer, deren übliche Gewichte näher als etwa 5,5 kg (bei 75 kg) beieinander liegen, bleiben oft unzugeordnet."
         }
       }

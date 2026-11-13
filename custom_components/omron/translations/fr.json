@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Tolérance de poids (%)"
         },
         "data_description": {
-          "assignment_strategy": "Poids : l'utilisateur dont le poids habituel est le plus proche. Règles : les plages horaires et les plages de valeurs définies par utilisateur. Le changer fait oublier les poids appris jusqu'ici.",
+          "assignment_strategy": "Poids : l'utilisateur dont le poids habituel est le plus proche. Règles : les plages horaires et les plages de valeurs définies par utilisateur. Le changer fait oublier les poids appris jusqu'ici. Après ce changement, modifiez chaque utilisateur : l'attribution par poids nécessite son poids habituel, l'attribution par règles nécessite ses règles. Un utilisateur sans poids habituel ne reçoit jamais de mesure par poids.",
           "weight_tolerance_pct": "Écart maximal entre un poids et le poids habituel d'un utilisateur, en pourcentage (1–5) ; la tolérance reste comprise entre 1,0 et 4,0 kg. Les utilisateurs dont les poids habituels sont distants de moins d'environ 5,5 kg (à 75 kg) restent souvent non attribués."
         }
       }

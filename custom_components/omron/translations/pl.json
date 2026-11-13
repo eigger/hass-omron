@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Tolerancja wagi (%)"
         },
         "data_description": {
-          "assignment_strategy": "Waga: użytkownik, którego zwykła waga jest najbliższa. Reguły: okna czasowe i zakresy wartości ustawione dla każdego użytkownika. Zmiana usuwa dotychczas poznane wagi.",
+          "assignment_strategy": "Waga: użytkownik, którego zwykła waga jest najbliższa. Reguły: okna czasowe i zakresy wartości ustawione dla każdego użytkownika. Zmiana usuwa dotychczas poznane wagi. Po zmianie edytuj każdego użytkownika: przypisywanie według wagi wymaga zwykłej wagi, a przypisywanie według reguł wymaga reguł. Użytkownikowi bez zwykłej wagi pomiary według wagi nie są nigdy przypisywane.",
           "weight_tolerance_pct": "O ile waga może odbiegać od zwykłej wagi użytkownika, w procentach (1–5); tolerancja jest ograniczona do zakresu 1,0–4,0 kg. Użytkownicy, których zwykłe wagi różnią się o mniej niż ok. 5,5 kg (przy 75 kg), często pozostają nieprzypisani."
         }
       }

@@ -150,7 +150,7 @@
           "weight_tolerance_pct": "Tolerância de peso (%)"
         },
         "data_description": {
-          "assignment_strategy": "Peso: o utilizador cujo peso habitual esteja mais próximo. Regras: as janelas de tempo e os intervalos de valores definidos por utilizador. Alterar esta opção apaga os pesos aprendidos até agora.",
+          "assignment_strategy": "Peso: o utilizador cujo peso habitual esteja mais próximo. Regras: as janelas de tempo e os intervalos de valores definidos por utilizador. Alterar esta opção apaga os pesos aprendidos até agora. Depois de alterar, edite cada utilizador: a atribuição por peso precisa do peso habitual e a atribuição por regras precisa das regras. Um utilizador sem peso habitual nunca recebe medições por peso.",
           "weight_tolerance_pct": "Quanto um peso pode afastar-se do peso habitual de um utilizador, em percentagem (1–5); a tolerância fica entre 1,0 e 4,0 kg. Utilizadores cujos pesos habituais estejam a menos de cerca de 5,5 kg (com 75 kg) ficam muitas vezes sem atribuição."
         }
       }
