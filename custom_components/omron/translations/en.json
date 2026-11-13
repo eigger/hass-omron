@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "User",
-          "description": "These settings are not health thresholds. They only decide whose weighing it is. A weighing goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person weighs in on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.\n\n{extra_windows}",
+          "description": "These settings are not health thresholds. They only decide whose weighing it is. A weighing goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person weighs in on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.",
           "data": {
             "name": "Name",
             "height_cm": "Height (cm, for BMI)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "When do they measure?",
-              "description": "Set up to two time windows in which this person usually measures. Leave both empty to ignore the time. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00).",
+              "description": "One time window is shown here; add more with the Add button. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00). Leave everything empty to ignore the time.",
               "data": {
-                "window1_start": "Time window 1: start",
-                "window1_end": "Time window 1: end",
-                "window2_start": "Time window 2: start",
-                "window2_end": "Time window 2: end"
+                "window_start": "Time window: start",
+                "window_end": "Time window: end",
+                "more_windows": "More time windows"
               },
               "data_description": {
-                "window1_start": "The window begins at this time. Example: 06:00",
-                "window1_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
-                "window2_start": "Optional second window, for example for the evening. Fill in both start and end. Example: 20:00",
-                "window2_end": "The second window ends just before this time. Example: 22:00"
+                "window_start": "The window begins at this time. Example: 06:00",
+                "window_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
+                "more_windows": "Press Add for each further window, for example one for the evening. Each has a start and an end; there is no limit. Select a window to edit or delete it."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "User",
-          "description": "These settings are not health thresholds. They only decide whose reading it is. A reading goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person measures on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.\n\n{extra_windows}",
+          "description": "These settings are not health thresholds. They only decide whose reading it is. A reading goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person measures on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.",
           "data": {
             "name": "Name"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "When do they measure?",
-              "description": "Set up to two time windows in which this person usually measures. Leave both empty to ignore the time. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00).",
+              "description": "One time window is shown here; add more with the Add button. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00). Leave everything empty to ignore the time.",
               "data": {
-                "window1_start": "Time window 1: start",
-                "window1_end": "Time window 1: end",
-                "window2_start": "Time window 2: start",
-                "window2_end": "Time window 2: end"
+                "window_start": "Time window: start",
+                "window_end": "Time window: end",
+                "more_windows": "More time windows"
               },
               "data_description": {
-                "window1_start": "The window begins at this time. Example: 06:00",
-                "window1_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
-                "window2_start": "Optional second window, for example for the evening. Fill in both start and end. Example: 20:00",
-                "window2_end": "The second window ends just before this time. Example: 22:00"
+                "window_start": "The window begins at this time. Example: 06:00",
+                "window_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
+                "more_windows": "Press Add for each further window, for example one for the evening. Each has a start and an end; there is no limit. Select a window to edit or delete it."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Enter a name that no other user has.",
         "time_window_incomplete": "Set both the start and the end of the time window, or clear both.",
         "time_window_empty": "The start and the end must differ. For a window past midnight, set the end earlier than the start.",
-        "invalid_range": "The lower value must not be above the upper value.",
-        "extra_windows_note": "This user has more time windows stored: {windows}. Saving keeps only the two windows shown here; the others are removed."
+        "invalid_range": "The lower value must not be above the upper value."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Weight",
         "rules": "Rules (time and values)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Start"
+        },
+        "end": {
+          "name": "End"
+        }
       }
     }
   },

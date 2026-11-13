@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "Nutzer",
-          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Wiegung es ist. Eine Wiegung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person wiegt sich morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.\n\n{extra_windows}",
+          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Wiegung es ist. Eine Wiegung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person wiegt sich morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.",
           "data": {
             "name": "Name",
             "height_cm": "Größe (cm, für den BMI)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Lege bis zu zwei Zeitfenster fest, in denen diese Person üblicherweise misst. Sind beide leer, wird die Uhrzeit ignoriert. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00).",
+              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
               "data": {
-                "window1_start": "Zeitfenster 1: Beginn",
-                "window1_end": "Zeitfenster 1: Ende",
-                "window2_start": "Zeitfenster 2: Beginn",
-                "window2_end": "Zeitfenster 2: Ende"
+                "window_start": "Zeitfenster: Beginn",
+                "window_end": "Zeitfenster: Ende",
+                "more_windows": "Weitere Zeitfenster"
               },
               "data_description": {
-                "window1_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window1_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "window2_start": "Optionales zweites Fenster, z. B. für den Abend. Beginn und Ende gemeinsam angeben. Beispiel: 20:00",
-                "window2_end": "Das zweite Fenster endet kurz vor dieser Uhrzeit. Beispiel: 22:00"
+                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
+                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
+                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "Nutzer",
-          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Messung es ist. Eine Messung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person misst morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.\n\n{extra_windows}",
+          "description": "Diese Angaben sind keine Gesundheitsgrenzwerte. Sie entscheiden nur, wessen Messung es ist. Eine Messung geht an einen Benutzer nur, wenn genau die Bedingungen eines einzigen Benutzers alle zutreffen; trifft keine oder treffen mehrere zu, geht sie an niemanden und wird in einem `omron_unassigned_measurement`-Ereignis gemeldet. Beispiel Familie: Eine Person misst morgens von 06:00 bis 08:00, eine andere abends von 21:00 bis 23:00. Leere Bedingungen werden ignoriert. Maßgeblich ist die vom Gerät aufgezeichnete Zeit, daher muss seine Uhr stimmen.",
           "data": {
             "name": "Name"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Lege bis zu zwei Zeitfenster fest, in denen diese Person üblicherweise misst. Sind beide leer, wird die Uhrzeit ignoriert. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00).",
+              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
               "data": {
-                "window1_start": "Zeitfenster 1: Beginn",
-                "window1_end": "Zeitfenster 1: Ende",
-                "window2_start": "Zeitfenster 2: Beginn",
-                "window2_end": "Zeitfenster 2: Ende"
+                "window_start": "Zeitfenster: Beginn",
+                "window_end": "Zeitfenster: Ende",
+                "more_windows": "Weitere Zeitfenster"
               },
               "data_description": {
-                "window1_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window1_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "window2_start": "Optionales zweites Fenster, z. B. für den Abend. Beginn und Ende gemeinsam angeben. Beispiel: 20:00",
-                "window2_end": "Das zweite Fenster endet kurz vor dieser Uhrzeit. Beispiel: 22:00"
+                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
+                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
+                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Geben Sie einen Namen ein, den kein anderer Nutzer hat.",
         "time_window_incomplete": "Gib Beginn und Ende des Zeitfensters an oder lass beides leer.",
         "time_window_empty": "Beginn und Ende dürfen nicht gleich sein. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn.",
-        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen.",
-        "extra_windows_note": "Für diesen Benutzer sind weitere Zeitfenster gespeichert: {windows}. Beim Speichern bleiben nur die beiden hier gezeigten Fenster erhalten, die übrigen werden entfernt."
+        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Gewicht",
         "rules": "Regeln (Zeit und Werte)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Beginn"
+        },
+        "end": {
+          "name": "Ende"
+        }
       }
     }
   },

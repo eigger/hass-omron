@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "Usuario",
-          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la medición. Un pesaje se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona se pesa por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.\n\n{extra_windows}",
+          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la medición. Un pesaje se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona se pesa por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.",
           "data": {
             "name": "Nombre",
             "height_cm": "Altura (cm, para el IMC)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Define hasta dos franjas horarias en las que esta persona suele medir. Si dejas ambas vacías, se ignora la hora. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00).",
+              "description": "Aquí se muestra una franja horaria; añade más con el botón Añadir. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00). Si lo dejas todo vacío, se ignora la hora.",
               "data": {
-                "window1_start": "Franja 1: inicio",
-                "window1_end": "Franja 1: fin",
-                "window2_start": "Franja 2: inicio",
-                "window2_end": "Franja 2: fin"
+                "window_start": "Franja: inicio",
+                "window_end": "Franja: fin",
+                "more_windows": "Más franjas horarias"
               },
               "data_description": {
-                "window1_start": "La franja empieza a esta hora. Ejemplo: 06:00",
-                "window1_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
-                "window2_start": "Segunda franja opcional, por ejemplo para la noche. Rellena inicio y fin. Ejemplo: 20:00",
-                "window2_end": "La segunda franja termina justo antes de esta hora. Ejemplo: 22:00"
+                "window_start": "La franja empieza a esta hora. Ejemplo: 06:00",
+                "window_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
+                "more_windows": "Pulsa Añadir para cada franja adicional, por ejemplo una para la noche. Cada una necesita inicio y fin; no hay límite. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "Usuario",
-          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la lectura. Una lectura se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona mide por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.\n\n{extra_windows}",
+          "description": "Estos ajustes no son umbrales de salud. Solo deciden de quién es la lectura. Una lectura se asigna a un usuario únicamente cuando se cumplen todas las condiciones de un solo usuario; si no coincide ninguno o coinciden varios, no se asigna a nadie y se anuncia en un evento `omron_unassigned_measurement`. Ejemplo en una familia: una persona mide por las mañanas de 06:00 a 08:00 y otra por las noches de 21:00 a 23:00. Las condiciones vacías se ignoran. Se usa la hora que registró el dispositivo, así que su reloj debe estar en hora.",
           "data": {
             "name": "Nombre"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Define hasta dos franjas horarias en las que esta persona suele medir. Si dejas ambas vacías, se ignora la hora. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00).",
+              "description": "Aquí se muestra una franja horaria; añade más con el botón Añadir. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00). Si lo dejas todo vacío, se ignora la hora.",
               "data": {
-                "window1_start": "Franja 1: inicio",
-                "window1_end": "Franja 1: fin",
-                "window2_start": "Franja 2: inicio",
-                "window2_end": "Franja 2: fin"
+                "window_start": "Franja: inicio",
+                "window_end": "Franja: fin",
+                "more_windows": "Más franjas horarias"
               },
               "data_description": {
-                "window1_start": "La franja empieza a esta hora. Ejemplo: 06:00",
-                "window1_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
-                "window2_start": "Segunda franja opcional, por ejemplo para la noche. Rellena inicio y fin. Ejemplo: 20:00",
-                "window2_end": "La segunda franja termina justo antes de esta hora. Ejemplo: 22:00"
+                "window_start": "La franja empieza a esta hora. Ejemplo: 06:00",
+                "window_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
+                "more_windows": "Pulsa Añadir para cada franja adicional, por ejemplo una para la noche. Cada una necesita inicio y fin; no hay límite. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Introduce un nombre que no tenga otro usuario.",
         "time_window_incomplete": "Indica el inicio y el fin de la franja horaria, o deja ambos vacíos.",
         "time_window_empty": "El inicio y el fin deben ser distintos. Para una franja que cruza la medianoche, pon el fin antes del inicio.",
-        "invalid_range": "El valor inferior no puede ser mayor que el superior.",
-        "extra_windows_note": "Este usuario tiene más franjas horarias guardadas: {windows}. Al guardar solo se conservan las dos franjas mostradas aquí; las demás se eliminan."
+        "invalid_range": "El valor inferior no puede ser mayor que el superior."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Peso",
         "rules": "Reglas (hora y valores)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Inicio"
+        },
+        "end": {
+          "name": "Fin"
+        }
       }
     }
   },

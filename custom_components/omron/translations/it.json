@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "Utente",
-          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la pesata. Una pesata va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona si pesa la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.\n\n{extra_windows}",
+          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la pesata. Una pesata va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona si pesa la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
           "data": {
             "name": "Nome",
             "height_cm": "Altezza (cm, per il BMI)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Imposta fino a due fasce orarie in cui questa persona di solito misura. Lasciale entrambe vuote per ignorare l'ora. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00).",
+              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
               "data": {
-                "window1_start": "Fascia 1: inizio",
-                "window1_end": "Fascia 1: fine",
-                "window2_start": "Fascia 2: inizio",
-                "window2_end": "Fascia 2: fine"
+                "window_start": "Fascia: inizio",
+                "window_end": "Fascia: fine",
+                "more_windows": "Altre fasce orarie"
               },
               "data_description": {
-                "window1_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window1_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "window2_start": "Seconda fascia facoltativa, ad esempio per la sera. Compila inizio e fine. Esempio: 20:00",
-                "window2_end": "La seconda fascia termina subito prima di quest'ora. Esempio: 22:00"
+                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
+                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
+                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "Utente",
-          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la misurazione. Una misurazione va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona misura la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.\n\n{extra_windows}",
+          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la misurazione. Una misurazione va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona misura la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
           "data": {
             "name": "Nome"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Imposta fino a due fasce orarie in cui questa persona di solito misura. Lasciale entrambe vuote per ignorare l'ora. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00).",
+              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
               "data": {
-                "window1_start": "Fascia 1: inizio",
-                "window1_end": "Fascia 1: fine",
-                "window2_start": "Fascia 2: inizio",
-                "window2_end": "Fascia 2: fine"
+                "window_start": "Fascia: inizio",
+                "window_end": "Fascia: fine",
+                "more_windows": "Altre fasce orarie"
               },
               "data_description": {
-                "window1_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window1_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "window2_start": "Seconda fascia facoltativa, ad esempio per la sera. Compila inizio e fine. Esempio: 20:00",
-                "window2_end": "La seconda fascia termina subito prima di quest'ora. Esempio: 22:00"
+                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
+                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
+                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Inserisci un nome che nessun altro utente ha.",
         "time_window_incomplete": "Indica sia l'inizio sia la fine della fascia oraria, oppure lascia vuoti entrambi.",
         "time_window_empty": "Inizio e fine devono essere diversi. Per una fascia che supera la mezzanotte, imposta la fine prima dell'inizio.",
-        "invalid_range": "Il valore minimo non può superare il valore massimo.",
-        "extra_windows_note": "Per questo utente sono salvate altre fasce orarie: {windows}. Salvando restano solo le due fasce mostrate qui; le altre vengono rimosse."
+        "invalid_range": "Il valore minimo non può superare il valore massimo."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Peso",
         "rules": "Regole (ora e valori)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Inizio"
+        },
+        "end": {
+          "name": "Fine"
+        }
       }
     }
   },

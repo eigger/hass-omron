@@ -46,12 +46,13 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    ObjectSelector,
+    ObjectSelectorConfig,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
     TimeSelector,
 )
-from homeassistant.helpers.translation import async_get_translations
 
 from .alias_migration import async_migrate_alias_unique_ids
 from .util import aliases_dict_from_entry
@@ -982,11 +983,16 @@ _RANGE_PAIRS = (
 _SECTION_WHEN = "when"
 _SECTION_RANGE = "usual_range"
 _SECTIONS = (_SECTION_WHEN, _SECTION_RANGE)
-# Start and end picker of each of the two time windows a user can have.
-_WINDOW_FIELDS = (
-    ("window1_start", "window1_end"),
-    ("window2_start", "window2_end"),
-)
+# One time window is shown as two pickers; every further one is added to a list
+# with the Add button. The list's items have these two fields.
+_WINDOW_START = "window_start"
+_WINDOW_END = "window_end"
+_MORE_WINDOWS = "more_windows"
+_ITEM_START = "start"
+_ITEM_END = "end"
+# Key of the selector's own translations (`selector.time_window.fields.*`).
+_WINDOW_TRANSLATION_KEY = "time_window"
+_WHEN_FIELDS = (_WINDOW_START, _WINDOW_END, _MORE_WINDOWS)
 _MINUTES_PER_DAY = 24 * 60
 
 
@@ -1016,7 +1022,22 @@ def _user_schema(step_id: str) -> vol.Schema:
         ):
             ranges[vol.Optional(key)] = _number(20, 300, 1, "mmHg")
     when = {
-        vol.Optional(key): TimeSelector() for pair in _WINDOW_FIELDS for key in pair
+        vol.Optional(_WINDOW_START): TimeSelector(),
+        vol.Optional(_WINDOW_END): TimeSelector(),
+        vol.Optional(_MORE_WINDOWS): ObjectSelector(
+            ObjectSelectorConfig(
+                multiple=True,
+                fields={
+                    # A plain config, not a TimeSelector: Home Assistant 2025.12
+                    # validates the items with `selector(config)`, which takes a dict.
+                    _ITEM_START: {"selector": {"time": {}}, "required": True},
+                    _ITEM_END: {"selector": {"time": {}}, "required": True},
+                },
+                label_field=_ITEM_START,
+                description_field=_ITEM_END,
+                translation_key=_WINDOW_TRANSLATION_KEY,
+            )
+        ),
     }
     fields[vol.Required(_SECTION_WHEN)] = section(
         vol.Schema(when), {"collapsed": False}
@@ -1044,7 +1065,7 @@ def _errors_by_section(errors: dict[str, str]) -> dict[str, str]:
     renders its inner fields without the errors, so an error keyed by an inner
     field would be shown nowhere. The first error of a section is the one shown.
     """
-    owner = {key: _SECTION_WHEN for pair in _WINDOW_FIELDS for key in pair}
+    owner = dict.fromkeys(_WHEN_FIELDS, _SECTION_WHEN)
     owner.update({key: _SECTION_RANGE for pair in _RANGE_PAIRS for key in pair})
     moved: dict[str, str] = {}
     for key, error in errors.items():
@@ -1159,14 +1180,10 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             suggested = user_input
         else:
             suggested = self._suggested_values(step_id)
-        placeholders = {}
-        if step_id != _STEP_WEIGHT:
-            placeholders["extra_windows"] = await self._async_extra_windows_note()
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, suggested),
             errors=errors,
-            description_placeholders=placeholders,
         )
 
     def _suggested_values(self, step_id: str) -> dict[str, Any]:
@@ -1183,39 +1200,19 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         }
         when: dict[str, str] = {}
         windows = parse_windows(data.get(CONF_USER_TIME_WINDOWS)) or []
-        for (start_key, end_key), (start, end) in zip(_WINDOW_FIELDS, windows):
-            when[start_key] = _picker_text(start)
-            when[end_key] = _picker_text(end)
+        if windows:
+            when[_WINDOW_START] = _picker_text(windows[0][0])
+            when[_WINDOW_END] = _picker_text(windows[0][1])
+        if windows[1:]:
+            when[_MORE_WINDOWS] = [
+                {_ITEM_START: _picker_text(start), _ITEM_END: _picker_text(end)}
+                for start, end in windows[1:]
+            ]
         suggested[_SECTION_WHEN] = when
         suggested[_SECTION_RANGE] = {
             key: data[key] for pair in _RANGE_PAIRS for key in pair if key in data
         }
         return suggested
-
-    async def _async_extra_windows_note(self) -> str:
-        """A note for a stored user with more windows than the form has pickers.
-
-        The text field of 4.6.0-beta.1 took any number of windows; saving the
-        form keeps the two pickers only, so the others are shown, not lost
-        unnoticed. Empty when there is nothing to warn about.
-        """
-        editing = self._editing()
-        if editing is None:
-            return ""
-        windows = parse_windows(editing.data.get(CONF_USER_TIME_WINDOWS)) or []
-        if len(windows) <= len(_WINDOW_FIELDS):
-            return ""
-        translations = await async_get_translations(
-            self.hass, self.hass.config.language, "config_subentries", [DOMAIN]
-        )
-        template = translations.get(
-            f"component.{DOMAIN}.config_subentries.user.error.extra_windows_note",
-            "This user has more time windows stored: {windows}. Saving keeps "
-            "only the two windows shown here; the others are removed.",
-        )
-        # Only the ones the pickers cannot show: the text says "more windows".
-        hidden = windows[len(_WINDOW_FIELDS) :]
-        return template.replace("{windows}", format_windows(hidden))
 
     def _validate(
         self, user_input: dict[str, Any]
@@ -1232,24 +1229,13 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         }
         if not name or name.casefold() in taken:
             errors[CONF_USER_NAME] = "invalid_name"
-        windows = []
-        for start_key, end_key in _WINDOW_FIELDS:
-            start, end = data.pop(start_key, None), data.pop(end_key, None)
-            if start is None and end is None:
-                continue
-            if start is None or end is None:
-                # Mark the picker that was left empty.
-                errors[start_key if start is None else end_key] = (
-                    "time_window_incomplete"
-                )
-                continue
-            start_min, end_min = _picked_minutes(start), _picked_minutes(end)
-            if start_min is None or end_min is None:
-                errors[end_key] = "time_window_incomplete"
-            elif start_min == end_min:
-                errors[end_key] = "time_window_empty"
-            else:
-                windows.append((start_min, end_min))
+        windows, window_error = self._picked_windows(
+            data.pop(_WINDOW_START, None),
+            data.pop(_WINDOW_END, None),
+            data.pop(_MORE_WINDOWS, None),
+        )
+        if window_error:
+            errors[_SECTION_WHEN] = window_error
         if windows:
             data[CONF_USER_TIME_WINDOWS] = format_windows(windows)
         for low_key, high_key in _RANGE_PAIRS:
@@ -1257,6 +1243,40 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             if low is not None and high is not None and low > high:
                 errors[high_key] = "invalid_range"
         return data, _errors_by_section(errors)
+
+    @staticmethod
+    def _picked_windows(
+        start: Any, end: Any, more: Any
+    ) -> tuple[list[tuple[int, int]], str | None]:
+        """The windows of the default pickers and the added list, and the first error.
+
+        The default window comes first, then the added ones in their order. The
+        default pair may be empty (only the added windows count then), but not
+        half filled. Every window needs a start and an end that differ.
+        """
+        pairs: list[tuple[Any, Any]] = []
+        if start is not None or end is not None:
+            pairs.append((start, end))
+        if more is None:
+            more = []
+        if not isinstance(more, list):
+            return [], "time_window_incomplete"
+        for item in more:
+            if not isinstance(item, Mapping):
+                return [], "time_window_incomplete"
+            pairs.append((item.get(_ITEM_START), item.get(_ITEM_END)))
+        windows: list[tuple[int, int]] = []
+        error: str | None = None
+        for first, last in pairs:
+            first_min = None if first in (None, "") else _picked_minutes(first)
+            last_min = None if last in (None, "") else _picked_minutes(last)
+            if first_min is None or last_min is None:
+                error = error or "time_window_incomplete"
+            elif first_min == last_min:
+                error = error or "time_window_empty"
+            else:
+                windows.append((first_min, last_min))
+        return windows, error
 
     def _collect_warnings(self, step_id: str, data: dict[str, Any]) -> list[str]:
         """Things worth a second look that must not stop the user from saving."""
