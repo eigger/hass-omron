@@ -114,12 +114,12 @@
           "sections": {
             "when": {
               "name": "Wanneer meten ze?",
-              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Een venster loopt van het begin tot vlak voor het einde; een einde vóór het begin loopt over middernacht (bijvoorbeeld 22:00 tot 02:00). Zonder venster wordt het tijdstip niet gebruikt.",
+              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Kies voor elk venster wanneer het begint en hoe lang het duurt; een begintijd die niet in de lijst staat, kun je intypen (bijvoorbeeld 07:15). Het einde wordt berekend: 22:00 voor 3 uur eindigt om 01:00, na middernacht. Zonder venster wordt het tijdstip niet gebruikt.",
               "data": {
                 "windows": "Tijdvensters"
               },
               "data_description": {
-                "windows": "Druk op Toevoegen voor elk venster, bijvoorbeeld één voor de ochtend en één voor de avond. Elk heeft een begin en een einde. Selecteer een venster om het te bewerken of te verwijderen."
+                "windows": "Druk op Toevoegen voor elk venster: kies het begin en de duur. Een begintijd die niet in de lijst staat, kun je intypen, bijvoorbeeld 07:15. Selecteer een venster om het te bewerken of te verwijderen."
               }
             },
             "usual_range": {
@@ -148,12 +148,12 @@
           "sections": {
             "when": {
               "name": "Wanneer meten ze?",
-              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Een venster loopt van het begin tot vlak voor het einde; een einde vóór het begin loopt over middernacht (bijvoorbeeld 22:00 tot 02:00). Zonder venster wordt het tijdstip niet gebruikt.",
+              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Kies voor elk venster wanneer het begint en hoe lang het duurt; een begintijd die niet in de lijst staat, kun je intypen (bijvoorbeeld 07:15). Het einde wordt berekend: 22:00 voor 3 uur eindigt om 01:00, na middernacht. Zonder venster wordt het tijdstip niet gebruikt.",
               "data": {
                 "windows": "Tijdvensters"
               },
               "data_description": {
-                "windows": "Druk op Toevoegen voor elk venster, bijvoorbeeld één voor de ochtend en één voor de avond. Elk heeft een begin en een einde. Selecteer een venster om het te bewerken of te verwijderen."
+                "windows": "Druk op Toevoegen voor elk venster: kies het begin en de duur. Een begintijd die niet in de lijst staat, kun je intypen, bijvoorbeeld 07:15. Selecteer een venster om het te bewerken of te verwijderen."
               }
             },
             "usual_range": {
@@ -233,9 +233,22 @@
         "start": {
           "name": "Begin"
         },
-        "end": {
-          "name": "Einde"
+        "duration": {
+          "name": "Duur"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minuten",
+        "60": "1 uur",
+        "90": "1 uur 30 minuten",
+        "120": "2 uur",
+        "180": "3 uur",
+        "240": "4 uur",
+        "other_hours": "{hours} u",
+        "other_hours_minutes": "{hours} u {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

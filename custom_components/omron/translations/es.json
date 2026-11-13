@@ -114,12 +114,12 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Una franja va desde su inicio hasta justo antes de su fin; un fin anterior al inicio cruza la medianoche (por ejemplo, de 22:00 a 02:00). Sin franjas, la hora no se usa.",
+              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Para cada franja elige cuándo empieza y cuánto dura; una hora de inicio que no esté en la lista se puede escribir (por ejemplo, 07:15). El fin se calcula: las 22:00 durante 3 horas terminan a las 01:00, pasada la medianoche. Sin franjas, la hora no se usa.",
               "data": {
                 "windows": "Franjas horarias"
               },
               "data_description": {
-                "windows": "Pulsa Añadir para cada franja, por ejemplo una por la mañana y otra por la noche. Cada una tiene un inicio y un fin. Selecciona una franja para editarla o eliminarla."
+                "windows": "Pulsa Añadir para cada franja: elige su inicio y su duración. Un inicio que no esté en la lista se puede escribir, por ejemplo 07:15. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {
@@ -148,12 +148,12 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Una franja va desde su inicio hasta justo antes de su fin; un fin anterior al inicio cruza la medianoche (por ejemplo, de 22:00 a 02:00). Sin franjas, la hora no se usa.",
+              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Para cada franja elige cuándo empieza y cuánto dura; una hora de inicio que no esté en la lista se puede escribir (por ejemplo, 07:15). El fin se calcula: las 22:00 durante 3 horas terminan a las 01:00, pasada la medianoche. Sin franjas, la hora no se usa.",
               "data": {
                 "windows": "Franjas horarias"
               },
               "data_description": {
-                "windows": "Pulsa Añadir para cada franja, por ejemplo una por la mañana y otra por la noche. Cada una tiene un inicio y un fin. Selecciona una franja para editarla o eliminarla."
+                "windows": "Pulsa Añadir para cada franja: elige su inicio y su duración. Un inicio que no esté en la lista se puede escribir, por ejemplo 07:15. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {
@@ -233,9 +233,22 @@
         "start": {
           "name": "Inicio"
         },
-        "end": {
-          "name": "Fin"
+        "duration": {
+          "name": "Duración"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minutos",
+        "60": "1 hora",
+        "90": "1 hora 30 minutos",
+        "120": "2 horas",
+        "180": "3 horas",
+        "240": "4 horas",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 import dataclasses
-import datetime as dt
 import logging
+import re
 import traceback
 from typing import Any
 
@@ -30,6 +30,7 @@ from homeassistant.components.bluetooth import (
     async_ble_device_from_address,
 )
 from homeassistant.core import callback
+from homeassistant.helpers.translation import async_get_translations
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
     SOURCE_RECONFIGURE,
@@ -982,19 +983,77 @@ _RANGE_PAIRS = (
 _SECTION_WHEN = "when"
 _SECTION_RANGE = "usual_range"
 _SECTIONS = (_SECTION_WHEN, _SECTION_RANGE)
-# Every time window is added to a list with the Add button. The list's items
-# have these two fields.
+# Every time window is added to a list with the Add button. A list item is a
+# start time and a duration, both picked from dropdowns; the end is worked out.
 _WINDOWS = "windows"
 _ITEM_START = "start"
-_ITEM_END = "end"
+_ITEM_DURATION = "duration"
 # Key of the selector's own translations (`selector.time_window.fields.*`).
 _WINDOW_TRANSLATION_KEY = "time_window"
+_DURATION_TRANSLATION_KEY = "time_window_duration"
+# The dropdown offers a start every half hour; any other time can be typed.
+_START_STEP_MINUTES = 30
+_START_OPTIONS = [
+    f"{minutes // 60:02d}:{minutes % 60:02d}"
+    for minutes in range(0, 24 * 60, _START_STEP_MINUTES)
+]
+# Durations offered, in minutes. A duration used by a stored window that is not
+# in this list is added to the options of the form that shows it.
+_DURATION_MINUTES = (30, 60, 90, 120, 180, 240)
+# What a duration is when the item leaves it out (the frontend does not fill in
+# a field's default in the Add dialog).
+_DEFAULT_DURATION = 60
+_TIME_TEXT = re.compile(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$")
 _WHEN_FIELDS = (_WINDOWS,)
 _MINUTES_PER_DAY = 24 * 60
 
 
-def _user_schema(step_id: str) -> vol.Schema:
+def _duration_labels(translations: Mapping[str, str]) -> dict[int, str]:
+    """Readable labels of the offered durations, from the integration's translations.
+
+    The Add dialog of the frontend does not translate the options of a select
+    inside an object selector, so the labels are put on the options themselves.
+    """
+    prefix = f"component.{DOMAIN}.selector.{_DURATION_TRANSLATION_KEY}.options."
+    return {
+        minutes: translations.get(f"{prefix}{minutes}", f"{minutes} min")
+        for minutes in _DURATION_MINUTES
+    }
+
+
+def _duration_label(minutes: int, translations: Mapping[str, str]) -> str:
+    """The label of one duration; a length that is not offered is spelled out."""
+    prefix = f"component.{DOMAIN}.selector.{_DURATION_TRANSLATION_KEY}.options."
+    if minutes in _DURATION_MINUTES:
+        return _duration_labels(translations)[minutes]
+    hours, rest = divmod(minutes, 60)
+    if hours and rest:
+        key, default = "other_hours_minutes", "{hours} h {minutes} min"
+    elif hours:
+        key, default = "other_hours", "{hours} h"
+    else:
+        key, default = "other_minutes", "{minutes} min"
+    return translations.get(f"{prefix}{key}", default).format(hours=hours, minutes=rest)
+
+
+def _duration_options(
+    extra: Iterable[int], translations: Mapping[str, str]
+) -> list[dict[str, str]]:
+    """The duration dropdown: the offered lengths and the extra ones, ascending."""
+    lengths = sorted({*_DURATION_MINUTES, *extra})
+    return [
+        {"value": str(length), "label": _duration_label(length, translations)}
+        for length in lengths
+    ]
+
+
+def _user_schema(
+    step_id: str,
+    duration_options: list[dict[str, str]] | None = None,
+) -> vol.Schema:
     """The fields of a user, which depend on how the device assigns."""
+    if duration_options is None:
+        duration_options = _duration_options((), {})
     fields: dict[Any, Any] = {
         vol.Required(CONF_USER_NAME): vol.All(str, vol.Length(max=64))
     }
@@ -1023,13 +1082,33 @@ def _user_schema(step_id: str) -> vol.Schema:
             ObjectSelectorConfig(
                 multiple=True,
                 fields={
-                    # A plain config, not a TimeSelector: Home Assistant 2025.12
-                    # validates the items with `selector(config)`, which takes a dict.
-                    _ITEM_START: {"selector": {"time": {}}, "required": True},
-                    _ITEM_END: {"selector": {"time": {}}, "required": True},
+                    # Plain configs, not selector objects: Home Assistant 2025.12
+                    # validates the items with `selector(config)`, which takes a
+                    # dict.
+                    _ITEM_START: {
+                        "selector": {
+                            "select": {
+                                "options": _START_OPTIONS,
+                                "mode": "dropdown",
+                                "custom_value": True,
+                            }
+                        },
+                        "required": True,
+                    },
+                    # Not required: an empty duration counts as the default one.
+                    _ITEM_DURATION: {
+                        "selector": {
+                            "select": {
+                                "options": duration_options,
+                                "mode": "dropdown",
+                                "translation_key": _DURATION_TRANSLATION_KEY,
+                            }
+                        },
+                        "required": False,
+                    },
                 },
                 label_field=_ITEM_START,
-                description_field=_ITEM_END,
+                description_field=_ITEM_DURATION,
                 translation_key=_WINDOW_TRANSLATION_KEY,
             )
         ),
@@ -1069,17 +1148,30 @@ def _errors_by_section(errors: dict[str, str]) -> dict[str, str]:
 
 
 def _picked_minutes(value: Any) -> int | None:
-    """Minutes after midnight of a time picker's ``HH:MM[:SS]``; seconds dropped."""
+    """Minutes after midnight of ``H:MM``, ``HH:MM`` or ``HH:MM:SS``; seconds dropped."""
+    match = _TIME_TEXT.match(str(value).strip())
+    if match is None:
+        return None
+    hour, minute = int(match.group(1)), int(match.group(2))
+    second = int(match.group(3) or 0)
+    if hour > 23 or minute > 59 or second > 59:
+        return None
+    return hour * 60 + minute
+
+
+def _picked_duration(value: Any) -> int | None:
+    """Minutes of a duration given as text or number; None when it is neither."""
+    if isinstance(value, bool):
+        return None
     try:
-        picked = dt.time.fromisoformat(str(value))
+        return int(str(value).strip())
     except ValueError:
         return None
-    return picked.hour * 60 + picked.minute
 
 
 def _picker_text(minutes: int) -> str:
     minutes %= _MINUTES_PER_DAY
-    return f"{minutes // 60:02d}:{minutes % 60:02d}:00"
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
 def _has_rules(data: Mapping[str, Any]) -> bool:
@@ -1164,8 +1256,14 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
     async def _async_form(
         self, step_id: str, user_input: dict[str, Any] | None
     ) -> SubentryFlowResult:
-        schema = _user_schema(step_id)
+        translations = await async_get_translations(
+            self.hass, self.hass.config.language, "selector", [DOMAIN]
+        )
         errors: dict[str, str] = {}
+        extra = self._stored_durations()
+        if user_input is not None:
+            extra |= self._submitted_durations(user_input)
+        schema = _user_schema(step_id, _duration_options(extra, translations))
         if user_input is not None:
             data, errors = self._validate(user_input)
             if not errors:
@@ -1180,6 +1278,27 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             data_schema=self.add_suggested_values_to_schema(schema, suggested),
             errors=errors,
         )
+
+    def _stored_durations(self) -> set[int]:
+        """The lengths of the windows of the user being edited."""
+        editing = self._editing()
+        if editing is None:
+            return set()
+        windows = parse_windows(editing.data.get(CONF_USER_TIME_WINDOWS)) or []
+        return {(end - start) % _MINUTES_PER_DAY for start, end in windows}
+
+    @staticmethod
+    def _submitted_durations(user_input: Mapping[str, Any]) -> set[int]:
+        """Lengths of the submitted items, so a form shown again keeps them."""
+        when = user_input.get(_SECTION_WHEN)
+        items = when.get(_WINDOWS) if isinstance(when, Mapping) else None
+        found: set[int] = set()
+        for item in items if isinstance(items, list) else []:
+            if isinstance(item, Mapping):
+                length = _picked_duration(item.get(_ITEM_DURATION))
+                if length is not None and 0 < length < _MINUTES_PER_DAY:
+                    found.add(length)
+        return found
 
     def _suggested_values(self, step_id: str) -> dict[str, Any]:
         """What the form shows for the user being edited, in the form's shape."""
@@ -1197,7 +1316,10 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         windows = parse_windows(data.get(CONF_USER_TIME_WINDOWS)) or []
         if windows:
             when[_WINDOWS] = [
-                {_ITEM_START: _picker_text(start), _ITEM_END: _picker_text(end)}
+                {
+                    _ITEM_START: _picker_text(start),
+                    _ITEM_DURATION: str((end - start) % _MINUTES_PER_DAY),
+                }
                 for start, end in windows
             ]
         suggested[_SECTION_WHEN] = when
@@ -1238,28 +1360,31 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
     ) -> tuple[list[tuple[int, int]], str | None]:
         """The windows of the added list, in its order, and the first error.
 
-        Every window needs a start and an end that differ.
+        Every window needs a start and a duration; the end is the start plus the
+        duration, around the clock. A missing duration is the default one.
         """
-        pairs: list[tuple[Any, Any]] = []
         if items is None:
             items = []
         if not isinstance(items, list):
             return [], "time_window_incomplete"
+        windows: list[tuple[int, int]] = []
+        error: str | None = None
         for item in items:
             if not isinstance(item, Mapping):
                 return [], "time_window_incomplete"
-            pairs.append((item.get(_ITEM_START), item.get(_ITEM_END)))
-        windows: list[tuple[int, int]] = []
-        error: str | None = None
-        for first, last in pairs:
-            first_min = None if first in (None, "") else _picked_minutes(first)
-            last_min = None if last in (None, "") else _picked_minutes(last)
-            if first_min is None or last_min is None:
+            first = item.get(_ITEM_START)
+            start = None if first in (None, "") else _picked_minutes(first)
+            raw = item.get(_ITEM_DURATION)
+            length = _DEFAULT_DURATION if raw in (None, "") else _picked_duration(raw)
+            if start is None or length is None:
                 error = error or "time_window_incomplete"
-            elif first_min == last_min:
+            elif length in (0, _MINUTES_PER_DAY):
+                # No time at all, or the whole day: the end equals the start.
                 error = error or "time_window_empty"
+            elif not 0 < length < _MINUTES_PER_DAY:
+                error = error or "time_window_incomplete"
             else:
-                windows.append((first_min, last_min))
+                windows.append((start, (start + length) % _MINUTES_PER_DAY))
         return windows, error
 
     def _collect_warnings(self, step_id: str, data: dict[str, Any]) -> list[str]:

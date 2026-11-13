@@ -159,7 +159,26 @@ def test_translation_files_share_the_multi_user_strings() -> None:
             assert set(when["data_description"]) == set(when["data"])
         # The labels of the fields in the dialog of an added time window.
         fields = doc["selector"]["time_window"]["fields"]
-        assert fields["start"]["name"] and fields["end"]["name"], path.name
+        assert set(fields) == {"start", "duration"}, path.name
+        assert fields["start"]["name"] and fields["duration"]["name"], path.name
+        # The duration labels, and the words for a length that is not one of them.
+        options = doc["selector"]["time_window_duration"]["options"]
+        assert set(options) == {
+            "30",
+            "60",
+            "90",
+            "120",
+            "180",
+            "240",
+            "other_hours",
+            "other_hours_minutes",
+            "other_minutes",
+        }, path.name
+        assert all(options.values()), path.name
+        assert "{hours}" in options["other_hours"], path.name
+        assert "{minutes}" in options["other_minutes"], path.name
+        assert "{hours}" in options["other_hours_minutes"], path.name
+        assert "{minutes}" in options["other_hours_minutes"], path.name
         assert set(user["error"]) == {
             "invalid_name",
             "time_window_incomplete",

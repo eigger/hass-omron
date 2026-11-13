@@ -114,12 +114,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Une plage va de son début jusqu'à juste avant sa fin ; une fin antérieure au début franchit minuit (par exemple de 22:00 à 02:00). Sans plage, l'heure n'est pas utilisée.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Pour chaque plage, choisissez quand elle commence et combien de temps elle dure ; un début absent de la liste peut être saisi (par exemple 07:15). La fin est calculée : 22:00 pendant 3 heures se termine à 01:00, après minuit. Sans plage, l'heure n'est pas utilisée.",
               "data": {
                 "windows": "Plages horaires"
               },
               "data_description": {
-                "windows": "Appuyez sur Ajouter pour chaque plage, par exemple une pour le matin et une pour le soir. Chacune a un début et une fin. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage : choisissez son début et sa durée. Un début absent de la liste peut être saisi, par exemple 07:15. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {
@@ -148,12 +148,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Une plage va de son début jusqu'à juste avant sa fin ; une fin antérieure au début franchit minuit (par exemple de 22:00 à 02:00). Sans plage, l'heure n'est pas utilisée.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Pour chaque plage, choisissez quand elle commence et combien de temps elle dure ; un début absent de la liste peut être saisi (par exemple 07:15). La fin est calculée : 22:00 pendant 3 heures se termine à 01:00, après minuit. Sans plage, l'heure n'est pas utilisée.",
               "data": {
                 "windows": "Plages horaires"
               },
               "data_description": {
-                "windows": "Appuyez sur Ajouter pour chaque plage, par exemple une pour le matin et une pour le soir. Chacune a un début et une fin. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage : choisissez son début et sa durée. Un début absent de la liste peut être saisi, par exemple 07:15. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {
@@ -233,9 +233,22 @@
         "start": {
           "name": "Début"
         },
-        "end": {
-          "name": "Fin"
+        "duration": {
+          "name": "Durée"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minutes",
+        "60": "1 heure",
+        "90": "1 heure 30 minutes",
+        "120": "2 heures",
+        "180": "3 heures",
+        "240": "4 heures",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

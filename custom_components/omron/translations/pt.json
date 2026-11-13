@@ -114,12 +114,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Um intervalo vai do seu início até pouco antes do seu fim; um fim anterior ao início atravessa a meia-noite (por exemplo, das 22:00 às 02:00). Sem intervalos, a hora não é usada.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Para cada intervalo escolha quando começa e quanto tempo dura; um início que não esteja na lista pode ser escrito (por exemplo, 07:15). O fim é calculado: às 22:00 durante 3 horas termina à 01:00, depois da meia-noite. Sem intervalos, a hora não é usada.",
               "data": {
                 "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "windows": "Prima Adicionar para cada intervalo, por exemplo um para a manhã e outro para a noite. Cada um tem um início e um fim. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo: escolha o início e a duração. Um início que não esteja na lista pode ser escrito, por exemplo 07:15. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -148,12 +148,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Um intervalo vai do seu início até pouco antes do seu fim; um fim anterior ao início atravessa a meia-noite (por exemplo, das 22:00 às 02:00). Sem intervalos, a hora não é usada.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Para cada intervalo escolha quando começa e quanto tempo dura; um início que não esteja na lista pode ser escrito (por exemplo, 07:15). O fim é calculado: às 22:00 durante 3 horas termina à 01:00, depois da meia-noite. Sem intervalos, a hora não é usada.",
               "data": {
                 "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "windows": "Prima Adicionar para cada intervalo, por exemplo um para a manhã e outro para a noite. Cada um tem um início e um fim. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo: escolha o início e a duração. Um início que não esteja na lista pode ser escrito, por exemplo 07:15. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -233,9 +233,22 @@
         "start": {
           "name": "Início"
         },
-        "end": {
-          "name": "Fim"
+        "duration": {
+          "name": "Duração"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minutos",
+        "60": "1 hora",
+        "90": "1 hora e 30 minutos",
+        "120": "2 horas",
+        "180": "3 horas",
+        "240": "4 horas",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },
