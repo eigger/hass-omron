@@ -78,6 +78,62 @@
       "model_not_selected": "未选择设备型号。请重新开始并从列表中选择型号。"
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "用户",
+      "initiate_flow": {
+        "user": "添加用户",
+        "reconfigure": "编辑用户"
+      },
+      "step": {
+        "weight": {
+          "title": "用户",
+          "description": "每次新的测量会分配给平时体重最接近的用户。请输入你平时在体重秤上看到的体重；在该用户有自己的测量值之前会使用此值。体重相差小于约 5.5 kg（以 75 kg 计）的用户，常常无法被分配。未分配的测量会通过 `omron_unassigned_measurement` 事件通知。身高仅用于计算 BMI。",
+          "data": {
+            "name": "名称",
+            "expected_weight": "平时体重（kg）",
+            "height_cm": "身高（cm，用于 BMI）"
+          }
+        },
+        "rules": {
+          "title": "用户",
+          "description": "每次新的测量会分配给唯一满足全部规则的用户。留空的规则会被忽略。时间段请按 HH:MM-HH:MM 填写，用逗号分隔；时间段可以跨越午夜（22:00-02:00）。数值范围只是辅助依据，可能会分配错误。符合多位用户或不符合任何用户的测量不会分配给任何人，并通过 `omron_unassigned_measurement` 事件通知。使用的是设备记录的时间，因此设备时钟必须准确。",
+          "data": {
+            "name": "名称",
+            "height_cm": "身高（cm，用于 BMI）",
+            "time_windows": "时间段（HH:MM-HH:MM，用逗号分隔）",
+            "weight_min": "体重下限（kg）",
+            "weight_max": "体重上限（kg）"
+          }
+        },
+        "pressure": {
+          "title": "用户",
+          "description": "每次新的测量会分配给唯一满足全部规则的用户。留空的规则会被忽略。时间段请按 HH:MM-HH:MM 填写，用逗号分隔；时间段可以跨越午夜（22:00-02:00）。数值范围只是辅助依据，可能会分配错误。符合多位用户或不符合任何用户的测量不会分配给任何人，并通过 `omron_unassigned_measurement` 事件通知。使用的是设备记录的时间，因此设备时钟必须准确。",
+          "data": {
+            "name": "名称",
+            "time_windows": "时间段（HH:MM-HH:MM，用逗号分隔）",
+            "sys_min": "收缩压下限（mmHg）",
+            "sys_max": "收缩压上限（mmHg）",
+            "dia_min": "舒张压下限（mmHg）",
+            "dia_max": "舒张压上限（mmHg）"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "没有规则",
+          "description": "{name} 没有规则，因此所有测量都符合该用户；同时符合其他用户的测量不会分配给任何人。点击提交仍然保存，或关闭此对话框并添加规则。"
+        },
+        "confirm_overlap": {
+          "title": "时间段重叠",
+          "description": "{name} 的时间段与以下用户的时间段重叠：{others}。同时符合两者的测量不会分配给任何人，除非数值范围能将其区分。点击提交仍然保存。"
+        }
+      },
+      "error": {
+        "invalid_name": "请输入其他用户没有使用的名称。",
+        "invalid_time_windows": "请输入时间段，例如 06:00-09:00, 18:00-21:00。",
+        "invalid_range": "下限不能大于上限。"
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "用户 1 名称",
           "user_alias_2": "用户 2 名称",
           "user_alias_3": "用户 3 名称",
-          "user_alias_4": "用户 4 名称"
+          "user_alias_4": "用户 4 名称",
+          "assignment_strategy": "测量值分配方式",
+          "weight_tolerance_pct": "体重容差（%）"
+        },
+        "data_description": {
+          "assignment_strategy": "体重：分配给平时体重最接近的用户。规则：为每位用户设定的时间段和数值范围。更改后会清除目前已学习的体重。 更改后请编辑每位用户：按体重分配需要其平时体重，按规则分配需要其规则。没有平时体重的用户不会按体重获得分配。",
+          "weight_tolerance_pct": "体重与用户平时体重的允许偏差，以百分比表示（1–5）；容差限制在 1.0 至 4.0 kg 之间。平时体重相差小于约 5.5 kg（以 75 kg 计）的用户，常常无法被分配。"
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "每个用户槽的名称必须不同（不区分大小写）。",
       "invalid_scan_interval": "请输入 0（关闭定时轮询）或至少 60 秒。"
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "体重",
+        "rules": "规则（时间和数值）"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "体重"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "收缩压"
+      },
+      "user_diastolic": {
+        "name": "舒张压"
+      },
+      "user_pulse": {
+        "name": "脉搏"
+      },
+      "user_measured_at": {
+        "name": "测量时间"
       }
     },
     "binary_sensor": {

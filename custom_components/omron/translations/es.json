@@ -78,6 +78,62 @@
       "model_not_selected": "No se seleccionó el modelo. Empiece de nuevo y elija el modelo de la lista."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Usuario",
+      "initiate_flow": {
+        "user": "Añadir usuario",
+        "reconfigure": "Editar usuario"
+      },
+      "step": {
+        "weight": {
+          "title": "Usuario",
+          "description": "Cada nueva medición va al usuario cuyo peso habitual esté más cerca. Introduce el peso que sueles ver en la báscula; se usa hasta que este usuario tenga mediciones propias. Los usuarios con pesos a menos de unos 5,5 kg (con 75 kg) suelen quedar sin asignar. Las mediciones sin asignar se notifican en un evento `omron_unassigned_measurement`. La altura solo se usa para el IMC.",
+          "data": {
+            "name": "Nombre",
+            "expected_weight": "Peso habitual (kg)",
+            "height_cm": "Altura (cm, para el IMC)"
+          }
+        },
+        "rules": {
+          "title": "Usuario",
+          "description": "Cada nueva medición va al único usuario cuyas reglas se cumplen todas. Deja una regla vacía para ignorarla. Escribe las franjas horarias como HH:MM-HH:MM separadas por comas; una franja puede cruzar la medianoche (22:00-02:00). Los rangos de valores son solo una pista y pueden asignar mal. Una medición que encaja con varios usuarios, o con ninguno, no se asigna a nadie y se notifica en un evento `omron_unassigned_measurement`. Se usa la hora que registró el dispositivo, así que su reloj debe estar bien.",
+          "data": {
+            "name": "Nombre",
+            "height_cm": "Altura (cm, para el IMC)",
+            "time_windows": "Franjas horarias (HH:MM-HH:MM, separadas por comas)",
+            "weight_min": "Peso desde (kg)",
+            "weight_max": "Peso hasta (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Usuario",
+          "description": "Cada nueva medición va al único usuario cuyas reglas se cumplen todas. Deja una regla vacía para ignorarla. Escribe las franjas horarias como HH:MM-HH:MM separadas por comas; una franja puede cruzar la medianoche (22:00-02:00). Los rangos de valores son solo una pista y pueden asignar mal. Una medición que encaja con varios usuarios, o con ninguno, no se asigna a nadie y se notifica en un evento `omron_unassigned_measurement`. Se usa la hora que registró el dispositivo, así que su reloj debe estar bien.",
+          "data": {
+            "name": "Nombre",
+            "time_windows": "Franjas horarias (HH:MM-HH:MM, separadas por comas)",
+            "sys_min": "Sistólica desde (mmHg)",
+            "sys_max": "Sistólica hasta (mmHg)",
+            "dia_min": "Diastólica desde (mmHg)",
+            "dia_max": "Diastólica hasta (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Sin reglas",
+          "description": "{name} no tiene reglas, así que cualquier medición encaja con este usuario, y una medición que también encaje con otro usuario no se asigna a nadie. Pulsa Enviar para guardar de todos modos, o cierra este cuadro y añade una regla."
+        },
+        "confirm_overlap": {
+          "title": "Franjas horarias solapadas",
+          "description": "Las franjas horarias de {name} se solapan con las de: {others}. Una medición que encaje con ambos no se asigna a nadie salvo que un rango de valores los distinga. Pulsa Enviar para guardar de todos modos."
+        }
+      },
+      "error": {
+        "invalid_name": "Introduce un nombre que no tenga otro usuario.",
+        "invalid_time_windows": "Introduce franjas horarias como 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "El valor inferior no puede ser mayor que el superior."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Nombre del usuario 1",
           "user_alias_2": "Nombre del usuario 2",
           "user_alias_3": "Nombre del usuario 3",
-          "user_alias_4": "Nombre del usuario 4"
+          "user_alias_4": "Nombre del usuario 4",
+          "assignment_strategy": "Asignar las mediciones por",
+          "weight_tolerance_pct": "Tolerancia de peso (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Peso: el usuario cuyo peso habitual esté más cerca. Reglas: las franjas horarias y los rangos de valores definidos por usuario. Al cambiarlo se olvidan los pesos aprendidos hasta ahora. Después de cambiarlo, edite cada usuario: la asignación por peso necesita su peso habitual y la asignación por reglas necesita sus reglas. Un usuario sin peso habitual nunca recibe mediciones por peso.",
+          "weight_tolerance_pct": "Cuánto puede alejarse un peso del peso habitual de un usuario, en porcentaje (1–5); la tolerancia se mantiene entre 1,0 y 4,0 kg. Los usuarios cuyos pesos habituales estén a menos de unos 5,5 kg (con 75 kg) suelen quedar sin asignar."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Cada ranura de usuario debe tener un nombre distinto (sin distinguir mayúsculas).",
       "invalid_scan_interval": "Introduzca 0 (sin consulta programada) o al menos 60 segundos."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Peso",
+        "rules": "Reglas (hora y valores)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Peso"
+      },
+      "user_bmi": {
+        "name": "IMC"
+      },
+      "user_systolic": {
+        "name": "Sistólica"
+      },
+      "user_diastolic": {
+        "name": "Diastólica"
+      },
+      "user_pulse": {
+        "name": "Pulso"
+      },
+      "user_measured_at": {
+        "name": "Medido a las"
       }
     },
     "binary_sensor": {

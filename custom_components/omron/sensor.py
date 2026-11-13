@@ -37,6 +37,7 @@ from homeassistant.const import (
     UnitOfMass,
     UnitOfTime,
 )
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util.unit_conversion import MassConverter
@@ -50,8 +51,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
-from .data import signal_height_updated
-from .entity import OmronCoordinatorEntity
+from .const import CONF_USER_HEIGHT
+from .data import signal_height_updated, signal_user_updated
+from .entity import OmronCoordinatorEntity, OmronEntity, user_device_info
 from .entity_helpers import (
     apply_translated_entity_name,
     device_key_entity_id_suffix,
@@ -61,6 +63,7 @@ from .entity_helpers import (
 )
 from .omron_ble.body_metrics import BMI_CATEGORIES, classify_bmi, compute_bmi
 from .types import OmronConfigEntry
+from .users import user_subentries
 
 # Values stored before measurement_type became a translation key.
 _LEGACY_MEASUREMENT_TYPES = {
@@ -411,6 +414,14 @@ async def async_setup_entry(
                 OmronBmiCategorySensorEntity(entry, poll_coordinator),
             ]
         )
+
+    # Registered users of a single-slot device: their own sensors, each user
+    # on a sub-device of its own.
+    if runtime.users is not None:
+        for subentry_id, subentry in user_subentries(entry).items():
+            async_add_entities(
+                _user_sensors(entry, subentry), config_subentry_id=subentry_id
+            )
 
 
 class OmronAdvertisementSensorEntity(
@@ -1026,3 +1037,180 @@ class OmronBmiCategorySensorEntity(_OmronBmiBase):
     @property
     def native_value(self) -> str | None:
         return classify_bmi(self._bmi)
+
+
+# --- users of a single-slot device (#301) ---------------------------------------
+
+
+def _user_sensors(
+    entry: OmronConfigEntry, subentry: ConfigSubentry
+) -> list[SensorEntity]:
+    """The sensors of one user: weight and BMI for a scale, the reading for a cuff."""
+    if entry.runtime_data.is_scale:
+        return [
+            OmronUserWeightSensor(entry, subentry),
+            OmronUserBmiSensor(entry, subentry),
+        ]
+    return [
+        OmronUserSystolicSensor(entry, subentry),
+        OmronUserDiastolicSensor(entry, subentry),
+        OmronUserPulseSensor(entry, subentry),
+        OmronUserMeasuredAtSensor(entry, subentry),
+    ]
+
+
+class _OmronUserSensor(OmronEntity, SensorEntity):
+    """A value of the user's latest assigned measurement.
+
+    The value is the Store's, not the poll coordinator's: the coordinator holds
+    whoever measured last. It is there from the start, so no state restore is
+    involved.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    # Attributes every value sensor carries besides its own.
+    _extra_attributes: tuple[str, ...] = ()
+
+    def __init__(
+        self, entry: OmronConfigEntry, subentry: ConfigSubentry, key: str
+    ) -> None:
+        self._bind(entry)
+        self._subentry = subentry
+        self._attr_translation_key = f"user_{key}"
+        self._attr_unique_id = f"{entry.entry_id}_{subentry.subentry_id}_{key}"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return user_device_info(self.hass, self._entry, self._subentry)
+
+    @property
+    def _last(self) -> dict[str, Any]:
+        users = self._runtime.users
+        if users is None:
+            return {}
+        return users.last.get(self._subentry.subentry_id, {})
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                signal_user_updated(self._entry.entry_id, self._subentry.subentry_id),
+                self._handle_user_update,
+            )
+        )
+
+    @callback
+    def _handle_user_update(self) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        last = self._last
+        return {
+            "measured_at": last.get("measured_at"),
+            "assignment": last.get("assignment"),
+            **{key: last.get(key) for key in self._extra_attributes},
+        }
+
+
+class OmronUserWeightSensor(_OmronUserSensor):
+    """The user's last assigned weight."""
+
+    _attr_device_class = SensorDeviceClass.WEIGHT
+    _attr_native_unit_of_measurement = UnitOfMass.KILOGRAMS
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "weight")
+
+    @property
+    def native_value(self) -> float | None:
+        return _as_float(self._last.get("weight"))
+
+
+class OmronUserBmiSensor(_OmronUserSensor):
+    """BMI from the user's last assigned weight and the height they entered."""
+
+    # No device class: HA would offer unit conversion for it.
+    _attr_native_unit_of_measurement = "kg/m²"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:human"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "bmi")
+
+    @property
+    def _height_cm(self) -> float | None:
+        # Read from the entry's subentry, which is replaced when it is edited
+        # (that reloads the entry), so this is never stale.
+        current = self._entry.subentries.get(self._subentry.subentry_id)
+        return _as_float((current or self._subentry).data.get(CONF_USER_HEIGHT))
+
+    @property
+    def native_value(self) -> float | None:
+        return compute_bmi(_as_float(self._last.get("weight")), self._height_cm)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            **super().extra_state_attributes,
+            "weight_kg": _as_float(self._last.get("weight")),
+            "height_cm": self._height_cm,
+        }
+
+
+class _OmronUserPressureSensor(_OmronUserSensor):
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _extra_attributes = ("irregular_pulse", "body_movement")
+    _value_key: str
+
+    @property
+    def native_value(self) -> int | None:
+        value = self._last.get(self._value_key)
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+class OmronUserSystolicSensor(_OmronUserPressureSensor):
+    _attr_native_unit_of_measurement = "mmHg"
+    _attr_icon = "mdi:heart-plus"
+    _value_key = "sys"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "systolic")
+
+
+class OmronUserDiastolicSensor(_OmronUserPressureSensor):
+    _attr_native_unit_of_measurement = "mmHg"
+    _attr_icon = "mdi:heart-minus"
+    _value_key = "dia"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "diastolic")
+
+
+class OmronUserPulseSensor(_OmronUserPressureSensor):
+    _attr_native_unit_of_measurement = "bpm"
+    _attr_icon = "mdi:pulse"
+    _value_key = "bpm"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "pulse")
+
+
+class OmronUserMeasuredAtSensor(_OmronUserSensor):
+    """When the user's last assigned measurement was taken."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _extra_attributes = ("irregular_pulse", "body_movement")
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "measured_at")
+
+    @property
+    def native_value(self) -> datetime | None:
+        value = self._last.get("measured_at")
+        parsed = dt_util.parse_datetime(value) if isinstance(value, str) else None
+        return parsed if parsed is not None and parsed.tzinfo is not None else None

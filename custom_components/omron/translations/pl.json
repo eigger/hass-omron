@@ -78,6 +78,62 @@
       "model_not_selected": "Nie wybrano modelu urządzenia. Zacznij od nowa i wybierz model z listy."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Użytkownik",
+      "initiate_flow": {
+        "user": "Dodaj użytkownika",
+        "reconfigure": "Edytuj użytkownika"
+      },
+      "step": {
+        "weight": {
+          "title": "Użytkownik",
+          "description": "Każdy nowy pomiar trafia do użytkownika, którego zwykła waga jest najbliższa. Wpisz wagę, którą zwykle widzisz na wadze; jest ona używana, dopóki ten użytkownik nie ma własnych pomiarów. Użytkownicy, których wagi różnią się o mniej niż ok. 5,5 kg (przy 75 kg), często pozostają nieprzypisani. Nieprzypisane pomiary są zgłaszane w zdarzeniu `omron_unassigned_measurement`. Wzrost służy tylko do obliczenia BMI.",
+          "data": {
+            "name": "Nazwa",
+            "expected_weight": "Zwykła waga (kg)",
+            "height_cm": "Wzrost (cm, do BMI)"
+          }
+        },
+        "rules": {
+          "title": "Użytkownik",
+          "description": "Każdy nowy pomiar trafia do jedynego użytkownika, którego wszystkie reguły są spełnione. Puste pole reguły jest pomijane. Okna czasowe zapisz jako HH:MM-HH:MM, oddzielone przecinkami; okno może przechodzić przez północ (22:00-02:00). Zakresy wartości to tylko wskazówka i mogą prowadzić do błędnego przypisania. Pomiar pasujący do kilku użytkowników lub do żadnego nie jest przypisywany nikomu i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Używany jest czas zapisany przez urządzenie, więc jego zegar musi być poprawny.",
+          "data": {
+            "name": "Nazwa",
+            "height_cm": "Wzrost (cm, do BMI)",
+            "time_windows": "Okna czasowe (HH:MM-HH:MM, oddzielone przecinkami)",
+            "weight_min": "Waga od (kg)",
+            "weight_max": "Waga do (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Użytkownik",
+          "description": "Każdy nowy pomiar trafia do jedynego użytkownika, którego wszystkie reguły są spełnione. Puste pole reguły jest pomijane. Okna czasowe zapisz jako HH:MM-HH:MM, oddzielone przecinkami; okno może przechodzić przez północ (22:00-02:00). Zakresy wartości to tylko wskazówka i mogą prowadzić do błędnego przypisania. Pomiar pasujący do kilku użytkowników lub do żadnego nie jest przypisywany nikomu i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Używany jest czas zapisany przez urządzenie, więc jego zegar musi być poprawny.",
+          "data": {
+            "name": "Nazwa",
+            "time_windows": "Okna czasowe (HH:MM-HH:MM, oddzielone przecinkami)",
+            "sys_min": "Skurczowe od (mmHg)",
+            "sys_max": "Skurczowe do (mmHg)",
+            "dia_min": "Rozkurczowe od (mmHg)",
+            "dia_max": "Rozkurczowe do (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Brak reguł",
+          "description": "{name} nie ma reguł, więc każdy pomiar pasuje do tego użytkownika, a pomiar pasujący także do innego użytkownika nie jest przypisywany nikomu. Naciśnij Prześlij, aby mimo to zapisać, lub zamknij to okno i dodaj regułę."
+        },
+        "confirm_overlap": {
+          "title": "Nakładające się okna czasowe",
+          "description": "Okna czasowe użytkownika {name} nakładają się z oknami: {others}. Pomiar pasujący do obu nie jest przypisywany nikomu, chyba że zakres wartości je rozróżnia. Naciśnij Prześlij, aby mimo to zapisać."
+        }
+      },
+      "error": {
+        "invalid_name": "Wpisz nazwę, której nie ma żaden inny użytkownik.",
+        "invalid_time_windows": "Wpisz okna czasowe w postaci 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "Dolna wartość nie może być większa od górnej."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Nazwa użytkownika 1",
           "user_alias_2": "Nazwa użytkownika 2",
           "user_alias_3": "Nazwa użytkownika 3",
-          "user_alias_4": "Nazwa użytkownika 4"
+          "user_alias_4": "Nazwa użytkownika 4",
+          "assignment_strategy": "Przypisuj pomiary na podstawie",
+          "weight_tolerance_pct": "Tolerancja wagi (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Waga: użytkownik, którego zwykła waga jest najbliższa. Reguły: okna czasowe i zakresy wartości ustawione dla każdego użytkownika. Zmiana usuwa dotychczas poznane wagi. Po zmianie edytuj każdego użytkownika: przypisywanie według wagi wymaga zwykłej wagi, a przypisywanie według reguł wymaga reguł. Użytkownikowi bez zwykłej wagi pomiary według wagi nie są nigdy przypisywane.",
+          "weight_tolerance_pct": "O ile waga może odbiegać od zwykłej wagi użytkownika, w procentach (1–5); tolerancja jest ograniczona do zakresu 1,0–4,0 kg. Użytkownicy, których zwykłe wagi różnią się o mniej niż ok. 5,5 kg (przy 75 kg), często pozostają nieprzypisani."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Każde miejsce użytkownika musi mieć inną nazwę (bez rozróżniania wielkości liter).",
       "invalid_scan_interval": "Wpisz 0 (bez zaplanowanego odpytywania) lub co najmniej 60 sekund."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Waga",
+        "rules": "Reguły (czas i wartości)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Waga"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Skurczowe"
+      },
+      "user_diastolic": {
+        "name": "Rozkurczowe"
+      },
+      "user_pulse": {
+        "name": "Tętno"
+      },
+      "user_measured_at": {
+        "name": "Zmierzono o"
       }
     },
     "binary_sensor": {

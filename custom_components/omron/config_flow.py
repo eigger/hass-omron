@@ -31,13 +31,24 @@ from homeassistant.components.bluetooth import (
 from homeassistant.core import callback
 from homeassistant.config_entries import (
     SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
+    SubentryFlowResult,
 )
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 from homeassistant.data_entry_flow import AbortFlow
+from homeassistant.helpers.selector import (
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .alias_migration import async_migrate_alias_unique_ids
 from .util import aliases_dict_from_entry
@@ -48,14 +59,40 @@ from .session_handoff import (
     stash_probe_session,
     take_probe_session,
 )
+from .assignment import parse_windows, windows_overlap
 from .const import (
+    CONF_ASSIGNMENT_STRATEGY,
     CONF_BINDKEY,
     CONF_DEVICE_MODEL,
     CONF_SYNC_STORED_RECORDS,
     CONF_TRANSPORT_CREDENTIAL,
     CONF_USER_ALIASES,
+    CONF_USER_DIA_MAX,
+    CONF_USER_DIA_MIN,
+    CONF_USER_EXPECTED_WEIGHT,
+    CONF_USER_HEIGHT,
+    CONF_USER_NAME,
+    CONF_USER_SYS_MAX,
+    CONF_USER_SYS_MIN,
+    CONF_USER_TIME_WINDOWS,
+    CONF_USER_WEIGHT_MAX,
+    CONF_USER_WEIGHT_MIN,
+    CONF_WEIGHT_TOLERANCE_PCT,
     DOMAIN,
+    STRATEGY_RULES,
+    STRATEGY_WEIGHT,
+    SUBENTRY_USER,
+    WEIGHT_TOLERANCE_PCT_DEFAULT,
+    WEIGHT_TOLERANCE_PCT_MAX,
+    WEIGHT_TOLERANCE_PCT_MIN,
 )
+from .omron_ble.body_metrics import (
+    HEIGHT_MAX_CM,
+    HEIGHT_MIN_CM,
+    WEIGHT_MAX_KG,
+    WEIGHT_MIN_KG,
+)
+from .users import strategy_for, supports_users, user_subentries
 from .omron_ble.const import DEFAULT_DEVICE_MODEL
 from .omron_ble.bluez import _bluez_is_paired, _bluez_remove_device, is_local_adapter
 from .omron_ble.session import OmronDeviceSession
@@ -148,6 +185,36 @@ def _options_init_schema(
             else entry.options.get(CONF_SYNC_STORED_RECORDS, False)
         )
         fields[vol.Required(CONF_SYNC_STORED_RECORDS, default=sync_default)] = bool
+    if supports_users(entry) and not cfg.is_blood_pressure:
+        # A scale can tell its users apart by weight or by rules; a cuff only
+        # has rules, so it has nothing to choose.
+        strategy_default = (
+            user_input.get(CONF_ASSIGNMENT_STRATEGY)
+            if user_input is not None and CONF_ASSIGNMENT_STRATEGY in user_input
+            else strategy_for(entry, is_scale=True)
+        )
+        tolerance_default = float(
+            user_input.get(CONF_WEIGHT_TOLERANCE_PCT, WEIGHT_TOLERANCE_PCT_DEFAULT)
+            if user_input is not None
+            else entry.options.get(
+                CONF_WEIGHT_TOLERANCE_PCT, WEIGHT_TOLERANCE_PCT_DEFAULT
+            )
+        )
+        fields[vol.Required(CONF_ASSIGNMENT_STRATEGY, default=strategy_default)] = (
+            SelectSelector(
+                SelectSelectorConfig(
+                    options=[STRATEGY_WEIGHT, STRATEGY_RULES],
+                    mode=SelectSelectorMode.DROPDOWN,
+                    translation_key="assignment_strategy",
+                )
+            )
+        )
+        fields[vol.Required(CONF_WEIGHT_TOLERANCE_PCT, default=tolerance_default)] = (
+            vol.All(
+                vol.Coerce(float),
+                vol.Range(min=WEIGHT_TOLERANCE_PCT_MIN, max=WEIGHT_TOLERANCE_PCT_MAX),
+            )
+        )
     if cfg.num_users > 1:
         raw_aliases = entry.options.get(
             CONF_USER_ALIASES, entry.data.get(CONF_USER_ALIASES, {})
@@ -761,6 +828,16 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
         """Create the options flow."""
         return OmronOptionsFlowHandler(config_entry)
 
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(
+        cls, config_entry: ConfigEntry
+    ) -> dict[str, type[ConfigSubentryFlow]]:
+        """Users, for a device that cannot tell people apart (#301)."""
+        if supports_users(config_entry):
+            return {SUBENTRY_USER: OmronUserSubentryFlow}
+        return {}
+
     def _async_get_or_create_entry(
         self, bindkey: str | None = None, model: str | None = None
     ) -> ConfigFlowResult:
@@ -829,6 +906,15 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 out[CONF_SYNC_STORED_RECORDS] = bool(
                     user_input.get(CONF_SYNC_STORED_RECORDS, False)
                 )
+            if supports_users(entry) and not cfg.is_blood_pressure:
+                out[CONF_ASSIGNMENT_STRATEGY] = user_input.get(
+                    CONF_ASSIGNMENT_STRATEGY, STRATEGY_WEIGHT
+                )
+                out[CONF_WEIGHT_TOLERANCE_PCT] = float(
+                    user_input.get(
+                        CONF_WEIGHT_TOLERANCE_PCT, WEIGHT_TOLERANCE_PCT_DEFAULT
+                    )
+                )
             if cfg.num_users > 1:
                 resolved = _resolved_user_aliases_from_input(cfg.num_users, user_input)
                 if not _user_aliases_are_unique(resolved):
@@ -864,3 +950,224 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 "num_users": str(cfg.num_users),
             },
         )
+
+
+def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(
+            min=low,
+            max=high,
+            step=step,
+            mode=NumberSelectorMode.BOX,
+            unit_of_measurement=unit,
+        )
+    )
+
+
+# Form step per kind of user input: a scale by weight, a scale by rules, a cuff.
+_STEP_WEIGHT = "weight"
+_STEP_RULES = "rules"
+_STEP_PRESSURE = "pressure"
+_RANGE_PAIRS = (
+    (CONF_USER_WEIGHT_MIN, CONF_USER_WEIGHT_MAX),
+    (CONF_USER_SYS_MIN, CONF_USER_SYS_MAX),
+    (CONF_USER_DIA_MIN, CONF_USER_DIA_MAX),
+)
+
+
+def _user_schema(step_id: str) -> vol.Schema:
+    """The fields of a user, which depend on how the device assigns."""
+    fields: dict[Any, Any] = {
+        vol.Required(CONF_USER_NAME): vol.All(str, vol.Length(max=64))
+    }
+    height = _number(HEIGHT_MIN_CM, HEIGHT_MAX_CM, 0.1, "cm")
+    if step_id == _STEP_WEIGHT:
+        fields[vol.Required(CONF_USER_EXPECTED_WEIGHT)] = _number(
+            WEIGHT_MIN_KG, WEIGHT_MAX_KG, 0.1, "kg"
+        )
+        fields[vol.Optional(CONF_USER_HEIGHT)] = height
+    elif step_id == _STEP_RULES:
+        fields[vol.Optional(CONF_USER_HEIGHT)] = height
+        fields[vol.Optional(CONF_USER_TIME_WINDOWS)] = str
+        for key in (CONF_USER_WEIGHT_MIN, CONF_USER_WEIGHT_MAX):
+            fields[vol.Optional(key)] = _number(WEIGHT_MIN_KG, WEIGHT_MAX_KG, 0.1, "kg")
+    else:
+        fields[vol.Optional(CONF_USER_TIME_WINDOWS)] = str
+        for key in (
+            CONF_USER_SYS_MIN,
+            CONF_USER_SYS_MAX,
+            CONF_USER_DIA_MIN,
+            CONF_USER_DIA_MAX,
+        ):
+            fields[vol.Optional(key)] = _number(20, 300, 1, "mmHg")
+    return vol.Schema(fields)
+
+
+class OmronUserSubentryFlow(ConfigSubentryFlow):
+    """Add or edit one user of a single-slot device (#301).
+
+    The fields follow the device's assignment strategy, which the options flow
+    sets: an expected weight for the weight-based one, time windows and value
+    ranges for the rule-based one.
+    """
+
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+        # Confirmation steps still to show before saving (warnings that do not
+        # block saving).
+        self._warnings: list[str] = []
+        self._placeholders: dict[str, str] = {}
+
+    def _form_step(self) -> str:
+        entry = self._get_entry()
+        config = get_device_config(
+            entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
+        )
+        if config.is_blood_pressure:
+            return _STEP_PRESSURE
+        if strategy_for(entry, is_scale=True) == STRATEGY_RULES:
+            return _STEP_RULES
+        return _STEP_WEIGHT
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(self._form_step(), user_input)
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(self._form_step(), user_input)
+
+    async def async_step_weight(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(_STEP_WEIGHT, user_input)
+
+    async def async_step_rules(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(_STEP_RULES, user_input)
+
+    async def async_step_pressure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(_STEP_PRESSURE, user_input)
+
+    async def async_step_confirm_no_rules(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_confirm(user_input)
+
+    async def async_step_confirm_overlap(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_confirm(user_input)
+
+    def _editing(self):
+        return (
+            self._get_reconfigure_subentry()
+            if self.source == SOURCE_RECONFIGURE
+            else None
+        )
+
+    async def _async_form(
+        self, step_id: str, user_input: dict[str, Any] | None
+    ) -> SubentryFlowResult:
+        schema = _user_schema(step_id)
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            data, errors = self._validate(user_input)
+            if not errors:
+                self._data = data
+                self._warnings = self._collect_warnings(step_id, data)
+                return await self._async_confirm(None)
+            suggested = user_input
+        else:
+            editing = self._editing()
+            suggested = dict(editing.data) if editing is not None else {}
+            if editing is not None:
+                suggested.setdefault(CONF_USER_NAME, editing.title)
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=self.add_suggested_values_to_schema(schema, suggested),
+            errors=errors,
+        )
+
+    def _validate(
+        self, user_input: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        errors: dict[str, str] = {}
+        data = {k: v for k, v in user_input.items() if v not in (None, "")}
+        name = str(data.get(CONF_USER_NAME, "")).strip()
+        data[CONF_USER_NAME] = name
+        editing = self._editing()
+        taken = {
+            str(sub.data.get(CONF_USER_NAME, sub.title)).strip().casefold()
+            for sub_id, sub in user_subentries(self._get_entry()).items()
+            if editing is None or sub_id != editing.subentry_id
+        }
+        if not name or name.casefold() in taken:
+            errors[CONF_USER_NAME] = "invalid_name"
+        text = data.get(CONF_USER_TIME_WINDOWS)
+        if text is not None:
+            windows = parse_windows(str(text))
+            if windows is None:
+                errors[CONF_USER_TIME_WINDOWS] = "invalid_time_windows"
+            elif windows:
+                data[CONF_USER_TIME_WINDOWS] = str(text).strip()
+            else:
+                del data[CONF_USER_TIME_WINDOWS]
+        for low_key, high_key in _RANGE_PAIRS:
+            low, high = data.get(low_key), data.get(high_key)
+            if low is not None and high is not None and low > high:
+                errors[high_key] = "invalid_range"
+        return data, errors
+
+    def _collect_warnings(self, step_id: str, data: dict[str, Any]) -> list[str]:
+        """Things worth a second look that must not stop the user from saving."""
+        warnings: list[str] = []
+        if step_id == _STEP_WEIGHT:
+            return warnings
+        has_rules = CONF_USER_TIME_WINDOWS in data or any(
+            key in data for pair in _RANGE_PAIRS for key in pair
+        )
+        if not has_rules:
+            warnings.append("confirm_no_rules")
+        mine = parse_windows(data.get(CONF_USER_TIME_WINDOWS)) or []
+        editing = self._editing()
+        overlapping = [
+            str(sub.data.get(CONF_USER_NAME, sub.title))
+            for sub_id, sub in user_subentries(self._get_entry()).items()
+            if (editing is None or sub_id != editing.subentry_id)
+            and mine
+            and windows_overlap(
+                mine, parse_windows(sub.data.get(CONF_USER_TIME_WINDOWS)) or []
+            )
+        ]
+        if overlapping:
+            warnings.append("confirm_overlap")
+            self._placeholders = {"others": ", ".join(overlapping)}
+        return warnings
+
+    async def _async_confirm(
+        self, user_input: dict[str, Any] | None
+    ) -> SubentryFlowResult:
+        if user_input is not None and self._warnings:
+            self._warnings.pop(0)
+        if self._warnings:
+            return self.async_show_form(
+                step_id=self._warnings[0],
+                data_schema=vol.Schema({}),
+                description_placeholders={
+                    "name": self._data[CONF_USER_NAME],
+                    **self._placeholders,
+                },
+            )
+        name = self._data[CONF_USER_NAME]
+        editing = self._editing()
+        if editing is not None:
+            return self.async_update_and_abort(
+                self._get_entry(), editing, title=name, data=self._data
+            )
+        return self.async_create_entry(title=name, data=self._data)

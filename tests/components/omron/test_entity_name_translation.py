@@ -105,3 +105,54 @@ def test_translation_files_share_the_bmi_strings() -> None:
         assert set(doc["entity"]["number"]) == {"height"}
         message = doc["exceptions"]["height_out_of_range"]["message"]
         assert "{min}" in message and "{max}" in message
+
+
+_USER_SENSOR_KEYS = {
+    "user_weight",
+    "user_bmi",
+    "user_systolic",
+    "user_diastolic",
+    "user_pulse",
+    "user_measured_at",
+}
+
+
+def test_translation_files_share_the_multi_user_strings() -> None:
+    """Every language carries the same users strings as the source file (#301)."""
+    docs = {
+        path: json.loads(path.read_text(encoding="utf-8")) for path in _STRING_FILES
+    }
+    source = docs[_COMPONENT / "strings.json"]
+
+    def shape(node):
+        """Keys all the way down, without the translated text."""
+        if isinstance(node, dict):
+            return {key: shape(value) for key, value in node.items()}
+        return None
+
+    for path, doc in docs.items():
+        assert _USER_SENSOR_KEYS <= set(doc["entity"]["sensor"]), path.name
+        assert shape(doc["config_subentries"]) == shape(source["config_subentries"])
+        assert shape(doc["selector"]) == shape(source["selector"])
+        init = doc["options"]["step"]["init"]
+        for key in ("assignment_strategy", "weight_tolerance_pct"):
+            assert init["data"][key], path.name
+            assert init["data_description"][key], path.name
+        user = doc["config_subentries"]["user"]
+        assert set(user["step"]) == {
+            "weight",
+            "rules",
+            "pressure",
+            "confirm_no_rules",
+            "confirm_overlap",
+        }
+        assert "{name}" in user["step"]["confirm_no_rules"]["description"]
+        assert "{name}" in user["step"]["confirm_overlap"]["description"]
+        assert "{others}" in user["step"]["confirm_overlap"]["description"]
+        assert set(user["error"]) == {
+            "invalid_name",
+            "invalid_time_windows",
+            "invalid_range",
+        }
+        for name in _USER_SENSOR_KEYS:
+            assert "{user}" not in doc["entity"]["sensor"][name]["name"]

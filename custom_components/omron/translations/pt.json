@@ -78,6 +78,62 @@
       "model_not_selected": "O modelo não foi selecionado. Comece de novo e escolha o modelo na lista."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Utilizador",
+      "initiate_flow": {
+        "user": "Adicionar utilizador",
+        "reconfigure": "Editar utilizador"
+      },
+      "step": {
+        "weight": {
+          "title": "Utilizador",
+          "description": "Cada nova medição vai para o utilizador cujo peso habitual esteja mais próximo. Introduza o peso que costuma ver na balança; é usado até este utilizador ter medições próprias. Utilizadores com pesos a menos de cerca de 5,5 kg (com 75 kg) ficam muitas vezes sem atribuição. As medições sem atribuição são comunicadas num evento `omron_unassigned_measurement`. A altura só é usada para o IMC.",
+          "data": {
+            "name": "Nome",
+            "expected_weight": "Peso habitual (kg)",
+            "height_cm": "Altura (cm, para o IMC)"
+          }
+        },
+        "rules": {
+          "title": "Utilizador",
+          "description": "Cada nova medição vai para o único utilizador cujas regras se cumprem todas. Deixe uma regra vazia para a ignorar. Escreva as janelas de tempo como HH:MM-HH:MM separadas por vírgulas; uma janela pode passar da meia-noite (22:00-02:00). Os intervalos de valores são apenas uma pista e podem atribuir mal. Uma medição que serve a vários utilizadores, ou a nenhum, não é atribuída a ninguém e é comunicada num evento `omron_unassigned_measurement`. Usa-se a hora registada pelo dispositivo, por isso o seu relógio tem de estar certo.",
+          "data": {
+            "name": "Nome",
+            "height_cm": "Altura (cm, para o IMC)",
+            "time_windows": "Janelas de tempo (HH:MM-HH:MM, separadas por vírgulas)",
+            "weight_min": "Peso desde (kg)",
+            "weight_max": "Peso até (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Utilizador",
+          "description": "Cada nova medição vai para o único utilizador cujas regras se cumprem todas. Deixe uma regra vazia para a ignorar. Escreva as janelas de tempo como HH:MM-HH:MM separadas por vírgulas; uma janela pode passar da meia-noite (22:00-02:00). Os intervalos de valores são apenas uma pista e podem atribuir mal. Uma medição que serve a vários utilizadores, ou a nenhum, não é atribuída a ninguém e é comunicada num evento `omron_unassigned_measurement`. Usa-se a hora registada pelo dispositivo, por isso o seu relógio tem de estar certo.",
+          "data": {
+            "name": "Nome",
+            "time_windows": "Janelas de tempo (HH:MM-HH:MM, separadas por vírgulas)",
+            "sys_min": "Sistólica desde (mmHg)",
+            "sys_max": "Sistólica até (mmHg)",
+            "dia_min": "Diastólica desde (mmHg)",
+            "dia_max": "Diastólica até (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Sem regras",
+          "description": "{name} não tem regras, pelo que qualquer medição serve a este utilizador, e uma medição que sirva também a outro utilizador não é atribuída a ninguém. Prima Submeter para guardar mesmo assim, ou feche esta janela e adicione uma regra."
+        },
+        "confirm_overlap": {
+          "title": "Janelas de tempo sobrepostas",
+          "description": "As janelas de tempo de {name} sobrepõem-se às de: {others}. Uma medição que sirva a ambos não é atribuída a ninguém, a menos que um intervalo de valores os distinga. Prima Submeter para guardar mesmo assim."
+        }
+      },
+      "error": {
+        "invalid_name": "Introduza um nome que nenhum outro utilizador tenha.",
+        "invalid_time_windows": "Introduza janelas de tempo como 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "O valor mínimo não pode ser superior ao máximo."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Nome do utilizador 1",
           "user_alias_2": "Nome do utilizador 2",
           "user_alias_3": "Nome do utilizador 3",
-          "user_alias_4": "Nome do utilizador 4"
+          "user_alias_4": "Nome do utilizador 4",
+          "assignment_strategy": "Atribuir as medições por",
+          "weight_tolerance_pct": "Tolerância de peso (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Peso: o utilizador cujo peso habitual esteja mais próximo. Regras: as janelas de tempo e os intervalos de valores definidos por utilizador. Alterar esta opção apaga os pesos aprendidos até agora. Depois de alterar, edite cada utilizador: a atribuição por peso precisa do peso habitual e a atribuição por regras precisa das regras. Um utilizador sem peso habitual nunca recebe medições por peso.",
+          "weight_tolerance_pct": "Quanto um peso pode afastar-se do peso habitual de um utilizador, em percentagem (1–5); a tolerância fica entre 1,0 e 4,0 kg. Utilizadores cujos pesos habituais estejam a menos de cerca de 5,5 kg (com 75 kg) ficam muitas vezes sem atribuição."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Cada lugar de utilizador tem de ter um nome diferente (sem distinguir maiúsculas).",
       "invalid_scan_interval": "Introduza 0 (sem consulta agendada) ou pelo menos 60 segundos."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Peso",
+        "rules": "Regras (hora e valores)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Peso"
+      },
+      "user_bmi": {
+        "name": "IMC"
+      },
+      "user_systolic": {
+        "name": "Sistólica"
+      },
+      "user_diastolic": {
+        "name": "Diastólica"
+      },
+      "user_pulse": {
+        "name": "Pulso"
+      },
+      "user_measured_at": {
+        "name": "Medida às"
       }
     },
     "binary_sensor": {

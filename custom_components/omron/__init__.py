@@ -55,6 +55,11 @@ from .history import (
     async_push_history_updates,
     async_remove_history,
 )
+from .users import (
+    async_assign_measurements,
+    async_remove_users,
+    async_setup_users,
+)
 from .util import aliases_dict_from_entry
 from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
@@ -548,6 +553,20 @@ def process_service_info(
     return update
 
 
+async def _assign_to_users(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
+    """Hand this poll's new measurements to the registered users (#301).
+
+    Their own sensors are an addition: whatever goes wrong here must not take
+    the poll, or the stored-record sync after it, down with it.
+    """
+    try:
+        await async_assign_measurements(hass, entry)
+    except Exception:
+        _LOGGER.exception(
+            "Assigning measurements to users failed for %s", entry.entry_id
+        )
+
+
 async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> SensorUpdate:
     """One poll of the cuff. The scheduled coordinator and forced-transfer refreshes both call this."""
     runtime = entry.runtime_data
@@ -629,6 +648,8 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
                         _merge_poll_sensor_update,
                     )
                     runtime.device_data.history_updates = []
+                    # Before the publish clears what it hands out.
+                    await _assign_to_users(hass, entry)
                     await async_publish_history(hass, entry)
             prev_data = poll_coordinator.data
             if prev_data is not None:
@@ -733,6 +754,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         enabled=bool(entry.options.get(CONF_SYNC_STORED_RECORDS, False)),
     )
 
+    device_config = get_device_config(device_model)
+    users = await async_setup_users(
+        hass, entry, is_scale=not device_config.is_blood_pressure
+    )
+
     # Ensure device registry entry exists even before first successful poll.
     device_registry = dr.async_get(hass)
     identifier = address.replace(":", "")[-4:].upper()
@@ -746,6 +772,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         manufacturer="Omron",
         model=display_model,
         name=f"{display_model} {identifier}",
+        # What the users' sub-devices point at on Home Assistant versions that
+        # link a parent by identifier. Only for an entry that has users, so
+        # every other device registers exactly as before.
+        **({"identifiers": {(DOMAIN, entry.entry_id)}} if users is not None else {}),
     )
 
     bt_coordinator = OmronBluetoothProcessorCoordinator(
@@ -799,6 +829,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> boo
         failure_coordinator=failure_coordinator,
         failure_count_coordinator=failure_count_coordinator,
         session_reports=SessionReports(),
+        users=users,
         # Seed the advertisement-trigger cooldown so a lingering pairing-mode
         # advertisement arriving moments after the config-flow finishes does not
         # fire another auto-pairing session against a device that was just paired.
@@ -856,6 +887,7 @@ async def update_listener(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
 async def async_remove_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     """Drop the stored-record sync position with the entry."""
     await async_remove_history(hass, entry.entry_id)
+    await async_remove_users(hass, entry.entry_id)
     address = entry.unique_id
     if address:
         ble_device = async_ble_device_from_address(hass, address)

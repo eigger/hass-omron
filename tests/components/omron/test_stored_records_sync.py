@@ -595,6 +595,7 @@ def _poll_harness(monkeypatch, device_data):
         force_poll_after_lock=False,
         history_lock=asyncio.Lock(),
         unloading=False,
+        users=None,
         device_data=device_data,
         poll_coordinator=coordinator,
         readout_coordinator=SimpleNamespace(async_set_updated_data=lambda v: None),
@@ -631,6 +632,7 @@ class _PollingData:
             "next_seq": {1: 3},
             "events": [{"user": 1, "sequence": 2}, {"user": 1, "sequence": 3}],
             "shown": {1: 3},
+            "rebased": {1: False},
         }
         self.history_last_seq = {}
         self.history_shown = {}

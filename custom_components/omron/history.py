@@ -106,6 +106,17 @@ async def async_push_history_updates(
         await asyncio.sleep(0)
 
 
+def async_entry_device(hass: HomeAssistant, entry: OmronConfigEntry):
+    """The entry's own (main) device, or None before it is registered."""
+    registry = dr.async_get(hass)
+    connection = (CONNECTION_BLUETOOTH, entry.runtime_data.address)
+    if hasattr(registry, "async_get_device_by_connection"):
+        return registry.async_get_device_by_connection(connection, entry.entry_id)
+    # Home Assistant added the entry-scoped lookup after our minimum
+    # supported version (2025.12.0).
+    return registry.async_get_device(connections={connection})
+
+
 async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) -> None:
     """Fire one event per synced record, then remember the new position."""
     device_data = entry.runtime_data.device_data
@@ -113,14 +124,7 @@ async def async_publish_history(hass: HomeAssistant, entry: OmronConfigEntry) ->
     if pending is None:
         return
     device_data.pending_history = None
-    registry = dr.async_get(hass)
-    connection = (CONNECTION_BLUETOOTH, entry.runtime_data.address)
-    if hasattr(registry, "async_get_device_by_connection"):
-        device = registry.async_get_device_by_connection(connection, entry.entry_id)
-    else:
-        # Home Assistant added the entry-scoped lookup after our minimum
-        # supported version (2025.12.0).
-        device = registry.async_get_device(connections={connection})
+    device = async_entry_device(hass, entry)
     for event in pending["events"]:
         hass.bus.async_fire(
             EVENT_MEASUREMENT,

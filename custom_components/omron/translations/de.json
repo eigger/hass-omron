@@ -78,6 +78,62 @@
       "model_not_selected": "Das Gerätemodell wurde nicht ausgewählt. Beginnen Sie von vorn und wählen Sie das Modell aus der Liste."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Nutzer",
+      "initiate_flow": {
+        "user": "Nutzer hinzufügen",
+        "reconfigure": "Nutzer bearbeiten"
+      },
+      "step": {
+        "weight": {
+          "title": "Nutzer",
+          "description": "Jede neue Messung geht an den Nutzer, dessen übliches Gewicht am nächsten liegt. Geben Sie das Gewicht ein, das die Waage normalerweise anzeigt; es gilt, bis dieser Nutzer eigene Messungen hat. Nutzer, deren Gewichte näher als etwa 5,5 kg (bei 75 kg) beieinander liegen, bleiben oft unzugeordnet. Nicht zugeordnete Messungen werden in einem `omron_unassigned_measurement`-Ereignis gemeldet. Die Größe wird nur für den BMI verwendet.",
+          "data": {
+            "name": "Name",
+            "expected_weight": "Übliches Gewicht (kg)",
+            "height_cm": "Größe (cm, für den BMI)"
+          }
+        },
+        "rules": {
+          "title": "Nutzer",
+          "description": "Jede neue Messung geht an den einen Nutzer, dessen Regeln alle zutreffen. Eine leere Regel wird ignoriert. Zeitfenster als HH:MM-HH:MM, durch Kommas getrennt; ein Fenster darf über Mitternacht reichen (22:00-02:00). Wertebereiche sind nur ein Hinweis und können falsch zuordnen. Eine Messung, die zu mehreren Nutzern oder zu keinem passt, wird niemandem zugeordnet und in einem `omron_unassigned_measurement`-Ereignis gemeldet. Es gilt die vom Gerät aufgezeichnete Uhrzeit, daher muss seine Uhr stimmen.",
+          "data": {
+            "name": "Name",
+            "height_cm": "Größe (cm, für den BMI)",
+            "time_windows": "Zeitfenster (HH:MM-HH:MM, durch Kommas getrennt)",
+            "weight_min": "Gewicht ab (kg)",
+            "weight_max": "Gewicht bis (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Nutzer",
+          "description": "Jede neue Messung geht an den einen Nutzer, dessen Regeln alle zutreffen. Eine leere Regel wird ignoriert. Zeitfenster als HH:MM-HH:MM, durch Kommas getrennt; ein Fenster darf über Mitternacht reichen (22:00-02:00). Wertebereiche sind nur ein Hinweis und können falsch zuordnen. Eine Messung, die zu mehreren Nutzern oder zu keinem passt, wird niemandem zugeordnet und in einem `omron_unassigned_measurement`-Ereignis gemeldet. Es gilt die vom Gerät aufgezeichnete Uhrzeit, daher muss seine Uhr stimmen.",
+          "data": {
+            "name": "Name",
+            "time_windows": "Zeitfenster (HH:MM-HH:MM, durch Kommas getrennt)",
+            "sys_min": "Systolisch ab (mmHg)",
+            "sys_max": "Systolisch bis (mmHg)",
+            "dia_min": "Diastolisch ab (mmHg)",
+            "dia_max": "Diastolisch bis (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Keine Regeln",
+          "description": "{name} hat keine Regeln, daher passt jede Messung zu diesem Nutzer, und eine Messung, die auch zu einem anderen Nutzer passt, wird niemandem zugeordnet. Drücken Sie Senden, um trotzdem zu speichern, oder schließen Sie den Dialog und fügen Sie eine Regel hinzu."
+        },
+        "confirm_overlap": {
+          "title": "Überschneidende Zeitfenster",
+          "description": "Die Zeitfenster von {name} überschneiden sich mit denen von: {others}. Eine Messung, die zu beiden passt, wird niemandem zugeordnet, sofern kein Wertebereich sie unterscheidet. Drücken Sie Senden, um trotzdem zu speichern."
+        }
+      },
+      "error": {
+        "invalid_name": "Geben Sie einen Namen ein, den kein anderer Nutzer hat.",
+        "invalid_time_windows": "Geben Sie Zeitfenster wie 06:00-09:00, 18:00-21:00 ein.",
+        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Name Benutzer 1",
           "user_alias_2": "Name Benutzer 2",
           "user_alias_3": "Name Benutzer 3",
-          "user_alias_4": "Name Benutzer 4"
+          "user_alias_4": "Name Benutzer 4",
+          "assignment_strategy": "Messungen zuordnen nach",
+          "weight_tolerance_pct": "Gewichtstoleranz (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Gewicht: der Nutzer, dessen übliches Gewicht am nächsten liegt. Regeln: die pro Nutzer festgelegten Zeitfenster und Wertebereiche. Eine Änderung verwirft die bisher gelernten Gewichte. Bearbeiten Sie nach der Änderung jeden Benutzer: Die Zuordnung nach Gewicht benötigt das übliche Gewicht, die Zuordnung nach Regeln die Regeln. Ein Benutzer ohne übliches Gewicht wird nach Gewicht nie zugeordnet.",
+          "weight_tolerance_pct": "Wie weit ein Gewicht vom üblichen Gewicht eines Nutzers abweichen darf, in Prozent (1–5); die Toleranz wird auf 1,0 bis 4,0 kg begrenzt. Nutzer, deren übliche Gewichte näher als etwa 5,5 kg (bei 75 kg) beieinander liegen, bleiben oft unzugeordnet."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Jeder Benutzerplatz muss einen anderen Namen haben (ohne Berücksichtigung der Groß-/Kleinschreibung).",
       "invalid_scan_interval": "Geben Sie 0 (keine geplante Abfrage) oder mindestens 60 Sekunden ein."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Gewicht",
+        "rules": "Regeln (Zeit und Werte)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Gewicht"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Systolisch"
+      },
+      "user_diastolic": {
+        "name": "Diastolisch"
+      },
+      "user_pulse": {
+        "name": "Puls"
+      },
+      "user_measured_at": {
+        "name": "Gemessen um"
       }
     },
     "binary_sensor": {

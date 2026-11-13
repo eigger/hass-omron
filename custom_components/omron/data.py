@@ -15,6 +15,7 @@ from .const import DOMAIN
 from .omron_ble.devices import MeasurementKind
 
 if TYPE_CHECKING:
+    from .users import OmronUsers
     from .coordinator import OmronBluetoothProcessorCoordinator
     from .omron_ble import OmronBluetoothDeviceData
 
@@ -56,6 +57,9 @@ class OmronRuntimeData:
     # Height per user slot (1-based) from the Height number entity, in cm.
     # None means cleared; a slot that is absent has not reported yet.
     heights_cm: dict[int, float | None] = field(default_factory=dict)
+    # Registered users of a single-slot device and what is learned about them
+    # (#301). None when the device offers none or none are registered.
+    users: OmronUsers | None = None
 
     @property
     def identifier(self) -> str:
@@ -99,3 +103,8 @@ class OmronRuntimeData:
 def signal_height_updated(entry_id: str) -> str:
     """Dispatcher signal sent when an entry's Height value changes."""
     return f"{DOMAIN}_{entry_id}_height_updated"
+
+
+def signal_user_updated(entry_id: str, subentry_id: str) -> str:
+    """Dispatcher signal sent when a measurement is assigned to a user."""
+    return f"{DOMAIN}_{entry_id}_{subentry_id}_user_updated"

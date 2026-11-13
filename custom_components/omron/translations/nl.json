@@ -78,6 +78,62 @@
       "model_not_selected": "Het apparaatmodel is niet gekozen. Begin opnieuw en kies het model uit de lijst."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Gebruiker",
+      "initiate_flow": {
+        "user": "Gebruiker toevoegen",
+        "reconfigure": "Gebruiker bewerken"
+      },
+      "step": {
+        "weight": {
+          "title": "Gebruiker",
+          "description": "Elke nieuwe meting gaat naar de gebruiker wiens gebruikelijke gewicht het dichtstbij ligt. Voer het gewicht in dat je normaal op de weegschaal ziet; dat wordt gebruikt totdat deze gebruiker eigen metingen heeft. Gebruikers met gewichten die minder dan ongeveer 5,5 kg (bij 75 kg) uit elkaar liggen, blijven vaak ongekoppeld. Niet-toegewezen metingen worden gemeld in een `omron_unassigned_measurement`-gebeurtenis. De lengte wordt alleen voor de BMI gebruikt.",
+          "data": {
+            "name": "Naam",
+            "expected_weight": "Gebruikelijk gewicht (kg)",
+            "height_cm": "Lengte (cm, voor de BMI)"
+          }
+        },
+        "rules": {
+          "title": "Gebruiker",
+          "description": "Elke nieuwe meting gaat naar de ene gebruiker van wie alle regels kloppen. Laat een regel leeg om hem te negeren. Schrijf tijdvensters als HH:MM-HH:MM, gescheiden door komma's; een venster mag over middernacht gaan (22:00-02:00). Waardebereiken zijn slechts een hint en kunnen verkeerd toewijzen. Een meting die bij meerdere gebruikers of bij niemand past, wordt aan niemand toegewezen en gemeld in een `omron_unassigned_measurement`-gebeurtenis. De tijd is die welke het apparaat heeft vastgelegd, dus de klok van het apparaat moet kloppen.",
+          "data": {
+            "name": "Naam",
+            "height_cm": "Lengte (cm, voor de BMI)",
+            "time_windows": "Tijdvensters (HH:MM-HH:MM, gescheiden door komma's)",
+            "weight_min": "Gewicht vanaf (kg)",
+            "weight_max": "Gewicht tot (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Gebruiker",
+          "description": "Elke nieuwe meting gaat naar de ene gebruiker van wie alle regels kloppen. Laat een regel leeg om hem te negeren. Schrijf tijdvensters als HH:MM-HH:MM, gescheiden door komma's; een venster mag over middernacht gaan (22:00-02:00). Waardebereiken zijn slechts een hint en kunnen verkeerd toewijzen. Een meting die bij meerdere gebruikers of bij niemand past, wordt aan niemand toegewezen en gemeld in een `omron_unassigned_measurement`-gebeurtenis. De tijd is die welke het apparaat heeft vastgelegd, dus de klok van het apparaat moet kloppen.",
+          "data": {
+            "name": "Naam",
+            "time_windows": "Tijdvensters (HH:MM-HH:MM, gescheiden door komma's)",
+            "sys_min": "Systolisch vanaf (mmHg)",
+            "sys_max": "Systolisch tot (mmHg)",
+            "dia_min": "Diastolisch vanaf (mmHg)",
+            "dia_max": "Diastolisch tot (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Geen regels",
+          "description": "{name} heeft geen regels, dus elke meting past bij deze gebruiker, en een meting die ook bij een andere gebruiker past, wordt aan niemand toegewezen. Druk op Verzenden om toch op te slaan, of sluit dit venster en voeg een regel toe."
+        },
+        "confirm_overlap": {
+          "title": "Overlappende tijdvensters",
+          "description": "De tijdvensters van {name} overlappen met die van: {others}. Een meting die bij beide past, wordt aan niemand toegewezen, tenzij een waardebereik ze onderscheidt. Druk op Verzenden om toch op te slaan."
+        }
+      },
+      "error": {
+        "invalid_name": "Voer een naam in die geen andere gebruiker heeft.",
+        "invalid_time_windows": "Voer tijdvensters in zoals 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "De ondergrens mag niet hoger zijn dan de bovengrens."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Naam gebruiker 1",
           "user_alias_2": "Naam gebruiker 2",
           "user_alias_3": "Naam gebruiker 3",
-          "user_alias_4": "Naam gebruiker 4"
+          "user_alias_4": "Naam gebruiker 4",
+          "assignment_strategy": "Metingen toewijzen op basis van",
+          "weight_tolerance_pct": "Gewichtstolerantie (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Gewicht: de gebruiker wiens gebruikelijke gewicht het dichtstbij ligt. Regels: de per gebruiker ingestelde tijdvensters en waardebereiken. Wijzigen wist de tot nu toe geleerde gewichten. Bewerk na het wijzigen elke gebruiker: toewijzen op gewicht vereist het gebruikelijke gewicht, toewijzen op regels vereist de regels. Een gebruiker zonder gebruikelijk gewicht krijgt op gewicht nooit een meting toegewezen.",
+          "weight_tolerance_pct": "Hoe ver een gewicht van het gebruikelijke gewicht van een gebruiker mag afwijken, in procenten (1–5); de tolerantie blijft tussen 1,0 en 4,0 kg. Gebruikers wier gebruikelijke gewichten minder dan ongeveer 5,5 kg (bij 75 kg) uit elkaar liggen, blijven vaak ongekoppeld."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Elke gebruikersplaats moet een andere naam hebben (niet hoofdlettergevoelig).",
       "invalid_scan_interval": "Voer 0 (geen geplande polling) of minimaal 60 seconden in."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Gewicht",
+        "rules": "Regels (tijd en waarden)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Gewicht"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Systolisch"
+      },
+      "user_diastolic": {
+        "name": "Diastolisch"
+      },
+      "user_pulse": {
+        "name": "Pols"
+      },
+      "user_measured_at": {
+        "name": "Gemeten om"
       }
     },
     "binary_sensor": {

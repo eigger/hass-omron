@@ -78,6 +78,62 @@
       "model_not_selected": "Le modèle n’a pas été sélectionné. Recommencez et choisissez le modèle dans la liste."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Utilisateur",
+      "initiate_flow": {
+        "user": "Ajouter un utilisateur",
+        "reconfigure": "Modifier l'utilisateur"
+      },
+      "step": {
+        "weight": {
+          "title": "Utilisateur",
+          "description": "Chaque nouvelle mesure va à l'utilisateur dont le poids habituel est le plus proche. Saisissez le poids que vous voyez habituellement sur la balance ; il sert jusqu'à ce que cet utilisateur ait ses propres mesures. Les utilisateurs dont les poids sont distants de moins d'environ 5,5 kg (à 75 kg) restent souvent non attribués. Les mesures non attribuées sont signalées par un évènement `omron_unassigned_measurement`. La taille ne sert qu'à l'IMC.",
+          "data": {
+            "name": "Nom",
+            "expected_weight": "Poids habituel (kg)",
+            "height_cm": "Taille (cm, pour l'IMC)"
+          }
+        },
+        "rules": {
+          "title": "Utilisateur",
+          "description": "Chaque nouvelle mesure va à l'unique utilisateur dont toutes les règles correspondent. Laissez une règle vide pour l'ignorer. Écrivez les plages horaires sous la forme HH:MM-HH:MM séparées par des virgules ; une plage peut passer minuit (22:00-02:00). Les plages de valeurs ne sont qu'un indice et peuvent mal attribuer. Une mesure qui convient à plusieurs utilisateurs, ou à aucun, n'est attribuée à personne et signalée par un évènement `omron_unassigned_measurement`. L'heure est celle enregistrée par l'appareil : son horloge doit donc être juste.",
+          "data": {
+            "name": "Nom",
+            "height_cm": "Taille (cm, pour l'IMC)",
+            "time_windows": "Plages horaires (HH:MM-HH:MM, séparées par des virgules)",
+            "weight_min": "Poids à partir de (kg)",
+            "weight_max": "Poids jusqu'à (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Utilisateur",
+          "description": "Chaque nouvelle mesure va à l'unique utilisateur dont toutes les règles correspondent. Laissez une règle vide pour l'ignorer. Écrivez les plages horaires sous la forme HH:MM-HH:MM séparées par des virgules ; une plage peut passer minuit (22:00-02:00). Les plages de valeurs ne sont qu'un indice et peuvent mal attribuer. Une mesure qui convient à plusieurs utilisateurs, ou à aucun, n'est attribuée à personne et signalée par un évènement `omron_unassigned_measurement`. L'heure est celle enregistrée par l'appareil : son horloge doit donc être juste.",
+          "data": {
+            "name": "Nom",
+            "time_windows": "Plages horaires (HH:MM-HH:MM, séparées par des virgules)",
+            "sys_min": "Systolique à partir de (mmHg)",
+            "sys_max": "Systolique jusqu'à (mmHg)",
+            "dia_min": "Diastolique à partir de (mmHg)",
+            "dia_max": "Diastolique jusqu'à (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Aucune règle",
+          "description": "{name} n'a aucune règle : toutes les mesures conviennent donc à cet utilisateur, et une mesure qui convient aussi à un autre utilisateur n'est attribuée à personne. Appuyez sur Valider pour enregistrer quand même, ou fermez cette fenêtre et ajoutez une règle."
+        },
+        "confirm_overlap": {
+          "title": "Plages horaires qui se chevauchent",
+          "description": "Les plages horaires de {name} chevauchent celles de : {others}. Une mesure qui convient aux deux n'est attribuée à personne, sauf si une plage de valeurs les distingue. Appuyez sur Valider pour enregistrer quand même."
+        }
+      },
+      "error": {
+        "invalid_name": "Saisissez un nom qu'aucun autre utilisateur n'a.",
+        "invalid_time_windows": "Saisissez des plages horaires comme 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "La valeur basse ne doit pas dépasser la valeur haute."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Nom de l’utilisateur 1",
           "user_alias_2": "Nom de l’utilisateur 2",
           "user_alias_3": "Nom de l’utilisateur 3",
-          "user_alias_4": "Nom de l’utilisateur 4"
+          "user_alias_4": "Nom de l’utilisateur 4",
+          "assignment_strategy": "Attribuer les mesures selon",
+          "weight_tolerance_pct": "Tolérance de poids (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Poids : l'utilisateur dont le poids habituel est le plus proche. Règles : les plages horaires et les plages de valeurs définies par utilisateur. Le changer fait oublier les poids appris jusqu'ici. Après ce changement, modifiez chaque utilisateur : l'attribution par poids nécessite son poids habituel, l'attribution par règles nécessite ses règles. Un utilisateur sans poids habituel ne reçoit jamais de mesure par poids.",
+          "weight_tolerance_pct": "Écart maximal entre un poids et le poids habituel d'un utilisateur, en pourcentage (1–5) ; la tolérance reste comprise entre 1,0 et 4,0 kg. Les utilisateurs dont les poids habituels sont distants de moins d'environ 5,5 kg (à 75 kg) restent souvent non attribués."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Chaque emplacement utilisateur doit avoir un nom différent (sans tenir compte de la casse).",
       "invalid_scan_interval": "Saisissez 0 (pas d’interrogation planifiée) ou au moins 60 secondes."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Poids",
+        "rules": "Règles (heure et valeurs)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Poids"
+      },
+      "user_bmi": {
+        "name": "IMC"
+      },
+      "user_systolic": {
+        "name": "Systolique"
+      },
+      "user_diastolic": {
+        "name": "Diastolique"
+      },
+      "user_pulse": {
+        "name": "Pouls"
+      },
+      "user_measured_at": {
+        "name": "Mesuré à"
       }
     },
     "binary_sensor": {
