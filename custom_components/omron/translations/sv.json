@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Puls"
       },
+      "user_pulse_pressure": {
+        "name": "Pulstryck"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Beräknat MAP"
+      },
+      "user_blood_pressure_category": {
+        "name": "Blodtryckskategori (ACC/AHA)",
+        "state": {
+          "normal": "Normalt",
+          "elevated": "Förhöjt",
+          "hypertension_stage_1": "Hypertoni stadium 1",
+          "hypertension_stage_2": "Hypertoni stadium 2",
+          "hypertensive_crisis": "Hypertensiv kris"
+        }
+      },
+      "user_shock_index": {
+        "name": "Chockindex"
+      },
+      "user_rate_pressure_product": {
+        "name": "Rate-pressure-produkt"
+      },
       "user_measured_at": {
         "name": "Mätt klockan"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Fel ställning ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Oregelbunden puls"
+      },
+      "user_body_movement": {
+        "name": "Kroppsrörelse"
+      },
+      "user_cuff_fit": {
+        "name": "Manschettpassning"
+      },
+      "user_improper_position": {
+        "name": "Fel ställning"
       }
     },
     "button": {

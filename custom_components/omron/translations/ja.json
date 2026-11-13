@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "脈拍"
       },
+      "user_pulse_pressure": {
+        "name": "脈圧"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "推定平均動脈圧"
+      },
+      "user_blood_pressure_category": {
+        "name": "血圧分類 (ACC/AHA)",
+        "state": {
+          "normal": "正常",
+          "elevated": "高値血圧",
+          "hypertension_stage_1": "高血圧ステージ1",
+          "hypertension_stage_2": "高血圧ステージ2",
+          "hypertensive_crisis": "高血圧緊急症"
+        }
+      },
+      "user_shock_index": {
+        "name": "ショック指数"
+      },
+      "user_rate_pressure_product": {
+        "name": "レートプレッシャー積"
+      },
       "user_measured_at": {
         "name": "測定日時"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "姿勢不良 ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "不規則脈"
+      },
+      "user_body_movement": {
+        "name": "体動"
+      },
+      "user_cuff_fit": {
+        "name": "カフの装着"
+      },
+      "user_improper_position": {
+        "name": "姿勢不良"
       }
     },
     "button": {

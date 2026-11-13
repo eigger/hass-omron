@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Пульс"
       },
+      "user_pulse_pressure": {
+        "name": "Пульсовое давление"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Оценочное среднее АД"
+      },
+      "user_blood_pressure_category": {
+        "name": "Категория АД (ACC/AHA)",
+        "state": {
+          "normal": "Нормальное",
+          "elevated": "Повышенное",
+          "hypertension_stage_1": "Гипертония 1-й стадии",
+          "hypertension_stage_2": "Гипертония 2-й стадии",
+          "hypertensive_crisis": "Гипертонический криз"
+        }
+      },
+      "user_shock_index": {
+        "name": "Шоковый индекс"
+      },
+      "user_rate_pressure_product": {
+        "name": "Двойное произведение"
+      },
       "user_measured_at": {
         "name": "Время измерения"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Неправильное положение ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Нерегулярный пульс"
+      },
+      "user_body_movement": {
+        "name": "Движение тела"
+      },
+      "user_cuff_fit": {
+        "name": "Посадка манжеты"
+      },
+      "user_improper_position": {
+        "name": "Неправильное положение"
       }
     },
     "button": {

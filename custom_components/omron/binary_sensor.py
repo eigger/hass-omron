@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sensor_state_data import (
     BinarySensorDeviceClass as OmronBinarySensorDeviceClass,
     DeviceKey,
@@ -21,6 +23,7 @@ from homeassistant.components.bluetooth.passive_update_processor import (
     PassiveBluetoothDataUpdate,
     PassiveBluetoothProcessorEntity,
 )
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.const import (
     STATE_UNAVAILABLE,
@@ -33,6 +36,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+
 from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity import OmronCoordinatorEntity
@@ -43,7 +48,12 @@ from .entity_helpers import (
     hass_device_info_with_ble_connection,
     preserved_passive_unique_id,
 )
+from .data import signal_user_updated
+from .entity import OmronEntity, user_device_info
+from .omron_ble.devices import get_device_config
+from .omron_ble.record_parsers import recorded_pressure_flags
 from .types import OmronConfigEntry
+from .users import user_subentries
 
 # Advertisement MSD flags — live on the PassiveBluetooth processor (ble-esl pattern).
 ADVERTISEMENT_BINARY_DEVICE_CLASSES = frozenset(
@@ -300,6 +310,16 @@ async def async_setup_entry(
         [OmronConnectionBinarySensorEntity(entry, runtime.connection_coordinator)]
     )
 
+    # Registered users of a single-slot cuff: the status flags of their last
+    # measurement, only the ones this model's records carry.
+    if runtime.users is not None and not runtime.is_scale:
+        flags = recorded_pressure_flags(get_device_config(runtime.model).record_parser)
+        for subentry_id, subentry in user_subentries(entry).items():
+            async_add_entities(
+                [OmronUserFlagBinarySensor(entry, subentry, flag) for flag in flags],
+                config_subentry_id=subentry_id,
+            )
+
 
 class OmronAdvertisementBinarySensorEntity(
     PassiveBluetoothProcessorEntity[OmronPassiveBluetoothDataProcessor[bool | None]],
@@ -460,3 +480,99 @@ class OmronConnectionBinarySensorEntity(
         return DeviceInfo(
             connections={(CONNECTION_BLUETOOTH, self._address)},
         )
+
+
+# --- users of a single-slot cuff (#301) -----------------------------------------
+
+
+@dataclass(frozen=True)
+class _UserFlag:
+    """One status flag of a user's last measurement."""
+
+    key: str  # unique-id suffix, the device's own key for the flag
+    stored: str  # key in the user's last values
+    invert: bool
+    device_class: OmronExtendedBinarySensorDeviceClass
+
+
+# The stored values are the record's (``cuff_loose``); the device shows
+# ``cuff_fit`` as "not loose" under its own PROBLEM class and so does the user.
+_USER_FLAGS = {
+    "irregular_pulse": _UserFlag(
+        "irregular_pulse",
+        "irregular_pulse",
+        False,
+        OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE,
+    ),
+    "body_movement": _UserFlag(
+        "body_movement",
+        "body_movement",
+        False,
+        OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT,
+    ),
+    "cuff_loose": _UserFlag(
+        "cuff_fit",
+        "cuff_loose",
+        True,
+        OmronExtendedBinarySensorDeviceClass.CUFF_FIT,
+    ),
+    "improper_position": _UserFlag(
+        "improper_position",
+        "improper_position",
+        False,
+        OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
+    ),
+}
+
+
+class OmronUserFlagBinarySensor(OmronEntity, BinarySensorEntity):
+    """A status flag of the user's last assigned measurement.
+
+    Same device class, icon and polarity as the cuff's own flag sensor. The
+    value is the Store's, so it is unknown until the user has a measurement
+    and comes back after a restart without any state restore.
+    """
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+
+    def __init__(
+        self, entry: OmronConfigEntry, subentry: ConfigSubentry, record_flag: str
+    ) -> None:
+        self._bind(entry)
+        self._subentry = subentry
+        self._flag = _USER_FLAGS[record_flag]
+        self.entity_description = POLL_BINARY_SENSOR_DESCRIPTIONS[
+            self._flag.device_class
+        ]
+        self._attr_translation_key = f"user_{self._flag.key}"
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{subentry.subentry_id}_{self._flag.key}"
+        )
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return user_device_info(self.hass, self._entry, self._subentry)
+
+    @property
+    def is_on(self) -> bool | None:
+        users = self._runtime.users
+        last = users.last.get(self._subentry.subentry_id, {}) if users else {}
+        value = last.get(self._flag.stored)
+        if not isinstance(value, bool):
+            return None
+        return not value if self._flag.invert else value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                signal_user_updated(self._entry.entry_id, self._subentry.subentry_id),
+                self._handle_user_update,
+            )
+        )
+
+    @callback
+    def _handle_user_update(self) -> None:
+        self.async_write_ha_state()

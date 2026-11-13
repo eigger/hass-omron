@@ -105,7 +105,9 @@ With no user added, nothing here applies and the integration behaves as before. 
 | Device | Sensors | Attributes |
 |---|---|---|
 | Scale | Weight, BMI (from the **Height** you enter for that user) | `assignment`, `measured_at`, `weight_kg`, `height_cm` (BMI) |
-| Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At | `assignment` (`rule`), `measured_at`, `irregular_pulse`, `body_movement` |
+| Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At, and the derived Pulse Pressure, Estimated MAP, BP Category (ACC/AHA), Shock Index, Rate Pressure Product | `assignment` (`rule`), `measured_at`, `irregular_pulse`, `body_movement` |
+
+A monitor's user also gets the status flags of their last measurement as binary sensors: **Irregular Pulse**, **Body Movement**, **Cuff Fit** and **Improper Position**, with the same device class, icons and meaning as the device's own (**Cuff Fit** is the opposite of a loose cuff, as there). Only the flags the model's records carry are created: HEM-6401T and HEM-6410T record just the first two, the other single-slot monitors all four. The derived sensors use the same formulas, units, rounding and guards as the device's own (a pulse-based metric is unknown for a measurement without a pulse; the pressure-based ones are unknown unless systolic is above diastolic). Every one of these is unknown until the user has a measurement.
 
 The sensors keep their last values across restarts. A measurement that cannot be given to one user is given to nobody, leaves every user's sensors alone and is announced as an `omron_unassigned_measurement` event:
 
