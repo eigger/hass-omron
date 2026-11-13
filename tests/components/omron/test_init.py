@@ -32,6 +32,23 @@ _INVALID_TIME = bytes([0x03, 0x04, 0x00, 0x00, 0x00])
 _PAIRING_MODE = bytes([0x03, 0x08, 0x00, 0x00, 0x00])
 
 
+# The deadline a test gives a session that hangs. It starts when the session
+# starts, so it also covers taking the session lock and opening the telemetry
+# before the call that hangs is reached. At 0.2 s a slow CI runner sometimes
+# used it all up on that setup: the hanging call was never made, so it was
+# never cancelled, and the test timed out waiting for that. A second leaves
+# plenty for the setup while keeping the tests quick.
+SESSION_DEADLINE_SECONDS = 1.0
+# How long a test waits for the deadline to have done its work.
+DEADLINE_WAIT_SECONDS = 10
+
+
+async def wait_until_cancelled(hang: "_Hang") -> None:
+    """Wait for the hanging call to be cancelled by the session's deadline."""
+    async with asyncio.timeout(DEADLINE_WAIT_SECONDS):
+        await hang.cancelled.wait()
+
+
 class _Hang:
     """A GATT call that never returns on its own; records that it was cancelled."""
 
@@ -93,7 +110,10 @@ async def test_time_sync_session_from_an_advertisement_has_a_deadline(
     runtime = entry.runtime_data
     hang = _Hang()
     with (
-        patch("custom_components.omron.BLE_SESSION_TIMEOUT_SECONDS", 0.2),
+        patch(
+            "custom_components.omron.BLE_SESSION_TIMEOUT_SECONDS",
+            SESSION_DEADLINE_SECONDS,
+        ),
         patch("custom_components.omron.SETTLE_DELAY_SECONDS", 0),
         patch.object(runtime.device_data, "async_sync_time", hang),
     ):
@@ -102,8 +122,9 @@ async def test_time_sync_session_from_an_advertisement_has_a_deadline(
         assert len(runtime.background_tasks) == 1
         task = next(iter(runtime.background_tasks))
 
-        async with asyncio.timeout(5):
-            await hang.cancelled.wait()
+        await wait_until_cancelled(hang)
+        assert hang.started.is_set()
+        async with asyncio.timeout(DEADLINE_WAIT_SECONDS):
             await asyncio.wait([task])
 
     assert task.done() and not task.cancelled()
@@ -119,15 +140,19 @@ async def test_pairing_session_from_an_advertisement_has_a_deadline(
     runtime = entry.runtime_data
     hang = _Hang()
     with (
-        patch("custom_components.omron.BLE_SESSION_TIMEOUT_SECONDS", 0.2),
+        patch(
+            "custom_components.omron.BLE_SESSION_TIMEOUT_SECONDS",
+            SESSION_DEADLINE_SECONDS,
+        ),
         patch("custom_components.omron.SETTLE_DELAY_SECONDS", 0),
         patch.object(runtime.device_data, "async_retry_pairing", hang),
     ):
         _advertise(entry, _PAIRING_MODE)
         assert runtime.device_data.pairing_mode is True
         task = next(iter(runtime.background_tasks))
-        async with asyncio.timeout(5):
-            await hang.cancelled.wait()
+        await wait_until_cancelled(hang)
+        assert hang.started.is_set()
+        async with asyncio.timeout(DEADLINE_WAIT_SECONDS):
             await asyncio.wait([task])
 
     assert runtime.session_lock.locked() is False
