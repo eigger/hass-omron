@@ -11,12 +11,14 @@ reloads the integration, which would restart it after every measurement.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .assignment import (
     KIND_MATCHED,
@@ -67,6 +69,10 @@ _PRESSURE_VALUES = ("sys", "dia", "bpm", "irregular_pulse", "body_movement")
 # What a cuff user's last values keep: the event's values plus the two flags the
 # user's binary sensors show (the event is left as it was).
 _PRESSURE_STORED = (*_PRESSURE_VALUES, "cuff_loose", "improper_position")
+# A record the device says was taken this long before the first user was
+# registered still counts as taken after it: the device clock and Home
+# Assistant's rarely agree to the second.
+REGISTRATION_CLOCK_TOLERANCE = dt.timedelta(minutes=5)
 
 
 def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -163,8 +169,12 @@ class OmronUsers:
         self._entry_id = entry_id
         self.strategy = strategy
         # Fingerprint of the newest record seen, None until the first poll
-        # after the first user was added (that poll only sets the baseline).
+        # after the first user was added (that poll sets the baseline).
         self.fingerprint: list[Any] | None = None
+        # When the first user was registered (UTC, ISO), kept until the first
+        # poll has set the baseline: a record taken after it is a measurement
+        # for the users, one taken before it is not.
+        self.since: str | None = None
         # Last handled cuff sequence, only while stored-record sync is on.
         self.last_seq: int | None = None
         # Per subentry id: recent assigned weights (oldest first) and the last
@@ -181,6 +191,8 @@ class OmronUsers:
         self.fingerprint = list(fingerprint) if isinstance(fingerprint, list) else None
         last_seq = stored.get("last_seq")
         self.last_seq = last_seq if isinstance(last_seq, int) else None
+        since = stored.get("since")
+        self.since = since if isinstance(since, str) else None
         users = stored.get("users")
         if not isinstance(users, dict):
             return
@@ -204,6 +216,7 @@ class OmronUsers:
             "strategy": self.strategy,
             "fingerprint": self.fingerprint,
             "last_seq": self.last_seq,
+            "since": self.since,
             "users": {
                 user_id: {
                     "recent": list(self.recent.get(user_id, [])),
@@ -234,6 +247,12 @@ async def async_setup_users(
         return None
     users = OmronUsers(hass, entry.entry_id, strategy_for(entry, is_scale=is_scale))
     await users.async_load(set(subentries))
+    if users.fingerprint is None and users.since is None:
+        # The first user was just registered (or the last one was removed and
+        # a new one added): note when, so a measurement taken before the first
+        # poll is not mistaken for one left over from before.
+        users.since = dt_util.utcnow().isoformat()
+        await users.async_save()
     if users.strategy == STRATEGY_WEIGHT:
         # A user added while the scale assigned by rules has no usual weight,
         # and the weight-based strategy has nothing to place them by.
@@ -249,6 +268,29 @@ async def async_setup_users(
                 ", ".join(missing),
             )
     return users
+
+
+def _registered_at(users: OmronUsers) -> dt.datetime | None:
+    """When the first user was registered, or None if that is not known."""
+    moment = dt_util.parse_datetime(users.since) if users.since else None
+    if moment is None or moment.tzinfo is None:
+        return None
+    return moment
+
+
+def _taken_after(record: dict[str, Any], since: dt.datetime | None) -> bool:
+    """Whether the device says a record was taken after the registration.
+
+    A record without a time, or a registration time that is not known, gives
+    False: the record then only sets the baseline, as it always did.
+    """
+    if since is None:
+        return False
+    value = record.get("measured_at")
+    moment = dt_util.parse_datetime(value) if isinstance(value, str) else None
+    if moment is None or moment.tzinfo is None:
+        return False
+    return moment >= since - REGISTRATION_CLOCK_TOLERANCE
 
 
 async def async_remove_users(hass: HomeAssistant, entry_id: str) -> None:
@@ -360,10 +402,21 @@ async def async_assign_measurements(
 
     to_assign: list[dict[str, Any]] = []
     if users.fingerprint is None:
-        # First poll since the first user was added: whatever the device still
-        # holds is older than the registration, so only note where it stands.
+        # First poll since the first user was added. What the device held
+        # before the registration is not the users' and only sets the
+        # baseline; what was taken after it is handed out like any other
+        # measurement.
+        since = _registered_at(users)
         if sync_on and pending is not None:
             users.last_seq = pending["next_seq"].get(1)
+            to_assign = [
+                event
+                for event in order_events(pending["events"], None)
+                if _taken_after(event, since)
+            ]
+        elif not sync_on and _taken_after(record, since):
+            to_assign = [record]
+        users.since = None
     elif sync_on:
         if pending is not None:
             if pending.get("rebased", {}).get(1):

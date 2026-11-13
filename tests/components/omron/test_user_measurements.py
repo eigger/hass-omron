@@ -954,3 +954,161 @@ async def test_a_failure_while_assigning_does_not_fail_the_poll(
         await _poll(hass, entry, record, events=[record], next_seq=6)
     # The stored-record sync that follows still published the event.
     assert [e.data["sequence"] for e in measurements] == [6]
+
+
+# --- the first poll after registering: taken after it, or left over -------------------
+#
+# Registering the first user notes when (UTC). On the first poll, a record the
+# device says was taken after that is a measurement for the users and goes
+# through the rules at once; one taken before only sets the baseline, so a
+# reading somebody left on the device is not handed to the new user.
+
+REGISTERED = "2026-09-21T07:00:00+00:00"
+
+
+async def test_a_measurement_taken_after_registering_is_assigned_on_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    hass_storage: dict,
+    unassigned: list,
+    freezer,
+) -> None:
+    """The reported case: add a user, measure, and the first poll hands it out."""
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+    assert _stored(hass_storage, entry)["since"] == REGISTERED
+
+    freezer.move_to("2026-09-21T07:31:00+00:00")
+    await _poll(hass, entry, _bp("2026-09-21T07:30:00", 131, 84))
+
+    assert _sensor(hass, entry, "bob", "systolic").state == "131"
+    assert _sensor(hass, entry, "bob", "systolic").attributes["assignment"] == "rule"
+    assert not unassigned
+    stored = _stored(hass_storage, entry)
+    assert stored["fingerprint"] == ["2026-09-21T07:30:00", 131, 84, 60]
+    # Used once: from now on records are told apart by their fingerprint.
+    assert stored["since"] is None
+
+    # The same record read again is not handed out a second time.
+    await _poll(hass, entry, _bp("2026-09-21T07:30:00", 131, 84))
+    assert _sensor(hass, entry, "bob", "systolic").state == "131"
+    assert not unassigned
+
+
+async def test_the_rules_still_decide_on_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    unassigned: list,
+    freezer,
+) -> None:
+    """Taken after registering but outside every window: announced, given to nobody."""
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+
+    await _poll(hass, entry, _bp("2026-09-21T12:00:00", 131, 84))
+
+    assert _sensor(hass, entry, "bob", "systolic").state == "unknown"
+    assert _sensor(hass, entry, "eve", "systolic").state == "unknown"
+    assert [e.data["reason"] for e in unassigned] == ["no_match"]
+
+
+@pytest.mark.parametrize(
+    ("taken", "assigned"),
+    [
+        # Left over from before the registration: only the baseline.
+        ("2026-09-20T07:30:00", False),
+        ("2026-09-21T06:50:00", False),
+        # Within the clock tolerance of the registration.
+        ("2026-09-21T06:56:00", True),
+        ("2026-09-21T07:00:00", True),
+    ],
+)
+async def test_a_record_from_before_registering_only_sets_the_baseline(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    unassigned: list,
+    freezer,
+    taken: str,
+    assigned: bool,
+) -> None:
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+
+    await _poll(hass, entry, _bp(taken, 131, 84))
+
+    assert (_sensor(hass, entry, "bob", "systolic").state == "131") is assigned
+    assert not unassigned
+
+
+async def test_a_record_without_a_time_only_sets_the_baseline(
+    hass: HomeAssistant, enable_bluetooth: None, unassigned: list, freezer
+) -> None:
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, [_user("bob", "Bob", sys_min=100)])
+    await _setup(hass, entry)
+
+    await _poll(hass, entry, _bp(None, 131, 84))
+
+    assert _sensor(hass, entry, "bob", "systolic").state == "unknown"
+    assert not unassigned
+
+
+async def test_synced_records_taken_after_registering_are_assigned_on_the_first_poll(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    hass_storage: dict,
+    unassigned: list,
+    freezer,
+) -> None:
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, SYNC_CUFF, MORNING_EVENING, _sync_options())
+    await _setup(hass, entry)
+
+    before = _bp("2026-09-21T06:30:00", 140, 90, seq=5)
+    after = _bp("2026-09-21T07:30:00", 131, 84, seq=6)
+    evening = _bp("2026-09-21T19:30:00", 118, 76, seq=7)
+    freezer.move_to("2026-09-21T20:00:00+00:00")
+    await _poll(hass, entry, evening, events=[before, after, evening], next_seq=7)
+
+    assert _sensor(hass, entry, "bob", "systolic").state == "131"
+    assert _sensor(hass, entry, "eve", "systolic").state == "118"
+    assert not unassigned
+    stored = _stored(hass_storage, entry)
+    assert stored["last_seq"] == 7
+    assert stored["since"] is None
+
+
+async def test_the_registration_time_survives_a_restart_before_the_first_poll(
+    hass: HomeAssistant, enable_bluetooth: None, hass_storage: dict, freezer
+) -> None:
+    """A reload before the first poll keeps the first registration time."""
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+
+    freezer.move_to("2026-09-21T08:00:00+00:00")
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _stored(hass_storage, entry)["since"] == REGISTERED
+
+    await _poll(hass, entry, _bp("2026-09-21T07:30:00", 131, 84))
+    assert _sensor(hass, entry, "bob", "systolic").state == "131"
+
+
+async def test_an_existing_baseline_gets_no_registration_time(
+    hass: HomeAssistant, enable_bluetooth: None, hass_storage: dict, freezer
+) -> None:
+    """Users that already have a baseline need none: nothing changes for them."""
+    freezer.move_to(REGISTERED)
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+    await _poll(hass, entry, _bp("2026-09-21T07:30:00", 131, 84))
+    assert _stored(hass_storage, entry)["since"] is None
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _stored(hass_storage, entry)["since"] is None
+    assert _sensor(hass, entry, "bob", "systolic").state == "131"
