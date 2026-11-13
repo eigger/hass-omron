@@ -164,3 +164,33 @@ def test_translation_files_share_the_multi_user_strings() -> None:
         }
         for name in _USER_SENSOR_KEYS:
             assert "{user}" not in doc["entity"]["sensor"][name]["name"]
+
+
+def _string_values(node):
+    if isinstance(node, dict):
+        for value in node.values():
+            yield from _string_values(value)
+    elif isinstance(node, str):
+        yield node
+
+
+def test_no_text_uses_an_ascii_tilde() -> None:
+    """Home Assistant renders flow texts as Markdown, where ``~a~`` is struck out.
+
+    A range such as ``06:00~08:00 ... 21:00~23:00`` in one text came out with
+    everything between the two tildes crossed out. Write ranges with a dash or a
+    full-width tilde instead.
+    """
+    files = [
+        _COMPONENT / "strings.json",
+        *sorted(_COMPONENT.glob("translations/*.json")),
+    ]
+    offending = {
+        path.name: [
+            text
+            for text in _string_values(json.loads(path.read_text("utf-8")))
+            if "~" in text
+        ]
+        for path in files
+    }
+    assert {name: texts for name, texts in offending.items() if texts} == {}

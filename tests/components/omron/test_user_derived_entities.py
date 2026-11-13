@@ -428,10 +428,23 @@ async def test_every_path_reads_a_loose_cuff_as_on(
             "dia": 84,
             "bpm": 70,
             "datetime": dt.datetime(2026, 9, 21, 7, 30),
-            "cuff": int(loose),
+            # The stored record's bit is set for a correctly wrapped cuff.
+            "cuff": int(not loose),
         },
     )
     assert eeprom is loose
+    # The stored-record event says the same, and that is what the user gets.
+    event = entry.runtime_data.device_data._history_event(
+        1,
+        {
+            "sys": 131,
+            "dia": 84,
+            "bpm": 70,
+            "datetime": dt.datetime(2026, 9, 21, 7, 30),
+            "cuff": int(not loose),
+        },
+    )
+    assert event["cuff_loose"] is loose
 
     await _assign(
         hass, entry, _record("2026-09-21T07:30:00", 131, 84, 70, cuff_loose=loose)
