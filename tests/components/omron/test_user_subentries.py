@@ -20,6 +20,8 @@ from custom_components.omron.assignment import parse_windows
 from custom_components.omron.config_flow import (
     OmronConfigFlow,
     OmronUserSubentryFlow,
+    _duration_label,
+    _duration_lookup,
 )
 from custom_components.omron.const import (
     CONF_ASSIGNMENT_STRATEGY,
@@ -48,6 +50,24 @@ def _subentry(subentry_id: str, name: str, **data: Any) -> dict[str, Any]:
     }
 
 
+_LABELS = {
+    30: "30 minutes",
+    60: "1 hour",
+    90: "1 hour 30 minutes",
+    120: "2 hours",
+    180: "3 hours",
+    240: "4 hours",
+}
+
+
+def _english() -> dict[str, str]:
+    """The duration texts of the integration's English strings, keyed as Home Assistant."""
+    doc = json.loads((_COMPONENT / "strings.json").read_text("utf-8"))
+    prefix = "component.omron.selector.time_window_duration.options."
+    options = doc["selector"]["time_window_duration"]["options"]
+    return {f"{prefix}{key}": value for key, value in options.items()}
+
+
 def _minutes(text: str) -> int:
     hours, minutes = text.split(":")[:2]
     return int(hours) * 60 + int(minutes)
@@ -56,7 +76,10 @@ def _minutes(text: str) -> int:
 def _item(text: str) -> dict[str, str]:
     """A list item (start, duration in minutes) for a "HH:MM-HH:MM" text."""
     start, end = text.split("-")
-    return {"start": start, "duration": str((_minutes(end) - _minutes(start)) % 1440)}
+    return {
+        "start": start,
+        "duration": _LABELS[(_minutes(end) - _minutes(start)) % 1440],
+    }
 
 
 def _form_input(
@@ -375,8 +398,8 @@ async def test_a_typed_start_that_is_no_time_is_reported_on_its_section(
             "name": "Eve",
             "when": {
                 "windows": [
-                    {"start": "06:00", "duration": "60"},
-                    {"start": start, "duration": "60"},
+                    {"start": "06:00", "duration": "1 hour"},
+                    {"start": start, "duration": "1 hour"},
                 ]
             },
             "usual_range": {},
@@ -601,8 +624,8 @@ async def test_editing_prefills_the_windows_and_ranges_through_the_sections(
         "name": "Bob",
         "when": {
             "windows": [
-                {"start": "06:00", "duration": "120"},
-                {"start": "22:00", "duration": "240"},
+                {"start": "06:00", "duration": "2 hours"},
+                {"start": "22:00", "duration": "4 hours"},
             ]
         },
         "usual_range": {"sys_min": 130, "dia_max": 95},
@@ -615,8 +638,8 @@ async def test_editing_prefills_the_windows_and_ranges_through_the_sections(
             "name": "Bob",
             "when": {
                 "windows": [
-                    {"start": "06:00", "duration": "120"},
-                    {"start": "22:00", "duration": "240"},
+                    {"start": "06:00", "duration": "2 hours"},
+                    {"start": "22:00", "duration": "4 hours"},
                 ]
             },
             "usual_range": {"sys_min": 130, "dia_max": 95},
@@ -653,7 +676,7 @@ async def test_editing_a_scale_user_by_rules_prefills_height_and_weight_range(
     assert _suggested(result["data_schema"]) == {
         "name": "Alice",
         "height_cm": 168,
-        "when": {"windows": [{"start": "21:00", "duration": "120"}]},
+        "when": {"windows": [{"start": "21:00", "duration": "2 hours"}]},
         "usual_range": {"weight_min": 55},
     }
     # Clearing a range drops them from the stored data.
@@ -662,7 +685,7 @@ async def test_editing_a_scale_user_by_rules_prefills_height_and_weight_range(
         {
             "name": "Alice",
             "height_cm": 168,
-            "when": {"windows": [{"start": "20:00", "duration": "120"}]},
+            "when": {"windows": [{"start": "20:00", "duration": "2 hours"}]},
             "usual_range": {},
         },
     )
@@ -694,9 +717,9 @@ async def test_a_user_with_three_stored_windows_keeps_all_of_them(
     # All three in the list.
     assert _suggested(result["data_schema"])["when"] == {
         "windows": [
-            {"start": "06:00", "duration": "60"},
-            {"start": "12:00", "duration": "60"},
-            {"start": "20:00", "duration": "60"},
+            {"start": "06:00", "duration": "1 hour"},
+            {"start": "12:00", "duration": "1 hour"},
+            {"start": "20:00", "duration": "1 hour"},
         ],
     }
 
@@ -839,8 +862,8 @@ async def test_the_windows_field_is_a_list_of_start_and_duration(
     assert duration["selector"]["select"]["mode"] == "dropdown"
     assert duration["selector"]["select"]["translation_key"] == "time_window_duration"
     options = duration["selector"]["select"]["options"]
-    assert [o["value"] for o in options] == ["30", "60", "90", "120", "180", "240"]
-    # The labels are on the options: the Add dialog does not translate them.
+    # The value is the label itself, so a list row reads "1 hour", not "60".
+    assert [o["value"] for o in options] == [o["label"] for o in options]
     assert [o["label"] for o in options] == [
         "30 minutes",
         "1 hour",
@@ -855,7 +878,9 @@ async def test_the_windows_field_is_a_list_of_start_and_duration(
     assert set(translated) == {"start", "duration"}
     assert all(translated[name]["name"] for name in translated)
     option_texts = strings["selector"]["time_window_duration"]["options"]
-    assert all(option_texts[o["value"]] for o in options)
+    assert [option_texts[str(m)] for m in (30, 60, 90, 120, 180, 240)] == [
+        o["label"] for o in options
+    ]
     await _unload(hass, entry)
 
 
@@ -872,12 +897,12 @@ async def test_a_start_and_a_duration_make_the_stored_window(
             "when": {
                 "windows": [
                     # Typed starts: one digit of hour, with seconds.
-                    {"start": "7:15", "duration": "90"},
-                    {"start": "07:15", "duration": "30"},
-                    {"start": "20:00:30", "duration": "240"},
+                    {"start": "7:15", "duration": "1 hour 30 minutes"},
+                    {"start": "07:15", "duration": "30 minutes"},
+                    {"start": "20:00:30", "duration": "4 hours"},
                     # The window wraps around the clock.
-                    {"start": "23:00", "duration": "120"},
-                    {"start": "23:30", "duration": "30"},
+                    {"start": "23:00", "duration": "2 hours"},
+                    {"start": "23:30", "duration": "30 minutes"},
                 ]
             },
             "usual_range": {},
@@ -948,30 +973,30 @@ async def test_stored_windows_of_any_length_round_trip_exactly(
     suggested = _suggested(result["data_schema"])["when"]
     assert suggested == {
         "windows": [
-            {"start": "06:07", "duration": "135"},
-            {"start": "09:00", "duration": "1"},
-            {"start": "10:00", "duration": "1439"},
-            {"start": "12:00", "duration": "120"},
+            {"start": "06:07", "duration": "2 h 15 min"},
+            {"start": "09:00", "duration": "1 min"},
+            {"start": "10:00", "duration": "23 h 59 min"},
+            {"start": "12:00", "duration": "2 hours"},
         ]
     }
     # The lengths that are not offered are added to the dropdown, readable.
     when = _sections(result["data_schema"])["when"].schema.schema
     (windows,) = [v for k, v in when.items() if str(k) == "windows"]
     options = windows.config["fields"]["duration"]["selector"]["select"]["options"]
-    assert {o["value"]: o["label"] for o in options} == {
-        "1": "1 min",
-        "30": "30 minutes",
-        "60": "1 hour",
-        "90": "1 hour 30 minutes",
-        "120": "2 hours",
-        "135": "2 h 15 min",
-        "180": "3 hours",
-        "240": "4 hours",
-        "1439": "23 h 59 min",
-    }
-    assert [int(o["value"]) for o in options] == sorted(
-        int(o["value"]) for o in options
-    )
+    assert [(o["value"], o["label"]) for o in options] == [
+        (text, text)
+        for text in (
+            "1 min",
+            "30 minutes",
+            "1 hour",
+            "1 hour 30 minutes",
+            "2 hours",
+            "2 h 15 min",
+            "3 hours",
+            "4 hours",
+            "23 h 59 min",
+        )
+    ]
 
     done = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
@@ -998,8 +1023,8 @@ async def test_the_unlisted_length_stays_offered_when_the_form_is_shown_again(
             "name": "Bob",
             "when": {
                 "windows": [
-                    {"start": "06:00", "duration": "135"},
-                    {"start": "zz", "duration": "60"},
+                    {"start": "06:00", "duration": "2 h 15 min"},
+                    {"start": "zz", "duration": "1 hour"},
                 ]
             },
             "usual_range": {},
@@ -1009,17 +1034,17 @@ async def test_the_unlisted_length_stays_offered_when_the_form_is_shown_again(
     when = _sections(again["data_schema"])["when"].schema.schema
     (windows,) = [v for k, v in when.items() if str(k) == "windows"]
     options = windows.config["fields"]["duration"]["selector"]["select"]["options"]
-    assert "135" in [o["value"] for o in options]
+    assert "2 h 15 min" in [o["value"] for o in options]
     await _unload(hass, entry)
 
 
 @pytest.mark.parametrize(
     "more",
     [
-        [{"duration": "60"}],
+        [{"duration": "1 hour"}],
         [{"start": "20:00", "duration": "not a duration"}],
         [{"start": "20:00", "end": "21:00"}],
-        [{"start": "20:00", "duration": "60", "end": "21:00"}],
+        [{"start": "20:00", "duration": "1 hour", "end": "21:00"}],
     ],
 )
 async def test_a_broken_window_is_rejected_before_saving(
@@ -1041,10 +1066,10 @@ async def test_a_broken_window_is_rejected_before_saving(
 @pytest.mark.parametrize(
     ("windows", "error"),
     [
-        ([{"duration": "60"}], "time_window_incomplete"),
-        ([{"start": "", "duration": "60"}], "time_window_incomplete"),
-        ([{"start": "x", "duration": "60"}], "time_window_incomplete"),
-        ([{"start": "25:00", "duration": "60"}], "time_window_incomplete"),
+        ([{"duration": "1 hour"}], "time_window_incomplete"),
+        ([{"start": "", "duration": "1 hour"}], "time_window_incomplete"),
+        ([{"start": "x", "duration": "1 hour"}], "time_window_incomplete"),
+        ([{"start": "25:00", "duration": "1 hour"}], "time_window_incomplete"),
         ([{"start": "20:00", "duration": "x"}], "time_window_incomplete"),
         ([{"start": "20:00", "duration": "-30"}], "time_window_incomplete"),
         ([{"start": "20:00", "duration": "1500"}], "time_window_incomplete"),
@@ -1057,14 +1082,14 @@ async def test_a_broken_window_is_rejected_before_saving(
         # A good window does not hide a bad one after it, and the first error wins.
         (
             [
-                {"start": "06:00", "duration": "120"},
+                {"start": "06:00", "duration": "2 hours"},
                 {"start": "20:00", "duration": "0"},
                 {"start": "21:00", "duration": "x"},
             ],
             "time_window_empty",
         ),
         (
-            [{"start": "06:00", "duration": "120"}, {"duration": "60"}],
+            [{"start": "06:00", "duration": "2 hours"}, {"duration": "1 hour"}],
             "time_window_incomplete",
         ),
     ],
@@ -1082,6 +1107,7 @@ async def test_the_validation_reports_a_broken_window_on_the_section(
     flow.hass = hass
     flow.handler = (entry.entry_id, SUBENTRY_USER)
     flow.context = {"source": "user"}
+    flow._duration_lookup = _duration_lookup((), _english())
     _, errors = flow._validate(
         {"name": "Eve", "when": {"windows": windows}, "usual_range": {}}
     )
@@ -1118,7 +1144,7 @@ async def test_a_user_with_windows_has_rules(
         result["flow_id"],
         {
             "name": "Eve",
-            "when": {"windows": [{"start": "20:00", "duration": "60"}]},
+            "when": {"windows": [{"start": "20:00", "duration": "1 hour"}]},
             "usual_range": {},
         },
     )
@@ -1358,3 +1384,52 @@ async def test_a_cuff_has_no_strategy_to_choose(
         result["flow_id"], {CONF_SCAN_INTERVAL: 300}
     )
     assert CONF_ASSIGNMENT_STRATEGY not in done["data"]
+
+
+async def test_a_number_of_minutes_is_taken_as_a_duration_too(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    # The form offers labels; a number of minutes is accepted by the flow's check.
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    flow = OmronUserSubentryFlow()
+    flow.hass = hass
+    flow.handler = (entry.entry_id, SUBENTRY_USER)
+    flow.context = {"source": "user"}
+    flow._duration_lookup = _duration_lookup((), _english())
+    data, errors = flow._validate(
+        {
+            "name": "Eve",
+            "when": {
+                "windows": [
+                    {"start": "07:00", "duration": "90"},
+                    {"start": "09:00", "duration": 60},
+                    {"start": "12:00", "duration": "2 hours"},
+                    {"start": "20:00", "duration": ""},
+                    {"start": "21:00"},
+                ]
+            },
+            "usual_range": {},
+        }
+    )
+    assert errors == {}
+    assert (
+        data["time_windows"]
+        == "07:00-08:30, 09:00-10:00, 12:00-14:00, 20:00-21:00, 21:00-22:00"
+    )
+    await _unload(hass, entry)
+
+
+def test_no_two_lengths_share_a_label() -> None:
+    # The label is the value of the dropdown: a collision would merge two lengths.
+    for language in ("en", "ko", "de", "zh-Hans"):
+        path = _COMPONENT / "translations" / f"{language}.json"
+        doc = json.loads(path.read_text("utf-8"))
+        prefix = "component.omron.selector.time_window_duration.options."
+        texts = {
+            f"{prefix}{key}": value
+            for key, value in doc["selector"]["time_window_duration"]["options"].items()
+        }
+        labels = [_duration_label(length, texts) for length in range(1, 1440)]
+        assert len(set(labels)) == len(labels), language
+        assert all(not label.strip().isdigit() for label in labels), language

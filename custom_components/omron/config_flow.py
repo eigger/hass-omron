@@ -1039,12 +1039,22 @@ def _duration_label(minutes: int, translations: Mapping[str, str]) -> str:
 def _duration_options(
     extra: Iterable[int], translations: Mapping[str, str]
 ) -> list[dict[str, str]]:
-    """The duration dropdown: the offered lengths and the extra ones, ascending."""
+    """The duration dropdown: the offered lengths and the extra ones, ascending.
+
+    The value is the label itself: the frontend shows a list row's value as it
+    is, so a row reads "1 hour", not "60".
+    """
     lengths = sorted({*_DURATION_MINUTES, *extra})
-    return [
-        {"value": str(length), "label": _duration_label(length, translations)}
-        for length in lengths
-    ]
+    labels = [_duration_label(length, translations) for length in lengths]
+    return [{"value": label, "label": label} for label in labels]
+
+
+def _duration_lookup(
+    extra: Iterable[int], translations: Mapping[str, str]
+) -> dict[str, int]:
+    """Minutes by the label that stands for them in the dropdown."""
+    lengths = sorted({*_DURATION_MINUTES, *extra})
+    return {_duration_label(length, translations): length for length in lengths}
 
 
 def _user_schema(
@@ -1159,10 +1169,12 @@ def _picked_minutes(value: Any) -> int | None:
     return hour * 60 + minute
 
 
-def _picked_duration(value: Any) -> int | None:
-    """Minutes of a duration given as text or number; None when it is neither."""
+def _picked_duration(value: Any, lookup: Mapping[str, int] | None = None) -> int | None:
+    """Minutes of a duration given as a dropdown label or a number of minutes."""
     if isinstance(value, bool):
         return None
+    if lookup and str(value).strip() in lookup:
+        return lookup[str(value).strip()]
     try:
         return int(str(value).strip())
     except ValueError:
@@ -1194,6 +1206,9 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         # block saving).
         self._warnings: list[str] = []
         self._placeholders: dict[str, str] = {}
+        # The duration dropdown of the form last built: label to minutes.
+        self._duration_lookup: dict[str, int] = {}
+        self._translations: Mapping[str, str] = {}
 
     def _form_step(self) -> str:
         entry = self._get_entry()
@@ -1260,10 +1275,15 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             self.hass, self.hass.config.language, "selector", [DOMAIN]
         )
         errors: dict[str, str] = {}
-        extra = self._stored_durations()
+        stored = self._stored_durations()
+        extra = set(stored)
+        # What the form shown before offered: the lengths of the stored windows.
+        self._duration_lookup = _duration_lookup(stored, translations)
+        self._translations = translations
         if user_input is not None:
-            extra |= self._submitted_durations(user_input)
+            extra |= self._submitted_durations(user_input, self._duration_lookup)
         schema = _user_schema(step_id, _duration_options(extra, translations))
+        self._duration_lookup = _duration_lookup(extra, translations)
         if user_input is not None:
             data, errors = self._validate(user_input)
             if not errors:
@@ -1288,14 +1308,16 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         return {(end - start) % _MINUTES_PER_DAY for start, end in windows}
 
     @staticmethod
-    def _submitted_durations(user_input: Mapping[str, Any]) -> set[int]:
+    def _submitted_durations(
+        user_input: Mapping[str, Any], lookup: Mapping[str, int]
+    ) -> set[int]:
         """Lengths of the submitted items, so a form shown again keeps them."""
         when = user_input.get(_SECTION_WHEN)
         items = when.get(_WINDOWS) if isinstance(when, Mapping) else None
         found: set[int] = set()
         for item in items if isinstance(items, list) else []:
             if isinstance(item, Mapping):
-                length = _picked_duration(item.get(_ITEM_DURATION))
+                length = _picked_duration(item.get(_ITEM_DURATION), lookup)
                 if length is not None and 0 < length < _MINUTES_PER_DAY:
                     found.add(length)
         return found
@@ -1318,7 +1340,9 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             when[_WINDOWS] = [
                 {
                     _ITEM_START: _picker_text(start),
-                    _ITEM_DURATION: str((end - start) % _MINUTES_PER_DAY),
+                    _ITEM_DURATION: _duration_label(
+                        (end - start) % _MINUTES_PER_DAY, self._translations
+                    ),
                 }
                 for start, end in windows
             ]
@@ -1343,7 +1367,9 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         }
         if not name or name.casefold() in taken:
             errors[CONF_USER_NAME] = "invalid_name"
-        windows, window_error = self._picked_windows(data.pop(_WINDOWS, None))
+        windows, window_error = self._picked_windows(
+            data.pop(_WINDOWS, None), self._duration_lookup
+        )
         if window_error:
             errors[_SECTION_WHEN] = window_error
         if windows:
@@ -1356,7 +1382,7 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
 
     @staticmethod
     def _picked_windows(
-        items: Any,
+        items: Any, lookup: Mapping[str, int] | None = None
     ) -> tuple[list[tuple[int, int]], str | None]:
         """The windows of the added list, in its order, and the first error.
 
@@ -1375,7 +1401,11 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             first = item.get(_ITEM_START)
             start = None if first in (None, "") else _picked_minutes(first)
             raw = item.get(_ITEM_DURATION)
-            length = _DEFAULT_DURATION if raw in (None, "") else _picked_duration(raw)
+            length = (
+                _DEFAULT_DURATION
+                if raw in (None, "")
+                else _picked_duration(raw, lookup)
+            )
             if start is None or length is None:
                 error = error or "time_window_incomplete"
             elif length in (0, _MINUTES_PER_DAY):
