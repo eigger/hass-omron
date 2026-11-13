@@ -35,7 +35,6 @@ from custom_components.omron.const import (
 )
 from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 from custom_components.omron.users import (
-    OmronUsers,
     strategy_for,
     supports_users,
 )
@@ -462,80 +461,3 @@ def test_the_parser_exposes_the_newest_record_of_each_slot() -> None:
     assert third["weight"] == 63.0 and third["body_fat"] == 23.0
     assert third["device_time"] == "2026-09-20T07:03:00"
     assert data.last_record is None
-
-
-# --- the Store: version 1 -> 2 --------------------------------------------------------------
-
-
-async def test_a_version_1_store_is_migrated_keeping_what_was_learned(
-    hass: HomeAssistant, enable_bluetooth: None, hass_storage: dict
-) -> None:
-    entry = add_entry(
-        hass,
-        "HN-300T2",
-        [
-            user("alice", "Alice", expected_weight=62.0, height_cm=170),
-            user("bob", "Bob", expected_weight=80.0),
-        ],
-    )
-    hass_storage[f"omron.users_{entry.entry_id}"] = {
-        "version": 1,
-        "minor_version": 1,
-        "key": f"omron.users_{entry.entry_id}",
-        "data": {
-            "strategy": "weight",
-            "fingerprint": ["2026-09-21T07:30:00", 62.4],
-            "last_seq": 17,
-            "users": {
-                "alice": {
-                    "recent": [62.0, 62.4],
-                    "last": {
-                        "weight": 62.4,
-                        "measured_at": "2026-09-21T07:30:00+00:00",
-                        "assignment": "matched",
-                    },
-                },
-            },
-        },
-    }
-    await setup_entry(hass, entry)
-
-    users: OmronUsers = entry.runtime_data.users
-    assert users.fingerprints == {1: ["2026-09-21T07:30:00", 62.4]}
-    assert users.last_seq == {1: 17}
-    assert users.recent == {"alice": [62.0, 62.4]}
-    assert sensor_state(hass, entry, "alice", "weight").state == "62.4"
-
-    # The next write is in the new format; the old keys are gone.
-    await poll(hass, entry, scale_event("2026-09-22T07:30:00", 62.0))
-    await hass.async_block_till_done()
-    saved = hass_storage[f"omron.users_{entry.entry_id}"]
-    assert saved["version"] == 2
-    assert "fingerprint" not in saved["data"]
-    assert saved["data"]["fingerprints"] == {"1": ["2026-09-22T07:30:00", 62.0]}
-    assert saved["data"]["last_seq"] == {}
-    # A version 1 store had no log; the first measurement after it starts one.
-    assert [e["user"] for e in saved["data"]["log"]] == ["alice"]
-    assert saved["data"]["users"]["alice"]["recent"] == [62.0, 62.4, 62.0]
-
-
-async def test_a_version_1_store_without_a_position_migrates_to_none(
-    hass: HomeAssistant, enable_bluetooth: None, hass_storage: dict
-) -> None:
-    entry = add_entry(
-        hass, "HEM-7600T", [user("bob", "Bob", time_windows="06:00-09:00")]
-    )
-    hass_storage[f"omron.users_{entry.entry_id}"] = {
-        "version": 1,
-        "minor_version": 1,
-        "key": f"omron.users_{entry.entry_id}",
-        "data": {
-            "strategy": "rules",
-            "fingerprint": None,
-            "last_seq": None,
-            "users": {},
-        },
-    }
-    await setup_entry(hass, entry)
-    users: OmronUsers = entry.runtime_data.users
-    assert users.fingerprints == {} and users.last_seq == {}

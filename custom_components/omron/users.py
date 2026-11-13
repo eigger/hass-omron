@@ -75,7 +75,7 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_VERSION = 2
+STORE_VERSION = 1
 
 # Values of a measurement that identify it, and that the event carries.
 _SCALE_VALUES = ("weight",)
@@ -99,37 +99,8 @@ def _value_keys(kind: MeasurementKind) -> tuple[str, ...]:
     return _SCALE_VALUES
 
 
-def _migrate_v1(old: dict[str, Any]) -> dict[str, Any]:
-    """Version 1 kept one fingerprint and one sequence; now each is per slot.
-
-    A single-slot device's only slot is 1. What each user learned and last
-    showed is carried over unchanged.
-    """
-    data = dict(old)
-    fingerprint = data.pop("fingerprint", None)
-    last_seq = data.pop("last_seq", None)
-    data["fingerprints"] = {"1": fingerprint} if isinstance(fingerprint, list) else {}
-    data["last_seq"] = (
-        {"1": last_seq}
-        if isinstance(last_seq, int) and not isinstance(last_seq, bool)
-        else {}
-    )
-    return data
-
-
-class _UsersStore(Store[dict[str, Any]]):
-    async def _async_migrate_func(
-        self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]
-    ) -> dict[str, Any]:
-        if old_major_version == 1:
-            return _migrate_v1(old_data)
-        raise NotImplementedError(
-            f"Unknown users store version {old_major_version}.{old_minor_version}"
-        )
-
-
 def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
-    return _UsersStore(hass, STORE_VERSION, f"{DOMAIN}.users_{entry_id}")
+    return Store(hass, STORE_VERSION, f"{DOMAIN}.users_{entry_id}")
 
 
 def _device_config(entry: OmronConfigEntry | Any):

@@ -180,14 +180,14 @@
 - `assignment.py`는 순수한 채로 둔다. 조회는 `users.py`에서 하고, 줄인 사용자 목록만 전략에 넘긴다. 체중 기반에서는 빠진 사용자의 기준 체중이 2등 비교에서도 빠진다는 점이 효과다.
 - 고지: 기기의 시계(측정 시각)와 사람의 추적기(`person`)를 믿는다는 뜻이다. 시계가 틀리면 엉뚱한 시각의 상태를 보고, 추적기가 늦게 갱신되면 상태가 틀린다. 같은 집의 모두가 집에 있었다면 후보가 줄지 않는다. 연결하지 않으면 꺼져 있다.
 
-### 3-6. 저장 형식(Store `omron.users_{entry_id}`) v2
+### 3-6. 저장 형식(Store `omron.users_{entry_id}`)
 
-- 슬롯별 지문과 마지막 순번, 측정 로그가 생겨 `STORE_VERSION`을 2로 올린다. 마이그레이션(v1 → v2): `fingerprint` → `fingerprints: {"1": …}`, `last_seq`(정수) → `last_seq: {"1": …}`, `log: []`. `recent`, `last`, `strategy`는 그대로 가져온다(사용자의 학습 상태와 지문을 잃지 않는다).
+- 슬롯별 지문(`fingerprints`)과 마지막 순번(`last_seq`, 둘 다 슬롯 번호 키의 딕셔너리, 단일 슬롯 기기는 키 `"1"`), 측정 로그(`log`)를 둔다. 이 Store는 아직 릴리스된 적이 없어(#303 이후 첫 릴리스 전) 기존 데이터가 없으므로 `STORE_VERSION`은 1 그대로 두고 마이그레이션을 만들지 않는다. 릴리스 뒤에 형식을 바꿀 때부터 버전을 올린다.
 - 동기화 Store `omron.history_{entry_id}`는 선택 키 `cursor`만 더하므로 버전을 올리지 않는다(없는 키는 빈 값).
 
 ### 3-7. 테스트와 변경 파일(요약)
 
-- 새 테스트: 체중계 동기화(이벤트·배정), 커서 순번(전진, 링 감김, 전진 없는 리베이스, 첫 동기화 기준선, 카운터 있는 프로파일 불변), 슬롯 사용자(두 입력 모드), 재배정(옮김, 해제, 센서 폴백, 체중 학습 재구성, 잘못된 id, 다른 기기), `person` 필터(집, 외출, 이력 없음, 시각 없음, recorder 없음, 모두 외출), Store 마이그레이션.
+- 새 테스트: 체중계 동기화(이벤트·배정), 커서 순번(전진, 링 감김, 전진 없는 리베이스, 첫 동기화 기준선, 카운터 있는 프로파일 불변), 슬롯 사용자(두 입력 모드), 재배정(옮김, 해제, 센서 폴백, 체중 학습 재구성, 잘못된 id, 다른 기기), `person` 필터(집, 외출, 이력 없음, 시각 없음, recorder 없음, 모두 외출).
 - 기존 테스트에서 바뀔 수밖에 없는 단언: Store 키 형식, 동기화 옵션이 없는 프로파일 사례, 서브엔트리 번역 구조(`slot` 단계), 동기화 대상 프로파일 목록. 바뀐 것은 구현 보고에 적는다.
 - 파일: `omron_ble/{devices,device_catalog,driver,parser}.py`, `history.py`, `users.py`, `assignment.py`, `__init__.py`, `config_flow.py`, `sensor.py`, `const.py`, `data.py`, `services.yaml`, `manifest.json`, `strings.json`과 `translations/*.json` 14개, `docs/entities.md`, `README.md`, `README.ko.md`.
 
@@ -270,7 +270,7 @@
 - **3-3 `last_records`**: 파서에 `last_records`(슬롯 번호 → 이벤트 모양의 최신 EEPROM 기록)를 더했다. 슬롯이 여러 개인 프로파일의 `latest_by_user`에서 만들며, 단일 슬롯의 `last_record`는 그대로다. 훅은 `OmronUsers.multi_slot`(기기의 `num_users > 1`)으로 둘 중 하나를 고른다.
 - **3-3 HBF 옵션**: 체중 전략 옵션(전략 선택·허용 오차)은 체중만 재는 체중계(`MeasurementKind.WEIGHT`)에만 나온다. 이전에는 "체중계"면 모두 나왔으나 서브엔트리를 내지 않던 HBF에는 보일 일이 없었다.
 - **3-3 `person` 없음**: 슬롯 전략은 기기가 사람을 정하므로 `person` 필터를 쓰지 않는다(입력 항목도 없다).
-- **3-6 Store v2 (3-3과 함께)**: 슬롯별 지문·순번이 필요해 이 항목에서 `STORE_VERSION`을 2로 올렸다(`fingerprints`, `last_seq`가 슬롯 번호 키의 딕셔너리, 단일 슬롯 기기는 키 `"1"`). v1 → v2 마이그레이션은 `fingerprint`→`fingerprints["1"]`, `last_seq`→`last_seq["1"]`이고 학습한 체중과 마지막 값은 그대로다. 재배정 로그(3-4)는 같은 v2에 이어서 더한다(출시 전이라 별도 버전을 두지 않는다).
+- **3-6 Store 형식 (3-3과 함께)**: 슬롯별 지문·순번(`fingerprints`, `last_seq`)과 재배정 로그(3-4)를 같은 형식에 더했다. 릴리스 전이라 `STORE_VERSION`은 1이고 마이그레이션은 없다.
 - **3-3 기존 테스트 변경**: `test_user_measurements.py`의 Store 형식 단언(`fingerprint`→`fingerprints`, `last_seq` 정수→슬롯 딕셔너리, `users.fingerprint`→`users.fingerprints[1]`)과 `test_user_subentries.py`의 "HBF는 사용자를 내지 않는다"(이제 낸다), `test_entity_name_translation.py`의 번역 구조 단언(`slot` 단계, `slot_taken` 오류, 새 센서 키)을 새 구조에 맞췄다. 단언의 강도는 그대로다.
 - **3-4 로드되지 않은 엔트리**: 서비스는 로드된 엔트리의 로그만 찾는다. 로드되지 않은 엔트리의 측정은 "알 수 없는 id"(`unknown_measurement`)로 거부한다(별도 `entry_not_loaded` 번역 키는 두지 않았다).
 - **3-4 id와 로그 항목**: id는 `uuid4`의 앞 12자리 16진수다. 항목은 `id`, `user`, `reason`, `kind`, `learned`, `slot`, `measured_at`, `device_time`, `sequence`, `values`다. 삭제된 사용자의 측정은 불러올 때 `user: None`, `reason: "user_removed"`가 된다. 배정 해제는 `reason: "manual"`, 사람이 옮긴 측정의 `kind`는 `manual`이다.
