@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pytest
 import voluptuous as vol
 from homeassistant.const import CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType, section
+from homeassistant.data_entry_flow import FlowResultType, InvalidData, section
+from homeassistant.helpers.selector import ObjectSelector, TimeSelector
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -28,6 +31,7 @@ from custom_components.omron.const import (
     SUBENTRY_USER,
 )
 
+_COMPONENT = Path(__file__).resolve().parents[3] / "custom_components" / "omron"
 ADDRESS = "AA:BB:CC:DD:EE:FF"
 SCALE = "HN-300T2"
 CUFF = "HEM-7600T"
@@ -52,13 +56,15 @@ def _form_input(
 ) -> dict[str, Any]:
     """What the rules and pressure forms submit: the pickers and ranges in sections.
 
-    ``windows`` are "HH:MM-HH:MM" texts, at most two, put into the pickers.
+    ``windows`` are "HH:MM-HH:MM" texts: the first goes into the pickers, the
+    others into the list of added windows.
     """
-    when: dict[str, str] = {}
-    for number, window in enumerate(windows, start=1):
-        start, end = window.split("-")
-        when[f"window{number}_start"] = f"{start}:00"
-        when[f"window{number}_end"] = f"{end}:00"
+    when: dict[str, Any] = {}
+    picked = [tuple(f"{t}:00" for t in w.split("-")) for w in windows]
+    if picked:
+        when["window_start"], when["window_end"] = picked[0]
+    if picked[1:]:
+        when["more_windows"] = [{"start": s, "end": e} for s, e in picked[1:]]
     return {"name": name, **top, "when": when, "usual_range": dict(ranges or {})}
 
 
@@ -220,10 +226,9 @@ async def test_a_scale_by_rules_asks_for_windows_and_a_weight_range(
     }
     sections = _sections(schema)
     assert {str(k) for k in sections["when"].schema.schema} == {
-        "window1_start",
-        "window1_end",
-        "window2_start",
-        "window2_end",
+        "window_start",
+        "window_end",
+        "more_windows",
     }
     assert {str(k) for k in sections["usual_range"].schema.schema} == {
         "weight_min",
@@ -261,9 +266,7 @@ async def test_a_cuff_asks_for_windows_and_pressure_ranges(
         "dia_min",
         "dia_max",
     }
-    # The description has a placeholder for the stored windows the form cannot
-    # show; there are none for a new user.
-    assert result["description_placeholders"] == {"extra_windows": ""}
+    assert not result.get("description_placeholders")
     created = await hass.config_entries.subentries.async_configure(
         result["flow_id"],
         _form_input("Bob", "06:00-09:00", ranges={"sys_min": 130}),
@@ -288,7 +291,7 @@ async def test_picked_windows_are_stored_as_text_without_seconds(
     result = await _start(hass, entry)
     user_input = _form_input("Bob", "06:00-08:00", "20:00-22:30")
     # Seconds the picker may carry are dropped.
-    user_input["when"]["window1_start"] = "06:00:45"
+    user_input["when"]["window_start"] = "06:00:45"
     created = await hass.config_entries.subentries.async_configure(
         result["flow_id"], user_input
     )
@@ -358,22 +361,35 @@ async def test_bad_input_is_reported_on_its_field(
     [
         # A start without an end, an end without a start. Errors of fields inside
         # a section are reported on the section: the frontend shows no others.
-        ({"window1_start": "06:00:00"}, {"when": "time_window_incomplete"}),
-        ({"window1_end": "08:00:00"}, {"when": "time_window_incomplete"}),
-        ({"window2_start": "20:00:00"}, {"when": "time_window_incomplete"}),
-        ({"window2_end": "22:00:00"}, {"when": "time_window_incomplete"}),
+        ({"window_start": "06:00:00"}, {"when": "time_window_incomplete"}),
+        ({"window_end": "08:00:00"}, {"when": "time_window_incomplete"}),
         # Start equal to end (seconds do not count).
         (
-            {"window1_start": "06:00:00", "window1_end": "06:00:30"},
+            {"window_start": "06:00:00", "window_end": "06:00:30"},
             {"when": "time_window_empty"},
         ),
-        # Each window is checked on its own.
+        # Each window is checked on its own, the added ones too.
         (
             {
-                "window1_start": "06:00:00",
-                "window1_end": "08:00:00",
-                "window2_start": "21:00:00",
-                "window2_end": "21:00:00",
+                "window_start": "06:00:00",
+                "window_end": "08:00:00",
+                "more_windows": [{"start": "21:00:00", "end": "21:00:00"}],
+            },
+            {"when": "time_window_empty"},
+        ),
+        (
+            {"more_windows": [{"start": "20:00:00", "end": "20:00:59"}]},
+            {"when": "time_window_empty"},
+        ),
+        # A good window does not hide a bad one after it.
+        (
+            {
+                "window_start": "06:00:00",
+                "window_end": "08:00:00",
+                "more_windows": [
+                    {"start": "10:00:00", "end": "11:00:00"},
+                    {"start": "21:00:00", "end": "21:00:00"},
+                ],
             },
             {"when": "time_window_empty"},
         ),
@@ -497,7 +513,7 @@ async def test_overlapping_time_windows_warn_without_blocking(
     await _setup(hass, entry)
 
     result = await _start(hass, entry)
-    # The overlap is worked out from the picked windows: the second one here.
+    # The overlap is worked out from all windows: the added one here.
     warned = await hass.config_entries.subentries.async_configure(
         result["flow_id"], _form_input("Eve", "20:00-21:00", "08:00-10:00")
     )
@@ -609,15 +625,12 @@ async def test_editing_prefills_the_pickers_and_ranges_through_the_sections(
     assert _suggested(result["data_schema"]) == {
         "name": "Bob",
         "when": {
-            "window1_start": "06:00:00",
-            "window1_end": "08:00:00",
-            "window2_start": "22:00:00",
-            "window2_end": "02:00:00",
+            "window_start": "06:00:00",
+            "window_end": "08:00:00",
+            "more_windows": [{"start": "22:00:00", "end": "02:00:00"}],
         },
         "usual_range": {"sys_min": 130, "dia_max": 95},
     }
-    # Two windows fit the form: nothing to warn about.
-    assert result["description_placeholders"] == {"extra_windows": ""}
 
     # Submitting what the form shows keeps the user as it was.
     done = await hass.config_entries.subentries.async_configure(
@@ -625,10 +638,9 @@ async def test_editing_prefills_the_pickers_and_ranges_through_the_sections(
         {
             "name": "Bob",
             "when": {
-                "window1_start": "06:00:00",
-                "window1_end": "08:00:00",
-                "window2_start": "22:00:00",
-                "window2_end": "02:00:00",
+                "window_start": "06:00:00",
+                "window_end": "08:00:00",
+                "more_windows": [{"start": "22:00:00", "end": "02:00:00"}],
             },
             "usual_range": {"sys_min": 130, "dia_max": 95},
         },
@@ -664,7 +676,7 @@ async def test_editing_a_scale_user_by_rules_prefills_height_and_weight_range(
     assert _suggested(result["data_schema"]) == {
         "name": "Alice",
         "height_cm": 168,
-        "when": {"window1_start": "21:00:00", "window1_end": "23:00:00"},
+        "when": {"window_start": "21:00:00", "window_end": "23:00:00"},
         "usual_range": {"weight_min": 55},
     }
     # Clearing a picker pair and a range drops them from the stored data.
@@ -673,7 +685,7 @@ async def test_editing_a_scale_user_by_rules_prefills_height_and_weight_range(
         {
             "name": "Alice",
             "height_cm": 168,
-            "when": {"window1_start": "20:00:00", "window1_end": "22:00:00"},
+            "when": {"window_start": "20:00:00", "window_end": "22:00:00"},
             "usual_range": {},
         },
     )
@@ -687,7 +699,7 @@ async def test_editing_a_scale_user_by_rules_prefills_height_and_weight_range(
     await _unload(hass, entry)
 
 
-async def test_a_user_with_more_than_two_stored_windows_is_shown_them_and_a_note(
+async def test_a_user_with_three_stored_windows_keeps_all_of_them(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     # 4.6.0-beta.1 took any number of windows in its text field.
@@ -701,53 +713,244 @@ async def test_a_user_with_more_than_two_stored_windows_is_shown_them_and_a_note
     await _setup(hass, entry)
 
     result = await _reconfigure(hass, entry, "u1")
-    note = result["description_placeholders"]["extra_windows"]
-    # The note lists the window the pickers cannot show, not the ones they do,
-    # and says what saving does.
-    assert "20:00-21:00" in note
-    assert "06:00-07:00" not in note and "12:00-13:00" not in note
-    assert "{windows}" not in note
-    assert "two" in note
-    # The pickers hold the first two.
+    assert not result.get("description_placeholders")
+    # One picker pair, the other two in the list.
     assert _suggested(result["data_schema"])["when"] == {
-        "window1_start": "06:00:00",
-        "window1_end": "07:00:00",
-        "window2_start": "12:00:00",
-        "window2_end": "13:00:00",
+        "window_start": "06:00:00",
+        "window_end": "07:00:00",
+        "more_windows": [
+            {"start": "12:00:00", "end": "13:00:00"},
+            {"start": "20:00:00", "end": "21:00:00"},
+        ],
     }
 
-    # The note stays when the form is shown again after an error.
-    bad = _form_input("Bob", "06:00-07:00", ranges={"sys_min": 140, "sys_max": 120})
-    again = await hass.config_entries.subentries.async_configure(result["flow_id"], bad)
-    assert again["errors"] == {"usual_range": "invalid_range"}
-    assert again["description_placeholders"]["extra_windows"] == note
-
-    # Saving keeps the two shown windows only.
+    # Submitting what the form shows keeps all three, unchanged.
     done = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], _form_input("Bob", "06:00-07:00", "12:00-13:00")
+        result["flow_id"],
+        {
+            "name": "Bob",
+            "when": _suggested(result["data_schema"])["when"],
+            "usual_range": {},
+        },
     )
     assert done["type"] is FlowResultType.ABORT
     await hass.async_block_till_done()
-    assert entry.subentries["u1"].data["time_windows"] == "06:00-07:00, 12:00-13:00"
+    assert dict(entry.subentries["u1"].data) == {
+        "name": "Bob",
+        "time_windows": "06:00-07:00, 12:00-13:00, 20:00-21:00",
+    }
     await _unload(hass, entry)
 
 
-async def test_the_note_about_extra_windows_is_translated(
+async def test_a_default_window_and_two_added_ones_are_stored_in_order(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
-    hass.config.language = "ko"
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    created = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        _form_input("Bob", "06:00-08:00", "20:00-22:30", "13:00-14:00"),
+    )
+    assert created["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    (subentry,) = entry.subentries.values()
+    assert dict(subentry.data) == {
+        "name": "Bob",
+        "time_windows": "06:00-08:00, 20:00-22:30, 13:00-14:00",
+    }
+    await _unload(hass, entry)
+
+
+async def test_only_added_windows_are_used_when_the_default_is_empty(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    created = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Bob",
+            "when": {
+                "more_windows": [
+                    {"start": "07:00:00", "end": "08:00:00"},
+                    {"start": "19:00:00", "end": "20:00:00"},
+                ]
+            },
+            "usual_range": {},
+        },
+    )
+    assert created["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    (subentry,) = entry.subentries.values()
+    assert dict(subentry.data) == {
+        "name": "Bob",
+        "time_windows": "07:00-08:00, 19:00-20:00",
+    }
+    await _unload(hass, entry)
+
+
+async def test_an_added_window_may_cross_midnight(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    created = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], _form_input("Bob", "06:00-08:00", "22:00-02:00")
+    )
+    assert created["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    (subentry,) = entry.subentries.values()
+    assert subentry.data["time_windows"] == "06:00-08:00, 22:00-02:00"
+    assert parse_windows(subentry.data["time_windows"]) == [(360, 480), (1320, 120)]
+    await _unload(hass, entry)
+
+
+async def test_many_added_windows_are_all_kept(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    texts = [f"{hour:02d}:00-{hour:02d}:30" for hour in range(6, 16)]
+    created = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], _form_input("Bob", *texts)
+    )
+    assert created["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    (subentry,) = entry.subentries.values()
+    assert subentry.data["time_windows"] == ", ".join(texts)
+    await _unload(hass, entry)
+
+
+async def test_the_added_windows_field_is_a_list_of_start_and_end(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    when = _sections(result["data_schema"])["when"].schema.schema
+    fields = {str(key): value for key, value in when.items()}
+    assert isinstance(fields["window_start"], TimeSelector)
+    assert isinstance(fields["window_end"], TimeSelector)
+    more = fields["more_windows"]
+    assert isinstance(more, ObjectSelector)
+    config = more.config
+    assert config["multiple"] is True
+    assert config["label_field"] == "start"
+    assert config["description_field"] == "end"
+    assert config["translation_key"] == "time_window"
+    assert set(config["fields"]) == {"start", "end"}
+    for name in ("start", "end"):
+        assert config["fields"][name]["required"] is True
+        assert isinstance(config["fields"][name]["selector"], TimeSelector)
+    # The key points at strings that exist, so the dialog's labels are translated.
+    strings = json.loads((_COMPONENT / "strings.json").read_text("utf-8"))
+    translated = strings["selector"][config["translation_key"]]["fields"]
+    assert set(translated) == {"start", "end"}
+    assert all(translated[name]["name"] for name in translated)
+    await _unload(hass, entry)
+
+
+@pytest.mark.parametrize(
+    "more",
+    [
+        [{"start": "20:00:00"}],
+        [{"end": "21:00:00"}],
+        [{"start": "20:00:00", "end": "not a time"}],
+    ],
+)
+async def test_a_broken_added_window_is_rejected_before_saving(
+    hass: HomeAssistant, enable_bluetooth: None, more: list[dict[str, str]]
+) -> None:
+    # The list's own schema refuses it (the dialog does not let it through).
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    with pytest.raises(InvalidData):
+        await hass.config_entries.subentries.async_configure(
+            result["flow_id"],
+            {"name": "Eve", "when": {"more_windows": more}, "usual_range": {}},
+        )
+    assert not entry.subentries
+    await _unload(hass, entry)
+
+
+@pytest.mark.parametrize(
+    ("default", "more", "error"),
+    [
+        (("06:00:00", "08:00:00"), [{"start": "20:00:00"}], "time_window_incomplete"),
+        (None, [{"end": "21:00:00"}], "time_window_incomplete"),
+        (None, [{"start": "20:00:00", "end": ""}], "time_window_incomplete"),
+        (None, [{"start": "x", "end": "21:00:00"}], "time_window_incomplete"),
+        (None, [{"start": "20:00:00", "end": "20:00:00"}], "time_window_empty"),
+        (None, ["20:00-21:00"], "time_window_incomplete"),
+        (None, "20:00-21:00", "time_window_incomplete"),
+        (
+            ("06:00:00", "08:00:00"),
+            [{"start": "07:00:00", "end": "07:00:10"}],
+            "time_window_empty",
+        ),
+    ],
+)
+async def test_the_validation_reports_a_broken_added_window_on_the_section(
+    hass: HomeAssistant,
+    enable_bluetooth: None,
+    default: tuple[str, str] | None,
+    more: Any,
+    error: str,
+) -> None:
+    # The flow's own check, which the schema would otherwise run first.
+    entry = _entry(hass, CUFF)
+    await _setup(hass, entry)
+    flow = OmronUserSubentryFlow()
+    flow.hass = hass
+    flow.handler = (entry.entry_id, SUBENTRY_USER)
+    flow.context = {"source": "user"}
+    when: dict[str, Any] = {"more_windows": more}
+    if default:
+        when["window_start"], when["window_end"] = default
+    _, errors = flow._validate({"name": "Eve", "when": when, "usual_range": {}})
+    assert errors == {"when": error}
+    await _unload(hass, entry)
+
+
+async def test_the_overlap_warning_uses_an_added_window(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
     entry = _entry(
-        hass,
-        CUFF,
-        users=[
-            _subentry("u1", "Bob", time_windows="06:00-07:00, 12:00-13:00, 20:00-21:00")
-        ],
+        hass, CUFF, users=[_subentry("u1", "Bob", time_windows="12:00-13:00")]
     )
     await _setup(hass, entry)
-    result = await _reconfigure(hass, entry, "u1")
-    note = result["description_placeholders"]["extra_windows"]
-    assert "20:00-21:00" in note and "06:00-07:00" not in note
-    assert "시간대" in note
+    result = await _start(hass, entry)
+    # Only the second added window overlaps Bob's.
+    warned = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        _form_input("Eve", "06:00-07:00", "20:00-21:00", "12:30-14:00"),
+    )
+    assert warned["step_id"] == "confirm_overlap"
+    assert warned["description_placeholders"] == {"name": "Eve", "others": "Bob"}
+    await _unload(hass, entry)
+
+
+async def test_a_user_with_only_added_windows_has_rules(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, CUFF, users=[_subentry("u1", "Bob")])
+    await _setup(hass, entry)
+    result = await _start(hass, entry)
+    # Windows in the list count as a rule: no "no rules" warning follows.
+    created = await hass.config_entries.subentries.async_configure(
+        result["flow_id"],
+        {
+            "name": "Eve",
+            "when": {"more_windows": [{"start": "20:00:00", "end": "21:00:00"}]},
+            "usual_range": {},
+        },
+    )
+    assert created["type"] is FlowResultType.CREATE_ENTRY
     await _unload(hass, entry)
 
 

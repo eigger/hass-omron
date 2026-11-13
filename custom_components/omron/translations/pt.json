@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "Utilizador",
-          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a pesagem. Uma pesagem é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa pesa-se de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.\n\n{extra_windows}",
+          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a pesagem. Uma pesagem é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa pesa-se de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.",
           "data": {
             "name": "Nome",
             "height_cm": "Altura (cm, para o IMC)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "Defina até dois intervalos de tempo em que esta pessoa costuma medir. Deixe ambos vazios para ignorar a hora. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00).",
+              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
               "data": {
-                "window1_start": "Intervalo 1: início",
-                "window1_end": "Intervalo 1: fim",
-                "window2_start": "Intervalo 2: início",
-                "window2_end": "Intervalo 2: fim"
+                "window_start": "Intervalo: início",
+                "window_end": "Intervalo: fim",
+                "more_windows": "Mais intervalos de tempo"
               },
               "data_description": {
-                "window1_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window1_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "window2_start": "Segundo intervalo opcional, por exemplo para a noite. Preencha o início e o fim. Exemplo: 20:00",
-                "window2_end": "O segundo intervalo termina mesmo antes desta hora. Exemplo: 22:00"
+                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
+                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
+                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "Utilizador",
-          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a medição. Uma medição é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa mede de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.\n\n{extra_windows}",
+          "description": "Estas definições não são limites de saúde. Servem apenas para decidir de quem é a medição. Uma medição é atribuída a um utilizador só quando todas as condições de um único utilizador se verificam; se nenhum ou vários corresponderem, não é atribuída a ninguém e é anunciada num evento `omron_unassigned_measurement`. Exemplo numa família: uma pessoa mede de manhã das 06:00 às 08:00, outra à noite das 21:00 às 23:00. As condições vazias são ignoradas. Usa-se a hora registada pelo dispositivo, por isso o relógio dele tem de estar certo.",
           "data": {
             "name": "Nome"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "Defina até dois intervalos de tempo em que esta pessoa costuma medir. Deixe ambos vazios para ignorar a hora. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00).",
+              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
               "data": {
-                "window1_start": "Intervalo 1: início",
-                "window1_end": "Intervalo 1: fim",
-                "window2_start": "Intervalo 2: início",
-                "window2_end": "Intervalo 2: fim"
+                "window_start": "Intervalo: início",
+                "window_end": "Intervalo: fim",
+                "more_windows": "Mais intervalos de tempo"
               },
               "data_description": {
-                "window1_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window1_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "window2_start": "Segundo intervalo opcional, por exemplo para a noite. Preencha o início e o fim. Exemplo: 20:00",
-                "window2_end": "O segundo intervalo termina mesmo antes desta hora. Exemplo: 22:00"
+                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
+                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
+                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Introduza um nome que nenhum outro utilizador tenha.",
         "time_window_incomplete": "Indique o início e o fim do intervalo de tempo, ou deixe ambos vazios.",
         "time_window_empty": "O início e o fim têm de ser diferentes. Para um intervalo que passa a meia-noite, ponha o fim antes do início.",
-        "invalid_range": "O valor mínimo não pode ser superior ao máximo.",
-        "extra_windows_note": "Este utilizador tem mais intervalos de tempo guardados: {windows}. Ao guardar, só ficam os dois intervalos mostrados aqui; os outros são removidos."
+        "invalid_range": "O valor mínimo não pode ser superior ao máximo."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Peso",
         "rules": "Regras (hora e valores)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Início"
+        },
+        "end": {
+          "name": "Fim"
+        }
       }
     }
   },

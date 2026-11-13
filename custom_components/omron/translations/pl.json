@@ -102,7 +102,7 @@
         },
         "rules": {
           "title": "Użytkownik",
-          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Ważenie trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszane w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba waży się rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.\n\n{extra_windows}",
+          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Ważenie trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszane w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba waży się rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.",
           "data": {
             "name": "Nazwa",
             "height_cm": "Wzrost (cm, do BMI)"
@@ -114,18 +114,16 @@
           "sections": {
             "when": {
               "name": "Kiedy mierzą?",
-              "description": "Ustaw do dwóch przedziałów czasu, w których ta osoba zwykle mierzy. Zostaw oba puste, aby pominąć godzinę. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00).",
+              "description": "Pokazany jest jeden przedział czasu; kolejne dodasz przyciskiem Dodaj. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00). Zostaw wszystko puste, aby pominąć godzinę.",
               "data": {
-                "window1_start": "Przedział 1: początek",
-                "window1_end": "Przedział 1: koniec",
-                "window2_start": "Przedział 2: początek",
-                "window2_end": "Przedział 2: koniec"
+                "window_start": "Przedział: początek",
+                "window_end": "Przedział: koniec",
+                "more_windows": "Więcej przedziałów czasu"
               },
               "data_description": {
-                "window1_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
-                "window1_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
-                "window2_start": "Opcjonalny drugi przedział, np. na wieczór. Wypełnij początek i koniec. Przykład: 20:00",
-                "window2_end": "Drugi przedział kończy się tuż przed tą godziną. Przykład: 22:00"
+                "window_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
+                "window_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
+                "more_windows": "Naciśnij Dodaj dla każdego kolejnego przedziału, np. na wieczór. Każdy ma początek i koniec; liczba przedziałów nie jest ograniczona. Wybierz przedział, aby go edytować lub usunąć."
               }
             },
             "usual_range": {
@@ -144,7 +142,7 @@
         },
         "pressure": {
           "title": "Użytkownik",
-          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Pomiar trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba mierzy rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.\n\n{extra_windows}",
+          "description": "Te ustawienia nie są progami zdrowotnymi. Służą tylko do ustalenia, czyj jest pomiar. Pomiar trafia do użytkownika tylko wtedy, gdy spełnione są wszystkie warunki dokładnie jednego użytkownika; jeśli nie pasuje nikt albo pasuje kilku, nie trafia do nikogo i jest zgłaszany w zdarzeniu `omron_unassigned_measurement`. Przykład z rodziny: jedna osoba mierzy rano od 06:00 do 08:00, druga wieczorem od 21:00 do 23:00. Puste warunki są pomijane. Używana jest godzina zapisana przez urządzenie, więc jego zegar musi być poprawny.",
           "data": {
             "name": "Nazwa"
           },
@@ -154,18 +152,16 @@
           "sections": {
             "when": {
               "name": "Kiedy mierzą?",
-              "description": "Ustaw do dwóch przedziałów czasu, w których ta osoba zwykle mierzy. Zostaw oba puste, aby pominąć godzinę. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00).",
+              "description": "Pokazany jest jeden przedział czasu; kolejne dodasz przyciskiem Dodaj. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00). Zostaw wszystko puste, aby pominąć godzinę.",
               "data": {
-                "window1_start": "Przedział 1: początek",
-                "window1_end": "Przedział 1: koniec",
-                "window2_start": "Przedział 2: początek",
-                "window2_end": "Przedział 2: koniec"
+                "window_start": "Przedział: początek",
+                "window_end": "Przedział: koniec",
+                "more_windows": "Więcej przedziałów czasu"
               },
               "data_description": {
-                "window1_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
-                "window1_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
-                "window2_start": "Opcjonalny drugi przedział, np. na wieczór. Wypełnij początek i koniec. Przykład: 20:00",
-                "window2_end": "Drugi przedział kończy się tuż przed tą godziną. Przykład: 22:00"
+                "window_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
+                "window_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
+                "more_windows": "Naciśnij Dodaj dla każdego kolejnego przedziału, np. na wieczór. Każdy ma początek i koniec; liczba przedziałów nie jest ograniczona. Wybierz przedział, aby go edytować lub usunąć."
               }
             },
             "usual_range": {
@@ -203,8 +199,7 @@
         "invalid_name": "Wpisz nazwę, której nie ma żaden inny użytkownik.",
         "time_window_incomplete": "Podaj początek i koniec przedziału czasu albo zostaw oba puste.",
         "time_window_empty": "Początek i koniec muszą się różnić. Dla przedziału przez północ ustaw koniec wcześniejszy niż początek.",
-        "invalid_range": "Dolna wartość nie może być większa od górnej.",
-        "extra_windows_note": "Dla tego użytkownika zapisano więcej przedziałów czasu: {windows}. Zapisanie zachowa tylko dwa pokazane tutaj przedziały; pozostałe zostaną usunięte."
+        "invalid_range": "Dolna wartość nie może być większa od górnej."
       }
     }
   },
@@ -239,6 +234,16 @@
       "options": {
         "weight": "Waga",
         "rules": "Reguły (czas i wartości)"
+      }
+    },
+    "time_window": {
+      "fields": {
+        "start": {
+          "name": "Początek"
+        },
+        "end": {
+          "name": "Koniec"
+        }
       }
     }
   },
