@@ -845,7 +845,7 @@ async def test_the_added_windows_field_is_a_list_of_start_and_end(
     assert set(config["fields"]) == {"start", "end"}
     for name in ("start", "end"):
         assert config["fields"][name]["required"] is True
-        assert isinstance(config["fields"][name]["selector"], TimeSelector)
+        assert config["fields"][name]["selector"] == {"time": {}}
     # The key points at strings that exist, so the dialog's labels are translated.
     strings = json.loads((_COMPONENT / "strings.json").read_text("utf-8"))
     translated = strings["selector"][config["translation_key"]]["fields"]

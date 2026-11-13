@@ -1028,8 +1028,10 @@ def _user_schema(step_id: str) -> vol.Schema:
             ObjectSelectorConfig(
                 multiple=True,
                 fields={
-                    _ITEM_START: {"selector": TimeSelector(), "required": True},
-                    _ITEM_END: {"selector": TimeSelector(), "required": True},
+                    # A plain config, not a TimeSelector: Home Assistant 2025.12
+                    # validates the items with `selector(config)`, which takes a dict.
+                    _ITEM_START: {"selector": {"time": {}}, "required": True},
+                    _ITEM_END: {"selector": {"time": {}}, "required": True},
                 },
                 label_field=_ITEM_START,
                 description_field=_ITEM_END,
