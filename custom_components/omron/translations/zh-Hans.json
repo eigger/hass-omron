@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "测量时间"
+      },
+      "user_last_decision": {
+        "name": "最近一次归属判定",
+        "state": {
+          "assigned": "已归属此用户",
+          "other_user": "已归属其他用户",
+          "ambiguous": "无法确定（匹配多人）",
+          "not_matched": "不匹配",
+          "no_time": "记录没有时间",
+          "left_over": "注册前遗留的记录",
+          "skipped": "已跳过"
+        }
       }
     },
     "binary_sensor": {

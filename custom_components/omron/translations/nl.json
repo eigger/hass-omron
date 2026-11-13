@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Gemeten om"
+      },
+      "user_last_decision": {
+        "name": "Laatste toewijzingsbeslissing",
+        "state": {
+          "assigned": "Aan deze gebruiker toegewezen",
+          "other_user": "Aan een andere gebruiker toegewezen",
+          "ambiguous": "Dubbelzinnig",
+          "not_matched": "Komt niet overeen",
+          "no_time": "Geen tijd in de meting",
+          "left_over": "Overgebleven van vóór registratie",
+          "skipped": "Overgeslagen"
+        }
       }
     },
     "binary_sensor": {

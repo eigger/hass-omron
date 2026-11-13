@@ -373,7 +373,7 @@ async def test_scale_users_are_unchanged(
     entry = _entry(hass, SCALE, ALICE_BOB)
     await _setup(hass, entry)
 
-    assert set(_own(hass, entry, "alice")) == {"weight", "bmi"}
+    assert set(_own(hass, entry, "alice")) == {"weight", "bmi", "last_decision"}
     registry = er.async_get(hass)
     assert not [
         e

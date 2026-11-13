@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Gemessen um"
+      },
+      "user_last_decision": {
+        "name": "Letzte Zuordnungsentscheidung",
+        "state": {
+          "assigned": "Diesem Benutzer zugeordnet",
+          "other_user": "Anderem Benutzer zugeordnet",
+          "ambiguous": "Nicht eindeutig",
+          "not_matched": "Passt nicht",
+          "no_time": "Keine Zeit im Datensatz",
+          "left_over": "Von vor der Anlage übrig",
+          "skipped": "Übersprungen"
+        }
       }
     },
     "binary_sensor": {

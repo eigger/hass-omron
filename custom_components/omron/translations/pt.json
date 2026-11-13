@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Medida às"
+      },
+      "user_last_decision": {
+        "name": "Última decisão de atribuição",
+        "state": {
+          "assigned": "Atribuída a este utilizador",
+          "other_user": "Atribuída a outro utilizador",
+          "ambiguous": "Ambígua",
+          "not_matched": "Não corresponde",
+          "no_time": "Sem hora no registo",
+          "left_over": "Restante de antes do registo",
+          "skipped": "Ignorada"
+        }
       }
     },
     "binary_sensor": {

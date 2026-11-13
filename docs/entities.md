@@ -107,6 +107,20 @@ With no user added, nothing here applies and the integration behaves as before. 
 | Scale | Weight, BMI (from the **Height** you enter for that user) | `assignment`, `measured_at`, `weight_kg`, `height_cm` (BMI) |
 | Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At, and the derived Pulse Pressure, Estimated MAP, BP Category (ACC/AHA), Shock Index, Rate Pressure Product | `assignment` (`rule`), `measured_at`, `irregular_pulse`, `body_movement` |
 
+Each user also has a diagnostic sensor, **Last assignment decision**, on every device kind. It moves on every measurement that was handled, whether or not the user got it, and says why when not; it keeps its value across restarts and is unknown until the first measurement after it was added. Its state is one of:
+
+| State | Meaning |
+|---|---|
+| `assigned` | the measurement was given to this user |
+| `other_user` | it was given to another user (the only one whose rules held, or the closer one by weight) |
+| `ambiguous` | nobody got it, and this user was one of those who fit: another user's rules held as well, or another user's time rule could not be checked (rules); too close to tell from the closest user (weight) |
+| `not_matched` | nobody got it, and this user's rules did not all hold (rules), or this user was not close enough (weight: `no_match`, `out_of_range`) |
+| `no_time` | nobody got it, this user has a time window and the record has no time |
+| `left_over` | the record was taken before the first user was registered, so on the first poll it only set where the device stood |
+| `skipped` | the record had no usable values (a weight, or systolic and diastolic) |
+
+When several apply, the one most specific to the user wins: a measurement that was given to somebody is `assigned` or `other_user` whatever the rules said; otherwise a rule of the user's own that failed (`not_matched`) comes before one that could not be checked (`no_time`), which comes before a match that was not enough (`ambiguous`). The attributes are `measured_at`, the measurement's values (`sys`, `dia`, `bpm`, or `weight`), `assigned_to` (the name of the user who got it, otherwise `null`), `reason` (as in the event below, when nobody got it) and this user's detail: `passed`, `failed` and `unknown` for rules, `reference_kg`, `difference_kg` and `tolerance_kg` for weight. The detail is left out for `left_over` and `skipped`.
+
 A monitor's user also gets the status flags of their last measurement as binary sensors: **Irregular Pulse**, **Body Movement**, **Cuff Fit** and **Improper Position**, with the same device class, icons and meaning as the device's own (**Cuff Fit** is `On` when the cuff was too loose, as there). Only the flags the model's records carry are created: HEM-6401T and HEM-6410T record just the first two, the other single-slot monitors all four. The derived sensors use the same formulas, units, rounding and guards as the device's own (a pulse-based metric is unknown for a measurement without a pulse; the pressure-based ones are unknown unless systolic is above diastolic). Every one of these is unknown until the user has a measurement.
 
 The sensors keep their last values across restarts. A measurement that cannot be given to one user is given to nobody, leaves every user's sensors alone and is announced as an `omron_unassigned_measurement` event:

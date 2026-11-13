@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Mätt klockan"
+      },
+      "user_last_decision": {
+        "name": "Senaste tilldelningsbeslut",
+        "state": {
+          "assigned": "Tilldelad den här användaren",
+          "other_user": "Tilldelad en annan användare",
+          "ambiguous": "Tvetydig",
+          "not_matched": "Matchar inte",
+          "no_time": "Ingen tid i posten",
+          "left_over": "Kvar från före registreringen",
+          "skipped": "Hoppades över"
+        }
       }
     },
     "binary_sensor": {
