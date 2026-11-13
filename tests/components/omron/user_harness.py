@@ -130,8 +130,7 @@ async def poll(
 
     async def fake_poll(device, preconnected_session=None):
         data.last_record = record
-        if records is not None:
-            data.last_records = records
+        data.last_records = records or {}
         if record is not None and record.get("weight") is not None:
             data.update_sensor(
                 "weight",

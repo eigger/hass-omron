@@ -114,6 +114,11 @@ _USER_SENSOR_KEYS = {
     "user_diastolic",
     "user_pulse",
     "user_measured_at",
+    "user_body_fat",
+    "user_skeletal_muscle",
+    "user_visceral_fat",
+    "user_basal_metabolic_rate",
+    "user_body_composition_bmi",
 }
 
 
@@ -143,6 +148,7 @@ def test_translation_files_share_the_multi_user_strings() -> None:
             "weight",
             "rules",
             "pressure",
+            "slot",
             "confirm_no_rules",
             "confirm_overlap",
         }
@@ -153,6 +159,7 @@ def test_translation_files_share_the_multi_user_strings() -> None:
             "invalid_name",
             "invalid_time_windows",
             "invalid_range",
+            "slot_taken",
         }
         for name in _USER_SENSOR_KEYS:
             assert "{user}" not in doc["entity"]["sensor"][name]["name"]

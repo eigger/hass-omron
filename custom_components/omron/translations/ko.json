@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "시간대 겹침",
           "description": "{name}의 시간대가 다음 사용자의 시간대와 겹칩니다: {others}. 둘 다에 맞는 측정값은 값 범위로 구분되지 않는 한 누구에게도 배정되지 않습니다. 그래도 저장하려면 제출을 누르세요."
+        },
+        "slot": {
+          "title": "사용자",
+          "description": "체중계에서 선택한 슬롯으로 측정한 값은 모두 이 사용자에게 배정됩니다. 이 사람이 체중계에서 사용하는 슬롯을 고르세요. 슬롯 하나는 사용자 한 명만 가질 수 있으며, 아무도 고르지 않은 슬롯의 측정은 무시됩니다. 키는 BMI 계산에만 쓰입니다.",
+          "data": {
+            "name": "이름",
+            "slot": "체중계 슬롯",
+            "height_cm": "키(cm, BMI용)"
+          }
         }
       },
       "error": {
         "invalid_name": "다른 사용자와 겹치지 않는 이름을 입력하세요.",
         "invalid_time_windows": "06:00-09:00, 18:00-21:00 형식으로 시간대를 입력하세요.",
-        "invalid_range": "하한은 상한보다 클 수 없습니다."
+        "invalid_range": "하한은 상한보다 클 수 없습니다.",
+        "slot_taken": "이 슬롯은 다른 사용자가 이미 사용 중입니다."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "측정 시각"
+      },
+      "user_body_fat": {
+        "name": "체지방률"
+      },
+      "user_skeletal_muscle": {
+        "name": "골격근량"
+      },
+      "user_visceral_fat": {
+        "name": "내장지방 레벨"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "기초대사량"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (체중계)"
       }
     },
     "binary_sensor": {

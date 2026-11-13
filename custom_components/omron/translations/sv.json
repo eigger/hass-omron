@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Överlappande tidsfönster",
           "description": "Tidsfönstren för {name} överlappar med dem för: {others}. En mätning som passar båda tilldelas ingen, om inte ett värdeintervall skiljer dem åt. Tryck på Skicka för att spara ändå."
+        },
+        "slot": {
+          "title": "Användare",
+          "description": "Varje mätning som görs på vågens valda plats går till den här användaren. Välj den plats som personen använder på vågen. En plats kan bara tillhöra en användare; mätningar från en plats som ingen har valt ignoreras. Längden används bara för BMI.",
+          "data": {
+            "name": "Namn",
+            "slot": "Plats på vågen",
+            "height_cm": "Längd (cm, för BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Ange ett namn som ingen annan användare har.",
         "invalid_time_windows": "Ange tidsfönster som 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Det lägre värdet får inte vara högre än det övre."
+        "invalid_range": "Det lägre värdet får inte vara högre än det övre.",
+        "slot_taken": "En annan användare har redan den här platsen."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Mätt klockan"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (våg)"
       }
     },
     "binary_sensor": {

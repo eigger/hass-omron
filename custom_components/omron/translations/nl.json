@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Overlappende tijdvensters",
           "description": "De tijdvensters van {name} overlappen met die van: {others}. Een meting die bij beide past, wordt aan niemand toegewezen, tenzij een waardebereik ze onderscheidt. Druk op Verzenden om toch op te slaan."
+        },
+        "slot": {
+          "title": "Gebruiker",
+          "description": "Elke meting op de gekozen plek van de weegschaal gaat naar deze gebruiker. Kies de plek die deze persoon op de weegschaal gebruikt. Een plek kan maar van één gebruiker zijn; metingen van een plek die niemand heeft gekozen worden genegeerd. De lengte wordt alleen voor de BMI gebruikt.",
+          "data": {
+            "name": "Naam",
+            "slot": "Plek op de weegschaal",
+            "height_cm": "Lengte (cm, voor de BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Voer een naam in die geen andere gebruiker heeft.",
         "invalid_time_windows": "Voer tijdvensters in zoals 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "De ondergrens mag niet hoger zijn dan de bovengrens."
+        "invalid_range": "De ondergrens mag niet hoger zijn dan de bovengrens.",
+        "slot_taken": "Een andere gebruiker heeft deze plek al."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Gemeten om"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (weegschaal)"
       }
     },
     "binary_sensor": {

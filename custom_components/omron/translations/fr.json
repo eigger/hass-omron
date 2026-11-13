@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Plages horaires qui se chevauchent",
           "description": "Les plages horaires de {name} chevauchent celles de : {others}. Une mesure qui convient aux deux n'est attribuée à personne, sauf si une plage de valeurs les distingue. Appuyez sur Valider pour enregistrer quand même."
+        },
+        "slot": {
+          "title": "Utilisateur",
+          "description": "Chaque mesure prise sur l'emplacement choisi de la balance est attribuée à cet utilisateur. Choisissez l'emplacement que cette personne utilise sur la balance. Un emplacement ne peut appartenir qu'à un seul utilisateur ; les mesures d'un emplacement que personne n'a choisi sont ignorées. La taille ne sert qu'à l'IMC.",
+          "data": {
+            "name": "Nom",
+            "slot": "Emplacement de la balance",
+            "height_cm": "Taille (cm, pour l'IMC)"
+          }
         }
       },
       "error": {
         "invalid_name": "Saisissez un nom qu'aucun autre utilisateur n'a.",
         "invalid_time_windows": "Saisissez des plages horaires comme 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "La valeur basse ne doit pas dépasser la valeur haute."
+        "invalid_range": "La valeur basse ne doit pas dépasser la valeur haute.",
+        "slot_taken": "Un autre utilisateur a déjà cet emplacement."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Mesuré à"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (balance)"
       }
     },
     "binary_sensor": {

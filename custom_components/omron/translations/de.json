@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Überschneidende Zeitfenster",
           "description": "Die Zeitfenster von {name} überschneiden sich mit denen von: {others}. Eine Messung, die zu beiden passt, wird niemandem zugeordnet, sofern kein Wertebereich sie unterscheidet. Drücken Sie Senden, um trotzdem zu speichern."
+        },
+        "slot": {
+          "title": "Nutzer",
+          "description": "Jede Messung auf dem gewählten Platz der Waage wird diesem Nutzer zugeordnet. Wähle den Platz, den diese Person an der Waage verwendet. Ein Platz kann nur einem Nutzer gehören; Messungen eines Platzes, den niemand gewählt hat, werden ignoriert. Die Größe wird nur für den BMI verwendet.",
+          "data": {
+            "name": "Name",
+            "slot": "Platz an der Waage",
+            "height_cm": "Größe (cm, für den BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Geben Sie einen Namen ein, den kein anderer Nutzer hat.",
         "invalid_time_windows": "Geben Sie Zeitfenster wie 06:00-09:00, 18:00-21:00 ein.",
-        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen."
+        "invalid_range": "Der untere Wert darf nicht über dem oberen Wert liegen.",
+        "slot_taken": "Dieser Platz gehört bereits einem anderen Nutzer."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Gemessen um"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (Waage)"
       }
     },
     "binary_sensor": {

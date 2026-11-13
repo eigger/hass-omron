@@ -27,12 +27,17 @@ CONF_ASSIGNMENT_STRATEGY: Final = "assignment_strategy"
 CONF_WEIGHT_TOLERANCE_PCT: Final = "weight_tolerance_pct"
 STRATEGY_WEIGHT: Final = "weight"
 STRATEGY_RULES: Final = "rules"
+# A body-composition scale knows the slot a measurement was taken on, so each
+# user names a slot and no guessing is involved. Not a choice: it is the only
+# strategy of such a scale.
+STRATEGY_SLOT: Final = "slot"
 EVENT_UNASSIGNED_MEASUREMENT: Final = "omron_unassigned_measurement"
 
 # Subentry data keys.
 CONF_USER_NAME: Final = "name"
 CONF_USER_EXPECTED_WEIGHT: Final = "expected_weight"
 CONF_USER_HEIGHT: Final = "height_cm"
+CONF_USER_SLOT: Final = "slot"
 CONF_USER_TIME_WINDOWS: Final = "time_windows"
 CONF_USER_WEIGHT_MIN: Final = "weight_min"
 CONF_USER_WEIGHT_MAX: Final = "weight_max"

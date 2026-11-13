@@ -100,7 +100,7 @@ A poll normally surfaces only the newest reading. On the models listed below, th
 
 The HN-300T2 scale and blood pressure monitors that keep a single user profile (for example the HEM-7600T) cannot tell people apart: every measurement looks the same whoever took it. If several people share such a device, add them as **users**. A user is a sub-entry of the device (**Add user** on the integration page) with a sub-device of its own, and each new measurement is given to one user, whose sensors then show it. The sensors of the device itself are unchanged and still show every measurement, so they duplicate the user's sensors under a different device name.
 
-With no user added, nothing here applies and the integration behaves as before. Multi-profile cuffs (the ones with the per-slot names above) and body-composition scales (HBF) do not offer users.
+With no user added, nothing here applies and the integration behaves as before. Multi-profile cuffs (the ones with the per-slot names above) do not offer users. Body-composition scales (HBF) offer users in another way: each user claims one of the scale's own slots, see [Users of a multi-slot scale](#users-of-a-multi-slot-body-composition-scale).
 
 **Sensors of each user**
 
@@ -134,3 +134,13 @@ The sensors keep their last values across restarts. A measurement that cannot be
 - For a monitor, the device's own sensors may show a reading that was just taken live over Bluetooth while the user's sensors show the record the monitor stored; the two can differ for a moment or by a reading. Only the stored record is assigned.
 - Assignment is not undone: a measurement given to the wrong user (or left unassigned) is not moved later, and there is no way to pick the current user. The home-presence of people is not used.
 - Removing a user removes their sensors and what was learned about them; their earlier states stay in the Home Assistant history. Removing the last user forgets where the device stood, so the next one starts from a baseline again.
+
+## Users of a multi-slot body-composition scale
+
+The HBF-222T keeps four user slots and knows which one a measurement was taken on, so nothing has to be guessed. Add a **user** for each person (**Add user** on the integration page), choose the scale slot that person uses and, optionally, their height for the BMI. A measurement of a slot goes to the user who chose it; a measurement of a slot nobody chose is ignored (no event, no sensor). A slot can belong to one user only. The scale's own sensors, with the slot names under **Configure**, are unchanged and keep showing every slot.
+
+Each user's sensors: **Weight**, **BMI** (from the height you entered), and the values the scale's records carry, named as the scale's own sensors: **Body Fat**, **Skeletal Muscle**, **Visceral Fat Level**, **Basal Metabolic Rate**, and the scale's own **BMI (scale)**. Attributes: `assignment` (`slot`), `measured_at`, and for the BMI `weight_kg` and `height_cm`.
+
+- Both ways of reading the scale work: with **Publish every measurement stored since the last poll** on, every stored measurement of the claimed slots is assigned, oldest first by the record number of its slot; with it off, only the newest measurement of each slot is looked at per poll, and a measurement taken between two polls that is not the newest is not assigned. Where the scale stands (the baseline) is kept per slot, so the first measurement after you add the first user may not be assigned, and a slot that shows up for the first time starts from its own baseline.
+- Nothing here has been tried on a scale: it follows the slot numbers of the scale's own records. A scale has to report the slot correctly for the right person to get the measurement.
+

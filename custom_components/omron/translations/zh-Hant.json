@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "時段重疊",
           "description": "{name} 的時段與以下使用者的時段重疊：{others}。同時符合兩者的測量不會分配給任何人，除非數值範圍能將其區分。按一下提交仍然儲存。"
+        },
+        "slot": {
+          "title": "使用者",
+          "description": "在體重計所選槽位上完成的每次測量都會分配給此使用者。請選擇這個人在體重計上使用的槽位。一個槽位只能屬於一位使用者;沒有人選擇的槽位的測量會被忽略。身高僅用於計算 BMI。",
+          "data": {
+            "name": "名稱",
+            "slot": "體重計槽位",
+            "height_cm": "身高（cm，用於 BMI）"
+          }
         }
       },
       "error": {
         "invalid_name": "請輸入其他使用者沒有使用的名稱。",
         "invalid_time_windows": "請輸入時段，例如 06:00-09:00, 18:00-21:00。",
-        "invalid_range": "下限不能大於上限。"
+        "invalid_range": "下限不能大於上限。",
+        "slot_taken": "此槽位已被其他使用者占用。"
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "測量時間"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI（體重計）"
       }
     },
     "binary_sensor": {

@@ -116,11 +116,11 @@ def _unique_ids(hass: HomeAssistant, entry: MockConfigEntry) -> set[str]:
         (SCALE, True),
         (CUFF, True),
         (MULTI_SLOT_CUFF, False),
-        # Body-composition scales are out of scope.
-        ("HBF-222T", False),
+        # A body-composition scale offers users by slot.
+        ("HBF-222T", True),
     ],
 )
-async def test_only_single_slot_devices_offer_users(
+async def test_only_these_devices_offer_users(
     hass: HomeAssistant, enable_bluetooth: None, model: str, offered: bool
 ) -> None:
     entry = _entry(hass, model)

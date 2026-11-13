@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "時間帯の重複",
           "description": "{name} の時間帯が次のユーザーの時間帯と重なっています: {others}。両方に一致する測定値は、値の範囲で区別できない限り誰にも割り当てられません。このまま保存するには送信を押してください。"
+        },
+        "slot": {
+          "title": "ユーザー",
+          "description": "体重計の選択したスロットで測定された値は、すべてこのユーザーに割り当てられます。この人が体重計で使うスロットを選んでください。1つのスロットを使えるのは1人のユーザーだけで、誰も選んでいないスロットの測定は無視されます。身長は BMI の計算にのみ使われます。",
+          "data": {
+            "name": "名前",
+            "slot": "体重計のスロット",
+            "height_cm": "身長（cm、BMI 用）"
+          }
         }
       },
       "error": {
         "invalid_name": "他のユーザーと重複しない名前を入力してください。",
         "invalid_time_windows": "06:00-09:00, 18:00-21:00 のように時間帯を入力してください。",
-        "invalid_range": "下限は上限を超えないようにしてください。"
+        "invalid_range": "下限は上限を超えないようにしてください。",
+        "slot_taken": "このスロットは別のユーザーが既に使っています。"
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "測定日時"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI（体重計）"
       }
     },
     "binary_sensor": {

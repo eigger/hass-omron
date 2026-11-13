@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Franjas horarias solapadas",
           "description": "Las franjas horarias de {name} se solapan con las de: {others}. Una medición que encaje con ambos no se asigna a nadie salvo que un rango de valores los distinga. Pulsa Enviar para guardar de todos modos."
+        },
+        "slot": {
+          "title": "Usuario",
+          "description": "Cada medición hecha en la posición elegida de la báscula se asigna a este usuario. Elige la posición que usa esta persona en la báscula. Una posición solo puede pertenecer a un usuario; las mediciones de una posición que nadie ha elegido se ignoran. La altura solo se usa para el IMC.",
+          "data": {
+            "name": "Nombre",
+            "slot": "Posición de la báscula",
+            "height_cm": "Altura (cm, para el IMC)"
+          }
         }
       },
       "error": {
         "invalid_name": "Introduce un nombre que no tenga otro usuario.",
         "invalid_time_windows": "Introduce franjas horarias como 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "El valor inferior no puede ser mayor que el superior."
+        "invalid_range": "El valor inferior no puede ser mayor que el superior.",
+        "slot_taken": "Otro usuario ya tiene esta posición."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Medido a las"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (báscula)"
       }
     },
     "binary_sensor": {

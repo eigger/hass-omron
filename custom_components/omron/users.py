@@ -21,10 +21,13 @@ from homeassistant.helpers.storage import Store
 from .assignment import (
     KIND_MATCHED,
     KIND_NEAREST,
+    REASON_SLOT_UNCLAIMED,
     Assignment,
     RuleUser,
+    SlotUser,
     WeightUser,
     assign_by_rules,
+    assign_by_slot,
     assign_by_weight,
     parse_windows,
     remember_weight,
@@ -36,6 +39,7 @@ from .const import (
     CONF_USER_DIA_MIN,
     CONF_USER_EXPECTED_WEIGHT,
     CONF_USER_NAME,
+    CONF_USER_SLOT,
     CONF_USER_SYS_MAX,
     CONF_USER_SYS_MIN,
     CONF_USER_TIME_WINDOWS,
@@ -45,6 +49,7 @@ from .const import (
     DOMAIN,
     EVENT_UNASSIGNED_MEASUREMENT,
     STRATEGY_RULES,
+    STRATEGY_SLOT,
     STRATEGY_WEIGHT,
     SUBENTRY_USER,
     WEIGHT_TOLERANCE_PCT_DEFAULT,
@@ -59,19 +64,75 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-STORE_VERSION = 1
+STORE_VERSION = 2
 
 # Values of a measurement that identify it, and that the event carries.
 _SCALE_VALUES = ("weight",)
+_BODY_VALUES = (
+    "weight",
+    "body_fat",
+    "skeletal_muscle",
+    "visceral_fat",
+    "basal_metabolic_rate",
+    "bmi",
+)
 _PRESSURE_VALUES = ("sys", "dia", "bpm", "irregular_pulse", "body_movement")
 
 
+def _value_keys(kind: MeasurementKind) -> tuple[str, ...]:
+    """The values a measurement of this kind of device carries."""
+    if kind == MeasurementKind.BLOOD_PRESSURE:
+        return _PRESSURE_VALUES
+    if kind == MeasurementKind.BODY_COMPOSITION:
+        return _BODY_VALUES
+    return _SCALE_VALUES
+
+
+def _migrate_v1(old: dict[str, Any]) -> dict[str, Any]:
+    """Version 1 kept one fingerprint and one sequence; now each is per slot.
+
+    A single-slot device's only slot is 1. What each user learned and last
+    showed is carried over unchanged.
+    """
+    data = dict(old)
+    fingerprint = data.pop("fingerprint", None)
+    last_seq = data.pop("last_seq", None)
+    data["fingerprints"] = {"1": fingerprint} if isinstance(fingerprint, list) else {}
+    data["last_seq"] = (
+        {"1": last_seq}
+        if isinstance(last_seq, int) and not isinstance(last_seq, bool)
+        else {}
+    )
+    return data
+
+
+class _UsersStore(Store[dict[str, Any]]):
+    async def _async_migrate_func(
+        self, old_major_version: int, old_minor_version: int, old_data: dict[str, Any]
+    ) -> dict[str, Any]:
+        if old_major_version == 1:
+            return _migrate_v1(old_data)
+        raise NotImplementedError(
+            f"Unknown users store version {old_major_version}.{old_minor_version}"
+        )
+
+
 def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
-    return Store(hass, STORE_VERSION, f"{DOMAIN}.users_{entry_id}")
+    return _UsersStore(hass, STORE_VERSION, f"{DOMAIN}.users_{entry_id}")
+
+
+def _device_config(entry: OmronConfigEntry | Any):
+    return get_device_config(entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL))
 
 
 def strategy_for(entry: OmronConfigEntry | Any, *, is_scale: bool) -> str:
-    """The entry's assignment strategy: a scale's choice, a cuff's only one."""
+    """The entry's assignment strategy.
+
+    A body-composition scale only has the slot it measured on; a scale of one
+    kind of reading chooses between weight and rules; a cuff only has rules.
+    """
+    if _device_config(entry).measurement_kind == MeasurementKind.BODY_COMPOSITION:
+        return STRATEGY_SLOT
     if not is_scale:
         return STRATEGY_RULES
     chosen = entry.options.get(CONF_ASSIGNMENT_STRATEGY)
@@ -79,12 +140,14 @@ def strategy_for(entry: OmronConfigEntry | Any, *, is_scale: bool) -> str:
 
 
 def supports_users(entry: OmronConfigEntry | Any) -> bool:
-    """Whether users make sense: a weight scale or a cuff with one slot.
+    """Whether users make sense: the device cannot tell people apart, or can name a slot.
 
-    The device cannot tell people apart then. Body-composition scales are not
-    covered.
+    A weight scale or a cuff with one slot cannot tell people apart. A
+    body-composition scale has slots, and a user is the one who claimed a slot.
     """
-    config = get_device_config(entry.data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL))
+    config = _device_config(entry)
+    if config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+        return True
     return config.num_users == 1 and config.measurement_kind in (
         MeasurementKind.WEIGHT,
         MeasurementKind.BLOOD_PRESSURE,
@@ -155,15 +218,26 @@ def order_events(events: list[dict[str, Any]], last_seq: int | None) -> list[dic
 class OmronUsers:
     """The learned state of an entry's users, kept in one Store."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str, strategy: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry_id: str,
+        strategy: str,
+        *,
+        multi_slot: bool = False,
+    ) -> None:
         self._hass = hass
         self._entry_id = entry_id
         self.strategy = strategy
-        # Fingerprint of the newest record seen, None until the first poll
-        # after the first user was added (that poll only sets the baseline).
-        self.fingerprint: list[Any] | None = None
-        # Last handled cuff sequence, only while stored-record sync is on.
-        self.last_seq: int | None = None
+        # Whether the device reports the newest record of each slot (a
+        # multi-slot scale) rather than one newest record.
+        self.multi_slot = multi_slot
+        # Per device slot (1 for a single-slot device): fingerprint of the
+        # newest record seen. A slot is absent until the first poll after the
+        # first user was added (that poll only sets the baseline).
+        self.fingerprints: dict[int, list[Any]] = {}
+        # Per slot: last handled sequence, only while stored-record sync is on.
+        self.last_seq: dict[int, int] = {}
         # Per subentry id: recent assigned weights (oldest first) and the last
         # values, which a restart restores the sensors from.
         self.recent: dict[str, list[float]] = {}
@@ -174,10 +248,12 @@ class OmronUsers:
         stored = await _store(self._hass, self._entry_id).async_load()
         if not isinstance(stored, dict):
             return
-        fingerprint = stored.get("fingerprint")
-        self.fingerprint = list(fingerprint) if isinstance(fingerprint, list) else None
-        last_seq = stored.get("last_seq")
-        self.last_seq = last_seq if isinstance(last_seq, int) else None
+        for slot, fingerprint in _slot_map(stored.get("fingerprints")).items():
+            if isinstance(fingerprint, list):
+                self.fingerprints[slot] = list(fingerprint)
+        for slot, sequence in _slot_map(stored.get("last_seq")).items():
+            if isinstance(sequence, int) and not isinstance(sequence, bool):
+                self.last_seq[slot] = sequence
         users = stored.get("users")
         if not isinstance(users, dict):
             return
@@ -199,8 +275,10 @@ class OmronUsers:
     def as_dict(self) -> dict[str, Any]:
         return {
             "strategy": self.strategy,
-            "fingerprint": self.fingerprint,
-            "last_seq": self.last_seq,
+            "fingerprints": {
+                str(slot): list(fp) for slot, fp in sorted(self.fingerprints.items())
+            },
+            "last_seq": {str(slot): seq for slot, seq in sorted(self.last_seq.items())},
             "users": {
                 user_id: {
                     "recent": list(self.recent.get(user_id, [])),
@@ -214,10 +292,22 @@ class OmronUsers:
         await _store(self._hass, self._entry_id).async_save(self.as_dict())
 
 
+def _slot_map(raw: Any) -> dict[int, Any]:
+    """``{"1": x}`` from the Store back to ``{1: x}``, dropping odd keys."""
+    result: dict[int, Any] = {}
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            try:
+                result[int(key)] = value
+            except (TypeError, ValueError):
+                continue
+    return result
+
+
 async def async_setup_users(
     hass: HomeAssistant, entry: OmronConfigEntry, *, is_scale: bool
 ) -> OmronUsers | None:
-    """Load the users of a single-slot device; None if it has none registered.
+    """Load the users of a device; None if it has none registered.
 
     Dropping the Store when the last user is gone makes the next registration
     start again from a baseline.
@@ -229,7 +319,12 @@ async def async_setup_users(
         if supports_users(entry):
             await async_remove_users(hass, entry.entry_id)
         return None
-    users = OmronUsers(hass, entry.entry_id, strategy_for(entry, is_scale=is_scale))
+    users = OmronUsers(
+        hass,
+        entry.entry_id,
+        strategy_for(entry, is_scale=is_scale),
+        multi_slot=_device_config(entry).num_users > 1,
+    )
     await users.async_load(set(subentries))
     if users.strategy == STRATEGY_WEIGHT:
         # A user added while the scale assigned by rules has no usual weight,
@@ -303,6 +398,22 @@ def rule_users(entry: OmronConfigEntry | Any) -> list[RuleUser]:
     return members
 
 
+def slot_users(entry: OmronConfigEntry | Any) -> list[SlotUser]:
+    members = []
+    for user_id, subentry in user_subentries(entry).items():
+        slot = subentry.data.get(CONF_USER_SLOT)
+        if isinstance(slot, bool) or not isinstance(slot, int):
+            continue
+        members.append(
+            SlotUser(
+                user_id=user_id,
+                name=subentry.data.get(CONF_USER_NAME) or subentry.title,
+                slot=slot,
+            )
+        )
+    return members
+
+
 # --- the poll hook --------------------------------------------------------------
 
 
@@ -314,14 +425,21 @@ def _usable(record: dict[str, Any], *, is_scale: bool) -> bool:
     return isinstance(record.get("sys"), int) and isinstance(record.get("dia"), int)
 
 
-def _last_values(record: dict[str, Any], assignment: Assignment, *, is_scale: bool):
-    values: dict[str, Any] = {
-        key: record.get(key)
-        for key in (_SCALE_VALUES if is_scale else _PRESSURE_VALUES)
-    }
+def _last_values(
+    record: dict[str, Any], assignment: Assignment, keys: tuple[str, ...]
+) -> dict[str, Any]:
+    values: dict[str, Any] = {key: record.get(key) for key in keys}
     values["measured_at"] = record.get("measured_at")
     values["assignment"] = assignment.kind
     return values
+
+
+def _newest_by_slot(users: OmronUsers, device_data: Any) -> dict[int, dict[str, Any]]:
+    """The newest EEPROM record of each slot the last readout decoded."""
+    if users.multi_slot:
+        return dict(device_data.last_records)
+    record = device_data.last_record
+    return {1: record} if record is not None else {}
 
 
 async def async_assign_measurements(
@@ -335,6 +453,8 @@ async def async_assign_measurements(
     newest record, if it is not the one handled last. Never both, or a record
     would be handed out twice. The newest record's fingerprint is kept in
     either mode, so switching the sync on or off hands nothing out again.
+    Everything is kept per device slot: a single-slot device has slot 1, a
+    multi-slot scale one baseline and one sequence for each of its slots.
 
     Order: assign, fire the events, save. A restart in between repeats an
     event rather than losing one.
@@ -344,44 +464,51 @@ async def async_assign_measurements(
     if users is None:
         return
     device_data = runtime.device_data
-    record = device_data.last_record
-    fingerprint = record_fingerprint(record) if record is not None else None
-    if fingerprint is None:
-        # Nothing was read (or nothing usable): leave the baseline as it is and
-        # hand out nothing.
-        return
     pending = device_data.pending_history
     sync_on = device_data.history_last_seq is not None
     before = users.as_dict()
     is_scale = runtime.is_scale
 
-    to_assign: list[dict[str, Any]] = []
-    if users.fingerprint is None:
-        # First poll since the first user was added: whatever the device still
-        # holds is older than the registration, so only note where it stands.
-        if sync_on and pending is not None:
-            users.last_seq = pending["next_seq"].get(1)
-    elif sync_on:
-        if pending is not None:
-            if pending.get("rebased", {}).get(1):
-                # The cuff's counter went back: the old sequence means nothing.
-                users.last_seq = pending["next_seq"].get(1)
-            to_assign = order_events(pending["events"], users.last_seq)
-    else:
-        # Without the sync the cuff has no usable sequence, and one left from
-        # an earlier sync would stop a later one from starting clean.
-        users.last_seq = None
-        if fingerprint != users.fingerprint:
-            to_assign = [record]
-    users.fingerprint = fingerprint
+    to_assign: list[tuple[int, dict[str, Any]]] = []
+    for slot, record in sorted(_newest_by_slot(users, device_data).items()):
+        fingerprint = record_fingerprint(record)
+        if fingerprint is None:
+            # Nothing was read (or nothing usable): leave this slot's baseline
+            # as it is and hand out nothing.
+            continue
+        if slot not in users.fingerprints:
+            # First poll since the first user was added: whatever the device
+            # still holds is older than the registration, so only note where
+            # it stands.
+            if sync_on and pending is not None:
+                _set_last_seq(users, slot, pending["next_seq"].get(slot))
+        elif sync_on:
+            if pending is not None:
+                if pending.get("rebased", {}).get(slot):
+                    # The device's counter went back: the old sequence means
+                    # nothing.
+                    _set_last_seq(users, slot, pending["next_seq"].get(slot))
+                events = [e for e in pending["events"] if e.get("user", slot) == slot]
+                to_assign.extend(
+                    (slot, event)
+                    for event in order_events(events, users.last_seq.get(slot))
+                )
+        else:
+            # Without the sync the device has no usable sequence, and one left
+            # from an earlier sync would stop a later one from starting clean.
+            users.last_seq.pop(slot, None)
+            if fingerprint != users.fingerprints[slot]:
+                to_assign.append((slot, record))
+        users.fingerprints[slot] = fingerprint
 
     strategy = users.strategy
+    value_keys = _value_keys(runtime.measurement_kind)
     tolerance = float(
         entry.options.get(CONF_WEIGHT_TOLERANCE_PCT, WEIGHT_TOLERANCE_PCT_DEFAULT)
     )
-    for measurement in to_assign:
+    for slot, measurement in to_assign:
         if sync_on and isinstance(measurement.get("sequence"), int):
-            users.last_seq = measurement["sequence"]
+            users.last_seq[slot] = measurement["sequence"]
         if not _usable(measurement, is_scale=is_scale):
             _LOGGER.debug("Skipping a record without usable values: %s", measurement)
             continue
@@ -391,12 +518,17 @@ async def async_assign_measurements(
                 weight_users(users, entry),
                 tolerance,
             )
+        elif strategy == STRATEGY_SLOT:
+            assignment = assign_by_slot(slot, slot_users(entry))
+            if assignment.reason == REASON_SLOT_UNCLAIMED:
+                # Nobody wants this slot: left alone, not announced.
+                continue
         else:
             assignment = assign_by_rules(measurement, rule_users(entry))
         if assignment.user_id is None:
             hass.bus.async_fire(
                 EVENT_UNASSIGNED_MEASUREMENT,
-                _unassigned_event(hass, entry, measurement, assignment, is_scale),
+                _unassigned_event(hass, entry, measurement, assignment, value_keys),
             )
             continue
         user_id = assignment.user_id
@@ -404,7 +536,7 @@ async def async_assign_measurements(
             users.recent[user_id] = remember_weight(
                 users.recent.get(user_id, []), float(measurement["weight"])
             )
-        users.last[user_id] = _last_values(measurement, assignment, is_scale=is_scale)
+        users.last[user_id] = _last_values(measurement, assignment, value_keys)
         async_dispatcher_send(hass, signal_user_updated(entry.entry_id, user_id))
         # Each record gets its own state change, as the stored-record sync does.
         await asyncio.sleep(0)
@@ -413,12 +545,19 @@ async def async_assign_measurements(
         await users.async_save()
 
 
+def _set_last_seq(users: OmronUsers, slot: int, sequence: int | None) -> None:
+    if sequence is None:
+        users.last_seq.pop(slot, None)
+    else:
+        users.last_seq[slot] = sequence
+
+
 def _unassigned_event(
     hass: HomeAssistant,
     entry: OmronConfigEntry,
     measurement: dict[str, Any],
     assignment: Assignment,
-    is_scale: bool,
+    value_keys: tuple[str, ...],
 ) -> dict[str, Any]:
     device = async_entry_device(hass, entry)
     return {
@@ -427,10 +566,7 @@ def _unassigned_event(
         "measured_at": measurement.get("measured_at"),
         "device_time": measurement.get("device_time"),
         "sequence": measurement.get("sequence"),
-        **{
-            key: measurement.get(key)
-            for key in (_SCALE_VALUES if is_scale else _PRESSURE_VALUES)
-        },
+        **{key: measurement.get(key) for key in value_keys},
         "reason": assignment.reason,
         "candidates": assignment.candidates,
     }

@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Overlapping time windows",
           "description": "The time windows of {name} overlap with those of: {others}. A measurement that fits both is given to nobody unless a value range tells them apart. Press Submit to save anyway."
+        },
+        "slot": {
+          "title": "User",
+          "description": "Each measurement taken on the chosen slot of the scale goes to this user. Pick the slot this person uses on the scale. A slot can belong to one user only; measurements of a slot nobody picked are ignored. The height is only used for the BMI.",
+          "data": {
+            "name": "Name",
+            "slot": "Scale slot",
+            "height_cm": "Height (cm, for BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Enter a name that no other user has.",
         "invalid_time_windows": "Enter time windows like 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "The lower value must not be above the upper value."
+        "invalid_range": "The lower value must not be above the upper value.",
+        "slot_taken": "Another user already has this slot."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Measured At"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (scale)"
       }
     },
     "binary_sensor": {

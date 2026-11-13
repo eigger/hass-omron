@@ -145,6 +145,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         # replaced it in the published sensors is not in here. ``None`` until a
         # readout decodes one, and again when the next readout does not.
         self.last_record: dict[str, Any] | None = None
+        # The same for a profile with several user slots: the newest EEPROM
+        # record of each slot the readout decoded, by slot (1-based), shaped
+        # like a stored-record event with ``sequence`` None.
+        self.last_records: dict[int, dict[str, Any]] = {}
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -1134,12 +1138,17 @@ class OmronBluetoothDeviceData(BluetoothData):
         with trace.timed("readout"):
             multi_user_mode = self._device_config.num_users > 1
             self.last_record = None
+            self.last_records = {}
             record: dict[str, Any] | None = None
             latest_by_user: dict[int, dict[str, Any]] = {}
             eeprom_record_decoded = False
             if multi_user_mode:
                 latest_by_user = await self._driver.get_latest_records_per_user(session)
                 eeprom_record_decoded = bool(latest_by_user)
+                self.last_records = {
+                    slot: {**self._history_event(slot, slot_record), "sequence": None}
+                    for slot, slot_record in latest_by_user.items()
+                }
                 if not latest_by_user and self._device_config.is_blood_pressure:
                     # Diagnostic only: the classic EEPROM index/full-scan path found
                     # nothing usable. Probe the standard BLE Blood Pressure Service
@@ -1432,6 +1441,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             self.pending_history = None
             self.history_updates = []
             self.last_record = None
+            self.last_records = {}
             # This poll's own breakdown. An adopted session already carries the
             # pairing session's trace; the link is copied across and the stages
             # are swapped, so what this poll publishes matches its own duration.

@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Janelas de tempo sobrepostas",
           "description": "As janelas de tempo de {name} sobrepõem-se às de: {others}. Uma medição que sirva a ambos não é atribuída a ninguém, a menos que um intervalo de valores os distinga. Prima Submeter para guardar mesmo assim."
+        },
+        "slot": {
+          "title": "Utilizador",
+          "description": "Cada medição feita na posição escolhida da balança é atribuída a este utilizador. Escolha a posição que esta pessoa usa na balança. Uma posição só pode pertencer a um utilizador; as medições de uma posição que ninguém escolheu são ignoradas. A altura só é usada para o IMC.",
+          "data": {
+            "name": "Nome",
+            "slot": "Posição da balança",
+            "height_cm": "Altura (cm, para o IMC)"
+          }
         }
       },
       "error": {
         "invalid_name": "Introduza um nome que nenhum outro utilizador tenha.",
         "invalid_time_windows": "Introduza janelas de tempo como 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "O valor mínimo não pode ser superior ao máximo."
+        "invalid_range": "O valor mínimo não pode ser superior ao máximo.",
+        "slot_taken": "Outro utilizador já tem esta posição."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Medida às"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (balança)"
       }
     },
     "binary_sensor": {

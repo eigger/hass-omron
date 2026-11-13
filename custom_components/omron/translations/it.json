@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Fasce orarie sovrapposte",
           "description": "Le fasce orarie di {name} si sovrappongono a quelle di: {others}. Una misurazione che corrisponde a entrambi non viene assegnata a nessuno, a meno che un intervallo di valori li distingua. Premi Invia per salvare comunque."
+        },
+        "slot": {
+          "title": "Utente",
+          "description": "Ogni misurazione effettuata sulla posizione scelta della bilancia viene assegnata a questo utente. Scegli la posizione che questa persona usa sulla bilancia. Una posizione può appartenere a un solo utente; le misurazioni di una posizione che nessuno ha scelto vengono ignorate. L'altezza serve solo per il BMI.",
+          "data": {
+            "name": "Nome",
+            "slot": "Posizione della bilancia",
+            "height_cm": "Altezza (cm, per il BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Inserisci un nome che nessun altro utente ha.",
         "invalid_time_windows": "Inserisci fasce orarie come 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Il valore minimo non può superare il valore massimo."
+        "invalid_range": "Il valore minimo non può superare il valore massimo.",
+        "slot_taken": "Un altro utente ha già questa posizione."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Misurata alle"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (bilancia)"
       }
     },
     "binary_sensor": {

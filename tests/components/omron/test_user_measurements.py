@@ -250,8 +250,8 @@ async def test_latest_one_by_weight_first_poll_only_sets_the_baseline(
     assert _sensor(hass, entry, "alice", "weight").state == "unknown"
     assert not unassigned
     stored = _stored(hass_storage, entry)
-    assert stored["fingerprint"] == ["2026-09-20T07:30:00", 62.4]
-    assert stored["last_seq"] is None
+    assert stored["fingerprints"] == {"1": ["2026-09-20T07:30:00", 62.4]}
+    assert stored["last_seq"] == {}
     assert all(not user["recent"] for user in stored["users"].values())
 
     # The same record again is still not new.
@@ -282,7 +282,7 @@ async def test_latest_one_by_weight_assigns_the_nearest_user(
     assert not unassigned
     stored = _stored(hass_storage, entry)
     assert stored["users"]["alice"]["recent"] == [62.4]
-    assert stored["fingerprint"] == ["2026-09-21T07:30:00", 62.4]
+    assert stored["fingerprints"] == {"1": ["2026-09-21T07:30:00", 62.4]}
 
     await _poll(hass, entry, _scale("2026-09-22T19:00:00", 80.6))
     assert _sensor(hass, entry, "bob", "weight").state == "80.6"
@@ -413,7 +413,7 @@ async def test_an_unreadable_poll_leaves_the_baseline_alone(
     await _poll(hass, entry, None)
 
     stored = _stored(hass_storage, entry)
-    assert stored["fingerprint"] == ["2026-09-21T07:30:00", 131, 84, 60]
+    assert stored["fingerprints"] == {"1": ["2026-09-21T07:30:00", 131, 84, 60]}
     # And the same record read next time is still not new.
     await _poll(hass, entry, _bp("2026-09-21T07:30:00", 131, 84))
     assert _sensor(hass, entry, "bob", "systolic").state == "131"
@@ -467,8 +467,8 @@ async def test_synced_events_are_assigned_oldest_first_by_sequence(
     assert _sensor(hass, entry, "bob", "systolic").state == "131"
     assert _sensor(hass, entry, "eve", "systolic").state == "118"
     stored = _stored(hass_storage, entry)
-    assert stored["last_seq"] == 7
-    assert stored["fingerprint"] == ["2026-09-21T19:30:00", 118, 76, 60]
+    assert stored["last_seq"] == {"1": 7}
+    assert stored["fingerprints"] == {"1": ["2026-09-21T19:30:00", 118, 76, 60]}
     assert not unassigned
 
 
@@ -533,7 +533,7 @@ async def test_a_replayed_event_is_not_assigned_twice(
     await _poll(hass, entry, later, events=replay, next_seq=7)
 
     assert _sensor(hass, entry, "bob", "systolic").state == "150"
-    assert _stored(hass_storage, entry)["last_seq"] == 7
+    assert _stored(hass_storage, entry)["last_seq"] == {"1": 7}
     with patch("custom_components.omron.users.assign_by_rules") as spy:
         await _poll(hass, entry, later, events=replay, next_seq=7)
     spy.assert_not_called()
@@ -551,8 +551,8 @@ async def test_the_first_sync_poll_assigns_nothing(
     assert _sensor(hass, entry, "bob", "systolic").state == "unknown"
     assert not unassigned
     stored = _stored(hass_storage, entry)
-    assert stored["last_seq"] == 6
-    assert stored["fingerprint"] is not None
+    assert stored["last_seq"] == {"1": 6}
+    assert stored["fingerprints"].get("1") is not None
 
 
 async def test_a_rebase_resets_the_last_sequence(
@@ -561,7 +561,7 @@ async def test_a_rebase_resets_the_last_sequence(
     entry = _entry(hass, SYNC_CUFF, MORNING_EVENING, _sync_options())
     await _setup(hass, entry)
     await _poll(hass, entry, _bp("2026-09-20T07:00:00"), events=[], next_seq=60000)
-    assert _stored(hass_storage, entry)["last_seq"] == 60000
+    assert _stored(hass_storage, entry)["last_seq"] == {"1": 60000}
 
     # The cuff was cleared: its counter is back at 3 and the poll says so.
     await _poll(
@@ -572,7 +572,7 @@ async def test_a_rebase_resets_the_last_sequence(
         next_seq=3,
         rebased=True,
     )
-    assert _stored(hass_storage, entry)["last_seq"] == 3
+    assert _stored(hass_storage, entry)["last_seq"] == {"1": 3}
 
     after = _bp("2026-09-21T07:30:00", 131, 84, seq=4)
     await _poll(hass, entry, after, events=[after], next_seq=4)
@@ -605,7 +605,7 @@ async def test_switching_the_sync_never_assigns_a_record_again(
     await _poll(hass, entry, _bp("2026-09-20T07:00:00"), events=[], next_seq=5)
     record = _bp("2026-09-21T07:30:00", 131, 84, seq=6)
     await _poll(hass, entry, record, events=[record], next_seq=6)
-    assert _stored(hass_storage, entry)["last_seq"] == 6
+    assert _stored(hass_storage, entry)["last_seq"] == {"1": 6}
     latest = {**record, "sequence": None}
 
     async def switch(sync: bool) -> None:
@@ -621,19 +621,16 @@ async def test_switching_the_sync_never_assigns_a_record_again(
         await _poll(hass, entry, latest)
     spy.assert_not_called()
     # The sequence is no use without the sync and would block a later one.
-    assert _stored(hass_storage, entry)["last_seq"] is None
+    assert _stored(hass_storage, entry)["last_seq"] == {}
 
     # On again: the position was dropped, so the first sync is a baseline.
     await switch(True)
     with patch(users_module) as spy:
         await _poll(hass, entry, latest, events=[], next_seq=6)
     spy.assert_not_called()
-    assert _stored(hass_storage, entry)["fingerprint"] == [
-        "2026-09-21T07:30:00",
-        131,
-        84,
-        60,
-    ]
+    assert _stored(hass_storage, entry)["fingerprints"] == {
+        "1": ["2026-09-21T07:30:00", 131, 84, 60]
+    }
 
     # A genuinely new record afterwards is assigned as usual.
     newer = _bp("2026-09-22T07:30:00", 133, 85, seq=7)
@@ -827,7 +824,7 @@ async def test_changing_the_strategy_forgets_the_learned_weights_only(
     users = entry.runtime_data.users
     assert users.strategy == STRATEGY_RULES
     assert users.recent == {}
-    assert users.fingerprint == ["2026-09-21T07:30:00", 62.4]
+    assert users.fingerprints[1] == ["2026-09-21T07:30:00", 62.4]
     assert _sensor(hass, entry, "alice", "weight").state == "62.4"
 
 

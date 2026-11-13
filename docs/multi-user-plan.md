@@ -267,3 +267,8 @@
 - **3-2 `clear_value`**: 커서가 `clear_value`(HEM-9601T/9700T의 0x8000)와 같고 그 커서가 가리키는 기록이 읽히지 않을 때만 비어 있다고 보고 건너뛴다. 기록이 있으면 살아 있는 커서로 본다(기존 인덱스 경로와 같은 규칙).
 - **3-2 저장**: 동기화 Store `omron.history_{entry_id}`에 선택 키 `cursor`가 더해진다(버전은 그대로). 기준선의 순번은 0이다.
 - **3-2 기존 테스트 변경**: `test_stored_records_sync.py`의 "순번 필드 없는 사용자는 빠진다" 두 테스트는 쓰기 커서도 없애서 같은 뜻을 유지하게 했고(커서만 있는 사용자는 이제 순번이 만들어진다), "동기화 대상 프로파일" 테스트는 카운터·기록 번호가 있는 프로파일만 센다. `test_config_flow.py`의 "동기화 옵션은 지원 기기에만" 테스트는 옵션이 없는 사례로 쓰던 HEM-7322T가 이제 지원 대상이라 인덱스 레이아웃이 없는 대역으로 바꿨다.
+- **3-3 `last_records`**: 파서에 `last_records`(슬롯 번호 → 이벤트 모양의 최신 EEPROM 기록)를 더했다. 슬롯이 여러 개인 프로파일의 `latest_by_user`에서 만들며, 단일 슬롯의 `last_record`는 그대로다. 훅은 `OmronUsers.multi_slot`(기기의 `num_users > 1`)으로 둘 중 하나를 고른다.
+- **3-3 HBF 옵션**: 체중 전략 옵션(전략 선택·허용 오차)은 체중만 재는 체중계(`MeasurementKind.WEIGHT`)에만 나온다. 이전에는 "체중계"면 모두 나왔으나 서브엔트리를 내지 않던 HBF에는 보일 일이 없었다.
+- **3-3 `person` 없음**: 슬롯 전략은 기기가 사람을 정하므로 `person` 필터를 쓰지 않는다(입력 항목도 없다).
+- **3-6 Store v2 (3-3과 함께)**: 슬롯별 지문·순번이 필요해 이 항목에서 `STORE_VERSION`을 2로 올렸다(`fingerprints`, `last_seq`가 슬롯 번호 키의 딕셔너리, 단일 슬롯 기기는 키 `"1"`). v1 → v2 마이그레이션은 `fingerprint`→`fingerprints["1"]`, `last_seq`→`last_seq["1"]`이고 학습한 체중과 마지막 값은 그대로다. 재배정 로그(3-4)는 같은 v2에 이어서 더한다(출시 전이라 별도 버전을 두지 않는다).
+- **3-3 기존 테스트 변경**: `test_user_measurements.py`의 Store 형식 단언(`fingerprint`→`fingerprints`, `last_seq` 정수→슬롯 딕셔너리, `users.fingerprint`→`users.fingerprints[1]`)과 `test_user_subentries.py`의 "HBF는 사용자를 내지 않는다"(이제 낸다), `test_entity_name_translation.py`의 번역 구조 단언(`slot` 단계, `slot_taken` 오류, 새 센서 키)을 새 구조에 맞췄다. 단언의 강도는 그대로다.

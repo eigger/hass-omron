@@ -62,6 +62,7 @@ from .entity_helpers import (
     preserved_passive_unique_id,
 )
 from .omron_ble.body_metrics import BMI_CATEGORIES, classify_bmi, compute_bmi
+from .omron_ble.devices import MeasurementKind
 from .types import OmronConfigEntry
 from .users import user_subentries
 
@@ -1045,12 +1046,23 @@ class OmronBmiCategorySensorEntity(_OmronBmiBase):
 def _user_sensors(
     entry: OmronConfigEntry, subentry: ConfigSubentry
 ) -> list[SensorEntity]:
-    """The sensors of one user: weight and BMI for a scale, the reading for a cuff."""
-    if entry.runtime_data.is_scale:
-        return [
+    """The sensors of one user: weight and BMI for a scale, the reading for a cuff.
+
+    A body-composition scale adds what its records carry, under the same keys
+    as the device's own sensors.
+    """
+    runtime = entry.runtime_data
+    if runtime.is_scale:
+        sensors: list[SensorEntity] = [
             OmronUserWeightSensor(entry, subentry),
             OmronUserBmiSensor(entry, subentry),
         ]
+        if runtime.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+            sensors.extend(
+                OmronUserBodyValueSensor(entry, subentry, spec)
+                for spec in _USER_BODY_VALUES
+            )
+        return sensors
     return [
         OmronUserSystolicSensor(entry, subentry),
         OmronUserDiastolicSensor(entry, subentry),
@@ -1160,6 +1172,48 @@ class OmronUserBmiSensor(_OmronUserSensor):
             "weight_kg": _as_float(self._last.get("weight")),
             "height_cm": self._height_cm,
         }
+
+
+@dataclass(frozen=True)
+class _BodyValueSpec:
+    """A value a body-composition record carries, as the device's sensor shows it."""
+
+    key: str  # translation key suffix, as the device's own sensor
+    record_key: str  # key in the record
+    unit: str | None
+    icon: str
+    precision: int | None
+
+
+_USER_BODY_VALUES = (
+    _BodyValueSpec("body_fat", "body_fat", "%", "mdi:human", 1),
+    _BodyValueSpec("skeletal_muscle", "skeletal_muscle", "%", "mdi:arm-flex", 1),
+    _BodyValueSpec("visceral_fat", "visceral_fat", None, "mdi:chart-donut", None),
+    _BodyValueSpec(
+        "basal_metabolic_rate", "basal_metabolic_rate", "kcal/day", "mdi:fire", None
+    ),
+    _BodyValueSpec("body_composition_bmi", "bmi", "kg/m²", "mdi:human-male-height", 1),
+)
+
+
+class OmronUserBodyValueSensor(_OmronUserSensor):
+    """A body-composition value of the user's last assigned measurement."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self, entry: OmronConfigEntry, subentry: ConfigSubentry, spec: _BodyValueSpec
+    ) -> None:
+        super().__init__(entry, subentry, spec.key)
+        self._record_key = spec.record_key
+        self._attr_native_unit_of_measurement = spec.unit
+        self._attr_icon = spec.icon
+        if spec.precision is not None:
+            self._attr_suggested_display_precision = spec.precision
+
+    @property
+    def native_value(self) -> float | None:
+        return _as_float(self._last.get(self._record_key))
 
 
 class _OmronUserPressureSensor(_OmronUserSensor):

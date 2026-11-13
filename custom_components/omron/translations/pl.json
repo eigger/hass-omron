@@ -125,12 +125,22 @@
         "confirm_overlap": {
           "title": "Nakładające się okna czasowe",
           "description": "Okna czasowe użytkownika {name} nakładają się z oknami: {others}. Pomiar pasujący do obu nie jest przypisywany nikomu, chyba że zakres wartości je rozróżnia. Naciśnij Prześlij, aby mimo to zapisać."
+        },
+        "slot": {
+          "title": "Użytkownik",
+          "description": "Każdy pomiar wykonany na wybranym miejscu wagi trafia do tego użytkownika. Wybierz miejsce, którego ta osoba używa na wadze. Jedno miejsce może należeć tylko do jednego użytkownika; pomiary z miejsca, którego nikt nie wybrał, są pomijane. Wzrost służy wyłącznie do obliczenia BMI.",
+          "data": {
+            "name": "Nazwa",
+            "slot": "Miejsce na wadze",
+            "height_cm": "Wzrost (cm, do BMI)"
+          }
         }
       },
       "error": {
         "invalid_name": "Wpisz nazwę, której nie ma żaden inny użytkownik.",
         "invalid_time_windows": "Wpisz okna czasowe w postaci 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Dolna wartość nie może być większa od górnej."
+        "invalid_range": "Dolna wartość nie może być większa od górnej.",
+        "slot_taken": "Inny użytkownik ma już to miejsce."
       }
     }
   },
@@ -482,6 +492,21 @@
       },
       "user_measured_at": {
         "name": "Zmierzono o"
+      },
+      "user_body_fat": {
+        "name": "Body Fat"
+      },
+      "user_skeletal_muscle": {
+        "name": "Skeletal Muscle"
+      },
+      "user_visceral_fat": {
+        "name": "Visceral Fat Level"
+      },
+      "user_basal_metabolic_rate": {
+        "name": "Basal Metabolic Rate"
+      },
+      "user_body_composition_bmi": {
+        "name": "BMI (waga)"
       }
     },
     "binary_sensor": {

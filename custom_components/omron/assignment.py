@@ -25,12 +25,15 @@ from .const import (
 KIND_MATCHED = "matched"
 KIND_NEAREST = "nearest"
 KIND_RULE = "rule"
+KIND_SLOT = "slot"
 
 # Why one was not assigned.
 REASON_AMBIGUOUS = "ambiguous"
 REASON_NO_MATCH = "no_match"
 REASON_NO_TIME = "no_time"
 REASON_OUT_OF_RANGE = "out_of_range"
+# Not announced: a slot nobody claimed is simply left alone.
+REASON_SLOT_UNCLAIMED = "slot_unclaimed"
 
 _MINUTES_PER_DAY = 24 * 60
 
@@ -81,6 +84,40 @@ class RuleUser:
         return bool(self.windows) or any(
             lo is not None or hi is not None for lo, hi in self.ranges.values()
         )
+
+
+@dataclass(frozen=True)
+class SlotUser:
+    """A user as the slot strategy sees it."""
+
+    user_id: str
+    name: str
+    slot: int
+
+
+# --- slot based ----------------------------------------------------------------
+
+
+def assign_by_slot(slot: int, users: list[SlotUser]) -> Assignment:
+    """Give a measurement to the user who claimed the device slot it came from.
+
+    A slot nobody claimed is not an error (``REASON_SLOT_UNCLAIMED``, left
+    alone). Two users on one slot cannot happen through the setup form; if it
+    does, the measurement is given to nobody.
+    """
+    claimants = [user for user in users if user.slot == slot]
+    if len(claimants) == 1:
+        return Assignment(claimants[0].user_id, kind=KIND_SLOT)
+    if not claimants:
+        return Assignment(None, reason=REASON_SLOT_UNCLAIMED)
+    return Assignment(
+        None,
+        reason=REASON_AMBIGUOUS,
+        candidates=[
+            {"user_id": user.user_id, "name": user.name, "slot": user.slot}
+            for user in claimants
+        ],
+    )
 
 
 # --- weight based ------------------------------------------------------------

@@ -12,6 +12,7 @@ from .omron_ble import OmronBluetoothDeviceData as DeviceData
 from .omron_ble.devices import (
     DeviceConfig,
     HostPairingMode,
+    MeasurementKind,
     get_device_config,
     get_supported_model_stats,
     get_supported_models,
@@ -72,6 +73,7 @@ from .const import (
     CONF_USER_EXPECTED_WEIGHT,
     CONF_USER_HEIGHT,
     CONF_USER_NAME,
+    CONF_USER_SLOT,
     CONF_USER_SYS_MAX,
     CONF_USER_SYS_MIN,
     CONF_USER_TIME_WINDOWS,
@@ -185,9 +187,10 @@ def _options_init_schema(
             else entry.options.get(CONF_SYNC_STORED_RECORDS, False)
         )
         fields[vol.Required(CONF_SYNC_STORED_RECORDS, default=sync_default)] = bool
-    if supports_users(entry) and not cfg.is_blood_pressure:
-        # A scale can tell its users apart by weight or by rules; a cuff only
-        # has rules, so it has nothing to choose.
+    if supports_users(entry) and cfg.measurement_kind == MeasurementKind.WEIGHT:
+        # A scale of weight alone can tell its users apart by weight or by
+        # rules; a cuff only has rules, a body-composition scale only slots, so
+        # they have nothing to choose.
         strategy_default = (
             user_input.get(CONF_ASSIGNMENT_STRATEGY)
             if user_input is not None and CONF_ASSIGNMENT_STRATEGY in user_input
@@ -906,7 +909,7 @@ class OmronOptionsFlowHandler(OptionsFlow):
                 out[CONF_SYNC_STORED_RECORDS] = bool(
                     user_input.get(CONF_SYNC_STORED_RECORDS, False)
                 )
-            if supports_users(entry) and not cfg.is_blood_pressure:
+            if supports_users(entry) and cfg.measurement_kind == MeasurementKind.WEIGHT:
                 out[CONF_ASSIGNMENT_STRATEGY] = user_input.get(
                     CONF_ASSIGNMENT_STRATEGY, STRATEGY_WEIGHT
                 )
@@ -968,6 +971,7 @@ def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
 _STEP_WEIGHT = "weight"
 _STEP_RULES = "rules"
 _STEP_PRESSURE = "pressure"
+_STEP_SLOT = "slot"
 _RANGE_PAIRS = (
     (CONF_USER_WEIGHT_MIN, CONF_USER_WEIGHT_MAX),
     (CONF_USER_SYS_MIN, CONF_USER_SYS_MAX),
@@ -975,13 +979,21 @@ _RANGE_PAIRS = (
 )
 
 
-def _user_schema(step_id: str) -> vol.Schema:
+def _user_schema(step_id: str, num_slots: int = 1) -> vol.Schema:
     """The fields of a user, which depend on how the device assigns."""
     fields: dict[Any, Any] = {
         vol.Required(CONF_USER_NAME): vol.All(str, vol.Length(max=64))
     }
     height = _number(HEIGHT_MIN_CM, HEIGHT_MAX_CM, 0.1, "cm")
-    if step_id == _STEP_WEIGHT:
+    if step_id == _STEP_SLOT:
+        fields[vol.Required(CONF_USER_SLOT)] = SelectSelector(
+            SelectSelectorConfig(
+                options=[str(slot) for slot in range(1, num_slots + 1)],
+                mode=SelectSelectorMode.DROPDOWN,
+            )
+        )
+        fields[vol.Optional(CONF_USER_HEIGHT)] = height
+    elif step_id == _STEP_WEIGHT:
         fields[vol.Required(CONF_USER_EXPECTED_WEIGHT)] = _number(
             WEIGHT_MIN_KG, WEIGHT_MAX_KG, 0.1, "kg"
         )
@@ -1025,6 +1037,8 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         )
         if config.is_blood_pressure:
             return _STEP_PRESSURE
+        if config.measurement_kind == MeasurementKind.BODY_COMPOSITION:
+            return _STEP_SLOT
         if strategy_for(entry, is_scale=True) == STRATEGY_RULES:
             return _STEP_RULES
         return _STEP_WEIGHT
@@ -1054,6 +1068,11 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
     ) -> SubentryFlowResult:
         return await self._async_form(_STEP_PRESSURE, user_input)
 
+    async def async_step_slot(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        return await self._async_form(_STEP_SLOT, user_input)
+
     async def async_step_confirm_no_rules(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
@@ -1074,7 +1093,12 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
     async def _async_form(
         self, step_id: str, user_input: dict[str, Any] | None
     ) -> SubentryFlowResult:
-        schema = _user_schema(step_id)
+        schema = _user_schema(
+            step_id,
+            get_device_config(
+                self._get_entry().data.get(CONF_DEVICE_MODEL, DEFAULT_DEVICE_MODEL)
+            ).num_users,
+        )
         errors: dict[str, str] = {}
         if user_input is not None:
             data, errors = self._validate(user_input)
@@ -1088,6 +1112,9 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             suggested = dict(editing.data) if editing is not None else {}
             if editing is not None:
                 suggested.setdefault(CONF_USER_NAME, editing.title)
+                if CONF_USER_SLOT in suggested:
+                    # The selector works in text, the entry keeps the number.
+                    suggested[CONF_USER_SLOT] = str(suggested[CONF_USER_SLOT])
         return self.async_show_form(
             step_id=step_id,
             data_schema=self.add_suggested_values_to_schema(schema, suggested),
@@ -1109,6 +1136,19 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         }
         if not name or name.casefold() in taken:
             errors[CONF_USER_NAME] = "invalid_name"
+        if CONF_USER_SLOT in data:
+            try:
+                slot = int(data[CONF_USER_SLOT])
+            except (TypeError, ValueError):
+                slot = 0
+            data[CONF_USER_SLOT] = slot
+            claimed = {
+                sub.data.get(CONF_USER_SLOT)
+                for sub_id, sub in user_subentries(self._get_entry()).items()
+                if editing is None or sub_id != editing.subentry_id
+            }
+            if slot in claimed:
+                errors[CONF_USER_SLOT] = "slot_taken"
         text = data.get(CONF_USER_TIME_WINDOWS)
         if text is not None:
             windows = parse_windows(str(text))
@@ -1127,7 +1167,7 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
     def _collect_warnings(self, step_id: str, data: dict[str, Any]) -> list[str]:
         """Things worth a second look that must not stop the user from saving."""
         warnings: list[str] = []
-        if step_id == _STEP_WEIGHT:
+        if step_id in (_STEP_WEIGHT, _STEP_SLOT):
             return warnings
         has_rules = CONF_USER_TIME_WINDOWS in data or any(
             key in data for pair in _RANGE_PAIRS for key in pair
