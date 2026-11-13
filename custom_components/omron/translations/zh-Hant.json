@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "脈搏"
       },
+      "user_pulse_pressure": {
+        "name": "脈壓"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "估計平均動脈壓"
+      },
+      "user_blood_pressure_category": {
+        "name": "血壓分級 (ACC/AHA)",
+        "state": {
+          "normal": "正常",
+          "elevated": "升高",
+          "hypertension_stage_1": "高血壓1期",
+          "hypertension_stage_2": "高血壓2期",
+          "hypertensive_crisis": "高血壓危象"
+        }
+      },
+      "user_shock_index": {
+        "name": "休克指數"
+      },
+      "user_rate_pressure_product": {
+        "name": "心率血壓乘積"
+      },
       "user_measured_at": {
         "name": "測量時間"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "姿勢不正確 ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "不規則脈搏"
+      },
+      "user_body_movement": {
+        "name": "身體移動"
+      },
+      "user_cuff_fit": {
+        "name": "壓脈帶佩戴"
+      },
+      "user_improper_position": {
+        "name": "姿勢不正確"
       }
     },
     "button": {

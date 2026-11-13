@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Pulse"
       },
+      "user_pulse_pressure": {
+        "name": "Pulse Pressure"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Estimated MAP"
+      },
+      "user_blood_pressure_category": {
+        "name": "BP Category (ACC/AHA)",
+        "state": {
+          "normal": "Normal",
+          "elevated": "Elevated",
+          "hypertension_stage_1": "Hypertension stage 1",
+          "hypertension_stage_2": "Hypertension stage 2",
+          "hypertensive_crisis": "Hypertensive crisis"
+        }
+      },
+      "user_shock_index": {
+        "name": "Shock Index"
+      },
+      "user_rate_pressure_product": {
+        "name": "Rate Pressure Product"
+      },
       "user_measured_at": {
         "name": "Measured At"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Improper Position ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Irregular Pulse"
+      },
+      "user_body_movement": {
+        "name": "Body Movement"
+      },
+      "user_cuff_fit": {
+        "name": "Cuff Fit"
+      },
+      "user_improper_position": {
+        "name": "Improper Position"
       }
     },
     "button": {

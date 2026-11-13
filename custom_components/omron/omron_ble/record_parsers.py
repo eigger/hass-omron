@@ -353,3 +353,26 @@ def parse_hbf_32(data: bytes | bytearray, _endianness: str) -> dict[str, Any]:
         "_record_id": int.from_bytes(data[24:26], "big"),
     }
     return record
+
+
+# Status flags each blood-pressure record parser decodes, as the keys of
+# ``_history_event``'s flag fields. Only the 6401 family has no cuff-fit or
+# position bits. ``tests`` parse a sample record per parser to keep this honest.
+_PRESSURE_FLAGS_ALL = (
+    "irregular_pulse",
+    "body_movement",
+    "cuff_loose",
+    "improper_position",
+)
+_PRESSURE_FLAGS_BY_PARSER: dict[str, tuple[str, ...]] = {
+    "classic_vital_14": _PRESSURE_FLAGS_ALL,
+    "classic_vital_14_bitpacked": _PRESSURE_FLAGS_ALL,
+    "classic_vital_14_6232_family": _PRESSURE_FLAGS_ALL,
+    "classic_vital_24_heartguide": _PRESSURE_FLAGS_ALL,
+    "classic_vital_16_6401_family": ("irregular_pulse", "body_movement"),
+}
+
+
+def recorded_pressure_flags(parser_name: str) -> tuple[str, ...]:
+    """Status flags a blood-pressure record parser fills in (empty if none)."""
+    return _PRESSURE_FLAGS_BY_PARSER.get(str(parser_name), ())

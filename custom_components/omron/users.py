@@ -64,6 +64,9 @@ STORE_VERSION = 1
 # Values of a measurement that identify it, and that the event carries.
 _SCALE_VALUES = ("weight",)
 _PRESSURE_VALUES = ("sys", "dia", "bpm", "irregular_pulse", "body_movement")
+# What a cuff user's last values keep: the event's values plus the two flags the
+# user's binary sensors show (the event is left as it was).
+_PRESSURE_STORED = (*_PRESSURE_VALUES, "cuff_loose", "improper_position")
 
 
 def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -317,7 +320,7 @@ def _usable(record: dict[str, Any], *, is_scale: bool) -> bool:
 def _last_values(record: dict[str, Any], assignment: Assignment, *, is_scale: bool):
     values: dict[str, Any] = {
         key: record.get(key)
-        for key in (_SCALE_VALUES if is_scale else _PRESSURE_VALUES)
+        for key in (_SCALE_VALUES if is_scale else _PRESSURE_STORED)
     }
     values["measured_at"] = record.get("measured_at")
     values["assignment"] = assignment.kind

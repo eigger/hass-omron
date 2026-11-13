@@ -61,6 +61,7 @@ from .entity_helpers import (
     hass_device_info_with_ble_connection,
     preserved_passive_unique_id,
 )
+from .omron_ble import blood_pressure_metrics as bp_metrics
 from .omron_ble.body_metrics import BMI_CATEGORIES, classify_bmi, compute_bmi
 from .types import OmronConfigEntry
 from .users import user_subentries
@@ -1055,6 +1056,11 @@ def _user_sensors(
         OmronUserSystolicSensor(entry, subentry),
         OmronUserDiastolicSensor(entry, subentry),
         OmronUserPulseSensor(entry, subentry),
+        OmronUserPulsePressureSensor(entry, subentry),
+        OmronUserMeanArterialPressureSensor(entry, subentry),
+        OmronUserBloodPressureCategorySensor(entry, subentry),
+        OmronUserShockIndexSensor(entry, subentry),
+        OmronUserRatePressureProductSensor(entry, subentry),
         OmronUserMeasuredAtSensor(entry, subentry),
     ]
 
@@ -1198,6 +1204,83 @@ class OmronUserPulseSensor(_OmronUserPressureSensor):
 
     def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
         super().__init__(entry, subentry, "pulse")
+
+
+class _OmronUserDerivedSensor(_OmronUserSensor):
+    """A metric worked out from the user's last reading.
+
+    The arithmetic is ``omron_ble.blood_pressure_metrics``, the same functions
+    the cuff's own sensors use. Computed on read from the stored values, so a
+    reading without a pulse leaves the pulse-based metrics unknown rather than
+    holding an earlier user's or reading's value.
+    """
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> Any:
+        raise NotImplementedError
+
+    @property
+    def native_value(self) -> Any:
+        last = self._last
+        return self._metric(last.get("sys"), last.get("dia"), last.get("bpm"))
+
+
+class OmronUserPulsePressureSensor(_OmronUserDerivedSensor):
+    _attr_native_unit_of_measurement = "mmHg"
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "pulse_pressure")
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> float | None:
+        return bp_metrics.pulse_pressure(sys_val, dia_val)
+
+
+class OmronUserMeanArterialPressureSensor(_OmronUserDerivedSensor):
+    _attr_native_unit_of_measurement = "mmHg"
+    _attr_icon = "mdi:waves-arrow-right"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "mean_arterial_pressure_estimated")
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> float | None:
+        return bp_metrics.mean_arterial_pressure_estimated(sys_val, dia_val)
+
+
+class OmronUserBloodPressureCategorySensor(_OmronUserDerivedSensor):
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_state_class = None
+    _attr_options = list(bp_metrics.BLOOD_PRESSURE_CATEGORIES)
+    _attr_icon = "mdi:clipboard-pulse-outline"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "blood_pressure_category")
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> str | None:
+        return bp_metrics.blood_pressure_category(sys_val, dia_val)
+
+
+class OmronUserShockIndexSensor(_OmronUserDerivedSensor):
+    _attr_native_unit_of_measurement = "ratio"
+    _attr_icon = "mdi:heart-flash"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "shock_index")
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> float | None:
+        return bp_metrics.shock_index(sys_val, bpm_val)
+
+
+class OmronUserRatePressureProductSensor(_OmronUserDerivedSensor):
+    _attr_native_unit_of_measurement = "mmHg*bpm"
+    _attr_icon = "mdi:multiplication"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "rate_pressure_product")
+
+    def _metric(self, sys_val: Any, dia_val: Any, bpm_val: Any) -> float | None:
+        return bp_metrics.rate_pressure_product(sys_val, bpm_val)
 
 
 class OmronUserMeasuredAtSensor(_OmronUserSensor):

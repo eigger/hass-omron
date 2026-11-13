@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Pulsazioni"
       },
+      "user_pulse_pressure": {
+        "name": "Pressione di pulsazione"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "PAM stimata"
+      },
+      "user_blood_pressure_category": {
+        "name": "Categoria PA (ACC/AHA)",
+        "state": {
+          "normal": "Normale",
+          "elevated": "Elevata",
+          "hypertension_stage_1": "Ipertensione stadio 1",
+          "hypertension_stage_2": "Ipertensione stadio 2",
+          "hypertensive_crisis": "Crisi ipertensiva"
+        }
+      },
+      "user_shock_index": {
+        "name": "Indice di shock"
+      },
+      "user_rate_pressure_product": {
+        "name": "Doppio prodotto"
+      },
       "user_measured_at": {
         "name": "Misurata alle"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Postura errata ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Pulsazioni irregolari"
+      },
+      "user_body_movement": {
+        "name": "Movimento del corpo"
+      },
+      "user_cuff_fit": {
+        "name": "Posizione del bracciale"
+      },
+      "user_improper_position": {
+        "name": "Postura errata"
       }
     },
     "button": {

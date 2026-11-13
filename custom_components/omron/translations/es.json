@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Pulso"
       },
+      "user_pulse_pressure": {
+        "name": "Presión de pulso"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "PAM estimada"
+      },
+      "user_blood_pressure_category": {
+        "name": "Categoría de PA (ACC/AHA)",
+        "state": {
+          "normal": "Normal",
+          "elevated": "Elevada",
+          "hypertension_stage_1": "Hipertensión en etapa 1",
+          "hypertension_stage_2": "Hipertensión en etapa 2",
+          "hypertensive_crisis": "Crisis hipertensiva"
+        }
+      },
+      "user_shock_index": {
+        "name": "Índice de shock"
+      },
+      "user_rate_pressure_product": {
+        "name": "Producto frecuencia-presión"
+      },
       "user_measured_at": {
         "name": "Medido a las"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Postura incorrecta ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Pulso irregular"
+      },
+      "user_body_movement": {
+        "name": "Movimiento corporal"
+      },
+      "user_cuff_fit": {
+        "name": "Ajuste del manguito"
+      },
+      "user_improper_position": {
+        "name": "Postura incorrecta"
       }
     },
     "button": {

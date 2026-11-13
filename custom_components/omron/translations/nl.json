@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Pols"
       },
+      "user_pulse_pressure": {
+        "name": "Polsdruk"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Geschatte MAP"
+      },
+      "user_blood_pressure_category": {
+        "name": "Bloeddrukcategorie (ACC/AHA)",
+        "state": {
+          "normal": "Normaal",
+          "elevated": "Verhoogd",
+          "hypertension_stage_1": "Hypertensie stadium 1",
+          "hypertension_stage_2": "Hypertensie stadium 2",
+          "hypertensive_crisis": "Hypertensieve crisis"
+        }
+      },
+      "user_shock_index": {
+        "name": "Shockindex"
+      },
+      "user_rate_pressure_product": {
+        "name": "Rate-pressure-product"
+      },
       "user_measured_at": {
         "name": "Gemeten om"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Verkeerde houding ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Onregelmatige pols"
+      },
+      "user_body_movement": {
+        "name": "Lichaamsbeweging"
+      },
+      "user_cuff_fit": {
+        "name": "Manchetaansluiting"
+      },
+      "user_improper_position": {
+        "name": "Verkeerde houding"
       }
     },
     "button": {

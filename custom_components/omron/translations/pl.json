@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Tętno"
       },
+      "user_pulse_pressure": {
+        "name": "Ciśnienie tętna"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Szacowane MAP"
+      },
+      "user_blood_pressure_category": {
+        "name": "Kategoria ciśnienia (ACC/AHA)",
+        "state": {
+          "normal": "Prawidłowe",
+          "elevated": "Podwyższone",
+          "hypertension_stage_1": "Nadciśnienie stopień 1",
+          "hypertension_stage_2": "Nadciśnienie stopień 2",
+          "hypertensive_crisis": "Przełom nadciśnieniowy"
+        }
+      },
+      "user_shock_index": {
+        "name": "Wskaźnik wstrząsu"
+      },
+      "user_rate_pressure_product": {
+        "name": "Iloczyn częstość-ciśnienie"
+      },
       "user_measured_at": {
         "name": "Zmierzono o"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Nieprawidłowa pozycja ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Nieregularne tętno"
+      },
+      "user_body_movement": {
+        "name": "Ruch ciała"
+      },
+      "user_cuff_fit": {
+        "name": "Dopasowanie mankietu"
+      },
+      "user_improper_position": {
+        "name": "Nieprawidłowa pozycja"
       }
     },
     "button": {

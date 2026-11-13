@@ -31,7 +31,7 @@
 
 - 사용자 = 기기 config entry의 서브엔트리. 서브 디바이스 1개와 사용자별 센서를 가진다. 입력 화면은 배정 방식에 따라 항목이 달라지는 구조로 만든다.
   - 체중계: Weight, BMI
-  - 혈압계(최소 구성): Systolic, Diastolic, Pulse, Measured At. 속성: `assignment`, `irregular_pulse`, `body_movement`. 파생 지표와 이진 플래그는 이후.
+  - 혈압계: Systolic, Diastolic, Pulse, Measured At, 파생 지표(맥압, 추정 평균동맥압, 혈압 분류, 쇼크 지수, 심부담도), 이진 플래그(불규칙 맥박, 신체 움직임, 커프 착용, 자세 불량). 속성: `assignment`, `irregular_pulse`, `body_movement`.
 - 기존 기기 엔티티는 그대로 둔다. 사용자 센서와 중복되지만 디바이스와 이름이 다르다.
 - 배정기는 교체 가능한 전략이며 기기당 하나만 쓴다(사용자별로 다르게 쓰지 않는다).
 - 미배정이면 `omron_unassigned_measurement` 이벤트(측정값, `measured_at`, `reason`, `candidates`)를 내고 누구에게도 기록하지 않는다. 사용자 센서에는 `assignment` 속성(`matched`, `nearest`, `rule`)을 둔다.
@@ -177,3 +177,4 @@
 - **훅 실패 격리**: 사용자 배정 중 예외는 로그만 남기고 폴링과 뒤따르는 저장 기록 동기화를 막지 않는다.
 - **번역하지 않은 것**: 사용자 센서 속성(`assignment` 등)의 이름은 번역하지 않는다(기존 BMI 속성과 같다).
 - **전략 변경 뒤의 기존 사용자**: 서브엔트리 데이터는 전략을 바꿔도 그대로다. 규칙 방식에서 등록한 사용자는 예상 체중이 없어 체중 기반에서 후보가 되지 못한다. 옵션 설명에 "바꾼 뒤 각 사용자를 편집"하라고 안내하고, 설정 시 예상 체중이 없는 사용자를 경고 로그로 알린다. 반대로 체중 방식에서 등록한 사용자는 규칙이 없어 모든 기록에 일치한다(계획의 "규칙 없는 사용자" 동작).
+- **혈압계 사용자의 파생 지표와 플래그**: 기기 센서와 같은 함수를 쓴다. 산술은 `omron_ble/blood_pressure_metrics.py`의 순수 함수이고 `parser.py`와 사용자 센서가 함께 호출하므로 둘이 어긋날 수 없다(키, 단위, 반올림, 가드, 열거 값 동일). 사용자 센서는 저장된 마지막 값(`sys`/`dia`/`bpm`)에서 읽을 때마다 계산한다. 새 기록은 마지막 값을 통째로 바꾸므로 맥박 없는 측정은 맥박 기반 지표를 알 수 없음으로 만든다. 이진 플래그는 `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position`을 Store의 마지막 값에 함께 저장하고(옛 Store에는 뒤의 둘이 없어 알 수 없음으로 보인다), 커프 착용(`cuff_fit`)은 기기처럼 `cuff_loose` 그대로다(문제 클래스라 켜짐 = 커프가 느슨함). 플래그는 모델의 기록 파서가 채우는 것만 만든다(`record_parsers.recorded_pressure_flags`): 6401 계열(HEM-6401T, 6410T)은 불규칙 맥박과 신체 움직임만, 나머지 슬롯 1개 혈압계(HEM-7600T 포함)는 넷 다. 이벤트 `omron_unassigned_measurement`의 내용은 그대로다. 번역 이름은 기기 엔티티의 이름을 그대로 쓴다.

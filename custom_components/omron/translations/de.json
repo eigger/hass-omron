@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "Puls"
       },
+      "user_pulse_pressure": {
+        "name": "Pulsdruck"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "Geschätzter MAD"
+      },
+      "user_blood_pressure_category": {
+        "name": "Blutdruckkategorie (ACC/AHA)",
+        "state": {
+          "normal": "Normal",
+          "elevated": "Erhöht",
+          "hypertension_stage_1": "Hypertonie Stufe 1",
+          "hypertension_stage_2": "Hypertonie Stufe 2",
+          "hypertensive_crisis": "Hypertensive Krise"
+        }
+      },
+      "user_shock_index": {
+        "name": "Schockindex"
+      },
+      "user_rate_pressure_product": {
+        "name": "Rate-Pressure-Product"
+      },
       "user_measured_at": {
         "name": "Gemessen um"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "Falsche Haltung ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "Unregelmäßiger Puls"
+      },
+      "user_body_movement": {
+        "name": "Körperbewegung"
+      },
+      "user_cuff_fit": {
+        "name": "Manschettensitz"
+      },
+      "user_improper_position": {
+        "name": "Falsche Haltung"
       }
     },
     "button": {

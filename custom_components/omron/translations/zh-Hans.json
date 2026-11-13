@@ -480,6 +480,28 @@
       "user_pulse": {
         "name": "脉搏"
       },
+      "user_pulse_pressure": {
+        "name": "脉压"
+      },
+      "user_mean_arterial_pressure_estimated": {
+        "name": "估计平均动脉压"
+      },
+      "user_blood_pressure_category": {
+        "name": "血压分级 (ACC/AHA)",
+        "state": {
+          "normal": "正常",
+          "elevated": "升高",
+          "hypertension_stage_1": "高血压1期",
+          "hypertension_stage_2": "高血压2期",
+          "hypertensive_crisis": "高血压危象"
+        }
+      },
+      "user_shock_index": {
+        "name": "休克指数"
+      },
+      "user_rate_pressure_product": {
+        "name": "心率血压乘积"
+      },
       "user_measured_at": {
         "name": "测量时间"
       }
@@ -520,6 +542,18 @@
       },
       "improper_position_user": {
         "name": "姿势不当 ({user})"
+      },
+      "user_irregular_pulse": {
+        "name": "不规则脉搏"
+      },
+      "user_body_movement": {
+        "name": "身体移动"
+      },
+      "user_cuff_fit": {
+        "name": "袖带佩戴"
+      },
+      "user_improper_position": {
+        "name": "姿势不当"
       }
     },
     "button": {
