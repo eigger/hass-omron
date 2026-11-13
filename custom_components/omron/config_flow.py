@@ -1210,10 +1210,12 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         )
         template = translations.get(
             f"component.{DOMAIN}.config_subentries.user.error.extra_windows_note",
-            "Stored time windows: {windows}. Saving keeps only the two windows "
-            "shown above.",
+            "This user has more time windows stored: {windows}. Saving keeps "
+            "only the two windows shown here; the others are removed.",
         )
-        return template.replace("{windows}", format_windows(windows))
+        # Only the ones the pickers cannot show: the text says "more windows".
+        hidden = windows[len(_WINDOW_FIELDS) :]
+        return template.replace("{windows}", format_windows(hidden))
 
     def _validate(
         self, user_input: dict[str, Any]

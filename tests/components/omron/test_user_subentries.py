@@ -702,8 +702,10 @@ async def test_a_user_with_more_than_two_stored_windows_is_shown_them_and_a_note
 
     result = await _reconfigure(hass, entry, "u1")
     note = result["description_placeholders"]["extra_windows"]
-    # All the stored windows are in the note, and it says what saving does.
-    assert "06:00-07:00, 12:00-13:00, 20:00-21:00" in note
+    # The note lists the window the pickers cannot show, not the ones they do,
+    # and says what saving does.
+    assert "20:00-21:00" in note
+    assert "06:00-07:00" not in note and "12:00-13:00" not in note
     assert "{windows}" not in note
     assert "two" in note
     # The pickers hold the first two.
@@ -744,7 +746,7 @@ async def test_the_note_about_extra_windows_is_translated(
     await _setup(hass, entry)
     result = await _reconfigure(hass, entry, "u1")
     note = result["description_placeholders"]["extra_windows"]
-    assert "06:00-07:00, 12:00-13:00, 20:00-21:00" in note
+    assert "20:00-21:00" in note and "06:00-07:00" not in note
     assert "시간대" in note
     await _unload(hass, entry)
 
