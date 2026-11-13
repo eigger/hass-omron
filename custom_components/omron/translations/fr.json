@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "La taille doit être 0 (pour l'effacer) ou comprise entre {min} et {max} cm."
+    },
+    "unknown_measurement": {
+      "message": "Aucune mesure n'a l'identifiant {measurement_id}. Seules les 50 mesures les plus récentes de chaque appareil sont conservées."
+    },
+    "not_a_user": {
+      "message": "L'appareil choisi n'est pas un utilisateur."
+    },
+    "user_other_device": {
+      "message": "L'utilisateur choisi appartient à un autre appareil que la mesure."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Réattribuer une mesure",
+      "description": "Déplace une mesure déjà traitée vers un autre utilisateur, ou vers personne. L'identifiant de la mesure figure dans l'événement `omron_unassigned_measurement` ou dans les attributs d'un capteur d'utilisateur. Seules les 50 mesures les plus récentes de chaque appareil sont conservées.",
+      "fields": {
+        "measurement_id": {
+          "name": "Identifiant de la mesure",
+          "description": "L'identifiant de la mesure, comme dans l'événement `omron_unassigned_measurement` ou dans l'attribut `measurement_id` d'un capteur d'utilisateur."
+        },
+        "user": {
+          "name": "Utilisateur",
+          "description": "L'appareil de l'utilisateur à qui attribuer la mesure. Laissez vide pour ne l'attribuer à personne."
+        }
+      }
     }
   }
 }

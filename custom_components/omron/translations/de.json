@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "Die Körpergröße muss 0 (zum Löschen) oder zwischen {min} und {max} cm liegen."
+    },
+    "unknown_measurement": {
+      "message": "Es gibt keine Messung mit der ID {measurement_id}. Pro Gerät werden nur die neuesten 50 Messungen aufbewahrt."
+    },
+    "not_a_user": {
+      "message": "Das gewählte Gerät ist kein Nutzer."
+    },
+    "user_other_device": {
+      "message": "Der gewählte Nutzer gehört zu einem anderen Gerät als die Messung."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Messung neu zuordnen",
+      "description": "Verschiebt eine bereits verarbeitete Messung zu einem anderen Nutzer oder zu niemandem. Die Mess-ID steht im Ereignis `omron_unassigned_measurement` oder in den Attributen eines Nutzer-Sensors. Pro Gerät werden nur die neuesten 50 Messungen aufbewahrt.",
+      "fields": {
+        "measurement_id": {
+          "name": "Mess-ID",
+          "description": "Die ID der Messung, wie im Ereignis `omron_unassigned_measurement` oder im Attribut `measurement_id` eines Nutzer-Sensors."
+        },
+        "user": {
+          "name": "Nutzer",
+          "description": "Das Gerät des Nutzers, dem die Messung zugeordnet werden soll. Leer lassen, um sie niemandem zuzuordnen."
+        }
+      }
     }
   }
 }

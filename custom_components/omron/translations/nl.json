@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "De lengte moet 0 (om te wissen) of tussen {min} en {max} cm zijn."
+    },
+    "unknown_measurement": {
+      "message": "Er is geen meting met ID {measurement_id}. Per apparaat worden alleen de nieuwste 50 metingen bewaard."
+    },
+    "not_a_user": {
+      "message": "Het gekozen apparaat is geen gebruiker."
+    },
+    "user_other_device": {
+      "message": "De gekozen gebruiker hoort bij een ander apparaat dan de meting."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Meting opnieuw toewijzen",
+      "description": "Verplaatst een al verwerkte meting naar een andere gebruiker of naar niemand. De meting-ID staat in de gebeurtenis `omron_unassigned_measurement` of in de attributen van een gebruikerssensor. Per apparaat worden alleen de nieuwste 50 metingen bewaard.",
+      "fields": {
+        "measurement_id": {
+          "name": "Meting-ID",
+          "description": "De ID van de meting, zoals in de gebeurtenis `omron_unassigned_measurement` of in het attribuut `measurement_id` van een gebruikerssensor."
+        },
+        "user": {
+          "name": "Gebruiker",
+          "description": "Het apparaat van de gebruiker aan wie de meting wordt toegewezen. Laat leeg om de meting aan niemand toe te wijzen."
+        }
+      }
     }
   }
 }

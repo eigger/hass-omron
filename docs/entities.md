@@ -106,14 +106,15 @@ With no user added, nothing here applies and the integration behaves as before. 
 
 | Device | Sensors | Attributes |
 |---|---|---|
-| Scale | Weight, BMI (from the **Height** you enter for that user) | `assignment`, `measured_at`, `weight_kg`, `height_cm` (BMI) |
-| Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At | `assignment` (`rule`), `measured_at`, `irregular_pulse`, `body_movement` |
+| Scale | Weight, BMI (from the **Height** you enter for that user) | `assignment`, `measured_at`, `measurement_id`, `weight_kg`, `height_cm` (BMI) |
+| Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At | `assignment` (`rule`), `measured_at`, `measurement_id`, `irregular_pulse`, `body_movement` |
 
 The sensors keep their last values across restarts. A measurement that cannot be given to one user is given to nobody, leaves every user's sensors alone and is announced as an `omron_unassigned_measurement` event:
 
 | Field | Meaning |
 |---|---|
 | `device_id`, `address` | the device |
+| `measurement_id` | the id to move this measurement with [`omron.reassign_measurement`](#moving-a-measurement-to-another-user) |
 | `measured_at`, `device_time`, `sequence` | when it was taken (your time zone / the device's own clock) and the cuff's record number if it has one |
 | `weight` or `sys`, `dia`, `bpm`, `irregular_pulse`, `body_movement` | the measurement |
 | `reason` | `ambiguous` (fits several users, or none clearly), `no_match` (fits no user's rules), `no_time` (a user's time window needs a time the record does not have), `out_of_range` (weight-based: even the closest user is too far away) |
@@ -132,8 +133,19 @@ The sensors keep their last values across restarts. A measurement that cannot be
 - Time windows use the **device's clock**, which can be wrong; if it is, every time rule is wrong. The HEM-7600T supports clock sync.
 - Value ranges are only a hint (blood pressure varies a lot within one person and ranges of different people overlap) and can assign a measurement to the wrong person. Time windows only work when everyone's routine is regular.
 - For a monitor, the device's own sensors may show a reading that was just taken live over Bluetooth while the user's sensors show the record the monitor stored; the two can differ for a moment or by a reading. Only the stored record is assigned.
-- Assignment is not undone: a measurement given to the wrong user (or left unassigned) is not moved later, and there is no way to pick the current user. The home-presence of people is not used.
+- A measurement given to the wrong user (or left unassigned) can be moved afterwards, but only while it is among the newest 50 the device handled (see below). There is no way to pick the current user beforehand. The home-presence of people is only used if you link a person to a user.
 - Removing a user removes their sensors and what was learned about them; their earlier states stay in the Home Assistant history. Removing the last user forgets where the device stood, so the next one starts from a baseline again.
+
+### Moving a measurement to another user
+
+Every measurement handled for the users of a device is kept in a log of the newest 50, with its values, times and the user it went to (or none and why). Each user sensor shows the id of its measurement in the `measurement_id` attribute, and the `omron_unassigned_measurement` event carries the id of the one it announces. To correct an assignment, call the action `omron.reassign_measurement`:
+
+| Field | Meaning |
+|---|---|
+| `measurement_id` | the id from the attribute or the event |
+| `user` | the device of the user who should have it (pick the user's device in the action's form); leave it empty to take the measurement away from everyone |
+
+The measurement is moved: the old user's sensors fall back to their newest measurement still in the log (or to *unknown* if there is none), the new user's sensors show it if it is their newest in the log, and an `omron_measurement_reassigned` event is fired (`measurement_id`, `previous_user_id`, `previous_user`, `user_id`, `user`, the values and times). With the weight strategy the weights both users have learned are rebuilt from the log, so the reference weights follow the correction. An unknown id, a device that is not a user, or a user of another device is refused with an error. Only the newest 50 measurements can be moved; a sensor that still shows an older measurement is not changed.
 
 ## Users of a multi-slot body-composition scale
 

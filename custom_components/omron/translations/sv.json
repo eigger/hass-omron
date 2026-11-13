@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "Längden måste vara 0 (för att rensa) eller mellan {min} och {max} cm."
+    },
+    "unknown_measurement": {
+      "message": "Det finns ingen mätning med ID {measurement_id}. Bara de 50 senaste mätningarna per enhet sparas."
+    },
+    "not_a_user": {
+      "message": "Den valda enheten är ingen användare."
+    },
+    "user_other_device": {
+      "message": "Den valda användaren hör till en annan enhet än mätningen."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Tilldela mätning på nytt",
+      "description": "Flyttar en redan hanterad mätning till en annan användare eller till ingen. Mätningens ID finns i händelsen `omron_unassigned_measurement` eller i attributen för en användarsensor. Bara de 50 senaste mätningarna per enhet sparas.",
+      "fields": {
+        "measurement_id": {
+          "name": "Mätnings-ID",
+          "description": "Mätningens ID, som i händelsen `omron_unassigned_measurement` eller i attributet `measurement_id` för en användarsensor."
+        },
+        "user": {
+          "name": "Användare",
+          "description": "Enheten för den användare som mätningen ska tilldelas. Lämna tomt för att inte tilldela den till någon."
+        }
+      }
     }
   }
 }

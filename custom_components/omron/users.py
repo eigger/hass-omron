@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -21,7 +22,10 @@ from homeassistant.helpers.storage import Store
 from .assignment import (
     KIND_MATCHED,
     KIND_NEAREST,
+    KIND_MANUAL,
+    REASON_MANUAL,
     REASON_SLOT_UNCLAIMED,
+    REASON_USER_REMOVED,
     Assignment,
     RuleUser,
     SlotUser,
@@ -48,10 +52,12 @@ from .const import (
     CONF_WEIGHT_TOLERANCE_PCT,
     DOMAIN,
     EVENT_UNASSIGNED_MEASUREMENT,
+    MEASUREMENT_LOG_SIZE,
     STRATEGY_RULES,
     STRATEGY_SLOT,
     STRATEGY_WEIGHT,
     SUBENTRY_USER,
+    WEIGHT_HISTORY_SIZE,
     WEIGHT_TOLERANCE_PCT_DEFAULT,
 )
 from .data import signal_user_updated
@@ -242,6 +248,9 @@ class OmronUsers:
         # values, which a restart restores the sensors from.
         self.recent: dict[str, list[float]] = {}
         self.last: dict[str, dict[str, Any]] = {}
+        # The newest ``MEASUREMENT_LOG_SIZE`` measurements handled, oldest
+        # first, assigned or not (see ``log_measurement``).
+        self.log: list[dict[str, Any]] = []
 
     async def async_load(self, user_ids: set[str]) -> None:
         """Read the Store, drop users that no longer exist, reset on a new strategy."""
@@ -254,10 +263,11 @@ class OmronUsers:
         for slot, sequence in _slot_map(stored.get("last_seq")).items():
             if isinstance(sequence, int) and not isinstance(sequence, bool):
                 self.last_seq[slot] = sequence
+        same_strategy = stored.get("strategy") == self.strategy
+        self.log = _load_log(stored.get("log"), user_ids, same_strategy)
         users = stored.get("users")
         if not isinstance(users, dict):
             return
-        same_strategy = stored.get("strategy") == self.strategy
         for user_id, state in users.items():
             if user_id not in user_ids or not isinstance(state, dict):
                 continue
@@ -286,7 +296,98 @@ class OmronUsers:
                 }
                 for user_id in {*self.recent, *self.last}
             },
+            "log": [dict(entry) for entry in self.log],
         }
+
+    def log_measurement(
+        self,
+        measurement: dict[str, Any],
+        slot: int,
+        assignment: Assignment,
+        value_keys: tuple[str, ...],
+        *,
+        learned: bool,
+    ) -> dict[str, Any]:
+        """Remember a handled measurement, so it can be moved to another user.
+
+        ``learned`` says whether its weight went into the user's recent
+        weights, which the reassignment has to take back out.
+        """
+        entry = {
+            "id": uuid.uuid4().hex[:12],
+            "user": assignment.user_id,
+            "reason": assignment.reason,
+            "kind": assignment.kind,
+            "learned": learned,
+            "slot": slot,
+            "measured_at": measurement.get("measured_at"),
+            "device_time": measurement.get("device_time"),
+            "sequence": measurement.get("sequence"),
+            "values": {key: measurement.get(key) for key in value_keys},
+        }
+        self.log.append(entry)
+        del self.log[:-MEASUREMENT_LOG_SIZE]
+        return entry
+
+    def find_logged(self, measurement_id: str) -> dict[str, Any] | None:
+        return next((e for e in self.log if e["id"] == measurement_id), None)
+
+    def _newest_logged(self, user_id: str) -> dict[str, Any] | None:
+        return next((e for e in reversed(self.log) if e["user"] == user_id), None)
+
+    def _learned_weights(self, user_id: str) -> list[float]:
+        return [
+            float(e["values"]["weight"])
+            for e in self.log
+            if e["user"] == user_id and e["learned"]
+        ]
+
+    def reassign(self, entry: dict[str, Any], new_user_id: str | None) -> set[str]:
+        """Move a logged measurement to ``new_user_id`` (None: to nobody).
+
+        Returns the users whose sensors may have changed. Under the weight
+        strategy the recent weights of both users are rebuilt: the log holds
+        the latest measurements only, so the weights it knows of are the tail of
+        a user's recent list, and what lies before them is kept as it was.
+        """
+        old_user_id = entry["user"]
+        affected = {user for user in (old_user_id, new_user_id) if user}
+        learning = self.strategy == STRATEGY_WEIGHT
+        older: dict[str, list[float]] = {}
+        if learning:
+            for user in affected:
+                known = len(self._learned_weights(user))
+                recent = self.recent.get(user, [])
+                older[user] = recent[: max(len(recent) - known, 0)]
+        was_newest = (
+            old_user_id is not None and self._newest_logged(old_user_id) is entry
+        )
+
+        weight = entry["values"].get("weight")
+        entry["user"] = new_user_id
+        entry["reason"] = None if new_user_id else REASON_MANUAL
+        entry["kind"] = KIND_MANUAL if new_user_id else None
+        entry["learned"] = bool(
+            learning
+            and new_user_id
+            and isinstance(weight, (int, float))
+            and not isinstance(weight, bool)
+        )
+
+        if learning:
+            for user in affected:
+                self.recent[user] = [*older[user], *self._learned_weights(user)][
+                    -WEIGHT_HISTORY_SIZE:
+                ]
+        if old_user_id is not None and was_newest:
+            fallback = self._newest_logged(old_user_id)
+            if fallback is None:
+                self.last.pop(old_user_id, None)
+            else:
+                self.last[old_user_id] = _last_from_log(fallback)
+        if new_user_id is not None and self._newest_logged(new_user_id) is entry:
+            self.last[new_user_id] = _last_from_log(entry)
+        return affected
 
     async def async_save(self) -> None:
         await _store(self._hass, self._entry_id).async_save(self.as_dict())
@@ -302,6 +403,54 @@ def _slot_map(raw: Any) -> dict[int, Any]:
             except (TypeError, ValueError):
                 continue
     return result
+
+
+def _last_from_log(entry: dict[str, Any]) -> dict[str, Any]:
+    """What a user's sensors show for a logged measurement."""
+    return {
+        **entry["values"],
+        "measured_at": entry["measured_at"],
+        "assignment": entry["kind"],
+        "measurement_id": entry["id"],
+    }
+
+
+def _load_log(
+    raw: Any, user_ids: set[str], same_strategy: bool
+) -> list[dict[str, Any]]:
+    """The saved log, dropping what does not fit.
+
+    A measurement of a user who no longer exists belongs to nobody now. What
+    was learned under another strategy is not learned any more.
+    """
+    log: list[dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return log
+    for item in raw:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("id"), str)
+            or not isinstance(item.get("values"), dict)
+        ):
+            continue
+        entry = {
+            "id": item["id"],
+            "user": item.get("user"),
+            "reason": item.get("reason"),
+            "kind": item.get("kind"),
+            "learned": bool(item.get("learned")) and same_strategy,
+            "slot": item.get("slot") if isinstance(item.get("slot"), int) else 1,
+            "measured_at": item.get("measured_at"),
+            "device_time": item.get("device_time"),
+            "sequence": item.get("sequence"),
+            "values": dict(item["values"]),
+        }
+        if entry["user"] is not None and entry["user"] not in user_ids:
+            entry.update(
+                user=None, reason=REASON_USER_REMOVED, kind=None, learned=False
+            )
+        log.append(entry)
+    return log[-MEASUREMENT_LOG_SIZE:]
 
 
 async def async_setup_users(
@@ -525,18 +674,27 @@ async def async_assign_measurements(
                 continue
         else:
             assignment = assign_by_rules(measurement, rule_users(entry))
+        learned = assignment.kind in (KIND_MATCHED, KIND_NEAREST)
+        logged = users.log_measurement(
+            measurement, slot, assignment, value_keys, learned=learned
+        )
         if assignment.user_id is None:
             hass.bus.async_fire(
                 EVENT_UNASSIGNED_MEASUREMENT,
-                _unassigned_event(hass, entry, measurement, assignment, value_keys),
+                _unassigned_event(
+                    hass, entry, measurement, assignment, value_keys, logged["id"]
+                ),
             )
             continue
         user_id = assignment.user_id
-        if assignment.kind in (KIND_MATCHED, KIND_NEAREST):
+        if learned:
             users.recent[user_id] = remember_weight(
                 users.recent.get(user_id, []), float(measurement["weight"])
             )
-        users.last[user_id] = _last_values(measurement, assignment, value_keys)
+        users.last[user_id] = {
+            **_last_values(measurement, assignment, value_keys),
+            "measurement_id": logged["id"],
+        }
         async_dispatcher_send(hass, signal_user_updated(entry.entry_id, user_id))
         # Each record gets its own state change, as the stored-record sync does.
         await asyncio.sleep(0)
@@ -558,11 +716,13 @@ def _unassigned_event(
     measurement: dict[str, Any],
     assignment: Assignment,
     value_keys: tuple[str, ...],
+    measurement_id: str,
 ) -> dict[str, Any]:
     device = async_entry_device(hass, entry)
     return {
         "device_id": device.id if device else None,
         "address": entry.runtime_data.address,
+        "measurement_id": measurement_id,
         "measured_at": measurement.get("measured_at"),
         "device_time": measurement.get("device_time"),
         "sequence": measurement.get("sequence"),

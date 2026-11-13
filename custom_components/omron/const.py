@@ -32,6 +32,11 @@ STRATEGY_RULES: Final = "rules"
 # strategy of such a scale.
 STRATEGY_SLOT: Final = "slot"
 EVENT_UNASSIGNED_MEASUREMENT: Final = "omron_unassigned_measurement"
+EVENT_MEASUREMENT_REASSIGNED: Final = "omron_measurement_reassigned"
+# Handled measurements kept per entry so one can be moved to another user
+# afterwards (newest last).
+MEASUREMENT_LOG_SIZE: Final = 50
+SERVICE_REASSIGN_MEASUREMENT: Final = "reassign_measurement"
 
 # Subentry data keys.
 CONF_USER_NAME: Final = "name"

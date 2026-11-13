@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "身長は 0 (クリア) または {min}〜{max} cm で入力してください。"
+    },
+    "unknown_measurement": {
+      "message": "ID {measurement_id} の測定はありません。各デバイスで保持されるのは最新の50件の測定だけです。"
+    },
+    "not_a_user": {
+      "message": "選択したデバイスはユーザーではありません。"
+    },
+    "user_other_device": {
+      "message": "選択したユーザーは、その測定とは別のデバイスに属しています。"
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "測定を割り当て直す",
+      "description": "すでに処理された測定を別のユーザー、または誰にも割り当てない状態に移します。測定 ID は `omron_unassigned_measurement` イベント、またはユーザーセンサーの属性にあります。各デバイスで保持されるのは最新の50件の測定だけです。",
+      "fields": {
+        "measurement_id": {
+          "name": "測定 ID",
+          "description": "測定の ID。`omron_unassigned_measurement` イベント、またはユーザーセンサーの `measurement_id` 属性にあるものです。"
+        },
+        "user": {
+          "name": "ユーザー",
+          "description": "測定を割り当てるユーザーのデバイス。空のままにすると誰にも割り当てません。"
+        }
+      }
     }
   }
 }

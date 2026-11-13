@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "L'altezza deve essere 0 (per cancellarla) o compresa tra {min} e {max} cm."
+    },
+    "unknown_measurement": {
+      "message": "Non esiste alcuna misurazione con l'ID {measurement_id}. Di ogni dispositivo vengono conservate solo le 50 misurazioni più recenti."
+    },
+    "not_a_user": {
+      "message": "Il dispositivo scelto non è un utente."
+    },
+    "user_other_device": {
+      "message": "L'utente scelto appartiene a un dispositivo diverso da quello della misurazione."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Riassegna misurazione",
+      "description": "Sposta una misurazione già elaborata a un altro utente o a nessuno. L'ID della misurazione si trova nell'evento `omron_unassigned_measurement` o negli attributi di un sensore utente. Di ogni dispositivo vengono conservate solo le 50 misurazioni più recenti.",
+      "fields": {
+        "measurement_id": {
+          "name": "ID della misurazione",
+          "description": "L'ID della misurazione, come nell'evento `omron_unassigned_measurement` o nell'attributo `measurement_id` di un sensore utente."
+        },
+        "user": {
+          "name": "Utente",
+          "description": "Il dispositivo dell'utente a cui assegnare la misurazione. Lascia vuoto per non assegnarla a nessuno."
+        }
+      }
     }
   }
 }

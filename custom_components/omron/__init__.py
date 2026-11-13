@@ -33,8 +33,10 @@ from homeassistant.components.bluetooth import (
 )
 from homeassistant.const import Platform, CONF_SCAN_INTERVAL
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 from datetime import timedelta
 from homeassistant.helpers.update_coordinator import (
@@ -60,6 +62,7 @@ from .users import (
     async_remove_users,
     async_setup_users,
 )
+from .services import async_setup_services
 from .util import aliases_dict_from_entry
 from .coordinator import OmronBluetoothProcessorCoordinator
 from .types import OmronConfigEntry
@@ -700,6 +703,15 @@ async def async_poll_data(hass: HomeAssistant, entry: OmronConfigEntry) -> Senso
                 await preconnected_session.aclose()
             except Exception:
                 pass
+
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the domain's services; they do not belong to any one entry."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: OmronConfigEntry) -> bool:

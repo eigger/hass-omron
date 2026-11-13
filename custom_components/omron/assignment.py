@@ -26,6 +26,8 @@ KIND_MATCHED = "matched"
 KIND_NEAREST = "nearest"
 KIND_RULE = "rule"
 KIND_SLOT = "slot"
+# Set by a person moving a measurement to a user afterwards.
+KIND_MANUAL = "manual"
 
 # Why one was not assigned.
 REASON_AMBIGUOUS = "ambiguous"
@@ -34,6 +36,9 @@ REASON_NO_TIME = "no_time"
 REASON_OUT_OF_RANGE = "out_of_range"
 # Not announced: a slot nobody claimed is simply left alone.
 REASON_SLOT_UNCLAIMED = "slot_unclaimed"
+# Not from a strategy: a person un-assigned it, or its user was removed.
+REASON_MANUAL = "manual"
+REASON_USER_REMOVED = "user_removed"
 
 _MINUTES_PER_DAY = 24 * 60
 

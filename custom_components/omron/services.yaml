@@ -1,0 +1,12 @@
+reassign_measurement:
+  fields:
+    measurement_id:
+      required: true
+      example: "3f9a1c2b7d4e"
+      selector:
+        text:
+    user:
+      required: false
+      selector:
+        device:
+          integration: omron

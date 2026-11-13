@@ -163,7 +163,7 @@
 
 - Store에 처리한 측정의 로그를 최신 50건까지 둔다. 항목: `id`(임의의 12자리 16진수, 전 기기에서 유일하다고 본다), 값(`values`), `measured_at`, `device_time`, `sequence`, `slot`, 배정된 사용자(`user`, 없으면 `None`과 `reason`), 배정 종류(`kind`), 체중 학습에 쓰였는지(`learned`). 미배정 측정도 기록한다. 슬롯 방식에서 아무도 가리키지 않은 슬롯의 기록은 로그에도 남기지 않는다.
 - `omron_unassigned_measurement` 이벤트와 사용자 센서 속성에 `measurement_id`를 싣는다.
-- 서비스 `omron.reassign_measurement`: `measurement_id`, `user`(사용자 서브 디바이스를 가리키는 디바이스 선택기, 비우면 배정 해제). 도메인에 한 번 `async_setup`에서 등록한다(`services.yaml`, 번역 문자열). 처리는 해당 엔트리의 `history_lock`을 잡고 한다. 모르는 id, 사용자 서브 디바이스가 아니거나 다른 기기의 사용자이면 `ServiceValidationError`(번역 키 `unknown_measurement`, `not_a_user`, `user_other_device`, `entry_not_loaded`)를 낸다. 이미 그 사용자(또는 이미 미배정)이면 아무것도 하지 않는다.
+- 서비스 `omron.reassign_measurement`: `measurement_id`, `user`(사용자 서브 디바이스를 가리키는 디바이스 선택기, 비우면 배정 해제). 도메인에 한 번 `async_setup`에서 등록한다(`services.yaml`, 번역 문자열). 처리는 해당 엔트리의 `history_lock`을 잡고 한다. 모르는 id, 사용자 서브 디바이스가 아니거나 다른 기기의 사용자이면 `ServiceValidationError`(번역 키 `unknown_measurement`, `not_a_user`, `user_other_device`)를 낸다. 이미 그 사용자(또는 이미 미배정)이면 아무것도 하지 않는다.
 - 재배정은 측정을 옮긴다. 옮긴 뒤:
   - 체중 전략이면 옛 사용자와 새 사용자의 `recent`를 로그에서 다시 만든다. `recent`는 학습된 체중의 최근 5건이고 로그는 최근 측정 50건뿐이므로, 로그에 있는 학습 항목 수만큼을 `recent`의 끝에서 빼고 남은 앞부분(로그 밖의 더 오래된 체중)에 로그의 학습 항목을 붙인 뒤 끝 5건을 취한다. 전략을 바꿔 `recent`를 비울 때 로그 항목의 `learned`도 모두 끈다. 옮긴 측정은 체중 전략일 때 새 사용자에게 학습 항목(`kind: "manual"`)이 된다.
   - 새 사용자의 센서는 옮긴 측정이 그 사용자의 로그 안 최신이면 그 값을 보인다. 옛 사용자의 센서는 옮긴 측정이 그 사용자의 로그 안 최신이었을 때만 바뀌고, 남은 로그의 최신 측정으로 돌아가거나(없으면) 알 수 없음이 된다.
@@ -272,3 +272,7 @@
 - **3-3 `person` 없음**: 슬롯 전략은 기기가 사람을 정하므로 `person` 필터를 쓰지 않는다(입력 항목도 없다).
 - **3-6 Store v2 (3-3과 함께)**: 슬롯별 지문·순번이 필요해 이 항목에서 `STORE_VERSION`을 2로 올렸다(`fingerprints`, `last_seq`가 슬롯 번호 키의 딕셔너리, 단일 슬롯 기기는 키 `"1"`). v1 → v2 마이그레이션은 `fingerprint`→`fingerprints["1"]`, `last_seq`→`last_seq["1"]`이고 학습한 체중과 마지막 값은 그대로다. 재배정 로그(3-4)는 같은 v2에 이어서 더한다(출시 전이라 별도 버전을 두지 않는다).
 - **3-3 기존 테스트 변경**: `test_user_measurements.py`의 Store 형식 단언(`fingerprint`→`fingerprints`, `last_seq` 정수→슬롯 딕셔너리, `users.fingerprint`→`users.fingerprints[1]`)과 `test_user_subentries.py`의 "HBF는 사용자를 내지 않는다"(이제 낸다), `test_entity_name_translation.py`의 번역 구조 단언(`slot` 단계, `slot_taken` 오류, 새 센서 키)을 새 구조에 맞췄다. 단언의 강도는 그대로다.
+- **3-4 로드되지 않은 엔트리**: 서비스는 로드된 엔트리의 로그만 찾는다. 로드되지 않은 엔트리의 측정은 "알 수 없는 id"(`unknown_measurement`)로 거부한다(별도 `entry_not_loaded` 번역 키는 두지 않았다).
+- **3-4 id와 로그 항목**: id는 `uuid4`의 앞 12자리 16진수다. 항목은 `id`, `user`, `reason`, `kind`, `learned`, `slot`, `measured_at`, `device_time`, `sequence`, `values`다. 삭제된 사용자의 측정은 불러올 때 `user: None`, `reason: "user_removed"`가 된다. 배정 해제는 `reason: "manual"`, 사람이 옮긴 측정의 `kind`는 `manual`이다.
+- **3-4 `recent` 재구성**: 설계대로 "로그에 있는 학습 항목 수만큼을 `recent` 끝에서 빼고 그 앞부분에 로그의 학습 항목을 붙인 뒤 끝 5건"이다. 로그 밖의 더 오래된 체중이 있으면 지워지지 않는다. 전략을 바꿔 `recent`를 비울 때 로그의 `learned`를 모두 끈다(그렇지 않으면 이전 전략의 체중이 되살아난다).
+- **3-4 서비스 잠금**: 재배정은 폴링 훅이 쓰는 `history_lock`을 잡고 한다. 언로드 중이면 거부한다.

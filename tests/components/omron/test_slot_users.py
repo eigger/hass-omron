@@ -514,6 +514,8 @@ async def test_a_version_1_store_is_migrated_keeping_what_was_learned(
     assert "fingerprint" not in saved["data"]
     assert saved["data"]["fingerprints"] == {"1": ["2026-09-22T07:30:00", 62.0]}
     assert saved["data"]["last_seq"] == {}
+    # A version 1 store had no log; the first measurement after it starts one.
+    assert [e["user"] for e in saved["data"]["log"]] == ["alice"]
     assert saved["data"]["users"]["alice"]["recent"] == [62.0, 62.4, 62.0]
 
 

@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "키는 0(지우기) 또는 {min}~{max} cm 사이여야 합니다."
+    },
+    "unknown_measurement": {
+      "message": "ID가 {measurement_id}인 측정값이 없습니다. 기기마다 최근 측정값 50건만 보관됩니다."
+    },
+    "not_a_user": {
+      "message": "선택한 기기는 사용자가 아닙니다."
+    },
+    "user_other_device": {
+      "message": "선택한 사용자는 그 측정값과 다른 기기에 속해 있습니다."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "측정값 다시 배정",
+      "description": "이미 처리된 측정값을 다른 사용자에게, 또는 아무에게도 배정하지 않는 상태로 옮깁니다. 측정 ID는 `omron_unassigned_measurement` 이벤트나 사용자 센서의 속성에서 확인합니다. 기기마다 최근 측정값 50건만 보관됩니다.",
+      "fields": {
+        "measurement_id": {
+          "name": "측정 ID",
+          "description": "측정값의 ID입니다. `omron_unassigned_measurement` 이벤트 또는 사용자 센서의 `measurement_id` 속성에 있는 값입니다."
+        },
+        "user": {
+          "name": "사용자",
+          "description": "측정값을 배정할 사용자의 기기입니다. 비워 두면 아무에게도 배정하지 않습니다."
+        }
+      }
     }
   }
 }

@@ -1123,6 +1123,8 @@ class _OmronUserSensor(OmronEntity, SensorEntity):
         return {
             "measured_at": last.get("measured_at"),
             "assignment": last.get("assignment"),
+            # What the omron.reassign_measurement service takes to move it.
+            "measurement_id": last.get("measurement_id"),
             **{key: last.get(key) for key in self._extra_attributes},
         }
 

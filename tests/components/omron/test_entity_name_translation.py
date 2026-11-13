@@ -163,3 +163,26 @@ def test_translation_files_share_the_multi_user_strings() -> None:
         }
         for name in _USER_SENSOR_KEYS:
             assert "{user}" not in doc["entity"]["sensor"][name]["name"]
+
+
+def test_every_language_translates_the_reassign_service() -> None:
+    """The service and its errors read the same in every language (#301)."""
+    import yaml
+
+    fields = set(
+        yaml.safe_load((_COMPONENT / "services.yaml").read_text(encoding="utf-8"))[
+            "reassign_measurement"
+        ]["fields"]
+    )
+    assert fields == {"measurement_id", "user"}
+    for path in _STRING_FILES:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        service = doc["services"]["reassign_measurement"]
+        assert service["name"] and service["description"], path.name
+        assert set(service["fields"]) == fields, path.name
+        for field in service["fields"].values():
+            assert field["name"] and field["description"], path.name
+        exceptions = doc["exceptions"]
+        assert "{measurement_id}" in exceptions["unknown_measurement"]["message"]
+        for key in ("not_a_user", "user_other_device"):
+            assert exceptions[key]["message"], path.name

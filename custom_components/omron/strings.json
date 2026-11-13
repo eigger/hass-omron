@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "Height must be 0 (to clear) or between {min} and {max} cm."
+    },
+    "unknown_measurement": {
+      "message": "There is no measurement with the id {measurement_id}. Only the newest 50 measurements of each device are kept."
+    },
+    "not_a_user": {
+      "message": "The chosen device is not a user."
+    },
+    "user_other_device": {
+      "message": "The chosen user belongs to another device than the measurement."
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "Reassign measurement",
+      "description": "Moves a measurement that was already handled to another user, or to nobody. Take the measurement id from the `omron_unassigned_measurement` event or from a user sensor's attributes. Only the newest 50 measurements of each device are kept.",
+      "fields": {
+        "measurement_id": {
+          "name": "Measurement ID",
+          "description": "The id of the measurement, as in the `omron_unassigned_measurement` event or a user sensor's `measurement_id` attribute."
+        },
+        "user": {
+          "name": "User",
+          "description": "The device of the user to give the measurement to. Leave it empty to give it to nobody."
+        }
+      }
     }
   }
 }

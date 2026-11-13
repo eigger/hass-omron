@@ -128,7 +128,7 @@
         },
         "slot": {
           "title": "用户",
-          "description": "在体重秤所选槽位上完成的每次测量都会分配给该用户。请选择这个人在体重秤上使用的槽位。一个槽位只能属于一个用户;没有人选择的槽位的测量会被忽略。身高仅用于计算 BMI。",
+          "description": "在体重秤所选槽位上完成的每次测量都会分配给该用户。请选择这个人在体重秤上使用的槽位。一个槽位只能属于一个用户；没有人选择的槽位的测量会被忽略。身高仅用于计算 BMI。",
           "data": {
             "name": "名称",
             "slot": "体重秤槽位",
@@ -569,6 +569,31 @@
   "exceptions": {
     "height_out_of_range": {
       "message": "身高必须为 0(清除)或介于 {min} 到 {max} 厘米之间。"
+    },
+    "unknown_measurement": {
+      "message": "没有 ID 为 {measurement_id} 的测量。每台设备只保留最近的 50 次测量。"
+    },
+    "not_a_user": {
+      "message": "所选设备不是用户。"
+    },
+    "user_other_device": {
+      "message": "所选用户与该测量属于不同的设备。"
+    }
+  },
+  "services": {
+    "reassign_measurement": {
+      "name": "重新分配测量",
+      "description": "将已处理的测量移给其他用户，或不分配给任何人。测量 ID 可在 `omron_unassigned_measurement` 事件或用户传感器的属性中找到。每台设备只保留最近的 50 次测量。",
+      "fields": {
+        "measurement_id": {
+          "name": "测量 ID",
+          "description": "测量的 ID，即 `omron_unassigned_measurement` 事件或用户传感器 `measurement_id` 属性中的值。"
+        },
+        "user": {
+          "name": "用户",
+          "description": "要接收该测量的用户的设备。留空则不分配给任何人。"
+        }
+      }
     }
   }
 }
