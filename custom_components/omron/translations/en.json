@@ -78,6 +78,62 @@
       "model_not_selected": "The device model was not selected. Start over and pick the model from the list."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "User",
+      "initiate_flow": {
+        "user": "Add user",
+        "reconfigure": "Edit user"
+      },
+      "step": {
+        "weight": {
+          "title": "User",
+          "description": "Each new measurement goes to the user whose usual weight is closest. Enter the weight you normally see on the scale; it is used until this user has measurements of their own. Users whose weights are closer than about 5.5 kg (at 75 kg) are often left unassigned. Unassigned measurements are announced in an `omron_unassigned_measurement` event. The height is only used for the BMI.",
+          "data": {
+            "name": "Name",
+            "expected_weight": "Usual weight (kg)",
+            "height_cm": "Height (cm, for BMI)"
+          }
+        },
+        "rules": {
+          "title": "User",
+          "description": "Each new measurement goes to the one user whose rules all match. Leave a rule empty to ignore it. Write time windows as HH:MM-HH:MM separated by commas; a window may cross midnight (22:00-02:00). Value ranges are only a hint and can misassign. A measurement that fits several users, or none, is given to nobody and announced in an `omron_unassigned_measurement` event. The time is the one the device recorded, so its clock must be right.",
+          "data": {
+            "name": "Name",
+            "height_cm": "Height (cm, for BMI)",
+            "time_windows": "Time windows (HH:MM-HH:MM, comma-separated)",
+            "weight_min": "Weight from (kg)",
+            "weight_max": "Weight up to (kg)"
+          }
+        },
+        "pressure": {
+          "title": "User",
+          "description": "Each new reading goes to the one user whose rules all match. Leave a rule empty to ignore it. Write time windows as HH:MM-HH:MM separated by commas; a window may cross midnight (22:00-02:00). Value ranges are only a hint and can misassign. A reading that fits several users, or none, is given to nobody and announced in an `omron_unassigned_measurement` event. The time is the one the device recorded, so its clock must be right.",
+          "data": {
+            "name": "Name",
+            "time_windows": "Time windows (HH:MM-HH:MM, comma-separated)",
+            "sys_min": "Systolic from (mmHg)",
+            "sys_max": "Systolic up to (mmHg)",
+            "dia_min": "Diastolic from (mmHg)",
+            "dia_max": "Diastolic up to (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "No rules",
+          "description": "{name} has no rules, so every measurement fits this user, and a measurement that also fits another user is given to nobody. Press Submit to save anyway, or close this dialog and add a rule."
+        },
+        "confirm_overlap": {
+          "title": "Overlapping time windows",
+          "description": "The time windows of {name} overlap with those of: {others}. A measurement that fits both is given to nobody unless a value range tells them apart. Press Submit to save anyway."
+        }
+      },
+      "error": {
+        "invalid_name": "Enter a name that no other user has.",
+        "invalid_time_windows": "Enter time windows like 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "The lower value must not be above the upper value."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "User 1 name",
           "user_alias_2": "User 2 name",
           "user_alias_3": "User 3 name",
-          "user_alias_4": "User 4 name"
+          "user_alias_4": "User 4 name",
+          "assignment_strategy": "Assign measurements by",
+          "weight_tolerance_pct": "Weight tolerance (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Weight: the user whose usual weight is closest. Rules: the time windows and value ranges set per user. Changing this forgets the weights learned so far.",
+          "weight_tolerance_pct": "How far a weight may be from a user's usual weight, in percent (1–5); the tolerance is held between 1.0 and 4.0 kg. Users whose usual weights are closer than about 5.5 kg (at 75 kg) are often left unassigned."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Each user slot must have a different name (case-insensitive).",
       "invalid_scan_interval": "Enter 0 (no scheduled polling) or at least 60 seconds."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Weight",
+        "rules": "Rules (time and values)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Weight"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Systolic"
+      },
+      "user_diastolic": {
+        "name": "Diastolic"
+      },
+      "user_pulse": {
+        "name": "Pulse"
+      },
+      "user_measured_at": {
+        "name": "Measured At"
       }
     },
     "binary_sensor": {

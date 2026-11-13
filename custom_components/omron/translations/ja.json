@@ -78,6 +78,62 @@
       "model_not_selected": "機器モデルが選択されていません。最初からやり直し、一覧からモデルを選んでください。"
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "ユーザー",
+      "initiate_flow": {
+        "user": "ユーザーを追加",
+        "reconfigure": "ユーザーを編集"
+      },
+      "step": {
+        "weight": {
+          "title": "ユーザー",
+          "description": "新しい測定値は、普段の体重が最も近いユーザーに割り当てられます。体重計でいつも表示される体重を入力してください。このユーザー自身の測定値がたまるまで、この値が使われます。体重の差が約 5.5 kg（75 kg の場合）より小さいユーザーは、割り当てられないことが多くなります。割り当てられなかった測定値は `omron_unassigned_measurement` イベントで通知されます。身長は BMI の計算にのみ使われます。",
+          "data": {
+            "name": "名前",
+            "expected_weight": "普段の体重（kg）",
+            "height_cm": "身長（cm、BMI 用）"
+          }
+        },
+        "rules": {
+          "title": "ユーザー",
+          "description": "新しい測定値は、すべてのルールに一致するただ 1 人のユーザーに割り当てられます。空のルールは無視されます。時間帯は HH:MM-HH:MM の形式でカンマ区切りで入力します。日をまたぐ時間帯（22:00-02:00）も指定できます。値の範囲は目安にすぎず、誤って割り当てられることがあります。複数のユーザー、またはどのユーザーにも一致しない測定値は誰にも割り当てられず、`omron_unassigned_measurement` イベントで通知されます。時刻は機器が記録したものを使うため、機器の時計が正しい必要があります。",
+          "data": {
+            "name": "名前",
+            "height_cm": "身長（cm、BMI 用）",
+            "time_windows": "時間帯（HH:MM-HH:MM、カンマ区切り）",
+            "weight_min": "体重の下限（kg）",
+            "weight_max": "体重の上限（kg）"
+          }
+        },
+        "pressure": {
+          "title": "ユーザー",
+          "description": "新しい測定値は、すべてのルールに一致するただ 1 人のユーザーに割り当てられます。空のルールは無視されます。時間帯は HH:MM-HH:MM の形式でカンマ区切りで入力します。日をまたぐ時間帯（22:00-02:00）も指定できます。値の範囲は目安にすぎず、誤って割り当てられることがあります。複数のユーザー、またはどのユーザーにも一致しない測定値は誰にも割り当てられず、`omron_unassigned_measurement` イベントで通知されます。時刻は機器が記録したものを使うため、機器の時計が正しい必要があります。",
+          "data": {
+            "name": "名前",
+            "time_windows": "時間帯（HH:MM-HH:MM、カンマ区切り）",
+            "sys_min": "収縮期の下限（mmHg）",
+            "sys_max": "収縮期の上限（mmHg）",
+            "dia_min": "拡張期の下限（mmHg）",
+            "dia_max": "拡張期の上限（mmHg）"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "ルールなし",
+          "description": "{name} にはルールがないため、すべての測定値がこのユーザーに一致します。他のユーザーにも一致する測定値は、誰にも割り当てられません。このまま保存するには送信を押してください。ダイアログを閉じてルールを追加することもできます。"
+        },
+        "confirm_overlap": {
+          "title": "時間帯の重複",
+          "description": "{name} の時間帯が次のユーザーの時間帯と重なっています: {others}。両方に一致する測定値は、値の範囲で区別できない限り誰にも割り当てられません。このまま保存するには送信を押してください。"
+        }
+      },
+      "error": {
+        "invalid_name": "他のユーザーと重複しない名前を入力してください。",
+        "invalid_time_windows": "06:00-09:00, 18:00-21:00 のように時間帯を入力してください。",
+        "invalid_range": "下限は上限を超えないようにしてください。"
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "ユーザー 1 の名前",
           "user_alias_2": "ユーザー 2 の名前",
           "user_alias_3": "ユーザー 3 の名前",
-          "user_alias_4": "ユーザー 4 の名前"
+          "user_alias_4": "ユーザー 4 の名前",
+          "assignment_strategy": "測定値の割り当て方法",
+          "weight_tolerance_pct": "体重の許容誤差（%）"
+        },
+        "data_description": {
+          "assignment_strategy": "体重: 普段の体重が最も近いユーザー。ルール: ユーザーごとに設定した時間帯と値の範囲。変更すると、これまでに学習した体重は破棄されます。",
+          "weight_tolerance_pct": "ユーザーの普段の体重からどれだけ離れてよいかをパーセントで指定します（1〜5）。許容誤差は 1.0〜4.0 kg の範囲に収まります。普段の体重の差が約 5.5 kg（75 kg の場合）より小さいユーザーは、割り当てられないことが多くなります。"
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "各ユーザースロットの名前は互いに異なる必要があります（大文字と小文字は区別しません）。",
       "invalid_scan_interval": "0（定期取得なし）または 60 秒以上を入力してください。"
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "体重",
+        "rules": "ルール（時間帯と値）"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "体重"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "収縮期"
+      },
+      "user_diastolic": {
+        "name": "拡張期"
+      },
+      "user_pulse": {
+        "name": "脈拍"
+      },
+      "user_measured_at": {
+        "name": "測定日時"
       }
     },
     "binary_sensor": {

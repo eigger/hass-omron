@@ -78,6 +78,62 @@
       "already_configured": "이미 설정된 기기입니다."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "사용자",
+      "initiate_flow": {
+        "user": "사용자 추가",
+        "reconfigure": "사용자 편집"
+      },
+      "step": {
+        "weight": {
+          "title": "사용자",
+          "description": "새 측정값은 평소 체중이 가장 가까운 사용자에게 배정됩니다. 체중계에서 평소 보는 체중을 입력하세요. 이 사용자의 측정값이 쌓이기 전까지 이 값을 기준으로 합니다. 체중 차이가 약 5.5 kg(75 kg 기준)보다 가까운 사용자끼리는 미배정이 잦아집니다. 배정되지 않은 측정값은 `omron_unassigned_measurement` 이벤트로 알려집니다. 키는 BMI 계산에만 쓰입니다.",
+          "data": {
+            "name": "이름",
+            "expected_weight": "평소 체중(kg)",
+            "height_cm": "키(cm, BMI용)"
+          }
+        },
+        "rules": {
+          "title": "사용자",
+          "description": "새 측정값은 모든 규칙에 맞는 단 한 명의 사용자에게 배정됩니다. 비워 둔 규칙은 무시됩니다. 시간대는 HH:MM-HH:MM 형식으로 쉼표로 구분해 입력하며, 자정을 넘는 시간대(22:00-02:00)도 가능합니다. 값 범위는 보조 기준일 뿐이며 잘못 배정될 수 있습니다. 여러 사용자 또는 아무에게도 맞지 않는 측정값은 누구에게도 배정되지 않고 `omron_unassigned_measurement` 이벤트로 알려집니다. 기기가 기록한 시각을 쓰므로 기기 시계가 맞아야 합니다.",
+          "data": {
+            "name": "이름",
+            "height_cm": "키(cm, BMI용)",
+            "time_windows": "시간대(HH:MM-HH:MM, 쉼표로 구분)",
+            "weight_min": "체중 하한(kg)",
+            "weight_max": "체중 상한(kg)"
+          }
+        },
+        "pressure": {
+          "title": "사용자",
+          "description": "새 측정값은 모든 규칙에 맞는 단 한 명의 사용자에게 배정됩니다. 비워 둔 규칙은 무시됩니다. 시간대는 HH:MM-HH:MM 형식으로 쉼표로 구분해 입력하며, 자정을 넘는 시간대(22:00-02:00)도 가능합니다. 값 범위는 보조 기준일 뿐이며 잘못 배정될 수 있습니다. 여러 사용자 또는 아무에게도 맞지 않는 측정값은 누구에게도 배정되지 않고 `omron_unassigned_measurement` 이벤트로 알려집니다. 기기가 기록한 시각을 쓰므로 기기 시계가 맞아야 합니다.",
+          "data": {
+            "name": "이름",
+            "time_windows": "시간대(HH:MM-HH:MM, 쉼표로 구분)",
+            "sys_min": "수축기 하한(mmHg)",
+            "sys_max": "수축기 상한(mmHg)",
+            "dia_min": "이완기 하한(mmHg)",
+            "dia_max": "이완기 상한(mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "규칙 없음",
+          "description": "{name}에는 규칙이 없어 모든 측정값이 이 사용자에게 맞습니다. 다른 사용자에게도 맞는 측정값은 누구에게도 배정되지 않습니다. 그래도 저장하려면 제출을 누르고, 규칙을 추가하려면 이 창을 닫으세요."
+        },
+        "confirm_overlap": {
+          "title": "시간대 겹침",
+          "description": "{name}의 시간대가 다음 사용자의 시간대와 겹칩니다: {others}. 둘 다에 맞는 측정값은 값 범위로 구분되지 않는 한 누구에게도 배정되지 않습니다. 그래도 저장하려면 제출을 누르세요."
+        }
+      },
+      "error": {
+        "invalid_name": "다른 사용자와 겹치지 않는 이름을 입력하세요.",
+        "invalid_time_windows": "06:00-09:00, 18:00-21:00 형식으로 시간대를 입력하세요.",
+        "invalid_range": "하한은 상한보다 클 수 없습니다."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "사용자 1 이름",
           "user_alias_2": "사용자 2 이름",
           "user_alias_3": "사용자 3 이름",
-          "user_alias_4": "사용자 4 이름"
+          "user_alias_4": "사용자 4 이름",
+          "assignment_strategy": "측정값 배정 방식",
+          "weight_tolerance_pct": "체중 허용 오차(%)"
+        },
+        "data_description": {
+          "assignment_strategy": "체중: 평소 체중이 가장 가까운 사용자. 규칙: 사용자별로 정한 시간대와 값 범위. 바꾸면 지금까지 학습한 체중이 초기화됩니다.",
+          "weight_tolerance_pct": "사용자의 평소 체중에서 얼마나 벗어나도 되는지를 퍼센트로 정합니다(1~5). 허용 오차는 1.0~4.0 kg 범위로 제한됩니다. 평소 체중 차이가 약 5.5 kg(75 kg 기준)보다 가까운 사용자끼리는 미배정이 잦아집니다."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "각 사용자 슬롯 이름은 서로 달라야 합니다(대소문자 구분 없음).",
       "invalid_scan_interval": "0(예약 폴링 없음) 또는 60초 이상을 입력하세요."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "체중",
+        "rules": "규칙(시간대와 값)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "체중"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "수축기"
+      },
+      "user_diastolic": {
+        "name": "이완기"
+      },
+      "user_pulse": {
+        "name": "맥박"
+      },
+      "user_measured_at": {
+        "name": "측정 시각"
       }
     },
     "binary_sensor": {

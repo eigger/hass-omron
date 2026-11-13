@@ -78,6 +78,62 @@
       "model_not_selected": "Il modello non è stato selezionato. Ricomincia e sceglilo dall’elenco."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Utente",
+      "initiate_flow": {
+        "user": "Aggiungi utente",
+        "reconfigure": "Modifica utente"
+      },
+      "step": {
+        "weight": {
+          "title": "Utente",
+          "description": "Ogni nuova misurazione va all'utente il cui peso abituale è più vicino. Inserisci il peso che vedi di solito sulla bilancia; viene usato finché l'utente non ha misurazioni proprie. Gli utenti con pesi a meno di circa 5,5 kg di distanza (a 75 kg) restano spesso non assegnati. Le misurazioni non assegnate vengono segnalate con un evento `omron_unassigned_measurement`. L'altezza serve solo per il BMI.",
+          "data": {
+            "name": "Nome",
+            "expected_weight": "Peso abituale (kg)",
+            "height_cm": "Altezza (cm, per il BMI)"
+          }
+        },
+        "rules": {
+          "title": "Utente",
+          "description": "Ogni nuova misurazione va all'unico utente le cui regole sono tutte soddisfatte. Lascia vuota una regola per ignorarla. Scrivi le fasce orarie come HH:MM-HH:MM separate da virgole; una fascia può attraversare la mezzanotte (22:00-02:00). Gli intervalli di valori sono solo un indizio e possono assegnare male. Una misurazione che corrisponde a più utenti, o a nessuno, non viene assegnata a nessuno e viene segnalata con un evento `omron_unassigned_measurement`. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
+          "data": {
+            "name": "Nome",
+            "height_cm": "Altezza (cm, per il BMI)",
+            "time_windows": "Fasce orarie (HH:MM-HH:MM, separate da virgole)",
+            "weight_min": "Peso da (kg)",
+            "weight_max": "Peso fino a (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Utente",
+          "description": "Ogni nuova misurazione va all'unico utente le cui regole sono tutte soddisfatte. Lascia vuota una regola per ignorarla. Scrivi le fasce orarie come HH:MM-HH:MM separate da virgole; una fascia può attraversare la mezzanotte (22:00-02:00). Gli intervalli di valori sono solo un indizio e possono assegnare male. Una misurazione che corrisponde a più utenti, o a nessuno, non viene assegnata a nessuno e viene segnalata con un evento `omron_unassigned_measurement`. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
+          "data": {
+            "name": "Nome",
+            "time_windows": "Fasce orarie (HH:MM-HH:MM, separate da virgole)",
+            "sys_min": "Sistolica da (mmHg)",
+            "sys_max": "Sistolica fino a (mmHg)",
+            "dia_min": "Diastolica da (mmHg)",
+            "dia_max": "Diastolica fino a (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Nessuna regola",
+          "description": "{name} non ha regole, quindi ogni misurazione corrisponde a questo utente, e una misurazione che corrisponde anche a un altro utente non viene assegnata a nessuno. Premi Invia per salvare comunque, oppure chiudi questa finestra e aggiungi una regola."
+        },
+        "confirm_overlap": {
+          "title": "Fasce orarie sovrapposte",
+          "description": "Le fasce orarie di {name} si sovrappongono a quelle di: {others}. Una misurazione che corrisponde a entrambi non viene assegnata a nessuno, a meno che un intervallo di valori li distingua. Premi Invia per salvare comunque."
+        }
+      },
+      "error": {
+        "invalid_name": "Inserisci un nome che nessun altro utente ha.",
+        "invalid_time_windows": "Inserisci fasce orarie come 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "Il valore minimo non può superare il valore massimo."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Nome utente 1",
           "user_alias_2": "Nome utente 2",
           "user_alias_3": "Nome utente 3",
-          "user_alias_4": "Nome utente 4"
+          "user_alias_4": "Nome utente 4",
+          "assignment_strategy": "Assegna le misurazioni in base a",
+          "weight_tolerance_pct": "Tolleranza del peso (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Peso: l'utente il cui peso abituale è più vicino. Regole: le fasce orarie e gli intervalli di valori impostati per utente. Cambiarlo fa dimenticare i pesi appresi finora.",
+          "weight_tolerance_pct": "Quanto un peso può discostarsi dal peso abituale di un utente, in percentuale (1–5); la tolleranza resta tra 1,0 e 4,0 kg. Gli utenti i cui pesi abituali distano meno di circa 5,5 kg (a 75 kg) restano spesso non assegnati."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Ogni slot utente deve avere un nome diverso (senza distinzione tra maiuscole e minuscole).",
       "invalid_scan_interval": "Inserisci 0 (nessuna interrogazione pianificata) o almeno 60 secondi."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Peso",
+        "rules": "Regole (ora e valori)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Peso"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Sistolica"
+      },
+      "user_diastolic": {
+        "name": "Diastolica"
+      },
+      "user_pulse": {
+        "name": "Pulsazioni"
+      },
+      "user_measured_at": {
+        "name": "Misurata alle"
       }
     },
     "binary_sensor": {

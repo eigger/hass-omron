@@ -78,6 +78,62 @@
       "model_not_selected": "Enhetsmodellen valdes inte. Börja om och välj modellen i listan."
     }
   },
+  "config_subentries": {
+    "user": {
+      "entry_type": "Användare",
+      "initiate_flow": {
+        "user": "Lägg till användare",
+        "reconfigure": "Redigera användare"
+      },
+      "step": {
+        "weight": {
+          "title": "Användare",
+          "description": "Varje ny mätning går till den användare vars vanliga vikt ligger närmast. Ange vikten du brukar se på vågen; den används tills den här användaren har egna mätningar. Användare med vikter närmare varandra än cirka 5,5 kg (vid 75 kg) blir ofta utan tilldelning. Mätningar som inte tilldelas meddelas i en `omron_unassigned_measurement`-händelse. Längden används bara för BMI.",
+          "data": {
+            "name": "Namn",
+            "expected_weight": "Vanlig vikt (kg)",
+            "height_cm": "Längd (cm, för BMI)"
+          }
+        },
+        "rules": {
+          "title": "Användare",
+          "description": "Varje ny mätning går till den enda användare vars regler alla stämmer. Lämna en regel tom för att ignorera den. Skriv tidsfönster som HH:MM-HH:MM åtskilda med kommatecken; ett fönster får gå över midnatt (22:00-02:00). Värdeintervall är bara en fingervisning och kan tilldela fel. En mätning som passar flera användare, eller ingen, tilldelas ingen och meddelas i en `omron_unassigned_measurement`-händelse. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.",
+          "data": {
+            "name": "Namn",
+            "height_cm": "Längd (cm, för BMI)",
+            "time_windows": "Tidsfönster (HH:MM-HH:MM, åtskilda med kommatecken)",
+            "weight_min": "Vikt från (kg)",
+            "weight_max": "Vikt till (kg)"
+          }
+        },
+        "pressure": {
+          "title": "Användare",
+          "description": "Varje ny mätning går till den enda användare vars regler alla stämmer. Lämna en regel tom för att ignorera den. Skriv tidsfönster som HH:MM-HH:MM åtskilda med kommatecken; ett fönster får gå över midnatt (22:00-02:00). Värdeintervall är bara en fingervisning och kan tilldela fel. En mätning som passar flera användare, eller ingen, tilldelas ingen och meddelas i en `omron_unassigned_measurement`-händelse. Tiden är den som enheten registrerade, så dess klocka måste gå rätt.",
+          "data": {
+            "name": "Namn",
+            "time_windows": "Tidsfönster (HH:MM-HH:MM, åtskilda med kommatecken)",
+            "sys_min": "Systoliskt från (mmHg)",
+            "sys_max": "Systoliskt till (mmHg)",
+            "dia_min": "Diastoliskt från (mmHg)",
+            "dia_max": "Diastoliskt till (mmHg)"
+          }
+        },
+        "confirm_no_rules": {
+          "title": "Inga regler",
+          "description": "{name} har inga regler, så varje mätning passar den här användaren, och en mätning som även passar en annan användare tilldelas ingen. Tryck på Skicka för att spara ändå, eller stäng dialogrutan och lägg till en regel."
+        },
+        "confirm_overlap": {
+          "title": "Överlappande tidsfönster",
+          "description": "Tidsfönstren för {name} överlappar med dem för: {others}. En mätning som passar båda tilldelas ingen, om inte ett värdeintervall skiljer dem åt. Tryck på Skicka för att spara ändå."
+        }
+      },
+      "error": {
+        "invalid_name": "Ange ett namn som ingen annan användare har.",
+        "invalid_time_windows": "Ange tidsfönster som 06:00-09:00, 18:00-21:00.",
+        "invalid_range": "Det lägre värdet får inte vara högre än det övre."
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
@@ -89,13 +145,27 @@
           "user_alias_1": "Namn för användare 1",
           "user_alias_2": "Namn för användare 2",
           "user_alias_3": "Namn för användare 3",
-          "user_alias_4": "Namn för användare 4"
+          "user_alias_4": "Namn för användare 4",
+          "assignment_strategy": "Tilldela mätningar efter",
+          "weight_tolerance_pct": "Vikttolerans (%)"
+        },
+        "data_description": {
+          "assignment_strategy": "Vikt: användaren vars vanliga vikt ligger närmast. Regler: tidsfönster och värdeintervall som anges per användare. Om du ändrar detta glöms de hittills inlärda vikterna.",
+          "weight_tolerance_pct": "Hur långt en vikt får avvika från en användares vanliga vikt, i procent (1–5); toleransen hålls mellan 1,0 och 4,0 kg. Användare vars vanliga vikter ligger närmare varandra än cirka 5,5 kg (vid 75 kg) blir ofta utan tilldelning."
         }
       }
     },
     "error": {
       "duplicate_user_aliases": "Varje användarplats måste ha ett eget namn (skiftläge spelar ingen roll).",
       "invalid_scan_interval": "Ange 0 (ingen schemalagd avfrågning) eller minst 60 sekunder."
+    }
+  },
+  "selector": {
+    "assignment_strategy": {
+      "options": {
+        "weight": "Vikt",
+        "rules": "Regler (tid och värden)"
+      }
     }
   },
   "entity": {
@@ -394,6 +464,24 @@
       },
       "body_composition_bmi_user": {
         "name": "BMI ({user})"
+      },
+      "user_weight": {
+        "name": "Vikt"
+      },
+      "user_bmi": {
+        "name": "BMI"
+      },
+      "user_systolic": {
+        "name": "Systoliskt"
+      },
+      "user_diastolic": {
+        "name": "Diastoliskt"
+      },
+      "user_pulse": {
+        "name": "Puls"
+      },
+      "user_measured_at": {
+        "name": "Mätt klockan"
       }
     },
     "binary_sensor": {
