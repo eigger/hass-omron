@@ -1037,6 +1037,21 @@ def _flatten(user_input: dict[str, Any]) -> dict[str, Any]:
     return flat
 
 
+def _errors_by_section(errors: dict[str, str]) -> dict[str, str]:
+    """Errors of fields inside a section, moved onto the section itself.
+
+    The frontend shows a form error only for a top-level field: a section
+    renders its inner fields without the errors, so an error keyed by an inner
+    field would be shown nowhere. The first error of a section is the one shown.
+    """
+    owner = {key: _SECTION_WHEN for pair in _WINDOW_FIELDS for key in pair}
+    owner.update({key: _SECTION_RANGE for pair in _RANGE_PAIRS for key in pair})
+    moved: dict[str, str] = {}
+    for key, error in errors.items():
+        moved.setdefault(owner.get(key, key), error)
+    return moved
+
+
 def _picked_minutes(value: Any) -> int | None:
     """Minutes after midnight of a time picker's ``HH:MM[:SS]``; seconds dropped."""
     try:
@@ -1239,7 +1254,7 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
             low, high = data.get(low_key), data.get(high_key)
             if low is not None and high is not None and low > high:
                 errors[high_key] = "invalid_range"
-        return data, errors
+        return data, _errors_by_section(errors)
 
     def _collect_warnings(self, step_id: str, data: dict[str, Any]) -> list[str]:
         """Things worth a second look that must not stop the user from saving."""

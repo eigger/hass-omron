@@ -324,6 +324,11 @@ async def test_a_window_may_cross_midnight(
 # --- the flow: validation and warnings -----------------------------------------------
 
 
+def _top_level_fields(result: dict) -> set[str]:
+    """The fields the frontend can put an error on: a section shows none inside it."""
+    return {str(key) for key in result["data_schema"].schema}
+
+
 async def test_bad_input_is_reported_on_its_field(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
@@ -336,7 +341,7 @@ async def test_bad_input_is_reported_on_its_field(
         (_form_input("  "), {"name": "invalid_name"}),
         (
             _form_input("Eve", ranges={"sys_min": 140, "sys_max": 120}),
-            {"sys_max": "invalid_range"},
+            {"usual_range": "invalid_range"},
         ),
     ):
         again = await hass.config_entries.subentries.async_configure(
@@ -344,21 +349,23 @@ async def test_bad_input_is_reported_on_its_field(
         )
         assert again["type"] is FlowResultType.FORM, user_input
         assert again["errors"] == errors, user_input
+        assert set(again["errors"]) <= _top_level_fields(again), user_input
     await _unload(hass, entry)
 
 
 @pytest.mark.parametrize(
     ("when", "errors"),
     [
-        # A start without an end, an end without a start: the empty one is marked.
-        ({"window1_start": "06:00:00"}, {"window1_end": "time_window_incomplete"}),
-        ({"window1_end": "08:00:00"}, {"window1_start": "time_window_incomplete"}),
-        ({"window2_start": "20:00:00"}, {"window2_end": "time_window_incomplete"}),
-        ({"window2_end": "22:00:00"}, {"window2_start": "time_window_incomplete"}),
+        # A start without an end, an end without a start. Errors of fields inside
+        # a section are reported on the section: the frontend shows no others.
+        ({"window1_start": "06:00:00"}, {"when": "time_window_incomplete"}),
+        ({"window1_end": "08:00:00"}, {"when": "time_window_incomplete"}),
+        ({"window2_start": "20:00:00"}, {"when": "time_window_incomplete"}),
+        ({"window2_end": "22:00:00"}, {"when": "time_window_incomplete"}),
         # Start equal to end (seconds do not count).
         (
             {"window1_start": "06:00:00", "window1_end": "06:00:30"},
-            {"window1_end": "time_window_empty"},
+            {"when": "time_window_empty"},
         ),
         # Each window is checked on its own.
         (
@@ -368,11 +375,11 @@ async def test_bad_input_is_reported_on_its_field(
                 "window2_start": "21:00:00",
                 "window2_end": "21:00:00",
             },
-            {"window2_end": "time_window_empty"},
+            {"when": "time_window_empty"},
         ),
     ],
 )
-async def test_a_half_filled_or_empty_window_is_reported_on_its_field(
+async def test_a_half_filled_or_empty_window_is_reported_on_its_section(
     hass: HomeAssistant,
     enable_bluetooth: None,
     when: dict[str, str],
@@ -387,6 +394,7 @@ async def test_a_half_filled_or_empty_window_is_reported_on_its_field(
     assert again["type"] is FlowResultType.FORM
     assert again["step_id"] == "pressure"
     assert again["errors"] == errors
+    assert set(again["errors"]) <= _top_level_fields(again)
     assert not entry.subentries
     await _unload(hass, entry)
 
@@ -709,7 +717,7 @@ async def test_a_user_with_more_than_two_stored_windows_is_shown_them_and_a_note
     # The note stays when the form is shown again after an error.
     bad = _form_input("Bob", "06:00-07:00", ranges={"sys_min": 140, "sys_max": 120})
     again = await hass.config_entries.subentries.async_configure(result["flow_id"], bad)
-    assert again["errors"] == {"sys_max": "invalid_range"}
+    assert again["errors"] == {"usual_range": "invalid_range"}
     assert again["description_placeholders"]["extra_windows"] == note
 
     # Saving keeps the two shown windows only.
