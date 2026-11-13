@@ -49,6 +49,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.restore_state import ExtraStoredData, RestoreEntity
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .assignment import DECISIONS
 from .const import DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .const import CONF_USER_HEIGHT
@@ -1051,6 +1052,7 @@ def _user_sensors(
         return [
             OmronUserWeightSensor(entry, subentry),
             OmronUserBmiSensor(entry, subentry),
+            OmronUserLastDecisionSensor(entry, subentry),
         ]
     return [
         OmronUserSystolicSensor(entry, subentry),
@@ -1062,6 +1064,7 @@ def _user_sensors(
         OmronUserShockIndexSensor(entry, subentry),
         OmronUserRatePressureProductSensor(entry, subentry),
         OmronUserMeasuredAtSensor(entry, subentry),
+        OmronUserLastDecisionSensor(entry, subentry),
     ]
 
 
@@ -1297,3 +1300,51 @@ class OmronUserMeasuredAtSensor(_OmronUserSensor):
         value = self._last.get("measured_at")
         parsed = dt_util.parse_datetime(value) if isinstance(value, str) else None
         return parsed if parsed is not None and parsed.tzinfo is not None else None
+
+
+class OmronUserLastDecisionSensor(_OmronUserSensor):
+    """What the latest handled measurement meant for this user.
+
+    Unlike the value sensors it moves on every handled measurement, whether or
+    not the user got it, and says why when not. The attributes carry only what
+    is true for this user: the strategy's own detail (rules or weight), never
+    the other one's.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_options = list(DECISIONS)
+    _attr_icon = "mdi:account-question-outline"
+    # Beyond the common ones: the record's values and this user's detail.
+    _VALUES = ("sys", "dia", "bpm", "weight")
+    _DETAIL = (
+        "passed",
+        "failed",
+        "unknown",
+        "reference_kg",
+        "difference_kg",
+        "tolerance_kg",
+    )
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        super().__init__(entry, subentry, "last_decision")
+
+    @property
+    def _decision(self) -> dict[str, Any]:
+        users = self._runtime.users
+        if users is None:
+            return {}
+        return users.decision.get(self._subentry.subentry_id, {})
+
+    @property
+    def native_value(self) -> str | None:
+        state = self._decision.get("state")
+        return state if state in DECISIONS else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        decision = self._decision
+        if not decision:
+            return {}
+        keys = ("measured_at", *self._VALUES, "assigned_to", "reason", *self._DETAIL)
+        return {key: decision[key] for key in keys if key in decision}

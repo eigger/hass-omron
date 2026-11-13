@@ -32,6 +32,25 @@ REASON_NO_MATCH = "no_match"
 REASON_NO_TIME = "no_time"
 REASON_OUT_OF_RANGE = "out_of_range"
 
+# What happened to a measurement from one user's point of view (the state of the
+# user's "last assignment decision" sensor).
+DECISION_ASSIGNED = "assigned"
+DECISION_OTHER_USER = "other_user"
+DECISION_AMBIGUOUS = "ambiguous"
+DECISION_NOT_MATCHED = "not_matched"
+DECISION_NO_TIME = "no_time"
+DECISION_LEFT_OVER = "left_over"
+DECISION_SKIPPED = "skipped"
+DECISIONS = (
+    DECISION_ASSIGNED,
+    DECISION_OTHER_USER,
+    DECISION_AMBIGUOUS,
+    DECISION_NOT_MATCHED,
+    DECISION_NO_TIME,
+    DECISION_LEFT_OVER,
+    DECISION_SKIPPED,
+)
+
 _MINUTES_PER_DAY = 24 * 60
 
 Window = tuple[int, int]
@@ -302,3 +321,79 @@ def assign_by_rules(measurement: dict[str, Any], users: list[RuleUser]) -> Assig
         reason=REASON_NO_MATCH if not matching else REASON_AMBIGUOUS,
         candidates=candidates,
     )
+
+
+# --- one user's view of the outcome -------------------------------------------
+
+
+def _tied_weight_users(candidates: list[dict[str, Any]]) -> set[str]:
+    """Users the weight strategy could not tell apart (its ``ambiguous`` outcome).
+
+    Mirrors the choice in ``assign_by_weight``: the best is the closest user
+    inside their tolerance, else the closest of all; whoever is less than the
+    minimum gap farther away than the best is tied with it.
+    """
+    inside = [c for c in candidates if c["difference_kg"] <= c["tolerance_kg"]]
+    best = (inside or candidates)[0]
+    return {
+        c["user_id"]
+        for c in candidates
+        if c is best
+        or round(c["difference_kg"] - best["difference_kg"], 3) < WEIGHT_MIN_GAP_KG
+    }
+
+
+def user_decision(
+    assignment: Assignment, user_id: str, *, by_weight: bool
+) -> tuple[str, dict[str, Any]]:
+    """The state and the detail of one user for a measurement that was judged.
+
+    The state, when several apply, is the one most specific to this user:
+
+    1. ``assigned`` / ``other_user``: somebody got it, so nothing else matters.
+    2. Nobody got it, by rules: this user's own rules decide first. A rule that
+       failed is ``not_matched`` (even if their time rule could not be checked,
+       it cannot hold), then a time rule that could not be checked is
+       ``no_time``, and a user whose rules all held is ``ambiguous`` (another
+       matched too, or another user's time rule could not be checked).
+    3. Nobody got it, by weight: a user the strategy could not tell from the
+       best one is ``ambiguous``; every other user, including one without a
+       usual weight, is ``not_matched`` (``no_match``, ``out_of_range``).
+
+    The detail is what this user's candidate entry says, in the strategy's own
+    terms; empty for a user without an entry.
+    """
+    entry = next((c for c in assignment.candidates if c["user_id"] == user_id), None)
+    if by_weight:
+        detail = (
+            {
+                key: entry[key]
+                for key in ("reference_kg", "difference_kg", "tolerance_kg")
+            }
+            if entry
+            else {}
+        )
+    else:
+        detail = (
+            {key: list(entry[key]) for key in ("passed", "failed", "unknown")}
+            if entry
+            else {}
+        )
+    if assignment.user_id is not None:
+        state = (
+            DECISION_ASSIGNED if assignment.user_id == user_id else DECISION_OTHER_USER
+        )
+    elif by_weight:
+        tied = (
+            _tied_weight_users(assignment.candidates)
+            if assignment.reason == REASON_AMBIGUOUS and assignment.candidates
+            else set()
+        )
+        state = DECISION_AMBIGUOUS if user_id in tied else DECISION_NOT_MATCHED
+    elif entry is None or entry["matched"] is False:
+        state = DECISION_NOT_MATCHED
+    elif entry["matched"] is None:
+        state = DECISION_NO_TIME
+    else:
+        state = DECISION_AMBIGUOUS
+    return state, detail

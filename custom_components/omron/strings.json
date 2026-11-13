@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "Measured At"
+      },
+      "user_last_decision": {
+        "name": "Last assignment decision",
+        "state": {
+          "assigned": "Assigned to this user",
+          "other_user": "Assigned to another user",
+          "ambiguous": "Ambiguous",
+          "not_matched": "Not matched",
+          "no_time": "No time on the record",
+          "left_over": "Left over from before",
+          "skipped": "Skipped"
+        }
       }
     },
     "binary_sensor": {

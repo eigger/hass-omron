@@ -23,6 +23,9 @@ from homeassistant.util import dt as dt_util
 from .assignment import (
     KIND_MATCHED,
     KIND_NEAREST,
+    DECISION_LEFT_OVER,
+    DECISION_SKIPPED,
+    DECISIONS,
     Assignment,
     RuleUser,
     WeightUser,
@@ -30,6 +33,7 @@ from .assignment import (
     assign_by_weight,
     parse_windows,
     remember_weight,
+    user_decision,
 )
 from .const import (
     CONF_ASSIGNMENT_STRATEGY,
@@ -181,6 +185,9 @@ class OmronUsers:
         # values, which a restart restores the sensors from.
         self.recent: dict[str, list[float]] = {}
         self.last: dict[str, dict[str, Any]] = {}
+        # Per subentry id: what the latest handled measurement meant for the
+        # user (assigned or not, and why), for their decision sensor.
+        self.decision: dict[str, dict[str, Any]] = {}
 
     async def async_load(self, user_ids: set[str]) -> None:
         """Read the Store, drop users that no longer exist, reset on a new strategy."""
@@ -210,6 +217,9 @@ class OmronUsers:
             last = state.get("last")
             if isinstance(last, dict):
                 self.last[user_id] = dict(last)
+            decision = state.get("decision")
+            if isinstance(decision, dict) and decision.get("state") in DECISIONS:
+                self.decision[user_id] = dict(decision)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -221,8 +231,14 @@ class OmronUsers:
                 user_id: {
                     "recent": list(self.recent.get(user_id, [])),
                     "last": dict(self.last.get(user_id, {})),
+                    # Optional: Stores written before it have none.
+                    **(
+                        {"decision": dict(self.decision[user_id])}
+                        if user_id in self.decision
+                        else {}
+                    ),
                 }
-                for user_id in {*self.recent, *self.last}
+                for user_id in {*self.recent, *self.last, *self.decision}
             },
         }
 
@@ -359,6 +375,44 @@ def _usable(record: dict[str, Any], *, is_scale: bool) -> bool:
     return isinstance(record.get("sys"), int) and isinstance(record.get("dia"), int)
 
 
+def _decision(
+    state: str,
+    record: dict[str, Any],
+    *,
+    is_scale: bool,
+    assigned_to: str | None = None,
+    reason: str | None = None,
+    **detail: Any,
+) -> dict[str, Any]:
+    """What a user's decision sensor keeps: the state, the record and the detail."""
+    return {
+        "state": state,
+        "measured_at": record.get("measured_at"),
+        **{
+            key: record.get(key)
+            for key in (_SCALE_VALUES if is_scale else ("sys", "dia", "bpm"))
+        },
+        "assigned_to": assigned_to,
+        "reason": reason,
+        **detail,
+    }
+
+
+def _decide_for_all(
+    hass: HomeAssistant,
+    entry: OmronConfigEntry,
+    users: OmronUsers,
+    record: dict[str, Any],
+    state: str,
+    *,
+    is_scale: bool,
+) -> None:
+    """The same state for every user: a record that was not judged by anyone."""
+    for user_id in user_subentries(entry):
+        users.decision[user_id] = _decision(state, record, is_scale=is_scale)
+        async_dispatcher_send(hass, signal_user_updated(entry.entry_id, user_id))
+
+
 def _last_values(record: dict[str, Any], assignment: Assignment, *, is_scale: bool):
     values: dict[str, Any] = {
         key: record.get(key)
@@ -400,7 +454,8 @@ async def async_assign_measurements(
     before = users.as_dict()
     is_scale = runtime.is_scale
 
-    to_assign: list[dict[str, Any]] = []
+    # Each record with whether it is left over from before the registration.
+    to_assign: list[tuple[dict[str, Any], bool]] = []
     if users.fingerprint is None:
         # First poll since the first user was added. What the device held
         # before the registration is not the users' and only sets the
@@ -410,36 +465,51 @@ async def async_assign_measurements(
         if sync_on and pending is not None:
             users.last_seq = pending["next_seq"].get(1)
             to_assign = [
-                event
+                (event, not _taken_after(event, since))
                 for event in order_events(pending["events"], None)
-                if _taken_after(event, since)
             ]
-        elif not sync_on and _taken_after(record, since):
-            to_assign = [record]
+        elif not sync_on:
+            to_assign = [(record, not _taken_after(record, since))]
         users.since = None
     elif sync_on:
         if pending is not None:
             if pending.get("rebased", {}).get(1):
                 # The cuff's counter went back: the old sequence means nothing.
                 users.last_seq = pending["next_seq"].get(1)
-            to_assign = order_events(pending["events"], users.last_seq)
+            to_assign = [
+                (event, False)
+                for event in order_events(pending["events"], users.last_seq)
+            ]
     else:
         # Without the sync the cuff has no usable sequence, and one left from
         # an earlier sync would stop a later one from starting clean.
         users.last_seq = None
         if fingerprint != users.fingerprint:
-            to_assign = [record]
+            to_assign = [(record, False)]
     users.fingerprint = fingerprint
 
     strategy = users.strategy
     tolerance = float(
         entry.options.get(CONF_WEIGHT_TOLERANCE_PCT, WEIGHT_TOLERANCE_PCT_DEFAULT)
     )
-    for measurement in to_assign:
+    members = user_subentries(entry)
+    for measurement, left_over in to_assign:
+        if left_over:
+            # Only marks where the device stood; not handed to anyone, and the
+            # sequence is already where the poll left it.
+            _decide_for_all(
+                hass, entry, users, measurement, DECISION_LEFT_OVER, is_scale=is_scale
+            )
+            await asyncio.sleep(0)
+            continue
         if sync_on and isinstance(measurement.get("sequence"), int):
             users.last_seq = measurement["sequence"]
         if not _usable(measurement, is_scale=is_scale):
             _LOGGER.debug("Skipping a record without usable values: %s", measurement)
+            _decide_for_all(
+                hass, entry, users, measurement, DECISION_SKIPPED, is_scale=is_scale
+            )
+            await asyncio.sleep(0)
             continue
         if strategy == STRATEGY_WEIGHT:
             assignment = assign_by_weight(
@@ -454,14 +524,34 @@ async def async_assign_measurements(
                 EVENT_UNASSIGNED_MEASUREMENT,
                 _unassigned_event(hass, entry, measurement, assignment, is_scale),
             )
-            continue
-        user_id = assignment.user_id
-        if assignment.kind in (KIND_MATCHED, KIND_NEAREST):
-            users.recent[user_id] = remember_weight(
-                users.recent.get(user_id, []), float(measurement["weight"])
+        else:
+            user_id = assignment.user_id
+            if assignment.kind in (KIND_MATCHED, KIND_NEAREST):
+                users.recent[user_id] = remember_weight(
+                    users.recent.get(user_id, []), float(measurement["weight"])
+                )
+            users.last[user_id] = _last_values(
+                measurement, assignment, is_scale=is_scale
             )
-        users.last[user_id] = _last_values(measurement, assignment, is_scale=is_scale)
-        async_dispatcher_send(hass, signal_user_updated(entry.entry_id, user_id))
+        # Every user's decision sensor follows every handled record, and the
+        # assigned user's value sensors with it.
+        names = {
+            user_id: subentry.data.get(CONF_USER_NAME) or subentry.title
+            for user_id, subentry in members.items()
+        }
+        for user_id in members:
+            state, detail = user_decision(
+                assignment, user_id, by_weight=strategy == STRATEGY_WEIGHT
+            )
+            users.decision[user_id] = _decision(
+                state,
+                measurement,
+                is_scale=is_scale,
+                assigned_to=names.get(assignment.user_id),
+                reason=assignment.reason,
+                **detail,
+            )
+            async_dispatcher_send(hass, signal_user_updated(entry.entry_id, user_id))
         # Each record gets its own state change, as the stored-record sync does.
         await asyncio.sleep(0)
 

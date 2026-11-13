@@ -588,6 +588,18 @@
       },
       "user_measured_at": {
         "name": "測定日時"
+      },
+      "user_last_decision": {
+        "name": "直近の割り当て判定",
+        "state": {
+          "assigned": "このユーザーに割り当て",
+          "other_user": "別のユーザーに割り当て",
+          "ambiguous": "判定不能（複数に該当）",
+          "not_matched": "該当せず",
+          "no_time": "記録に時刻なし",
+          "left_over": "登録前の記録",
+          "skipped": "スキップ"
+        }
       }
     },
     "binary_sensor": {
