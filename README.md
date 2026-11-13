@@ -47,7 +47,7 @@ A Home Assistant custom integration that reads measurements directly from Omron 
 | **HN-300T2** | HN-300T2 | Scale | ✅ |
 | **HBF-222T** | VIVA / BCM-500 | Scale | ✅ |
 
-- **HN-300T2**: weight and BMI calculated from your configured height. Several people sharing the scale (or a single-profile blood pressure monitor such as the HEM-7600T) can be added as users that each get their own sensors; see [Users on single-slot devices](docs/entities.md#users-on-single-slot-devices) for how measurements are assigned. Limits: the first measurement after adding the first user, and any but the newest measurement taken between two polls, may not be assigned; people whose weights are within about 5.5 kg of each other are often left unassigned; time-window and value-range rules depend on the device clock and your routine and can assign the wrong person.
+- **HN-300T2**: weight and BMI calculated from your configured height. Several people sharing the scale (or a single-profile blood pressure monitor such as the HEM-7600T) can be added as users that each get their own sensors; see [Users on single-slot devices](docs/entities.md#users-on-single-slot-devices) for how measurements are assigned. Limits: readings left on the device from before you added the first user, and any but the newest measurement taken between two polls, are not assigned; people whose weights are within about 5.5 kg of each other are often left unassigned; time-window and value-range rules depend on the device clock and your routine and can assign the wrong person.
 - **HBF-222T**: weight, body composition, scale-reported BMI, and stored measurement history.
 
 > [!NOTE]
