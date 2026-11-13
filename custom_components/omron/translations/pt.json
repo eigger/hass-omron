@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Para cada intervalo escolha quando começa e quanto tempo dura; um início que não esteja na lista pode ser escrito (por exemplo, 07:15). O fim é calculado: às 22:00 durante 3 horas termina à 01:00, depois da meia-noite. Sem intervalos, a hora não é usada.",
               "data": {
-                "window_start": "Intervalo: início",
-                "window_end": "Intervalo: fim",
-                "more_windows": "Mais intervalos de tempo"
+                "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo: escolha o início e a duração. Um início que não esteja na lista pode ser escrito, por exemplo 07:15. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Para cada intervalo escolha quando começa e quanto tempo dura; um início que não esteja na lista pode ser escrito (por exemplo, 07:15). O fim é calculado: às 22:00 durante 3 horas termina à 01:00, depois da meia-noite. Sem intervalos, a hora não é usada.",
               "data": {
-                "window_start": "Intervalo: início",
-                "window_end": "Intervalo: fim",
-                "more_windows": "Mais intervalos de tempo"
+                "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo: escolha o início e a duração. Um início que não esteja na lista pode ser escrito, por exemplo 07:15. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Início"
         },
-        "end": {
-          "name": "Fim"
+        "duration": {
+          "name": "Duração"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minutos",
+        "60": "1 hora",
+        "90": "1 hora e 30 minutos",
+        "120": "2 horas",
+        "180": "3 horas",
+        "240": "4 horas",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

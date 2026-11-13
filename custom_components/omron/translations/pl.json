@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Kiedy mierzą?",
-              "description": "Pokazany jest jeden przedział czasu; kolejne dodasz przyciskiem Dodaj. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00). Zostaw wszystko puste, aby pominąć godzinę.",
+              "description": "Naciśnij Dodaj, aby dodać przedział czasu, w którym ta osoba zwykle mierzy; możesz dodać dowolnie wiele. Dla każdego przedziału wybierz, kiedy się zaczyna i jak długo trwa; początek spoza listy można wpisać ręcznie (na przykład 07:15). Koniec jest obliczany: 22:00 na 3 godziny kończy się o 01:00, po północy. Bez przedziałów godzina nie jest używana.",
               "data": {
-                "window_start": "Przedział: początek",
-                "window_end": "Przedział: koniec",
-                "more_windows": "Więcej przedziałów czasu"
+                "windows": "Przedziały czasu"
               },
               "data_description": {
-                "window_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
-                "window_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
-                "more_windows": "Naciśnij Dodaj dla każdego kolejnego przedziału, np. na wieczór. Każdy ma początek i koniec; liczba przedziałów nie jest ograniczona. Wybierz przedział, aby go edytować lub usunąć."
+                "windows": "Naciśnij Dodaj dla każdego przedziału: wybierz jego początek i czas trwania. Początek spoza listy można wpisać ręcznie, na przykład 07:15. Wybierz przedział, aby go edytować lub usunąć."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Kiedy mierzą?",
-              "description": "Pokazany jest jeden przedział czasu; kolejne dodasz przyciskiem Dodaj. Przedział zaczyna się o pierwszej godzinie i kończy tuż przed drugą; koniec wcześniejszy niż początek oznacza przedział przez północ (np. od 22:00 do 02:00). Zostaw wszystko puste, aby pominąć godzinę.",
+              "description": "Naciśnij Dodaj, aby dodać przedział czasu, w którym ta osoba zwykle mierzy; możesz dodać dowolnie wiele. Dla każdego przedziału wybierz, kiedy się zaczyna i jak długo trwa; początek spoza listy można wpisać ręcznie (na przykład 07:15). Koniec jest obliczany: 22:00 na 3 godziny kończy się o 01:00, po północy. Bez przedziałów godzina nie jest używana.",
               "data": {
-                "window_start": "Przedział: początek",
-                "window_end": "Przedział: koniec",
-                "more_windows": "Więcej przedziałów czasu"
+                "windows": "Przedziały czasu"
               },
               "data_description": {
-                "window_start": "Przedział zaczyna się o tej godzinie. Przykład: 06:00",
-                "window_end": "Przedział kończy się tuż przed tą godziną. Dla przedziału przez północ wybierz koniec wcześniejszy niż początek. Przykład: 08:00",
-                "more_windows": "Naciśnij Dodaj dla każdego kolejnego przedziału, np. na wieczór. Każdy ma początek i koniec; liczba przedziałów nie jest ograniczona. Wybierz przedział, aby go edytować lub usunąć."
+                "windows": "Naciśnij Dodaj dla każdego przedziału: wybierz jego początek i czas trwania. Początek spoza listy można wpisać ręcznie, na przykład 07:15. Wybierz przedział, aby go edytować lub usunąć."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Początek"
         },
-        "end": {
-          "name": "Koniec"
+        "duration": {
+          "name": "Czas trwania"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minut",
+        "60": "1 godzina",
+        "90": "1 godzina 30 minut",
+        "120": "2 godziny",
+        "180": "3 godziny",
+        "240": "4 godziny",
+        "other_hours": "{hours} godz.",
+        "other_hours_minutes": "{hours} godz. {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

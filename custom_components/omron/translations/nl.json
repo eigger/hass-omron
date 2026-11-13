@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Wanneer meten ze?",
-              "description": "Hier wordt één tijdvenster getoond; voeg er meer toe met de knop Toevoegen. Een venster begint op de eerste tijd en eindigt vlak voor de tweede; een einde vóór het begin is een venster over middernacht (bijvoorbeeld 22:00 tot 02:00). Laat alles leeg om de tijd te negeren.",
+              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Kies voor elk venster wanneer het begint en hoe lang het duurt; een begintijd die niet in de lijst staat, kun je intypen (bijvoorbeeld 07:15). Het einde wordt berekend: 22:00 voor 3 uur eindigt om 01:00, na middernacht. Zonder venster wordt het tijdstip niet gebruikt.",
               "data": {
-                "window_start": "Tijdvenster: begin",
-                "window_end": "Tijdvenster: einde",
-                "more_windows": "Meer tijdvensters"
+                "windows": "Tijdvensters"
               },
               "data_description": {
-                "window_start": "Het venster begint op dit tijdstip. Voorbeeld: 06:00",
-                "window_end": "Het venster eindigt vlak voor dit tijdstip. Kies voor een venster over middernacht een einde vóór het begin. Voorbeeld: 08:00",
-                "more_windows": "Druk op Toevoegen voor elk extra venster, bijvoorbeeld een voor de avond. Elk heeft een begin en een einde; er is geen limiet. Selecteer een venster om het te bewerken of te verwijderen."
+                "windows": "Druk op Toevoegen voor elk venster: kies het begin en de duur. Een begintijd die niet in de lijst staat, kun je intypen, bijvoorbeeld 07:15. Selecteer een venster om het te bewerken of te verwijderen."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Wanneer meten ze?",
-              "description": "Hier wordt één tijdvenster getoond; voeg er meer toe met de knop Toevoegen. Een venster begint op de eerste tijd en eindigt vlak voor de tweede; een einde vóór het begin is een venster over middernacht (bijvoorbeeld 22:00 tot 02:00). Laat alles leeg om de tijd te negeren.",
+              "description": "Druk op Toevoegen om een tijdvenster toe te voegen waarin deze persoon meestal meet; voeg er zoveel toe als nodig is. Kies voor elk venster wanneer het begint en hoe lang het duurt; een begintijd die niet in de lijst staat, kun je intypen (bijvoorbeeld 07:15). Het einde wordt berekend: 22:00 voor 3 uur eindigt om 01:00, na middernacht. Zonder venster wordt het tijdstip niet gebruikt.",
               "data": {
-                "window_start": "Tijdvenster: begin",
-                "window_end": "Tijdvenster: einde",
-                "more_windows": "Meer tijdvensters"
+                "windows": "Tijdvensters"
               },
               "data_description": {
-                "window_start": "Het venster begint op dit tijdstip. Voorbeeld: 06:00",
-                "window_end": "Het venster eindigt vlak voor dit tijdstip. Kies voor een venster over middernacht een einde vóór het begin. Voorbeeld: 08:00",
-                "more_windows": "Druk op Toevoegen voor elk extra venster, bijvoorbeeld een voor de avond. Elk heeft een begin en een einde; er is geen limiet. Selecteer een venster om het te bewerken of te verwijderen."
+                "windows": "Druk op Toevoegen voor elk venster: kies het begin en de duur. Een begintijd die niet in de lijst staat, kun je intypen, bijvoorbeeld 07:15. Selecteer een venster om het te bewerken of te verwijderen."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Begin"
         },
-        "end": {
-          "name": "Einde"
+        "duration": {
+          "name": "Duur"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minuten",
+        "60": "1 uur",
+        "90": "1 uur 30 minuten",
+        "120": "2 uur",
+        "180": "3 uur",
+        "240": "4 uur",
+        "other_hours": "{hours} u",
+        "other_hours_minutes": "{hours} u {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Une plage horaire est affichée ici ; ajoutez-en d'autres avec le bouton Ajouter. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00). Laissez tout vide pour ignorer l'heure.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Pour chaque plage, choisissez quand elle commence et combien de temps elle dure ; un début absent de la liste peut être saisi (par exemple 07:15). La fin est calculée : 22:00 pendant 3 heures se termine à 01:00, après minuit. Sans plage, l'heure n'est pas utilisée.",
               "data": {
-                "window_start": "Plage : début",
-                "window_end": "Plage : fin",
-                "more_windows": "Autres plages horaires"
+                "windows": "Plages horaires"
               },
               "data_description": {
-                "window_start": "La plage commence à cette heure. Exemple : 06:00",
-                "window_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
-                "more_windows": "Appuyez sur Ajouter pour chaque plage supplémentaire, par exemple une pour le soir. Chacune a un début et une fin ; il n'y a pas de limite. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage : choisissez son début et sa durée. Un début absent de la liste peut être saisi, par exemple 07:15. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Une plage horaire est affichée ici ; ajoutez-en d'autres avec le bouton Ajouter. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00). Laissez tout vide pour ignorer l'heure.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Pour chaque plage, choisissez quand elle commence et combien de temps elle dure ; un début absent de la liste peut être saisi (par exemple 07:15). La fin est calculée : 22:00 pendant 3 heures se termine à 01:00, après minuit. Sans plage, l'heure n'est pas utilisée.",
               "data": {
-                "window_start": "Plage : début",
-                "window_end": "Plage : fin",
-                "more_windows": "Autres plages horaires"
+                "windows": "Plages horaires"
               },
               "data_description": {
-                "window_start": "La plage commence à cette heure. Exemple : 06:00",
-                "window_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
-                "more_windows": "Appuyez sur Ajouter pour chaque plage supplémentaire, par exemple une pour le soir. Chacune a un début et une fin ; il n'y a pas de limite. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage : choisissez son début et sa durée. Un début absent de la liste peut être saisi, par exemple 07:15. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Début"
         },
-        "end": {
-          "name": "Fin"
+        "duration": {
+          "name": "Durée"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minutes",
+        "60": "1 heure",
+        "90": "1 heure 30 minutes",
+        "120": "2 heures",
+        "180": "3 heures",
+        "240": "4 heures",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },

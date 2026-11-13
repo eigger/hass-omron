@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
+              "description": "Mit Hinzufügen fügst du ein Zeitfenster hinzu, in dem diese Person üblicherweise misst; es können beliebig viele sein. Wähle für jedes Fenster, wann es beginnt und wie lange es dauert; ein Beginn, der nicht in der Liste steht, kann eingetippt werden (z. B. 07:15). Das Ende wird berechnet: 22:00 für 3 Stunden endet um 01:00, also nach Mitternacht. Ohne Zeitfenster wird die Uhrzeit nicht verwendet.",
               "data": {
-                "window_start": "Zeitfenster: Beginn",
-                "window_end": "Zeitfenster: Ende",
-                "more_windows": "Weitere Zeitfenster"
+                "windows": "Zeitfenster"
               },
               "data_description": {
-                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
+                "windows": "Mit Hinzufügen ergänzt du jedes Fenster: Wähle den Beginn und die Dauer. Ein Beginn, der nicht in der Liste steht, kann eingetippt werden, z. B. 07:15. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
+              "description": "Mit Hinzufügen fügst du ein Zeitfenster hinzu, in dem diese Person üblicherweise misst; es können beliebig viele sein. Wähle für jedes Fenster, wann es beginnt und wie lange es dauert; ein Beginn, der nicht in der Liste steht, kann eingetippt werden (z. B. 07:15). Das Ende wird berechnet: 22:00 für 3 Stunden endet um 01:00, also nach Mitternacht. Ohne Zeitfenster wird die Uhrzeit nicht verwendet.",
               "data": {
-                "window_start": "Zeitfenster: Beginn",
-                "window_end": "Zeitfenster: Ende",
-                "more_windows": "Weitere Zeitfenster"
+                "windows": "Zeitfenster"
               },
               "data_description": {
-                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
+                "windows": "Mit Hinzufügen ergänzt du jedes Fenster: Wähle den Beginn und die Dauer. Ein Beginn, der nicht in der Liste steht, kann eingetippt werden, z. B. 07:15. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Beginn"
         },
-        "end": {
-          "name": "Ende"
+        "duration": {
+          "name": "Dauer"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 Minuten",
+        "60": "1 Stunde",
+        "90": "1 Stunde 30 Minuten",
+        "120": "2 Stunden",
+        "180": "3 Stunden",
+        "240": "4 Stunden",
+        "other_hours": "{hours} Std.",
+        "other_hours_minutes": "{hours} Std. {minutes} Min.",
+        "other_minutes": "{minutes} Min."
       }
     }
   },

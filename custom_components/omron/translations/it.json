@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
+              "description": "Premi Aggiungi per aggiungere una fascia oraria in cui questa persona di solito misura; aggiungine quante ne servono. Per ogni fascia scegli quando inizia e quanto dura; un inizio che non è nell'elenco si può digitare (ad esempio 07:15). La fine viene calcolata: le 22:00 per 3 ore finiscono alle 01:00, dopo la mezzanotte. Senza fasce, l'ora non viene usata.",
               "data": {
-                "window_start": "Fascia: inizio",
-                "window_end": "Fascia: fine",
-                "more_windows": "Altre fasce orarie"
+                "windows": "Fasce orarie"
               },
               "data_description": {
-                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
+                "windows": "Premi Aggiungi per ogni fascia: scegli l'inizio e la durata. Un inizio che non è nell'elenco si può digitare, ad esempio 07:15. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
+              "description": "Premi Aggiungi per aggiungere una fascia oraria in cui questa persona di solito misura; aggiungine quante ne servono. Per ogni fascia scegli quando inizia e quanto dura; un inizio che non è nell'elenco si può digitare (ad esempio 07:15). La fine viene calcolata: le 22:00 per 3 ore finiscono alle 01:00, dopo la mezzanotte. Senza fasce, l'ora non viene usata.",
               "data": {
-                "window_start": "Fascia: inizio",
-                "window_end": "Fascia: fine",
-                "more_windows": "Altre fasce orarie"
+                "windows": "Fasce orarie"
               },
               "data_description": {
-                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
+                "windows": "Premi Aggiungi per ogni fascia: scegli l'inizio e la durata. Un inizio che non è nell'elenco si può digitare, ad esempio 07:15. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {
@@ -241,9 +233,22 @@
         "start": {
           "name": "Inizio"
         },
-        "end": {
-          "name": "Fine"
+        "duration": {
+          "name": "Durata"
         }
+      }
+    },
+    "time_window_duration": {
+      "options": {
+        "30": "30 minuti",
+        "60": "1 ora",
+        "90": "1 ora e 30 minuti",
+        "120": "2 ore",
+        "180": "3 ore",
+        "240": "4 ore",
+        "other_hours": "{hours} h",
+        "other_hours_minutes": "{hours} h {minutes} min",
+        "other_minutes": "{minutes} min"
       }
     }
   },
