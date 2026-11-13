@@ -1,6 +1,9 @@
 {
   "domain": "omron",
   "name": "Omron",
+  "after_dependencies": [
+    "recorder"
+  ],
   "bluetooth": [
     {
       "manufacturer_id": 526,

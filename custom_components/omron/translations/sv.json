@@ -92,7 +92,11 @@
           "data": {
             "name": "Namn",
             "expected_weight": "Vanlig vikt (kg)",
-            "height_cm": "Längd (cm, för BMI)"
+            "height_cm": "Längd (cm, för BMI)",
+            "person": "Person (valfritt)"
+          },
+          "data_description": {
+            "person": "Valfritt. En mätning tilldelas inte den här användaren om personen inte var hemma när den gjordes. Tillståndet läses från recordern vid den tid som enheten registrerade, så enhetens klocka måste gå rätt. Utan registrerat tillstånd eller tid är användaren fortfarande en kandidat."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Längd (cm, för BMI)",
             "time_windows": "Tidsfönster (HH:MM-HH:MM, åtskilda med kommatecken)",
             "weight_min": "Vikt från (kg)",
-            "weight_max": "Vikt till (kg)"
+            "weight_max": "Vikt till (kg)",
+            "person": "Person (valfritt)"
+          },
+          "data_description": {
+            "person": "Valfritt. En mätning tilldelas inte den här användaren om personen inte var hemma när den gjordes. Tillståndet läses från recordern vid den tid som enheten registrerade, så enhetens klocka måste gå rätt. Utan registrerat tillstånd eller tid är användaren fortfarande en kandidat."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Systoliskt från (mmHg)",
             "sys_max": "Systoliskt till (mmHg)",
             "dia_min": "Diastoliskt från (mmHg)",
-            "dia_max": "Diastoliskt till (mmHg)"
+            "dia_max": "Diastoliskt till (mmHg)",
+            "person": "Person (valfritt)"
+          },
+          "data_description": {
+            "person": "Valfritt. En mätning tilldelas inte den här användaren om personen inte var hemma när den gjordes. Tillståndet läses från recordern vid den tid som enheten registrerade, så enhetens klocka måste gå rätt. Utan registrerat tillstånd eller tid är användaren fortfarande en kandidat."
           }
         },
         "confirm_no_rules": {

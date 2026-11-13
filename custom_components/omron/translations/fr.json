@@ -92,7 +92,11 @@
           "data": {
             "name": "Nom",
             "expected_weight": "Poids habituel (kg)",
-            "height_cm": "Taille (cm, pour l'IMC)"
+            "height_cm": "Taille (cm, pour l'IMC)",
+            "person": "Personne (facultatif)"
+          },
+          "data_description": {
+            "person": "Facultatif. Une mesure n'est pas attribuée à cet utilisateur si cette personne n'était pas à la maison au moment où elle a été prise. L'état est lu dans l'enregistreur à l'heure notée par l'appareil, dont l'horloge doit donc être juste. Sans état enregistré ou sans heure, l'utilisateur reste candidat."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Taille (cm, pour l'IMC)",
             "time_windows": "Plages horaires (HH:MM-HH:MM, séparées par des virgules)",
             "weight_min": "Poids à partir de (kg)",
-            "weight_max": "Poids jusqu'à (kg)"
+            "weight_max": "Poids jusqu'à (kg)",
+            "person": "Personne (facultatif)"
+          },
+          "data_description": {
+            "person": "Facultatif. Une mesure n'est pas attribuée à cet utilisateur si cette personne n'était pas à la maison au moment où elle a été prise. L'état est lu dans l'enregistreur à l'heure notée par l'appareil, dont l'horloge doit donc être juste. Sans état enregistré ou sans heure, l'utilisateur reste candidat."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Systolique à partir de (mmHg)",
             "sys_max": "Systolique jusqu'à (mmHg)",
             "dia_min": "Diastolique à partir de (mmHg)",
-            "dia_max": "Diastolique jusqu'à (mmHg)"
+            "dia_max": "Diastolique jusqu'à (mmHg)",
+            "person": "Personne (facultatif)"
+          },
+          "data_description": {
+            "person": "Facultatif. Une mesure n'est pas attribuée à cet utilisateur si cette personne n'était pas à la maison au moment où elle a été prise. L'état est lu dans l'enregistreur à l'heure notée par l'appareil, dont l'horloge doit donc être juste. Sans état enregistré ou sans heure, l'utilisateur reste candidat."
           }
         },
         "confirm_no_rules": {

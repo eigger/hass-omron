@@ -92,7 +92,11 @@
           "data": {
             "name": "名称",
             "expected_weight": "平时体重（kg）",
-            "height_cm": "身高（cm，用于 BMI）"
+            "height_cm": "身高（cm，用于 BMI）",
+            "person": "人员（可选）"
+          },
+          "data_description": {
+            "person": "可选。如果此人在测量时不在家，该测量不会分配给此用户。状态取自记录器中设备所记录测量时间的记录，因此设备时钟必须准确。没有已记录的状态或时间时，该用户仍是候选。"
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "身高（cm，用于 BMI）",
             "time_windows": "时间段（HH:MM-HH:MM，用逗号分隔）",
             "weight_min": "体重下限（kg）",
-            "weight_max": "体重上限（kg）"
+            "weight_max": "体重上限（kg）",
+            "person": "人员（可选）"
+          },
+          "data_description": {
+            "person": "可选。如果此人在测量时不在家，该测量不会分配给此用户。状态取自记录器中设备所记录测量时间的记录，因此设备时钟必须准确。没有已记录的状态或时间时，该用户仍是候选。"
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "收缩压下限（mmHg）",
             "sys_max": "收缩压上限（mmHg）",
             "dia_min": "舒张压下限（mmHg）",
-            "dia_max": "舒张压上限（mmHg）"
+            "dia_max": "舒张压上限（mmHg）",
+            "person": "人员（可选）"
+          },
+          "data_description": {
+            "person": "可选。如果此人在测量时不在家，该测量不会分配给此用户。状态取自记录器中设备所记录测量时间的记录，因此设备时钟必须准确。没有已记录的状态或时间时，该用户仍是候选。"
           }
         },
         "confirm_no_rules": {

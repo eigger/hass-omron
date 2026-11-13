@@ -141,7 +141,7 @@ async def test_a_scale_by_weight_asks_for_a_name_and_an_expected_weight(
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "weight"
     fields = {str(key): key for key in result["data_schema"].schema}
-    assert set(fields) == {"name", "expected_weight", "height_cm"}
+    assert set(fields) == {"name", "expected_weight", "height_cm", "person"}
     assert isinstance(fields["expected_weight"], vol.Required)
     assert isinstance(fields["name"], vol.Required)
     assert isinstance(fields["height_cm"], vol.Optional)
@@ -178,6 +178,7 @@ async def test_a_scale_by_rules_asks_for_windows_and_a_weight_range(
         "time_windows",
         "weight_min",
         "weight_max",
+        "person",
     }
     await _unload(hass, entry)
 
@@ -197,6 +198,7 @@ async def test_a_cuff_asks_for_windows_and_pressure_ranges(
         "sys_max",
         "dia_min",
         "dia_max",
+        "person",
     }
     created = await hass.config_entries.subentries.async_configure(
         result["flow_id"],

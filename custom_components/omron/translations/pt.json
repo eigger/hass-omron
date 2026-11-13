@@ -92,7 +92,11 @@
           "data": {
             "name": "Nome",
             "expected_weight": "Peso habitual (kg)",
-            "height_cm": "Altura (cm, para o IMC)"
+            "height_cm": "Altura (cm, para o IMC)",
+            "person": "Pessoa (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Uma medição não é atribuída a este utilizador se esta pessoa não estava em casa quando foi feita. O estado é lido do recorder à hora registada pelo dispositivo, por isso o relógio do dispositivo tem de estar certo. Sem estado registado ou sem hora, o utilizador continua candidato."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Altura (cm, para o IMC)",
             "time_windows": "Janelas de tempo (HH:MM-HH:MM, separadas por vírgulas)",
             "weight_min": "Peso desde (kg)",
-            "weight_max": "Peso até (kg)"
+            "weight_max": "Peso até (kg)",
+            "person": "Pessoa (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Uma medição não é atribuída a este utilizador se esta pessoa não estava em casa quando foi feita. O estado é lido do recorder à hora registada pelo dispositivo, por isso o relógio do dispositivo tem de estar certo. Sem estado registado ou sem hora, o utilizador continua candidato."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Sistólica desde (mmHg)",
             "sys_max": "Sistólica até (mmHg)",
             "dia_min": "Diastólica desde (mmHg)",
-            "dia_max": "Diastólica até (mmHg)"
+            "dia_max": "Diastólica até (mmHg)",
+            "person": "Pessoa (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Uma medição não é atribuída a este utilizador se esta pessoa não estava em casa quando foi feita. O estado é lido do recorder à hora registada pelo dispositivo, por isso o relógio do dispositivo tem de estar certo. Sem estado registado ou sem hora, o utilizador continua candidato."
           }
         },
         "confirm_no_rules": {

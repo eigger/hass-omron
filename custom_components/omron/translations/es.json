@@ -92,7 +92,11 @@
           "data": {
             "name": "Nombre",
             "expected_weight": "Peso habitual (kg)",
-            "height_cm": "Altura (cm, para el IMC)"
+            "height_cm": "Altura (cm, para el IMC)",
+            "person": "Persona (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Una medición no se asigna a este usuario si esta persona no estaba en casa cuando se tomó. El estado se lee del recorder en el momento que registró el dispositivo, por lo que su reloj debe estar bien. Sin un estado registrado o sin hora, el usuario sigue siendo candidato."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Altura (cm, para el IMC)",
             "time_windows": "Franjas horarias (HH:MM-HH:MM, separadas por comas)",
             "weight_min": "Peso desde (kg)",
-            "weight_max": "Peso hasta (kg)"
+            "weight_max": "Peso hasta (kg)",
+            "person": "Persona (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Una medición no se asigna a este usuario si esta persona no estaba en casa cuando se tomó. El estado se lee del recorder en el momento que registró el dispositivo, por lo que su reloj debe estar bien. Sin un estado registrado o sin hora, el usuario sigue siendo candidato."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Sistólica desde (mmHg)",
             "sys_max": "Sistólica hasta (mmHg)",
             "dia_min": "Diastólica desde (mmHg)",
-            "dia_max": "Diastólica hasta (mmHg)"
+            "dia_max": "Diastólica hasta (mmHg)",
+            "person": "Persona (opcional)"
+          },
+          "data_description": {
+            "person": "Opcional. Una medición no se asigna a este usuario si esta persona no estaba en casa cuando se tomó. El estado se lee del recorder en el momento que registró el dispositivo, por lo que su reloj debe estar bien. Sin un estado registrado o sin hora, el usuario sigue siendo candidato."
           }
         },
         "confirm_no_rules": {

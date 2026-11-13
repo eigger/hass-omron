@@ -92,7 +92,11 @@
           "data": {
             "name": "Naam",
             "expected_weight": "Gebruikelijk gewicht (kg)",
-            "height_cm": "Lengte (cm, voor de BMI)"
+            "height_cm": "Lengte (cm, voor de BMI)",
+            "person": "Persoon (optioneel)"
+          },
+          "data_description": {
+            "person": "Optioneel. Een meting wordt niet aan deze gebruiker toegewezen als deze persoon niet thuis was toen de meting werd gedaan. De status wordt uit de recorder gelezen voor het tijdstip dat het apparaat vastlegde, dus de klok van het apparaat moet kloppen. Zonder vastgelegde status of tijd blijft de gebruiker kandidaat."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Lengte (cm, voor de BMI)",
             "time_windows": "Tijdvensters (HH:MM-HH:MM, gescheiden door komma's)",
             "weight_min": "Gewicht vanaf (kg)",
-            "weight_max": "Gewicht tot (kg)"
+            "weight_max": "Gewicht tot (kg)",
+            "person": "Persoon (optioneel)"
+          },
+          "data_description": {
+            "person": "Optioneel. Een meting wordt niet aan deze gebruiker toegewezen als deze persoon niet thuis was toen de meting werd gedaan. De status wordt uit de recorder gelezen voor het tijdstip dat het apparaat vastlegde, dus de klok van het apparaat moet kloppen. Zonder vastgelegde status of tijd blijft de gebruiker kandidaat."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Systolisch vanaf (mmHg)",
             "sys_max": "Systolisch tot (mmHg)",
             "dia_min": "Diastolisch vanaf (mmHg)",
-            "dia_max": "Diastolisch tot (mmHg)"
+            "dia_max": "Diastolisch tot (mmHg)",
+            "person": "Persoon (optioneel)"
+          },
+          "data_description": {
+            "person": "Optioneel. Een meting wordt niet aan deze gebruiker toegewezen als deze persoon niet thuis was toen de meting werd gedaan. De status wordt uit de recorder gelezen voor het tijdstip dat het apparaat vastlegde, dus de klok van het apparaat moet kloppen. Zonder vastgelegde status of tijd blijft de gebruiker kandidaat."
           }
         },
         "confirm_no_rules": {

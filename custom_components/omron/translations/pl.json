@@ -92,7 +92,11 @@
           "data": {
             "name": "Nazwa",
             "expected_weight": "Zwykła waga (kg)",
-            "height_cm": "Wzrost (cm, do BMI)"
+            "height_cm": "Wzrost (cm, do BMI)",
+            "person": "Osoba (opcjonalnie)"
+          },
+          "data_description": {
+            "person": "Opcjonalne. Pomiar nie zostanie przypisany temu użytkownikowi, jeśli ta osoba nie była w domu w chwili pomiaru. Stan jest odczytywany z rekordera dla czasu zapisanego przez urządzenie, więc zegar urządzenia musi być poprawny. Bez zapisanego stanu lub czasu użytkownik pozostaje kandydatem."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Wzrost (cm, do BMI)",
             "time_windows": "Okna czasowe (HH:MM-HH:MM, oddzielone przecinkami)",
             "weight_min": "Waga od (kg)",
-            "weight_max": "Waga do (kg)"
+            "weight_max": "Waga do (kg)",
+            "person": "Osoba (opcjonalnie)"
+          },
+          "data_description": {
+            "person": "Opcjonalne. Pomiar nie zostanie przypisany temu użytkownikowi, jeśli ta osoba nie była w domu w chwili pomiaru. Stan jest odczytywany z rekordera dla czasu zapisanego przez urządzenie, więc zegar urządzenia musi być poprawny. Bez zapisanego stanu lub czasu użytkownik pozostaje kandydatem."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Skurczowe od (mmHg)",
             "sys_max": "Skurczowe do (mmHg)",
             "dia_min": "Rozkurczowe od (mmHg)",
-            "dia_max": "Rozkurczowe do (mmHg)"
+            "dia_max": "Rozkurczowe do (mmHg)",
+            "person": "Osoba (opcjonalnie)"
+          },
+          "data_description": {
+            "person": "Opcjonalne. Pomiar nie zostanie przypisany temu użytkownikowi, jeśli ta osoba nie była w domu w chwili pomiaru. Stan jest odczytywany z rekordera dla czasu zapisanego przez urządzenie, więc zegar urządzenia musi być poprawny. Bez zapisanego stanu lub czasu użytkownik pozostaje kandydatem."
           }
         },
         "confirm_no_rules": {

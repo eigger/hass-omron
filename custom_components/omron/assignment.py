@@ -38,6 +38,8 @@ REASON_OUT_OF_RANGE = "out_of_range"
 REASON_SLOT_UNCLAIMED = "slot_unclaimed"
 # Not from a strategy: a person un-assigned it, or its user was removed.
 REASON_MANUAL = "manual"
+# Not from a strategy: every candidate was away when it was taken (``person``).
+REASON_NOBODY_HOME = "nobody_home"
 REASON_USER_REMOVED = "user_removed"
 
 _MINUTES_PER_DAY = 24 * 60

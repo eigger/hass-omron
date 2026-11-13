@@ -11,19 +11,23 @@ reloads the integration, which would restart it after every measurement.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import STATE_HOME, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .assignment import (
     KIND_MATCHED,
     KIND_NEAREST,
     KIND_MANUAL,
     REASON_MANUAL,
+    REASON_NOBODY_HOME,
     REASON_SLOT_UNCLAIMED,
     REASON_USER_REMOVED,
     Assignment,
@@ -43,6 +47,7 @@ from .const import (
     CONF_USER_DIA_MIN,
     CONF_USER_EXPECTED_WEIGHT,
     CONF_USER_NAME,
+    CONF_USER_PERSON,
     CONF_USER_SLOT,
     CONF_USER_SYS_MAX,
     CONF_USER_SYS_MIN,
@@ -661,19 +666,31 @@ async def async_assign_measurements(
         if not _usable(measurement, is_scale=is_scale):
             _LOGGER.debug("Skipping a record without usable values: %s", measurement)
             continue
-        if strategy == STRATEGY_WEIGHT:
-            assignment = assign_by_weight(
-                float(measurement["weight"]),
-                weight_users(users, entry),
-                tolerance,
-            )
-        elif strategy == STRATEGY_SLOT:
+        if strategy == STRATEGY_SLOT:
             assignment = assign_by_slot(slot, slot_users(entry))
             if assignment.reason == REASON_SLOT_UNCLAIMED:
                 # Nobody wants this slot: left alone, not announced.
                 continue
         else:
-            assignment = assign_by_rules(measurement, rule_users(entry))
+            # Linked people who were not home when it was taken are not
+            # candidates, whatever the strategy.
+            away = await _async_away_users(hass, entry, measurement)
+            away_ids = {member["user_id"] for member in away}
+            if strategy == STRATEGY_WEIGHT:
+                everyone = weight_users(users, entry)
+            else:
+                everyone = rule_users(entry)
+            present = [member for member in everyone if member.user_id not in away_ids]
+            if everyone and not present:
+                assignment = Assignment(
+                    None, reason=REASON_NOBODY_HOME, candidates=away
+                )
+            elif strategy == STRATEGY_WEIGHT:
+                assignment = assign_by_weight(
+                    float(measurement["weight"]), present, tolerance
+                )
+            else:
+                assignment = assign_by_rules(measurement, present)
         learned = assignment.kind in (KIND_MATCHED, KIND_NEAREST)
         logged = users.log_measurement(
             measurement, slot, assignment, value_keys, learned=learned
@@ -701,6 +718,99 @@ async def async_assign_measurements(
 
     if users.as_dict() != before:
         await users.async_save()
+
+
+def _measured_moment(measurement: dict[str, Any]) -> dt.datetime | None:
+    """When it was taken, with a time zone; None if the record has no usable time."""
+    value = measurement.get("measured_at")
+    moment = dt_util.parse_datetime(value) if isinstance(value, str) else None
+    if moment is None or moment.tzinfo is None:
+        return None
+    return dt_util.as_utc(moment)
+
+
+def _state_at(hass: HomeAssistant, entity_id: str, moment: dt.datetime) -> str | None:
+    """The recorded state of an entity at a moment (runs in the recorder's executor).
+
+    The recorder reports the state in force at a start time first, then the
+    changes after it; it counts a change at the start time itself as before it
+    only if the start is a hair later, hence the millisecond.
+    """
+    from homeassistant.components.recorder import history
+
+    start = moment + dt.timedelta(milliseconds=1)
+    recorded = history.get_significant_states(
+        hass,
+        start,
+        start + dt.timedelta(seconds=1),
+        [entity_id],
+        include_start_time_state=True,
+        significant_changes_only=False,
+        no_attributes=True,
+    )
+    states = recorded.get(entity_id)
+    if not states:
+        return None
+    first = states[0]
+    # A first state that only began after the start means nothing was recorded
+    # for that moment.
+    if first.last_updated > start:
+        return None
+    return first.state
+
+
+async def _async_person_state_at(
+    hass: HomeAssistant, entity_id: str, moment: dt.datetime
+) -> str | None:
+    """What the recorder knows of an entity's state at a moment, else None.
+
+    None when the recorder is not loaded, has no state for that moment (never
+    recorded, or purged), or cannot be asked: the person then does not count as
+    away.
+    """
+    if "recorder" not in hass.config.components:
+        return None
+    try:
+        from homeassistant.components.recorder import get_instance
+
+        return await get_instance(hass).async_add_executor_job(
+            _state_at, hass, entity_id, moment
+        )
+    except Exception:
+        _LOGGER.debug(
+            "Could not look up the state of %s at %s", entity_id, moment, exc_info=True
+        )
+        return None
+
+
+async def _async_away_users(
+    hass: HomeAssistant, entry: OmronConfigEntry, measurement: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Users whose linked person was recorded as not home when it was taken.
+
+    Only people linked to a user are asked, and only for a measurement that has
+    a time. Unknown or unavailable counts as no information, not as away.
+    """
+    moment = _measured_moment(measurement)
+    if moment is None:
+        return []
+    away = []
+    for user_id, subentry in user_subentries(entry).items():
+        person = subentry.data.get(CONF_USER_PERSON)
+        if not person:
+            continue
+        state = await _async_person_state_at(hass, person, moment)
+        if state is None or state in (STATE_HOME, STATE_UNKNOWN, STATE_UNAVAILABLE):
+            continue
+        away.append(
+            {
+                "user_id": user_id,
+                "name": subentry.data.get(CONF_USER_NAME) or subentry.title,
+                "person": person,
+                "state": state,
+            }
+        )
+    return away
 
 
 def _set_last_seq(users: OmronUsers, slot: int, sequence: int | None) -> None:

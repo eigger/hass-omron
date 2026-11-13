@@ -92,7 +92,11 @@
           "data": {
             "name": "Name",
             "expected_weight": "Usual weight (kg)",
-            "height_cm": "Height (cm, for BMI)"
+            "height_cm": "Height (cm, for BMI)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. A measurement is not given to this user if this person was not home when it was taken. The state is read from the recorder at the time the device recorded, so the device's clock must be right. Without a recorded state, or a time, the user stays a candidate."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Height (cm, for BMI)",
             "time_windows": "Time windows (HH:MM-HH:MM, comma-separated)",
             "weight_min": "Weight from (kg)",
-            "weight_max": "Weight up to (kg)"
+            "weight_max": "Weight up to (kg)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. A measurement is not given to this user if this person was not home when it was taken. The state is read from the recorder at the time the device recorded, so the device's clock must be right. Without a recorded state, or a time, the user stays a candidate."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Systolic from (mmHg)",
             "sys_max": "Systolic up to (mmHg)",
             "dia_min": "Diastolic from (mmHg)",
-            "dia_max": "Diastolic up to (mmHg)"
+            "dia_max": "Diastolic up to (mmHg)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. A measurement is not given to this user if this person was not home when it was taken. The state is read from the recorder at the time the device recorded, so the device's clock must be right. Without a recorded state, or a time, the user stays a candidate."
           }
         },
         "confirm_no_rules": {

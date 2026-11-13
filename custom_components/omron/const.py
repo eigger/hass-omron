@@ -43,6 +43,9 @@ CONF_USER_NAME: Final = "name"
 CONF_USER_EXPECTED_WEIGHT: Final = "expected_weight"
 CONF_USER_HEIGHT: Final = "height_cm"
 CONF_USER_SLOT: Final = "slot"
+# A person entity whose state at the time of a measurement keeps the user out of
+# the candidates when it was not "home". Off unless a user links one.
+CONF_USER_PERSON: Final = "person"
 CONF_USER_TIME_WINDOWS: Final = "time_windows"
 CONF_USER_WEIGHT_MIN: Final = "weight_min"
 CONF_USER_WEIGHT_MAX: Final = "weight_max"

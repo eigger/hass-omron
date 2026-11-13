@@ -43,6 +43,8 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_ADDRESS, CONF_SCAN_INTERVAL
 from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -73,6 +75,7 @@ from .const import (
     CONF_USER_EXPECTED_WEIGHT,
     CONF_USER_HEIGHT,
     CONF_USER_NAME,
+    CONF_USER_PERSON,
     CONF_USER_SLOT,
     CONF_USER_SYS_MAX,
     CONF_USER_SYS_MIN,
@@ -967,6 +970,10 @@ def _number(low: float, high: float, step: float, unit: str) -> NumberSelector:
     )
 
 
+def _person_selector() -> EntitySelector:
+    return EntitySelector(EntitySelectorConfig(domain="person"))
+
+
 # Form step per kind of user input: a scale by weight, a scale by rules, a cuff.
 _STEP_WEIGHT = "weight"
 _STEP_RULES = "rules"
@@ -998,11 +1005,13 @@ def _user_schema(step_id: str, num_slots: int = 1) -> vol.Schema:
             WEIGHT_MIN_KG, WEIGHT_MAX_KG, 0.1, "kg"
         )
         fields[vol.Optional(CONF_USER_HEIGHT)] = height
+        fields[vol.Optional(CONF_USER_PERSON)] = _person_selector()
     elif step_id == _STEP_RULES:
         fields[vol.Optional(CONF_USER_HEIGHT)] = height
         fields[vol.Optional(CONF_USER_TIME_WINDOWS)] = str
         for key in (CONF_USER_WEIGHT_MIN, CONF_USER_WEIGHT_MAX):
             fields[vol.Optional(key)] = _number(WEIGHT_MIN_KG, WEIGHT_MAX_KG, 0.1, "kg")
+        fields[vol.Optional(CONF_USER_PERSON)] = _person_selector()
     else:
         fields[vol.Optional(CONF_USER_TIME_WINDOWS)] = str
         for key in (
@@ -1012,6 +1021,7 @@ def _user_schema(step_id: str, num_slots: int = 1) -> vol.Schema:
             CONF_USER_DIA_MAX,
         ):
             fields[vol.Optional(key)] = _number(20, 300, 1, "mmHg")
+        fields[vol.Optional(CONF_USER_PERSON)] = _person_selector()
     return vol.Schema(fields)
 
 

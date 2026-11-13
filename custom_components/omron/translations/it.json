@@ -92,7 +92,11 @@
           "data": {
             "name": "Nome",
             "expected_weight": "Peso abituale (kg)",
-            "height_cm": "Altezza (cm, per il BMI)"
+            "height_cm": "Altezza (cm, per il BMI)",
+            "person": "Persona (facoltativa)"
+          },
+          "data_description": {
+            "person": "Facoltativo. Una misurazione non viene assegnata a questo utente se questa persona non era a casa quando è stata effettuata. Lo stato viene letto dal recorder all'ora registrata dal dispositivo, quindi l'orologio del dispositivo deve essere corretto. Senza uno stato registrato o senza ora, l'utente resta un candidato."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Altezza (cm, per il BMI)",
             "time_windows": "Fasce orarie (HH:MM-HH:MM, separate da virgole)",
             "weight_min": "Peso da (kg)",
-            "weight_max": "Peso fino a (kg)"
+            "weight_max": "Peso fino a (kg)",
+            "person": "Persona (facoltativa)"
+          },
+          "data_description": {
+            "person": "Facoltativo. Una misurazione non viene assegnata a questo utente se questa persona non era a casa quando è stata effettuata. Lo stato viene letto dal recorder all'ora registrata dal dispositivo, quindi l'orologio del dispositivo deve essere corretto. Senza uno stato registrato o senza ora, l'utente resta un candidato."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Sistolica da (mmHg)",
             "sys_max": "Sistolica fino a (mmHg)",
             "dia_min": "Diastolica da (mmHg)",
-            "dia_max": "Diastolica fino a (mmHg)"
+            "dia_max": "Diastolica fino a (mmHg)",
+            "person": "Persona (facoltativa)"
+          },
+          "data_description": {
+            "person": "Facoltativo. Una misurazione non viene assegnata a questo utente se questa persona non era a casa quando è stata effettuata. Lo stato viene letto dal recorder all'ora registrata dal dispositivo, quindi l'orologio del dispositivo deve essere corretto. Senza uno stato registrato o senza ora, l'utente resta un candidato."
           }
         },
         "confirm_no_rules": {

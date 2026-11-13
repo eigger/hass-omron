@@ -92,7 +92,11 @@
           "data": {
             "name": "Name",
             "expected_weight": "Übliches Gewicht (kg)",
-            "height_cm": "Größe (cm, für den BMI)"
+            "height_cm": "Größe (cm, für den BMI)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. Eine Messung wird diesem Nutzer nicht zugeordnet, wenn diese Person zum Zeitpunkt der Messung nicht zu Hause war. Der Zustand wird aus dem Recorder zum vom Gerät aufgezeichneten Zeitpunkt gelesen; die Uhr des Geräts muss also stimmen. Ohne aufgezeichneten Zustand oder ohne Zeit bleibt der Nutzer Kandidat."
           }
         },
         "rules": {
@@ -103,7 +107,11 @@
             "height_cm": "Größe (cm, für den BMI)",
             "time_windows": "Zeitfenster (HH:MM-HH:MM, durch Kommas getrennt)",
             "weight_min": "Gewicht ab (kg)",
-            "weight_max": "Gewicht bis (kg)"
+            "weight_max": "Gewicht bis (kg)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. Eine Messung wird diesem Nutzer nicht zugeordnet, wenn diese Person zum Zeitpunkt der Messung nicht zu Hause war. Der Zustand wird aus dem Recorder zum vom Gerät aufgezeichneten Zeitpunkt gelesen; die Uhr des Geräts muss also stimmen. Ohne aufgezeichneten Zustand oder ohne Zeit bleibt der Nutzer Kandidat."
           }
         },
         "pressure": {
@@ -115,7 +123,11 @@
             "sys_min": "Systolisch ab (mmHg)",
             "sys_max": "Systolisch bis (mmHg)",
             "dia_min": "Diastolisch ab (mmHg)",
-            "dia_max": "Diastolisch bis (mmHg)"
+            "dia_max": "Diastolisch bis (mmHg)",
+            "person": "Person (optional)"
+          },
+          "data_description": {
+            "person": "Optional. Eine Messung wird diesem Nutzer nicht zugeordnet, wenn diese Person zum Zeitpunkt der Messung nicht zu Hause war. Der Zustand wird aus dem Recorder zum vom Gerät aufgezeichneten Zeitpunkt gelesen; die Uhr des Geräts muss also stimmen. Ohne aufgezeichneten Zustand oder ohne Zeit bleibt der Nutzer Kandidat."
           }
         },
         "confirm_no_rules": {

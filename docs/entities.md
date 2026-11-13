@@ -117,8 +117,8 @@ The sensors keep their last values across restarts. A measurement that cannot be
 | `measurement_id` | the id to move this measurement with [`omron.reassign_measurement`](#moving-a-measurement-to-another-user) |
 | `measured_at`, `device_time`, `sequence` | when it was taken (your time zone / the device's own clock) and the cuff's record number if it has one |
 | `weight` or `sys`, `dia`, `bpm`, `irregular_pulse`, `body_movement` | the measurement |
-| `reason` | `ambiguous` (fits several users, or none clearly), `no_match` (fits no user's rules), `no_time` (a user's time window needs a time the record does not have), `out_of_range` (weight-based: even the closest user is too far away) |
-| `candidates` | per user: for weight, the reference weight, the difference and the tolerance in kg; for rules, which rules held, failed or could not be checked |
+| `reason` | `ambiguous` (fits several users, or none clearly), `no_match` (fits no user's rules), `no_time` (a user's time window needs a time the record does not have), `out_of_range` (weight-based: even the closest user is too far away), `nobody_home` (every candidate's linked person was not home, see below) |
+| `candidates` | per user: for weight, the reference weight, the difference and the tolerance in kg; for rules, which rules held, failed or could not be checked; for `nobody_home`, each user with the person and the state that kept them out |
 
 **How a measurement is assigned.** The device uses one strategy for all its users; a scale lets you choose it under **Configure** (**Assign measurements by**), a blood pressure monitor always uses rules. Changing the strategy forgets the weights learned so far. Users keep what was entered for the old strategy, so edit each one afterwards: by weight a user needs a usual weight (without it they are never assigned a measurement, and a warning is logged at startup), by rules they need their rules (a user with none fits every measurement).
 
@@ -135,6 +135,14 @@ The sensors keep their last values across restarts. A measurement that cannot be
 - For a monitor, the device's own sensors may show a reading that was just taken live over Bluetooth while the user's sensors show the record the monitor stored; the two can differ for a moment or by a reading. Only the stored record is assigned.
 - A measurement given to the wrong user (or left unassigned) can be moved afterwards, but only while it is among the newest 50 the device handled (see below). There is no way to pick the current user beforehand. The home-presence of people is only used if you link a person to a user.
 - Removing a user removes their sensors and what was learned about them; their earlier states stay in the Home Assistant history. Removing the last user forgets where the device stood, so the next one starts from a baseline again.
+
+### Linking a person (optional)
+
+A user can name a **person** entity. It is off for every user who does not. Before the strategy runs, users whose person was **not `home` when the measurement was taken** are left out of the candidates, which helps most where two people weigh about the same or share a time window. If that leaves nobody (every candidate was away), the measurement is given to nobody and announced with the reason `nobody_home`.
+
+- The time is the one the device recorded for the measurement, and the person's state at that time is read from the Home Assistant **recorder** (the state history), not from the person's state now. Nothing is filtered when the measurement has no time, the recorder is not loaded, the recorder has no state for that moment (for example the history was purged, or began later), or the state was `unknown`/`unavailable`: the user stays a candidate. Any state but `home` (`not_home`, a zone) counts as away.
+- This **trusts the device's clock and the person's tracker**. A wrong clock reads another moment's state; a tracker that updates late says the wrong thing; and when everyone is home at the same time nothing is narrowed down. The weight strategy compares the remaining users only, so with one person away the other's weight no longer has to be told apart from theirs.
+- Body-composition scales do not use it: the scale names the slot itself.
 
 ### Moving a measurement to another user
 
