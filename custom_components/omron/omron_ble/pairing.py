@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 from typing import TYPE_CHECKING
 
@@ -31,8 +32,14 @@ async def async_fetch_device_model_number(
     from then on, including closing it if the flow does not get that far.
     """
     # Model is unknown here; a placeholder profile is enough because
-    # read_model_number() only uses the standard DIS characteristic.
-    session = OmronDeviceSession(ble_device, get_device_config(DEFAULT_DEVICE_MODEL))
+    # read_model_number() only uses the standard DIS characteristic. Keep the
+    # BlueZ pairing agent active while connecting so cuffs that send an SMP
+    # RequestAuthorization immediately on connect (e.g. BP786N / WLD3.0) stay up
+    # for the read without initiating an outgoing Pair().
+    probe_config = replace(
+        get_device_config(DEFAULT_DEVICE_MODEL), register_pairing_agent=True
+    )
+    session = OmronDeviceSession(ble_device, probe_config)
     try:
         await session.connect()
     except Exception as exc:
