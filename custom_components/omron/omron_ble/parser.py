@@ -49,6 +49,7 @@ from .devices import (
     get_device_config,
     resolve_profile_model_id,
 )
+from . import blood_pressure_metrics as bp_metrics
 from .driver import OmronDeviceDriver
 from .session import OmronDeviceSession
 from .session_trace import SessionTrace
@@ -567,18 +568,15 @@ class OmronBluetoothDeviceData(BluetoothData):
         sensor_classes: Any,
     ) -> None:
         """Publish metrics derivable from systolic/diastolic pair."""
-        if not (
-            isinstance(sys_val, (int, float))
-            and isinstance(dia_val, (int, float))
-            and sys_val > dia_val
-        ):
+        pulse_pressure = bp_metrics.pulse_pressure(sys_val, dia_val)
+        if pulse_pressure is None:
             return
-        pulse_pressure = float(sys_val - dia_val)
-        estimated_map = float(dia_val + (pulse_pressure / 3))
+        estimated_map = bp_metrics.mean_arterial_pressure_estimated(sys_val, dia_val)
+        category = bp_metrics.blood_pressure_category(sys_val, dia_val)
         self._publish_measurement_sensor(
             "pulse_pressure",
             "mmHg",
-            round(pulse_pressure, 1),
+            pulse_pressure,
             sensor_classes.PULSE_PRESSURE,
             "Pulse Pressure",
             key_suffix,
@@ -587,7 +585,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._publish_measurement_sensor(
             "mean_arterial_pressure_estimated",
             "mmHg",
-            round(estimated_map, 1),
+            estimated_map,
             sensor_classes.MEAN_ARTERIAL_PRESSURE_ESTIMATED,
             "Estimated MAP",
             key_suffix,
@@ -596,7 +594,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._publish_measurement_sensor(
             "blood_pressure_category",
             None,
-            self._classify_blood_pressure_category(float(sys_val), float(dia_val)),
+            category,
             sensor_classes.BLOOD_PRESSURE_CATEGORY,
             "BP Category (ACC/AHA)",
             key_suffix,
@@ -612,17 +610,13 @@ class OmronBluetoothDeviceData(BluetoothData):
         sensor_classes: Any,
     ) -> None:
         """Publish shock index only when denominator is valid."""
-        if not (
-            isinstance(sys_val, (int, float))
-            and sys_val > 0
-            and isinstance(bpm_val, (int, float))
-        ):
+        shock_index = bp_metrics.shock_index(sys_val, bpm_val)
+        if shock_index is None:
             return
-        shock_index = float(bpm_val) / float(sys_val)
         self._publish_measurement_sensor(
             "shock_index",
             "ratio",
-            round(shock_index, 2),
+            shock_index,
             sensor_classes.SHOCK_INDEX,
             "Shock Index",
             key_suffix,
@@ -638,15 +632,13 @@ class OmronBluetoothDeviceData(BluetoothData):
         sensor_classes: Any,
     ) -> None:
         """Publish RPP from systolic and pulse."""
-        if not (
-            isinstance(sys_val, (int, float)) and isinstance(bpm_val, (int, float))
-        ):
+        rpp = bp_metrics.rate_pressure_product(sys_val, bpm_val)
+        if rpp is None:
             return
-        rpp = float(sys_val) * float(bpm_val)
         self._publish_measurement_sensor(
             "rate_pressure_product",
             "mmHg*bpm",
-            round(rpp, 1),
+            rpp,
             sensor_classes.RATE_PRESSURE_PRODUCT,
             "Rate Pressure Product",
             key_suffix,
@@ -850,15 +842,7 @@ class OmronBluetoothDeviceData(BluetoothData):
     @staticmethod
     def _classify_blood_pressure_category(sys_val: float, dia_val: float) -> str:
         """Classify blood pressure category using ACC/AHA 2017 thresholds."""
-        if sys_val > 180 or dia_val > 120:
-            return "hypertensive_crisis"
-        if sys_val >= 140 or dia_val >= 90:
-            return "hypertension_stage_2"
-        if sys_val >= 130 or dia_val >= 80:
-            return "hypertension_stage_1"
-        if sys_val >= 120 and dia_val < 80:
-            return "elevated"
-        return "normal"
+        return bp_metrics.classify_blood_pressure_category(sys_val, dia_val)
 
     async def _read_latest_via_bls_racp(
         self, client: BleakClient
