@@ -135,6 +135,12 @@ class OmronBluetoothDeviceData(BluetoothData):
         # Per user, the cuff counter of the newest record a poll has shown, so
         # a drain that spans polls never moves the sensors back.
         self.history_shown: dict[int, int] = {}
+        # The newest EEPROM record of the last readout (single-slot profiles
+        # only), shaped like a stored-record event with ``sequence`` None. It
+        # is the cuff's own record: a live Blood Pressure Service value that
+        # replaced it in the published sensors is not in here. ``None`` until a
+        # readout decodes one, and again when the next readout does not.
+        self.last_record: dict[str, Any] | None = None
         self._last_record_signatures_by_user: dict[int, tuple[Any, ...]] = {}
         self._bp_char_unavailable = False
         self._bls_racp_unavailable_logged = False
@@ -961,6 +967,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         updates: list[SensorUpdate] = []
         next_seq: dict[int, int] = {}
         shown: dict[int, int] = {}
+        rebased: dict[int, bool] = {}
         # TruRead profiles store a session as three raw readings that the poll
         # shows as their average; raw states would mix with the averages.
         states_wanted = not (self._device_config.index_pointer_layout or {}).get(
@@ -968,6 +975,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         )
         for user, outcome in sorted(found.items()):
             next_seq[user] = outcome.next_seq
+            rebased[user] = bool(outcome.rebased)
             if outcome.lost:
                 _LOGGER.warning(
                     "%d stored measurement(s) for user %d were overwritten or "
@@ -1021,7 +1029,12 @@ class OmronBluetoothDeviceData(BluetoothData):
         events.sort(key=lambda e: (e["measured_at"] or "", e["user"], e["sequence"]))
         trace.note(history_reads=len(events))
         self.history_updates = updates
-        self.pending_history = {"next_seq": next_seq, "events": events, "shown": shown}
+        self.pending_history = {
+            "next_seq": next_seq,
+            "events": events,
+            "shown": shown,
+            "rebased": rebased,
+        }
 
     def _history_event(self, user: int, record: dict[str, Any]) -> dict[str, Any]:
         """Event payload for one stored record."""
@@ -1110,6 +1123,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
         with trace.timed("readout"):
             multi_user_mode = self._device_config.num_users > 1
+            self.last_record = None
             record: dict[str, Any] | None = None
             latest_by_user: dict[int, dict[str, Any]] = {}
             eeprom_record_decoded = False
@@ -1139,6 +1153,14 @@ class OmronBluetoothDeviceData(BluetoothData):
             else:
                 record = await self._driver.get_latest_record(session)
                 eeprom_record_decoded = record is not None
+                if record is not None:
+                    # Before the live Blood Pressure Service value below can
+                    # replace it: ``merged`` is a copy, so this stays the
+                    # cuff's own record.
+                    self.last_record = {
+                        **self._history_event(1, record),
+                        "sequence": None,
+                    }
                 live_record: dict[str, Any] | None = None
                 # The standard Blood Pressure Service only exists on cuffs.
                 if self._device_config.is_blood_pressure:
@@ -1399,6 +1421,7 @@ class OmronBluetoothDeviceData(BluetoothData):
             self._events_updates.clear()
             self.pending_history = None
             self.history_updates = []
+            self.last_record = None
             # This poll's own breakdown. An adopted session already carries the
             # pairing session's trace; the link is copied across and the stages
             # are swapped, so what this poll publishes matches its own duration.
