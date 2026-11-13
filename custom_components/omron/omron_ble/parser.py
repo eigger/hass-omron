@@ -806,7 +806,8 @@ class OmronBluetoothDeviceData(BluetoothData):
         if "mov" in record and "body_movement" not in status_flags:
             status_flags["body_movement"] = bool(record["mov"])
         if "cuff" in record and "cuff_fit" not in status_flags:
-            status_flags["cuff_fit"] = not bool(record["cuff"])
+            # Same polarity as the BLS path: True (on / problem) = cuff too loose.
+            status_flags["cuff_fit"] = bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
 

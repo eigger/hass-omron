@@ -491,35 +491,31 @@ class _UserFlag:
 
     key: str  # unique-id suffix, the device's own key for the flag
     stored: str  # key in the user's last values
-    invert: bool
     device_class: OmronExtendedBinarySensorDeviceClass
 
 
-# The stored values are the record's (``cuff_loose``); the device shows
-# ``cuff_fit`` as "not loose" under its own PROBLEM class and so does the user.
+# The stored values are the record's; ``cuff_loose`` feeds the ``cuff_fit``
+# sensor unchanged: under its PROBLEM class "on" means the cuff was too loose,
+# as on the device's own sensor.
 _USER_FLAGS = {
     "irregular_pulse": _UserFlag(
         "irregular_pulse",
         "irregular_pulse",
-        False,
         OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE,
     ),
     "body_movement": _UserFlag(
         "body_movement",
         "body_movement",
-        False,
         OmronExtendedBinarySensorDeviceClass.BODY_MOVEMENT,
     ),
     "cuff_loose": _UserFlag(
         "cuff_fit",
         "cuff_loose",
-        True,
         OmronExtendedBinarySensorDeviceClass.CUFF_FIT,
     ),
     "improper_position": _UserFlag(
         "improper_position",
         "improper_position",
-        False,
         OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
     ),
 }
@@ -561,7 +557,7 @@ class OmronUserFlagBinarySensor(OmronEntity, BinarySensorEntity):
         value = last.get(self._flag.stored)
         if not isinstance(value, bool):
             return None
-        return not value if self._flag.invert else value
+        return value
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

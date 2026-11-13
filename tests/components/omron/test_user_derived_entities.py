@@ -9,8 +9,12 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+import pytest
+
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+
+from custom_components.omron.omron_ble.bls import _parse_bp_measurement
 
 from .test_user_measurements import (
     CUFF,
@@ -180,11 +184,11 @@ async def test_an_assigned_measurement_sets_metrics_and_flags(
     on = {
         key: _state(hass, entry, "bob", "binary_sensor", key).state for key in ALL_FLAGS
     }
-    # Cuff fit is "not loose", as on the cuff's own sensor.
+    # Cuff fit is a problem sensor: a loose cuff is "on", as on the cuff's own.
     assert on == {
         "irregular_pulse": "on",
         "body_movement": "off",
-        "cuff_fit": "off",
+        "cuff_fit": "on",
         "improper_position": "off",
     }
     # Eve was not given it.
@@ -225,7 +229,7 @@ async def test_a_flag_the_record_lacks_is_unknown_not_stale(
     await _assign(
         hass, entry, _record("2026-09-21T07:30:00", 131, 84, 70, cuff_loose=True)
     )
-    assert _state(hass, entry, "bob", "binary_sensor", "cuff_fit").state == "off"
+    assert _state(hass, entry, "bob", "binary_sensor", "cuff_fit").state == "on"
 
     await _poll(
         hass,
@@ -270,7 +274,7 @@ async def test_the_flags_and_metrics_survive_a_restart(
     assert flags == {
         "irregular_pulse": "on",
         "body_movement": "off",
-        "cuff_fit": "on",
+        "cuff_fit": "off",
         "improper_position": "on",
     }
 
@@ -376,3 +380,60 @@ async def test_scale_users_are_unchanged(
         for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.domain == "binary_sensor" and e.config_subentry_id
     ]
+
+
+# --- one polarity for "cuff too loose", on every path ---------------------------------
+
+
+def _bls_cuff_fit(loose: bool) -> bool:
+    """The BLS path: Measurement Status bit 1, 1 = cuff too loose."""
+    # Flags: kPa unit off, timestamp off, pulse off, user off, status present.
+    payload = (
+        bytes([0x10])
+        + b"\x78\xf0\x50\xf0\x64\xf0"
+        + (0x02 if loose else 0x00).to_bytes(2, "little")
+    )
+    parsed = _parse_bp_measurement(payload)
+    assert parsed is not None
+    return parsed["status_flags"]["cuff_fit"]
+
+
+def _device_cuff_fit(entry, record: dict) -> bool:
+    """The device's binary sensor value for an EEPROM record (``cuff`` bit)."""
+    data = entry.runtime_data.device_data
+    data._update_measurement_sensors(record)
+    update = data._finish_update()
+    values = [
+        value.native_value
+        for key, value in update.binary_entity_values.items()
+        if str(key.key).endswith("cuff_fit")
+    ]
+    assert len(values) == 1
+    return values[0]
+
+
+@pytest.mark.parametrize(("loose", "state"), [(True, "on"), (False, "off")])
+async def test_every_path_reads_a_loose_cuff_as_on(
+    hass: HomeAssistant, enable_bluetooth: None, loose: bool, state: str
+) -> None:
+    """BLS, EEPROM and the user's sensor agree: loose is a problem, a fit is not."""
+    entry = _entry(hass, CUFF, MORNING_EVENING)
+    await _setup(hass, entry)
+
+    assert _bls_cuff_fit(loose) is loose
+    eeprom = _device_cuff_fit(
+        entry,
+        {
+            "sys": 131,
+            "dia": 84,
+            "bpm": 70,
+            "datetime": dt.datetime(2026, 9, 21, 7, 30),
+            "cuff": int(loose),
+        },
+    )
+    assert eeprom is loose
+
+    await _assign(
+        hass, entry, _record("2026-09-21T07:30:00", 131, 84, 70, cuff_loose=loose)
+    )
+    assert _state(hass, entry, "bob", "binary_sensor", "cuff_fit").state == state
