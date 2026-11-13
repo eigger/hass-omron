@@ -88,7 +88,7 @@ A poll normally surfaces only the newest reading. On the models listed below, th
   | `measured_at` | time of the reading with your time zone applied |
   | `device_time` | the cuff's own clock reading, unmodified |
   | `sys`, `dia`, `bpm` | the reading |
-  | `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position` | status flags |
+  | `irregular_pulse`, `body_movement`, `cuff_loose`, `improper_position` | status flags (`cuff_loose` is true when the cuff was too loose) |
 
 - Setting this up (or turning it on) never replays what is already in the cuff: it starts from the next reading. Up to 30 readings per user are read per poll; a longer backlog is read over the next polls. Readings the cuff overwrote before a poll can no longer be recovered, and a warning says how many.
 - It is **off by default**. Turn it on under **Configure** with **Publish every measurement stored since the last poll** (the option only appears for the models below). While it is off, polls do not read anything extra; turning it on starts from the cuff's current reading, not from what piled up meanwhile.

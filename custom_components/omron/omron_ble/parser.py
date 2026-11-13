@@ -806,8 +806,10 @@ class OmronBluetoothDeviceData(BluetoothData):
         if "mov" in record and "body_movement" not in status_flags:
             status_flags["body_movement"] = bool(record["mov"])
         if "cuff" in record and "cuff_fit" not in status_flags:
-            # Same polarity as the BLS path: True (on / problem) = cuff too loose.
-            status_flags["cuff_fit"] = bool(record["cuff"])
+            # The stored record's cuff bit is set when the cuff was wrapped
+            # correctly (the cuff-wrap OK mark), the opposite of the BLS bit.
+            # The sensor's polarity is the BLS one: on (problem) = too loose.
+            status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
 
@@ -1042,7 +1044,10 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "bpm": record.get("bpm"),
                     "irregular_pulse": bool(record["ihb"]) if "ihb" in record else None,
                     "body_movement": bool(record["mov"]) if "mov" in record else None,
-                    "cuff_loose": bool(record["cuff"]) if "cuff" in record else None,
+                    # The record's bit is set for a correctly wrapped cuff.
+                    "cuff_loose": not bool(record["cuff"])
+                    if "cuff" in record
+                    else None,
                     "improper_position": bool(record["pos"])
                     if "pos" in record
                     else None,
