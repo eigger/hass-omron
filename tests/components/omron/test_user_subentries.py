@@ -419,7 +419,7 @@ async def test_a_scale_user_has_a_sub_device_with_weight_and_bmi(
     await _unload(hass, entry)
 
 
-async def test_a_cuff_user_has_the_four_reading_sensors(
+async def test_a_cuff_user_has_the_reading_metric_and_flag_entities(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = _entry(hass, CUFF, users=[_subentry("u1", "Bob", sys_min=130)])
@@ -432,7 +432,26 @@ async def test_a_cuff_user_has_the_four_reading_sensors(
         for e in er.async_entries_for_config_entry(registry, entry.entry_id)
         if e.unique_id.startswith(prefix)
     }
-    assert set(own) == {"systolic", "diastolic", "pulse", "measured_at"}
+    assert set(own) == {
+        # The reading.
+        "systolic",
+        "diastolic",
+        "pulse",
+        "measured_at",
+        # Worked out from it, as the cuff's own sensors are.
+        "pulse_pressure",
+        "mean_arterial_pressure_estimated",
+        "blood_pressure_category",
+        "shock_index",
+        "rate_pressure_product",
+        # The status flags the HEM-7600T's records carry (binary sensors).
+        "irregular_pulse",
+        "body_movement",
+        "cuff_fit",
+        "improper_position",
+    }
+    assert {e.domain for e in own.values()} == {"sensor", "binary_sensor"}
+    assert own["irregular_pulse"].domain == "binary_sensor"
     assert own["systolic"].original_device_class is None
     assert own["measured_at"].original_device_class == "timestamp"
     await _unload(hass, entry)
