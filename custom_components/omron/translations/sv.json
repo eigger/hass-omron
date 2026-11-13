@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "När mäter de?",
-              "description": "Ett tidsfönster visas här; lägg till fler med knappen Lägg till. Ett fönster börjar vid den första tiden och slutar strax före den andra; ett slut före starten är ett fönster över midnatt (till exempel 22:00 till 02:00). Lämna allt tomt för att ignorera tiden.",
+              "description": "Tryck på Lägg till för att lägga till ett tidsintervall då personen brukar mäta; lägg till så många som behövs. Ett intervall går från start till strax före slut; ett slut som är tidigare än starten går över midnatt (till exempel 22:00 till 02:00). Utan intervall används inte klockslaget.",
               "data": {
-                "window_start": "Tidsfönster: start",
-                "window_end": "Tidsfönster: slut",
-                "more_windows": "Fler tidsfönster"
+                "windows": "Tidsintervall"
               },
               "data_description": {
-                "window_start": "Fönstret börjar vid den här tiden. Exempel: 06:00",
-                "window_end": "Fönstret slutar strax före den här tiden. För ett fönster över midnatt, välj ett slut före starten. Exempel: 08:00",
-                "more_windows": "Tryck på Lägg till för varje extra fönster, till exempel ett för kvällen. Varje fönster har en start och ett slut; antalet är inte begränsat. Välj ett fönster för att redigera eller ta bort det."
+                "windows": "Tryck på Lägg till för varje intervall, till exempel ett för morgonen och ett för kvällen. Varje intervall har en start och ett slut. Välj ett intervall för att redigera eller ta bort det."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "När mäter de?",
-              "description": "Ett tidsfönster visas här; lägg till fler med knappen Lägg till. Ett fönster börjar vid den första tiden och slutar strax före den andra; ett slut före starten är ett fönster över midnatt (till exempel 22:00 till 02:00). Lämna allt tomt för att ignorera tiden.",
+              "description": "Tryck på Lägg till för att lägga till ett tidsintervall då personen brukar mäta; lägg till så många som behövs. Ett intervall går från start till strax före slut; ett slut som är tidigare än starten går över midnatt (till exempel 22:00 till 02:00). Utan intervall används inte klockslaget.",
               "data": {
-                "window_start": "Tidsfönster: start",
-                "window_end": "Tidsfönster: slut",
-                "more_windows": "Fler tidsfönster"
+                "windows": "Tidsintervall"
               },
               "data_description": {
-                "window_start": "Fönstret börjar vid den här tiden. Exempel: 06:00",
-                "window_end": "Fönstret slutar strax före den här tiden. För ett fönster över midnatt, välj ett slut före starten. Exempel: 08:00",
-                "more_windows": "Tryck på Lägg till för varje extra fönster, till exempel ett för kvällen. Varje fönster har en start och ett slut; antalet är inte begränsat. Välj ett fönster för att redigera eller ta bort det."
+                "windows": "Tryck på Lägg till för varje intervall, till exempel ett för morgonen och ett för kvällen. Varje intervall har en start och ett slut. Välj ett intervall för att redigera eller ta bort det."
               }
             },
             "usual_range": {

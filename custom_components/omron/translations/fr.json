@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Une plage horaire est affichée ici ; ajoutez-en d'autres avec le bouton Ajouter. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00). Laissez tout vide pour ignorer l'heure.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Une plage va de son début jusqu'à juste avant sa fin ; une fin antérieure au début franchit minuit (par exemple de 22:00 à 02:00). Sans plage, l'heure n'est pas utilisée.",
               "data": {
-                "window_start": "Plage : début",
-                "window_end": "Plage : fin",
-                "more_windows": "Autres plages horaires"
+                "windows": "Plages horaires"
               },
               "data_description": {
-                "window_start": "La plage commence à cette heure. Exemple : 06:00",
-                "window_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
-                "more_windows": "Appuyez sur Ajouter pour chaque plage supplémentaire, par exemple une pour le soir. Chacune a un début et une fin ; il n'y a pas de limite. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage, par exemple une pour le matin et une pour le soir. Chacune a un début et une fin. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quand mesurent-ils ?",
-              "description": "Une plage horaire est affichée ici ; ajoutez-en d'autres avec le bouton Ajouter. Une plage commence à la première heure et finit juste avant la seconde ; une fin antérieure au début donne une plage qui passe minuit (par exemple de 22:00 à 02:00). Laissez tout vide pour ignorer l'heure.",
+              "description": "Appuyez sur Ajouter pour ajouter une plage horaire pendant laquelle cette personne mesure habituellement ; ajoutez-en autant que nécessaire. Une plage va de son début jusqu'à juste avant sa fin ; une fin antérieure au début franchit minuit (par exemple de 22:00 à 02:00). Sans plage, l'heure n'est pas utilisée.",
               "data": {
-                "window_start": "Plage : début",
-                "window_end": "Plage : fin",
-                "more_windows": "Autres plages horaires"
+                "windows": "Plages horaires"
               },
               "data_description": {
-                "window_start": "La plage commence à cette heure. Exemple : 06:00",
-                "window_end": "La plage finit juste avant cette heure. Pour passer minuit, choisissez une fin antérieure au début. Exemple : 08:00",
-                "more_windows": "Appuyez sur Ajouter pour chaque plage supplémentaire, par exemple une pour le soir. Chacune a un début et une fin ; il n'y a pas de limite. Sélectionnez une plage pour la modifier ou la supprimer."
+                "windows": "Appuyez sur Ajouter pour chaque plage, par exemple une pour le matin et une pour le soir. Chacune a un début et une fin. Sélectionnez une plage pour la modifier ou la supprimer."
               }
             },
             "usual_range": {

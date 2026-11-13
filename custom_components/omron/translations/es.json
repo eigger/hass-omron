@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Aquí se muestra una franja horaria; añade más con el botón Añadir. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00). Si lo dejas todo vacío, se ignora la hora.",
+              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Una franja va desde su inicio hasta justo antes de su fin; un fin anterior al inicio cruza la medianoche (por ejemplo, de 22:00 a 02:00). Sin franjas, la hora no se usa.",
               "data": {
-                "window_start": "Franja: inicio",
-                "window_end": "Franja: fin",
-                "more_windows": "Más franjas horarias"
+                "windows": "Franjas horarias"
               },
               "data_description": {
-                "window_start": "La franja empieza a esta hora. Ejemplo: 06:00",
-                "window_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
-                "more_windows": "Pulsa Añadir para cada franja adicional, por ejemplo una para la noche. Cada una necesita inicio y fin; no hay límite. Selecciona una franja para editarla o eliminarla."
+                "windows": "Pulsa Añadir para cada franja, por ejemplo una por la mañana y otra por la noche. Cada una tiene un inicio y un fin. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "¿Cuándo miden?",
-              "description": "Aquí se muestra una franja horaria; añade más con el botón Añadir. Una franja empieza a la primera hora y termina justo antes de la segunda; un final anterior al inicio es una franja que cruza la medianoche (por ejemplo, de 22:00 a 02:00). Si lo dejas todo vacío, se ignora la hora.",
+              "description": "Pulsa Añadir para añadir una franja horaria en la que esta persona suele medirse; añade todas las que necesites. Una franja va desde su inicio hasta justo antes de su fin; un fin anterior al inicio cruza la medianoche (por ejemplo, de 22:00 a 02:00). Sin franjas, la hora no se usa.",
               "data": {
-                "window_start": "Franja: inicio",
-                "window_end": "Franja: fin",
-                "more_windows": "Más franjas horarias"
+                "windows": "Franjas horarias"
               },
               "data_description": {
-                "window_start": "La franja empieza a esta hora. Ejemplo: 06:00",
-                "window_end": "La franja termina justo antes de esta hora. Para cruzar la medianoche, elige un fin anterior al inicio. Ejemplo: 08:00",
-                "more_windows": "Pulsa Añadir para cada franja adicional, por ejemplo una para la noche. Cada una necesita inicio y fin; no hay límite. Selecciona una franja para editarla o eliminarla."
+                "windows": "Pulsa Añadir para cada franja, por ejemplo una por la mañana y otra por la noche. Cada una tiene un inicio y un fin. Selecciona una franja para editarla o eliminarla."
               }
             },
             "usual_range": {

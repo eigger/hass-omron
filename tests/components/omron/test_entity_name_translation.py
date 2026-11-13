@@ -155,7 +155,7 @@ def test_translation_files_share_the_multi_user_strings() -> None:
         for step in ("rules", "pressure"):
             assert "{extra_windows}" not in user["step"][step]["description"]
             when = user["step"][step]["sections"]["when"]
-            assert set(when["data"]) == {"window_start", "window_end", "more_windows"}
+            assert set(when["data"]) == {"windows"}
             assert set(when["data_description"]) == set(when["data"])
         # The labels of the fields in the dialog of an added time window.
         fields = doc["selector"]["time_window"]["fields"]

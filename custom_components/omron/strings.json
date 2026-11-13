@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "When do they measure?",
-              "description": "One time window is shown here; add more with the Add button. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00). Leave everything empty to ignore the time.",
+              "description": "Press Add to add a time window in which this person usually measures; add as many as needed. A window runs from its start to just before its end; an end earlier than the start crosses midnight (for example 22:00 to 02:00). With no window the time is not used.",
               "data": {
-                "window_start": "Time window: start",
-                "window_end": "Time window: end",
-                "more_windows": "More time windows"
+                "windows": "Time windows"
               },
               "data_description": {
-                "window_start": "The window begins at this time. Example: 06:00",
-                "window_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
-                "more_windows": "Press Add for each further window, for example one for the evening. Each has a start and an end; there is no limit. Select a window to edit or delete it."
+                "windows": "Press Add for each window, for example one for the morning and one for the evening. Each has a start and an end. Select a window to edit or delete it."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "When do they measure?",
-              "description": "One time window is shown here; add more with the Add button. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00). Leave everything empty to ignore the time.",
+              "description": "Press Add to add a time window in which this person usually measures; add as many as needed. A window runs from its start to just before its end; an end earlier than the start crosses midnight (for example 22:00 to 02:00). With no window the time is not used.",
               "data": {
-                "window_start": "Time window: start",
-                "window_end": "Time window: end",
-                "more_windows": "More time windows"
+                "windows": "Time windows"
               },
               "data_description": {
-                "window_start": "The window begins at this time. Example: 06:00",
-                "window_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
-                "more_windows": "Press Add for each further window, for example one for the evening. Each has a start and an end; there is no limit. Select a window to edit or delete it."
+                "windows": "Press Add for each window, for example one for the morning and one for the evening. Each has a start and an end. Select a window to edit or delete it."
               }
             },
             "usual_range": {

@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
+              "description": "Mit Hinzufügen fügst du ein Zeitfenster hinzu, in dem diese Person üblicherweise misst; es können beliebig viele sein. Ein Fenster läuft vom Beginn bis kurz vor dem Ende; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Ohne Zeitfenster wird die Uhrzeit nicht verwendet.",
               "data": {
-                "window_start": "Zeitfenster: Beginn",
-                "window_end": "Zeitfenster: Ende",
-                "more_windows": "Weitere Zeitfenster"
+                "windows": "Zeitfenster"
               },
               "data_description": {
-                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
+                "windows": "Mit Hinzufügen ergänzt du jedes Fenster, z. B. eines für den Morgen und eines für den Abend. Jedes braucht Beginn und Ende. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Wann wird gemessen?",
-              "description": "Hier wird ein Zeitfenster angezeigt; weitere fügst du mit der Schaltfläche Hinzufügen an. Ein Fenster beginnt zur ersten Zeit und endet kurz vor der zweiten; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Sind alle leer, wird die Uhrzeit ignoriert.",
+              "description": "Mit Hinzufügen fügst du ein Zeitfenster hinzu, in dem diese Person üblicherweise misst; es können beliebig viele sein. Ein Fenster läuft vom Beginn bis kurz vor dem Ende; ein Ende vor dem Beginn bedeutet ein Fenster über Mitternacht (z. B. 22:00 bis 02:00). Ohne Zeitfenster wird die Uhrzeit nicht verwendet.",
               "data": {
-                "window_start": "Zeitfenster: Beginn",
-                "window_end": "Zeitfenster: Ende",
-                "more_windows": "Weitere Zeitfenster"
+                "windows": "Zeitfenster"
               },
               "data_description": {
-                "window_start": "Ab dieser Uhrzeit beginnt das Fenster. Beispiel: 06:00",
-                "window_end": "Das Fenster endet kurz vor dieser Uhrzeit. Für ein Fenster über Mitternacht wähle ein Ende vor dem Beginn. Beispiel: 08:00",
-                "more_windows": "Mit Hinzufügen ergänzt du jedes weitere Fenster, z. B. eines für den Abend. Jedes braucht Beginn und Ende; die Anzahl ist nicht begrenzt. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
+                "windows": "Mit Hinzufügen ergänzt du jedes Fenster, z. B. eines für den Morgen und eines für den Abend. Jedes braucht Beginn und Ende. Wähle ein Fenster aus, um es zu bearbeiten oder zu löschen."
               }
             },
             "usual_range": {

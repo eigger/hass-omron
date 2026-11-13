@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Um intervalo vai do seu início até pouco antes do seu fim; um fim anterior ao início atravessa a meia-noite (por exemplo, das 22:00 às 02:00). Sem intervalos, a hora não é usada.",
               "data": {
-                "window_start": "Intervalo: início",
-                "window_end": "Intervalo: fim",
-                "more_windows": "Mais intervalos de tempo"
+                "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo, por exemplo um para a manhã e outro para a noite. Cada um tem um início e um fim. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quando medem?",
-              "description": "É mostrado um intervalo de tempo; adicione mais com o botão Adicionar. Um intervalo começa na primeira hora e termina mesmo antes da segunda; um fim anterior ao início é um intervalo que passa a meia-noite (por exemplo, das 22:00 às 02:00). Deixe tudo vazio para ignorar a hora.",
+              "description": "Prima Adicionar para adicionar um intervalo de tempo em que esta pessoa costuma medir; adicione quantos precisar. Um intervalo vai do seu início até pouco antes do seu fim; um fim anterior ao início atravessa a meia-noite (por exemplo, das 22:00 às 02:00). Sem intervalos, a hora não é usada.",
               "data": {
-                "window_start": "Intervalo: início",
-                "window_end": "Intervalo: fim",
-                "more_windows": "Mais intervalos de tempo"
+                "windows": "Intervalos de tempo"
               },
               "data_description": {
-                "window_start": "O intervalo começa a esta hora. Exemplo: 06:00",
-                "window_end": "O intervalo termina mesmo antes desta hora. Para passar a meia-noite, escolha um fim anterior ao início. Exemplo: 08:00",
-                "more_windows": "Prima Adicionar para cada intervalo extra, por exemplo um para a noite. Cada um tem início e fim; não há limite. Selecione um intervalo para o editar ou eliminar."
+                "windows": "Prima Adicionar para cada intervalo, por exemplo um para a manhã e outro para a noite. Cada um tem um início e um fim. Selecione um intervalo para o editar ou eliminar."
               }
             },
             "usual_range": {

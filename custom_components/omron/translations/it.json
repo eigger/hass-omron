@@ -114,16 +114,12 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
+              "description": "Premi Aggiungi per aggiungere una fascia oraria in cui questa persona di solito misura; aggiungine quante ne servono. Una fascia va dal suo inizio fino a subito prima della sua fine; una fine precedente all'inizio attraversa la mezzanotte (ad esempio dalle 22:00 alle 02:00). Senza fasce, l'ora non viene usata.",
               "data": {
-                "window_start": "Fascia: inizio",
-                "window_end": "Fascia: fine",
-                "more_windows": "Altre fasce orarie"
+                "windows": "Fasce orarie"
               },
               "data_description": {
-                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
+                "windows": "Premi Aggiungi per ogni fascia, ad esempio una per la mattina e una per la sera. Ognuna ha un inizio e una fine. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {
@@ -152,16 +148,12 @@
           "sections": {
             "when": {
               "name": "Quando misurano?",
-              "description": "Qui è mostrata una fascia oraria; aggiungine altre con il pulsante Aggiungi. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00). Lascia tutto vuoto per ignorare l'ora.",
+              "description": "Premi Aggiungi per aggiungere una fascia oraria in cui questa persona di solito misura; aggiungine quante ne servono. Una fascia va dal suo inizio fino a subito prima della sua fine; una fine precedente all'inizio attraversa la mezzanotte (ad esempio dalle 22:00 alle 02:00). Senza fasce, l'ora non viene usata.",
               "data": {
-                "window_start": "Fascia: inizio",
-                "window_end": "Fascia: fine",
-                "more_windows": "Altre fasce orarie"
+                "windows": "Fasce orarie"
               },
               "data_description": {
-                "window_start": "La fascia inizia a quest'ora. Esempio: 06:00",
-                "window_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
-                "more_windows": "Premi Aggiungi per ogni fascia in più, ad esempio una per la sera. Ognuna ha un inizio e una fine; non c'è limite. Seleziona una fascia per modificarla o eliminarla."
+                "windows": "Premi Aggiungi per ogni fascia, ad esempio una per la mattina e una per la sera. Ognuna ha un inizio e una fine. Seleziona una fascia per modificarla o eliminarla."
               }
             },
             "usual_range": {

@@ -51,7 +51,6 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
-    TimeSelector,
 )
 
 from .alias_migration import async_migrate_alias_unique_ids
@@ -983,16 +982,14 @@ _RANGE_PAIRS = (
 _SECTION_WHEN = "when"
 _SECTION_RANGE = "usual_range"
 _SECTIONS = (_SECTION_WHEN, _SECTION_RANGE)
-# One time window is shown as two pickers; every further one is added to a list
-# with the Add button. The list's items have these two fields.
-_WINDOW_START = "window_start"
-_WINDOW_END = "window_end"
-_MORE_WINDOWS = "more_windows"
+# Every time window is added to a list with the Add button. The list's items
+# have these two fields.
+_WINDOWS = "windows"
 _ITEM_START = "start"
 _ITEM_END = "end"
 # Key of the selector's own translations (`selector.time_window.fields.*`).
 _WINDOW_TRANSLATION_KEY = "time_window"
-_WHEN_FIELDS = (_WINDOW_START, _WINDOW_END, _MORE_WINDOWS)
+_WHEN_FIELDS = (_WINDOWS,)
 _MINUTES_PER_DAY = 24 * 60
 
 
@@ -1022,9 +1019,7 @@ def _user_schema(step_id: str) -> vol.Schema:
         ):
             ranges[vol.Optional(key)] = _number(20, 300, 1, "mmHg")
     when = {
-        vol.Optional(_WINDOW_START): TimeSelector(),
-        vol.Optional(_WINDOW_END): TimeSelector(),
-        vol.Optional(_MORE_WINDOWS): ObjectSelector(
+        vol.Optional(_WINDOWS): ObjectSelector(
             ObjectSelectorConfig(
                 multiple=True,
                 fields={
@@ -1198,15 +1193,12 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         suggested = {
             key: data[key] for key in (CONF_USER_NAME, CONF_USER_HEIGHT) if key in data
         }
-        when: dict[str, str] = {}
+        when: dict[str, Any] = {}
         windows = parse_windows(data.get(CONF_USER_TIME_WINDOWS)) or []
         if windows:
-            when[_WINDOW_START] = _picker_text(windows[0][0])
-            when[_WINDOW_END] = _picker_text(windows[0][1])
-        if windows[1:]:
-            when[_MORE_WINDOWS] = [
+            when[_WINDOWS] = [
                 {_ITEM_START: _picker_text(start), _ITEM_END: _picker_text(end)}
-                for start, end in windows[1:]
+                for start, end in windows
             ]
         suggested[_SECTION_WHEN] = when
         suggested[_SECTION_RANGE] = {
@@ -1229,11 +1221,7 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
         }
         if not name or name.casefold() in taken:
             errors[CONF_USER_NAME] = "invalid_name"
-        windows, window_error = self._picked_windows(
-            data.pop(_WINDOW_START, None),
-            data.pop(_WINDOW_END, None),
-            data.pop(_MORE_WINDOWS, None),
-        )
+        windows, window_error = self._picked_windows(data.pop(_WINDOWS, None))
         if window_error:
             errors[_SECTION_WHEN] = window_error
         if windows:
@@ -1246,22 +1234,18 @@ class OmronUserSubentryFlow(ConfigSubentryFlow):
 
     @staticmethod
     def _picked_windows(
-        start: Any, end: Any, more: Any
+        items: Any,
     ) -> tuple[list[tuple[int, int]], str | None]:
-        """The windows of the default pickers and the added list, and the first error.
+        """The windows of the added list, in its order, and the first error.
 
-        The default window comes first, then the added ones in their order. The
-        default pair may be empty (only the added windows count then), but not
-        half filled. Every window needs a start and an end that differ.
+        Every window needs a start and an end that differ.
         """
         pairs: list[tuple[Any, Any]] = []
-        if start is not None or end is not None:
-            pairs.append((start, end))
-        if more is None:
-            more = []
-        if not isinstance(more, list):
+        if items is None:
+            items = []
+        if not isinstance(items, list):
             return [], "time_window_incomplete"
-        for item in more:
+        for item in items:
             if not isinstance(item, Mapping):
                 return [], "time_window_incomplete"
             pairs.append((item.get(_ITEM_START), item.get(_ITEM_END)))
