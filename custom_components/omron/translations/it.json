@@ -93,34 +93,106 @@
             "name": "Nome",
             "expected_weight": "Peso abituale (kg)",
             "height_cm": "Altezza (cm, per il BMI)"
+          },
+          "data_description": {
+            "name": "Viene mostrato come nome del dispositivo e dei sensori di questo utente. Ogni utente deve avere un nome diverso. Esempio: Mamma",
+            "expected_weight": "Un peso recente di questa persona. Vale per le prime misurazioni; poi segue i pesi che le vengono assegnati. Esempio: 62,5",
+            "height_cm": "Serve solo a calcolare il BMI. Esempio: 168"
           }
         },
         "rules": {
           "title": "Utente",
-          "description": "Ogni nuova misurazione va all'unico utente le cui regole sono tutte soddisfatte. Lascia vuota una regola per ignorarla. Scrivi le fasce orarie come HH:MM-HH:MM separate da virgole; una fascia può attraversare la mezzanotte (22:00-02:00). Gli intervalli di valori sono solo un indizio e possono assegnare male. Una misurazione che corrisponde a più utenti, o a nessuno, non viene assegnata a nessuno e viene segnalata con un evento `omron_unassigned_measurement`. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
+          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la pesata. Una pesata va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona si pesa la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.\n\n{extra_windows}",
           "data": {
             "name": "Nome",
-            "height_cm": "Altezza (cm, per il BMI)",
-            "time_windows": "Fasce orarie (HH:MM-HH:MM, separate da virgole)",
-            "weight_min": "Peso da (kg)",
-            "weight_max": "Peso fino a (kg)"
+            "height_cm": "Altezza (cm, per il BMI)"
+          },
+          "data_description": {
+            "name": "Viene mostrato come nome del dispositivo e dei sensori di questo utente. Ogni utente deve avere un nome diverso. Esempio: Mamma",
+            "height_cm": "Serve solo a calcolare il BMI. Esempio: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "Quando misurano?",
+              "description": "Imposta fino a due fasce orarie in cui questa persona di solito misura. Lasciale entrambe vuote per ignorare l'ora. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00).",
+              "data": {
+                "window1_start": "Fascia 1: inizio",
+                "window1_end": "Fascia 1: fine",
+                "window2_start": "Fascia 2: inizio",
+                "window2_end": "Fascia 2: fine"
+              },
+              "data_description": {
+                "window1_start": "La fascia inizia a quest'ora. Esempio: 06:00",
+                "window1_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
+                "window2_start": "Seconda fascia facoltativa, ad esempio per la sera. Compila inizio e fine. Esempio: 20:00",
+                "window2_end": "La seconda fascia termina subito prima di quest'ora. Esempio: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Intervallo abituale (facoltativo)",
+              "description": "Solo un suggerimento: il peso cambia da un giorno all'altro nella stessa persona e gli intervalli di persone diverse possono sovrapporsi, quindi un intervallo può assegnare una pesata alla persona sbagliata. Usalo solo se l'ora da sola non basta. Lascia vuoto per ignorarlo.",
+              "data": {
+                "weight_min": "Peso da (kg)",
+                "weight_max": "Peso fino a (kg)"
+              },
+              "data_description": {
+                "weight_min": "Solo le pesate pari o superiori a questo peso contano come sue. Esempio: 55",
+                "weight_max": "Solo le pesate pari o inferiori a questo peso contano come sue. Esempio: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "Utente",
-          "description": "Ogni nuova misurazione va all'unico utente le cui regole sono tutte soddisfatte. Lascia vuota una regola per ignorarla. Scrivi le fasce orarie come HH:MM-HH:MM separate da virgole; una fascia può attraversare la mezzanotte (22:00-02:00). Gli intervalli di valori sono solo un indizio e possono assegnare male. Una misurazione che corrisponde a più utenti, o a nessuno, non viene assegnata a nessuno e viene segnalata con un evento `omron_unassigned_measurement`. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.",
+          "description": "Queste impostazioni non sono soglie di salute. Servono solo a decidere di chi è la misurazione. Una misurazione va a un utente solo se tutte le condizioni di un unico utente sono soddisfatte; se non corrisponde nessuno o ne corrispondono più di uno, non va a nessuno e viene segnalata in un evento `omron_unassigned_measurement`. Esempio per una famiglia: una persona misura la mattina dalle 06:00 alle 08:00, un'altra la sera dalle 21:00 alle 23:00. Le condizioni lasciate vuote vengono ignorate. Si usa l'ora registrata dal dispositivo, quindi il suo orologio deve essere corretto.\n\n{extra_windows}",
           "data": {
-            "name": "Nome",
-            "time_windows": "Fasce orarie (HH:MM-HH:MM, separate da virgole)",
-            "sys_min": "Sistolica da (mmHg)",
-            "sys_max": "Sistolica fino a (mmHg)",
-            "dia_min": "Diastolica da (mmHg)",
-            "dia_max": "Diastolica fino a (mmHg)"
+            "name": "Nome"
+          },
+          "data_description": {
+            "name": "Viene mostrato come nome del dispositivo e dei sensori di questo utente. Ogni utente deve avere un nome diverso. Esempio: Mamma"
+          },
+          "sections": {
+            "when": {
+              "name": "Quando misurano?",
+              "description": "Imposta fino a due fasce orarie in cui questa persona di solito misura. Lasciale entrambe vuote per ignorare l'ora. Una fascia inizia alla prima ora e termina subito prima della seconda; una fine precedente all'inizio è una fascia che supera la mezzanotte (ad esempio dalle 22:00 alle 02:00).",
+              "data": {
+                "window1_start": "Fascia 1: inizio",
+                "window1_end": "Fascia 1: fine",
+                "window2_start": "Fascia 2: inizio",
+                "window2_end": "Fascia 2: fine"
+              },
+              "data_description": {
+                "window1_start": "La fascia inizia a quest'ora. Esempio: 06:00",
+                "window1_end": "La fascia termina subito prima di quest'ora. Per superare la mezzanotte scegli una fine precedente all'inizio. Esempio: 08:00",
+                "window2_start": "Seconda fascia facoltativa, ad esempio per la sera. Compila inizio e fine. Esempio: 20:00",
+                "window2_end": "La seconda fascia termina subito prima di quest'ora. Esempio: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Intervallo abituale (facoltativo)",
+              "description": "Solo un suggerimento: la pressione varia molto anche nella stessa persona e gli intervalli di persone diverse si sovrappongono, quindi un intervallo può assegnare una misurazione alla persona sbagliata. Usalo solo se l'ora da sola non basta. Lascia vuoto per ignorarlo.",
+              "data": {
+                "sys_min": "Sistolica da (mmHg)",
+                "sys_max": "Sistolica fino a (mmHg)",
+                "dia_min": "Diastolica da (mmHg)",
+                "dia_max": "Diastolica fino a (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Solo le misurazioni con sistolica pari o superiore a questo valore contano come sue. Esempio: 130",
+                "sys_max": "Solo le misurazioni con sistolica pari o inferiore a questo valore contano come sue. Esempio: 160",
+                "dia_min": "Solo le misurazioni con diastolica pari o superiore a questo valore contano come sue. Esempio: 80",
+                "dia_max": "Solo le misurazioni con diastolica pari o inferiore a questo valore contano come sue. Esempio: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "Nessuna regola",
           "description": "{name} non ha regole, quindi ogni misurazione corrisponde a questo utente, e una misurazione che corrisponde anche a un altro utente non viene assegnata a nessuno. Premi Invia per salvare comunque, oppure chiudi questa finestra e aggiungi una regola."
+        },
+        "confirm_no_rules_shared": {
+          "title": "Nessuna misurazione potrà essere assegnata",
+          "description": "{name} non ha regole, e nemmeno questi utenti: {others}. Un utente senza regole corrisponde a ogni misurazione, quindi ogni misurazione corrisponderebbe a più di un utente e non verrebbe assegnata a nessuno. Premi Invia per salvare comunque, oppure chiudi questa finestra e aggiungi fasce orarie o intervalli."
         },
         "confirm_overlap": {
           "title": "Fasce orarie sovrapposte",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Inserisci un nome che nessun altro utente ha.",
-        "invalid_time_windows": "Inserisci fasce orarie come 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "Il valore minimo non può superare il valore massimo."
+        "time_window_incomplete": "Indica sia l'inizio sia la fine della fascia oraria, oppure lascia vuoti entrambi.",
+        "time_window_empty": "Inizio e fine devono essere diversi. Per una fascia che supera la mezzanotte, imposta la fine prima dell'inizio.",
+        "invalid_range": "Il valore minimo non può superare il valore massimo.",
+        "extra_windows_note": "Per questo utente sono salvate altre fasce orarie: {windows}. Salvando restano solo le due fasce mostrate qui; le altre vengono rimosse."
       }
     }
   },

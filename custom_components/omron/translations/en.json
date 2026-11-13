@@ -93,34 +93,106 @@
             "name": "Name",
             "expected_weight": "Usual weight (kg)",
             "height_cm": "Height (cm, for BMI)"
+          },
+          "data_description": {
+            "name": "Shown as the name of this user's device and sensors. Each user needs a different name. Example: Mom",
+            "expected_weight": "A recent weight of this person. It is used for their first measurements; after that it follows the weights assigned to them. Example: 62.5",
+            "height_cm": "Only used to calculate the BMI. Example: 168"
           }
         },
         "rules": {
           "title": "User",
-          "description": "Each new measurement goes to the one user whose rules all match. Leave a rule empty to ignore it. Write time windows as HH:MM-HH:MM separated by commas; a window may cross midnight (22:00-02:00). Value ranges are only a hint and can misassign. A measurement that fits several users, or none, is given to nobody and announced in an `omron_unassigned_measurement` event. The time is the one the device recorded, so its clock must be right.",
+          "description": "These settings are not health thresholds. They only decide whose weighing it is. A weighing goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person weighs in on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.\n\n{extra_windows}",
           "data": {
             "name": "Name",
-            "height_cm": "Height (cm, for BMI)",
-            "time_windows": "Time windows (HH:MM-HH:MM, comma-separated)",
-            "weight_min": "Weight from (kg)",
-            "weight_max": "Weight up to (kg)"
+            "height_cm": "Height (cm, for BMI)"
+          },
+          "data_description": {
+            "name": "Shown as the name of this user's device and sensors. Each user needs a different name. Example: Mom",
+            "height_cm": "Only used to calculate the BMI. Example: 168"
+          },
+          "sections": {
+            "when": {
+              "name": "When do they measure?",
+              "description": "Set up to two time windows in which this person usually measures. Leave both empty to ignore the time. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00).",
+              "data": {
+                "window1_start": "Time window 1: start",
+                "window1_end": "Time window 1: end",
+                "window2_start": "Time window 2: start",
+                "window2_end": "Time window 2: end"
+              },
+              "data_description": {
+                "window1_start": "The window begins at this time. Example: 06:00",
+                "window1_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
+                "window2_start": "Optional second window, for example for the evening. Fill in both start and end. Example: 20:00",
+                "window2_end": "The second window ends just before this time. Example: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Usual range (optional)",
+              "description": "Only a hint: weight changes from day to day within one person and the ranges of different people can overlap, so a range can send a weighing to the wrong person. Use it only when times alone cannot tell them apart. Leave empty to ignore.",
+              "data": {
+                "weight_min": "Weight from (kg)",
+                "weight_max": "Weight up to (kg)"
+              },
+              "data_description": {
+                "weight_min": "Only weighings at or above this weight count as theirs. Example: 55",
+                "weight_max": "Only weighings at or below this weight count as theirs. Example: 70"
+              }
+            }
           }
         },
         "pressure": {
           "title": "User",
-          "description": "Each new reading goes to the one user whose rules all match. Leave a rule empty to ignore it. Write time windows as HH:MM-HH:MM separated by commas; a window may cross midnight (22:00-02:00). Value ranges are only a hint and can misassign. A reading that fits several users, or none, is given to nobody and announced in an `omron_unassigned_measurement` event. The time is the one the device recorded, so its clock must be right.",
+          "description": "These settings are not health thresholds. They only decide whose reading it is. A reading goes to a user only when exactly one user's conditions all match; if none or several match, it goes to nobody and is announced in an `omron_unassigned_measurement` event. Example for a family: one person measures on mornings from 06:00 to 08:00, another on evenings from 21:00 to 23:00. A condition left empty is ignored. The time is the one the device recorded, so its clock must be right.\n\n{extra_windows}",
           "data": {
-            "name": "Name",
-            "time_windows": "Time windows (HH:MM-HH:MM, comma-separated)",
-            "sys_min": "Systolic from (mmHg)",
-            "sys_max": "Systolic up to (mmHg)",
-            "dia_min": "Diastolic from (mmHg)",
-            "dia_max": "Diastolic up to (mmHg)"
+            "name": "Name"
+          },
+          "data_description": {
+            "name": "Shown as the name of this user's device and sensors. Each user needs a different name. Example: Mom"
+          },
+          "sections": {
+            "when": {
+              "name": "When do they measure?",
+              "description": "Set up to two time windows in which this person usually measures. Leave both empty to ignore the time. A window starts at the first time and ends just before the second; an end earlier than the start is a window past midnight (for example 22:00 to 02:00).",
+              "data": {
+                "window1_start": "Time window 1: start",
+                "window1_end": "Time window 1: end",
+                "window2_start": "Time window 2: start",
+                "window2_end": "Time window 2: end"
+              },
+              "data_description": {
+                "window1_start": "The window begins at this time. Example: 06:00",
+                "window1_end": "The window ends just before this time. For a window past midnight, pick an end earlier than the start. Example: 08:00",
+                "window2_start": "Optional second window, for example for the evening. Fill in both start and end. Example: 20:00",
+                "window2_end": "The second window ends just before this time. Example: 22:00"
+              }
+            },
+            "usual_range": {
+              "name": "Usual range (optional)",
+              "description": "Only a hint: blood pressure varies a lot within one person and the ranges of different people overlap, so a range can send a reading to the wrong person. Use it only when times alone cannot tell them apart. Leave empty to ignore.",
+              "data": {
+                "sys_min": "Systolic from (mmHg)",
+                "sys_max": "Systolic up to (mmHg)",
+                "dia_min": "Diastolic from (mmHg)",
+                "dia_max": "Diastolic up to (mmHg)"
+              },
+              "data_description": {
+                "sys_min": "Only readings with systolic at or above this count as theirs. Example: 130",
+                "sys_max": "Only readings with systolic at or below this count as theirs. Example: 160",
+                "dia_min": "Only readings with diastolic at or above this count as theirs. Example: 80",
+                "dia_max": "Only readings with diastolic at or below this count as theirs. Example: 100"
+              }
+            }
           }
         },
         "confirm_no_rules": {
           "title": "No rules",
           "description": "{name} has no rules, so every measurement fits this user, and a measurement that also fits another user is given to nobody. Press Submit to save anyway, or close this dialog and add a rule."
+        },
+        "confirm_no_rules_shared": {
+          "title": "No measurement can be assigned",
+          "description": "{name} has no rules, and neither has: {others}. A user without rules fits every measurement, so every measurement would fit more than one user and none could be assigned to anyone. Press Submit to save anyway, or close this dialog and add time windows or ranges."
         },
         "confirm_overlap": {
           "title": "Overlapping time windows",
@@ -129,8 +201,10 @@
       },
       "error": {
         "invalid_name": "Enter a name that no other user has.",
-        "invalid_time_windows": "Enter time windows like 06:00-09:00, 18:00-21:00.",
-        "invalid_range": "The lower value must not be above the upper value."
+        "time_window_incomplete": "Set both the start and the end of the time window, or clear both.",
+        "time_window_empty": "The start and the end must differ. For a window past midnight, set the end earlier than the start.",
+        "invalid_range": "The lower value must not be above the upper value.",
+        "extra_windows_note": "This user has more time windows stored: {windows}. Saving keeps only the two windows shown here; the others are removed."
       }
     }
   },
