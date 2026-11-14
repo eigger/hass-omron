@@ -141,10 +141,13 @@ class OmronDeviceSession:
         *,
         pairing_session: bool = False,
         credential: bytes | None = None,
+        pairing_agent: AsyncExitStack | None = None,
     ) -> "OmronDeviceSession":
         """Wrap an already-open client to run ops over a connection owned elsewhere.
 
-        ``aclose()`` will not disconnect an adopted client.
+        ``aclose()`` will not disconnect an adopted client unless ownership is
+        later reclaimed, though any transferred ``pairing_agent`` is owned by
+        this session and closed in ``aclose()``.
         """
         session = cls.__new__(cls)
         session._ble_device = getattr(client, "_device", None)
@@ -153,6 +156,7 @@ class OmronDeviceSession:
         session._pairing_session = pairing_session
         session._credential = credential
         session._init_session_state(client=client, owns_connection=False)
+        session._pairing_agent = pairing_agent
         return session
 
     @property
@@ -238,7 +242,8 @@ class OmronDeviceSession:
                     # a pair request is what cost the bond on a proxy (#142).
                     pair_on_connect=self._pairing_session
                     and self._config.pair_on_connect,
-                    hold_pairing_agent=self._config.register_pairing_agent,
+                    hold_pairing_agent=self._pairing_agent is None
+                    and self._config.register_pairing_agent,
                     link_info=self.link_info,
                 )
         except BaseException:
@@ -409,6 +414,15 @@ class OmronDeviceSession:
         self.release_for_handoff()
         return self.client
 
+    def take_pairing_agent(self) -> AsyncExitStack | None:
+        """Transfer ownership of any open BlueZ pairing agent to an adopted session."""
+        agent, self._pairing_agent = self._pairing_agent, None
+        return agent
+
+    async def release_pairing_agent(self) -> None:
+        """Release any held BlueZ pairing agent without closing the BLE link."""
+        await self._release_pairing_agent(propagate_cancel=True)
+
     async def aclose(self) -> None:
         """Close any open memory session and (if owned) drop the BLE link."""
         client = self._client
@@ -456,7 +470,7 @@ class OmronDeviceSession:
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
 
-    async def _release_pairing_agent(self) -> None:
+    async def _release_pairing_agent(self, *, propagate_cancel: bool = False) -> None:
         """Release a BlueZ agent even when no BLE client was established."""
         if self._pairing_agent is None:
             return
@@ -464,6 +478,10 @@ class OmronDeviceSession:
         try:
             async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
                 await agent.aclose()
+        except asyncio.CancelledError:
+            if propagate_cancel:
+                raise
+            _LOGGER.debug("Releasing the pairing agent was cancelled")
         except BaseException as exc:
             _LOGGER.debug("Releasing the pairing agent failed: %s", exc)
 
@@ -867,6 +885,11 @@ class OmronDeviceSession:
             raise ConnectionError("Pairing is not supported for this device")
         if _bluez_device_path(self._bluez_target()) is None:
             # Proxy link: no local SMP confirmation to answer.
+            await _pair_custom_key(self, pair_key)
+            return
+        if self._pairing_agent is not None:
+            # connect() (or an adopted probe session) already holds the BlueZ agent
+            # for this link; opening a second one on the same path would fail.
             await _pair_custom_key(self, pair_key)
             return
         # Nothing has put an agent up for this link: connect-time bonding and
