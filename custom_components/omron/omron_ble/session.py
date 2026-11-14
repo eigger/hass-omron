@@ -421,7 +421,7 @@ class OmronDeviceSession:
 
     async def release_pairing_agent(self) -> None:
         """Release any held BlueZ pairing agent without closing the BLE link."""
-        await self._release_pairing_agent()
+        await self._release_pairing_agent(propagate_cancel=True)
 
     async def aclose(self) -> None:
         """Close any open memory session and (if owned) drop the BLE link."""
@@ -470,7 +470,7 @@ class OmronDeviceSession:
             if disconnected:
                 _LOGGER.debug("BLE link closed for %s", addr)
 
-    async def _release_pairing_agent(self) -> None:
+    async def _release_pairing_agent(self, *, propagate_cancel: bool = False) -> None:
         """Release a BlueZ agent even when no BLE client was established."""
         if self._pairing_agent is None:
             return
@@ -478,6 +478,10 @@ class OmronDeviceSession:
         try:
             async with asyncio.timeout(DISCONNECT_TIMEOUT_S):
                 await agent.aclose()
+        except asyncio.CancelledError:
+            if propagate_cancel:
+                raise
+            _LOGGER.debug("Releasing the pairing agent was cancelled")
         except BaseException as exc:
             _LOGGER.debug("Releasing the pairing agent failed: %s", exc)
 

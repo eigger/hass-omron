@@ -726,7 +726,12 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 else None
             )
             if pairing_agent is None:
-                await probe_session.release_pairing_agent()
+                try:
+                    await probe_session.release_pairing_agent()
+                except BaseException:
+                    # The probe was removed from the bucket but still owns its link.
+                    await close_probe_session(probe_session, address)
+                    raise
             session = OmronDeviceSession.adopt(
                 probe_session.release_client(),
                 config,
