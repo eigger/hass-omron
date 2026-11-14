@@ -719,8 +719,19 @@ class OmronConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 await _bluez_remove_device(ble_device, all_adapters=True)
         if session is not None:
+            probe_session = session
+            pairing_agent = (
+                probe_session.take_pairing_agent()
+                if config.register_pairing_agent
+                else None
+            )
+            if pairing_agent is None:
+                await probe_session.release_pairing_agent()
             session = OmronDeviceSession.adopt(
-                session.release_client(), config, pairing_session=True
+                probe_session.release_client(),
+                config,
+                pairing_session=True,
+                pairing_agent=pairing_agent,
             )
             session.reclaim_ownership()
             _LOGGER.debug(

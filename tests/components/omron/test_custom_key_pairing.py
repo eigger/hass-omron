@@ -18,9 +18,15 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from custom_components.omron.omron_ble.devices import DeviceConfig, HostPairingMode
+from custom_components.omron.omron_ble.devices import (
+    DeviceConfig,
+    HostPairingMode,
+    get_device_config,
+    resolve_profile_model_id,
+)
 from custom_components.omron.omron_ble.session import OmronDeviceSession
 from custom_components.omron.omron_ble import bluez
+from custom_components.omron.omron_ble import pairing as pairing_module
 from custom_components.omron.omron_ble import session as session_module
 from custom_components.omron.omron_ble import unlock as unlock_module
 
@@ -271,3 +277,160 @@ def test_pairing_error_names_both_failures(monkeypatch):
     message = str(excinfo.value)
     assert "unlock failed" in message
     assert "rx failed" in message, "the SMP trigger's failure was swallowed again"
+
+
+class _ClosableFakeClient(FakeClient):
+    """FakeClient with disconnect() support for connect/aclose lifecycle tests."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.disconnected = False
+
+    async def disconnect(self):
+        self.disconnected = True
+        self.is_connected = False
+
+
+def test_bp786n_profile_registers_pairing_agent_for_connect_auth():
+    """BP786N / HEM-7321T-ZV requests authorization immediately on connect."""
+    assert resolve_profile_model_id("BP786N") == "HEM-7322T"
+    for model_id in ("BP786N", "HEM-7321T-ZV", "HEM-7322T"):
+        cfg = get_device_config(model_id)
+        assert cfg.host_pairing_mode is HostPairingMode.CUSTOM_KEY
+        assert cfg.pair_on_connect is False
+        assert cfg.register_pairing_agent is True
+
+
+def test_bp786n_connect_holds_single_agent_through_custom_key_pair_and_close(
+    monkeypatch, pair_custom_key_recorder
+):
+    """Agent entered before connect stays active through pair() and exits on aclose()."""
+    agent_events: list[tuple[str, str | None]] = []
+
+    @asynccontextmanager
+    async def _fake_agent(path):
+        agent_events.append(("enter", path))
+        try:
+            yield None
+        finally:
+            agent_events.append(("exit", path))
+
+    client = _ClosableFakeClient(device_path=LOCAL_BLUEZ_DEVICE_DETAILS["path"])
+
+    async def _fake_establish(ble_device, name, **kwargs):
+        assert agent_events == [("enter", LOCAL_BLUEZ_DEVICE_DETAILS["path"])]
+        assert kwargs["hold_pairing_agent"] is False
+        assert kwargs["pair_on_connect"] is False
+        return client
+
+    async def _not_paired(_dev):
+        return False
+
+    monkeypatch.setattr(session_module, "_bluez_pairing_agent", _fake_agent)
+    monkeypatch.setattr(session_module, "_bluez_is_paired", _not_paired)
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", _fake_establish
+    )
+
+    session = OmronDeviceSession(
+        FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS),
+        get_device_config("BP786N"),
+        pairing_session=True,
+    )
+
+    async def _run():
+        await session.connect()
+        assert agent_events == [("enter", LOCAL_BLUEZ_DEVICE_DETAILS["path"])]
+        await session.pair()
+        assert len(pair_custom_key_recorder) == 1
+        assert agent_events == [("enter", LOCAL_BLUEZ_DEVICE_DETAILS["path"])]
+        await session.aclose()
+        assert agent_events == [
+            ("enter", LOCAL_BLUEZ_DEVICE_DETAILS["path"]),
+            ("exit", LOCAL_BLUEZ_DEVICE_DETAILS["path"]),
+        ]
+
+    asyncio.run(_run())
+
+
+def test_model_probe_enables_pairing_agent_and_transfers_or_releases(monkeypatch):
+    """Probe opens with register_pairing_agent=True and supports agent transfer/release."""
+    captured: list[tuple[DeviceConfig, bool]] = []
+    agent_events: list[str] = []
+
+    @asynccontextmanager
+    async def _fake_agent(_path):
+        agent_events.append("enter")
+        try:
+            yield None
+        finally:
+            agent_events.append("exit")
+
+    class _ProbeFakeSession:
+        def __init__(self, ble_device, config, *, pairing_session=False):
+            captured.append((config, pairing_session))
+            self.closed = 0
+
+        async def connect(self):
+            return self
+
+        async def read_model_number(self):
+            return "BP786N"
+
+        async def aclose(self):
+            self.closed += 1
+
+    monkeypatch.setattr(pairing_module, "OmronDeviceSession", _ProbeFakeSession)
+    model_num, kept = asyncio.run(
+        pairing_module.async_fetch_device_model_number(
+            FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS)
+        )
+    )
+    assert model_num == "BP786N"
+    assert kept is None
+    assert captured[0][0].register_pairing_agent is True
+    assert captured[0][1] is False
+
+    # Also verify direct agent transfer and release between probe and adopted sessions.
+    monkeypatch.setattr(session_module, "_bluez_pairing_agent", _fake_agent)
+
+    async def _fake_establish(*_args, **_kwargs):
+        return _ClosableFakeClient(device_path=LOCAL_BLUEZ_DEVICE_DETAILS["path"])
+
+    async def _not_paired(_dev):
+        return False
+
+    monkeypatch.setattr(session_module, "_bluez_is_paired", _not_paired)
+    monkeypatch.setattr(
+        session_module, "establish_connection_with_bond_settle", _fake_establish
+    )
+
+    async def _handoff():
+        probe = OmronDeviceSession(
+            FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), captured[0][0]
+        )
+        await probe.connect()
+        assert agent_events == ["enter"]
+
+        transferred = OmronDeviceSession.adopt(
+            probe.release_client(),
+            get_device_config("BP786N"),
+            pairing_session=True,
+            pairing_agent=probe.take_pairing_agent(),
+        )
+        transferred.reclaim_ownership()
+        await probe.aclose()
+        assert agent_events == ["enter"]
+        await transferred.aclose()
+        assert agent_events == ["enter", "exit"]
+
+        probe2 = OmronDeviceSession(
+            FakeBLEDevice(LOCAL_BLUEZ_DEVICE_DETAILS), captured[0][0]
+        )
+        await probe2.connect()
+        assert agent_events == ["enter", "exit", "enter"]
+        await probe2.release_pairing_agent()
+        assert agent_events == ["enter", "exit", "enter", "exit"]
+        await probe2.aclose()
+
+    asyncio.run(_handoff())

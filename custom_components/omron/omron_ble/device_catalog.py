@@ -233,6 +233,9 @@ CANONICAL_DEVICE_PROFILES: dict[str, DeviceConfig] = {
     "HEM-7322T": DeviceConfig(
         model="HEM-7322T",
         connect_type=ConnectType.WLB1_0,
+        # BP786N (HEM-7321T-ZV) sends an incoming SMP RequestAuthorization right
+        # after connect, before session.pair() runs StartNotify.
+        register_pairing_agent=True,
         aggressive_gatt_timing=True,
         endianness=Endianness.BIG,
         user_start_addresses=[0x02AC, 0x0824],
