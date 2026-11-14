@@ -593,6 +593,7 @@ class OmronUserAssignmentTimeBinarySensor(OmronEntity, BinarySensorEntity):
     _attr_should_poll = False
     _attr_has_entity_name = True
     _attr_translation_key = "user_assignment_time"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:clock-check-outline"
 
     def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
