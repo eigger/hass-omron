@@ -6,6 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from homeassistant.util import dt as dt_util
+from homeassistant.const import EntityCategory
+from homeassistant.helpers import entity_registry as er
 
 from .test_user_derived_entities import _state
 from .test_user_measurements import CUFF, SCALE, _entry, _setup, _user
@@ -35,6 +37,8 @@ async def test_initial_state_and_windows(
     )
     await _setup(hass, entry)
     state = _state(hass, entry, "bob", "binary_sensor", "assignment_time")
+    registry_entry = er.async_get(hass).async_get(state.entity_id)
+    assert registry_entry.entity_category == EntityCategory.DIAGNOSTIC
     assert state.state == "on"
     assert state.attributes["time_windows"] == [
         {"start": "22:00", "end": "02:00"},
