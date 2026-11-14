@@ -652,7 +652,11 @@
         "name": "자세 불량"
       },
       "user_assignment_time": {
-        "name": "배정 시간대 해당"
+        "name": "배정 시간",
+        "state": {
+          "on": "해당",
+          "off": "미해당"
+        }
       }
     },
     "button": {

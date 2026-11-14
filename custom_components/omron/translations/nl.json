@@ -652,7 +652,11 @@
         "name": "Verkeerde houding"
       },
       "user_assignment_time": {
-        "name": "Toewijzingstijd"
+        "name": "Toewijzingstijd",
+        "state": {
+          "on": "Binnen",
+          "off": "Buiten"
+        }
       }
     },
     "button": {

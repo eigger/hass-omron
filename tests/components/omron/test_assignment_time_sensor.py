@@ -105,3 +105,19 @@ async def test_uses_home_assistant_local_time(
     entry = _entry(hass, CUFF, [_user("bob", "Bob", time_windows="09:00-10:00")])
     await _setup(hass, entry)
     assert _state(hass, entry, "bob", "binary_sensor", "assignment_time").state == "on"
+
+
+@pytest.mark.parametrize(
+    ("language", "on_label", "off_label"),
+    [("en", "Within", "Outside"), ("ko", "해당", "미해당")],
+)
+async def test_state_translations(
+    hass, enable_bluetooth, language, on_label, off_label
+):
+    """Home Assistant loads entity-specific labels for the binary states."""
+    from homeassistant.helpers.translation import async_get_translations
+
+    translations = await async_get_translations(hass, language, "entity", {"omron"})
+    prefix = "component.omron.entity.binary_sensor.user_assignment_time.state"
+    assert translations[f"{prefix}.on"] == on_label
+    assert translations[f"{prefix}.off"] == off_label

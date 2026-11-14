@@ -652,7 +652,11 @@
         "name": "Falsche Haltung"
       },
       "user_assignment_time": {
-        "name": "Zuordnungszeit"
+        "name": "Zuordnungszeit",
+        "state": {
+          "on": "Innerhalb",
+          "off": "Außerhalb"
+        }
       }
     },
     "button": {

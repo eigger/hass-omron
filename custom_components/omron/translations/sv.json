@@ -652,7 +652,11 @@
         "name": "Fel ställning"
       },
       "user_assignment_time": {
-        "name": "Tilldelningstid"
+        "name": "Tilldelningstid",
+        "state": {
+          "on": "Inom",
+          "off": "Utanför"
+        }
       }
     },
     "button": {

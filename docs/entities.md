@@ -107,7 +107,7 @@ With no user added, nothing here applies and the integration behaves as before. 
 | Scale | Weight, BMI (from the **Height** you enter for that user) | `assignment`, `measured_at`, `weight_kg`, `height_cm` (BMI) |
 | Blood pressure monitor | Systolic, Diastolic, Pulse, Measured At, and the derived Pulse Pressure, Estimated MAP, BP Category (ACC/AHA), Shock Index, Rate Pressure Product | `assignment` (`rule`), `measured_at`, `irregular_pulse`, `body_movement` |
 
-Each user also has an **Assignment time** binary sensor. It is on when the current Home Assistant local time is inside any configured assignment time window; with no windows it is always on. Starts are inclusive, ends are exclusive, and windows may cross midnight. Its `time_windows` attribute lists every configured start and end. This sensor checks time only, independently of measurement results or value ranges.
+Each user also has an **Assignment time** binary sensor. It is on when the current Home Assistant local time is inside any configured assignment time window; with no windows it is always on. Starts are inclusive, ends are exclusive, and windows may cross midnight. Its `time_windows` attribute lists every configured start and end. Its display labels describe whether the time is within or outside the windows; automations use the underlying `on` and `off` states. This sensor checks time only, independently of measurement results or value ranges.
 
 Each user also has a diagnostic sensor, **Last assignment decision**, on every device kind. It moves on every measurement that was handled, whether or not the user got it, and says why when not; it keeps its value across restarts and is unknown until the first measurement after it was added. Its state is one of:
 

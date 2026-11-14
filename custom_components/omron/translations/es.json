@@ -652,7 +652,11 @@
         "name": "Postura incorrecta"
       },
       "user_assignment_time": {
-        "name": "Horario de asignación"
+        "name": "Horario de asignación",
+        "state": {
+          "on": "Dentro",
+          "off": "Fuera"
+        }
       }
     },
     "button": {

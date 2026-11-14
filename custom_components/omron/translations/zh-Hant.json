@@ -652,7 +652,11 @@
         "name": "姿勢不正確"
       },
       "user_assignment_time": {
-        "name": "指派時間範圍"
+        "name": "指派時間範圍",
+        "state": {
+          "on": "時間內",
+          "off": "時間外"
+        }
       }
     },
     "button": {

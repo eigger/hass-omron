@@ -652,7 +652,11 @@
         "name": "Mauvaise position"
       },
       "user_assignment_time": {
-        "name": "Horaire d’attribution"
+        "name": "Horaire d’attribution",
+        "state": {
+          "on": "Dans la plage",
+          "off": "Hors plage"
+        }
       }
     },
     "button": {

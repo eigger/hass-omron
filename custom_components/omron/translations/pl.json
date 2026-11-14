@@ -652,7 +652,11 @@
         "name": "Nieprawidłowa pozycja"
       },
       "user_assignment_time": {
-        "name": "Czas przypisania"
+        "name": "Czas przypisania",
+        "state": {
+          "on": "W przedziale",
+          "off": "Poza przedziałem"
+        }
       }
     },
     "button": {
