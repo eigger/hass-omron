@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "姿势不当"
+      },
+      "user_assignment_time": {
+        "name": "分配时间段",
+        "state": {
+          "on": "时间内",
+          "off": "时间外"
+        }
       }
     },
     "button": {

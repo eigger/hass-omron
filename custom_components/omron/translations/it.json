@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Postura errata"
+      },
+      "user_assignment_time": {
+        "name": "Orario di assegnazione",
+        "state": {
+          "on": "Nella fascia",
+          "off": "Fuori fascia"
+        }
       }
     },
     "button": {

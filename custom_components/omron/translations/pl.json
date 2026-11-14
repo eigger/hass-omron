@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Nieprawidłowa pozycja"
+      },
+      "user_assignment_time": {
+        "name": "Czas przypisania",
+        "state": {
+          "on": "W przedziale",
+          "off": "Poza przedziałem"
+        }
       }
     },
     "button": {

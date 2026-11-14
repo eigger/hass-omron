@@ -80,6 +80,10 @@ def test_translation_files_share_entity_keys_and_user_placeholder() -> None:
         key_sets = [set(doc[domain]) for doc in loaded]
         assert all(keys == key_sets[0] for keys in key_sets), domain
     for doc in loaded:
+        assert set(doc["binary_sensor"]["user_assignment_time"]["state"]) == {
+            "on",
+            "off",
+        }
         for key, spec in doc["sensor"].items():
             if key.endswith("_user"):
                 assert "{user}" in spec["name"]

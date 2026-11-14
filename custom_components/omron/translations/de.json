@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Falsche Haltung"
+      },
+      "user_assignment_time": {
+        "name": "Zuordnungszeit",
+        "state": {
+          "on": "Innerhalb",
+          "off": "Außerhalb"
+        }
       }
     },
     "button": {

@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Fel ställning"
+      },
+      "user_assignment_time": {
+        "name": "Tilldelningstid",
+        "state": {
+          "on": "Inom",
+          "off": "Utanför"
+        }
       }
     },
     "button": {

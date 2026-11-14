@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "姿勢不良"
+      },
+      "user_assignment_time": {
+        "name": "割り当て時間帯",
+        "state": {
+          "on": "時間内",
+          "off": "時間外"
+        }
       }
     },
     "button": {

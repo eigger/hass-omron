@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Posição incorreta"
+      },
+      "user_assignment_time": {
+        "name": "Horário de atribuição",
+        "state": {
+          "on": "Dentro",
+          "off": "Fora"
+        }
       }
     },
     "button": {

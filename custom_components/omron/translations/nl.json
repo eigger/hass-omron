@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Verkeerde houding"
+      },
+      "user_assignment_time": {
+        "name": "Toewijzingstijd",
+        "state": {
+          "on": "Binnen",
+          "off": "Buiten"
+        }
       }
     },
     "button": {

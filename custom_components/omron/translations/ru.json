@@ -650,6 +650,13 @@
       },
       "user_improper_position": {
         "name": "Неправильное положение"
+      },
+      "user_assignment_time": {
+        "name": "Время назначения",
+        "state": {
+          "on": "В интервале",
+          "off": "Вне интервала"
+        }
       }
     },
     "button": {
