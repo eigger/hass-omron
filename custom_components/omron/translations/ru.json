@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "Неправильное положение"
+      },
+      "user_assignment_time": {
+        "name": "Время назначения"
       }
     },
     "button": {

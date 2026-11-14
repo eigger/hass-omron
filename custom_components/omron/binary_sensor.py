@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
 
 from sensor_state_data import (
     BinarySensorDeviceClass as OmronBinarySensorDeviceClass,
@@ -34,11 +37,14 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_BLUETOOTH, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.event import async_track_time_change
+from homeassistant.util import dt as dt_util
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN
+from .assignment import Window, in_windows, parse_windows
+from .const import CONF_USER_TIME_WINDOWS, DOMAIN
 from .coordinator import OmronPassiveBluetoothDataProcessor
 from .entity import OmronCoordinatorEntity
 from .entity_helpers import (
@@ -310,6 +316,13 @@ async def async_setup_entry(
         [OmronConnectionBinarySensorEntity(entry, runtime.connection_coordinator)]
     )
 
+    if runtime.users is not None:
+        for subentry_id, subentry in user_subentries(entry).items():
+            async_add_entities(
+                [OmronUserAssignmentTimeBinarySensor(entry, subentry)],
+                config_subentry_id=subentry_id,
+            )
+
     # Registered users of a single-slot cuff: the status flags of their last
     # measurement, only the ones this model's records carry.
     if runtime.users is not None and not runtime.is_scale:
@@ -571,4 +584,99 @@ class OmronUserFlagBinarySensor(OmronEntity, BinarySensorEntity):
 
     @callback
     def _handle_user_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class OmronUserAssignmentTimeBinarySensor(OmronEntity, BinarySensorEntity):
+    """Whether the current local time satisfies a user's time windows."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_translation_key = "user_assignment_time"
+    _attr_icon = "mdi:clock-check-outline"
+
+    def __init__(self, entry: OmronConfigEntry, subentry: ConfigSubentry) -> None:
+        self._bind(entry)
+        self._subentry = subentry
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{subentry.subentry_id}_assignment_time"
+        )
+        self._boundary_listeners: list[Callable[[], None]] = []
+        self._scheduled_windows: list[Window] | None = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return user_device_info(self.hass, self._entry, self._subentry)
+
+    @property
+    def _windows(self) -> list[Window]:
+        current = self._entry.subentries.get(self._subentry.subentry_id)
+        return (
+            parse_windows((current or self._subentry).data.get(CONF_USER_TIME_WINDOWS))
+            or []
+        )
+
+    @property
+    def is_on(self) -> bool:
+        windows = self._windows
+        now = dt_util.now()
+        return not windows or in_windows(now.hour * 60 + now.minute, windows)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        def clock(minute: int) -> str:
+            return f"{minute // 60:02d}:{minute % 60:02d}"
+
+        return {
+            "time_windows": [
+                {"start": clock(start), "end": clock(end)}
+                for start, end in self._windows
+            ]
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._clear_boundaries)
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                signal_user_updated(self._entry.entry_id, self._subentry.subentry_id),
+                self._handle_user_update,
+            )
+        )
+        self._schedule_boundaries()
+
+    @callback
+    def _clear_boundaries(self) -> None:
+        for unsubscribe in self._boundary_listeners:
+            unsubscribe()
+        self._boundary_listeners.clear()
+
+    @callback
+    def _schedule_boundaries(self) -> None:
+        windows = self._windows
+        if windows == self._scheduled_windows:
+            return
+        self._clear_boundaries()
+        self._scheduled_windows = windows
+        for minute in {
+            boundary % 1440 for window in self._windows for boundary in window
+        }:
+            self._boundary_listeners.append(
+                async_track_time_change(
+                    self.hass,
+                    self._handle_boundary,
+                    hour=minute // 60,
+                    minute=minute % 60,
+                    second=0,
+                )
+            )
+
+    @callback
+    def _handle_boundary(self, _now: datetime) -> None:
+        self.async_write_ha_state()
+
+    @callback
+    def _handle_user_update(self) -> None:
+        self._schedule_boundaries()
         self.async_write_ha_state()

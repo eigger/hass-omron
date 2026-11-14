@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "Mauvaise position"
+      },
+      "user_assignment_time": {
+        "name": "Horaire d’attribution"
       }
     },
     "button": {

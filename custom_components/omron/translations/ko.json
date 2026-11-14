@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "자세 불량"
+      },
+      "user_assignment_time": {
+        "name": "배정 시간대 해당"
       }
     },
     "button": {

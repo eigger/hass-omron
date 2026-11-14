@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "Nieprawidłowa pozycja"
+      },
+      "user_assignment_time": {
+        "name": "Czas przypisania"
       }
     },
     "button": {

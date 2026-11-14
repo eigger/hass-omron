@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "Improper Position"
+      },
+      "user_assignment_time": {
+        "name": "Assignment time"
       }
     },
     "button": {

@@ -367,18 +367,25 @@ async def test_a_pulse_pressure_guard_is_the_same_on_the_user(
     assert _state(hass, entry, "bob", "sensor", "shock_index").state == "0.88"
 
 
-async def test_scale_users_are_unchanged(
+async def test_scale_users_have_assignment_time_but_no_cuff_flags(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = _entry(hass, SCALE, ALICE_BOB)
     await _setup(hass, entry)
 
-    assert set(_own(hass, entry, "alice")) == {"weight", "bmi", "last_decision"}
+    assert set(_own(hass, entry, "alice")) == {
+        "weight",
+        "bmi",
+        "last_decision",
+        "assignment_time",
+    }
     registry = er.async_get(hass)
     assert not [
         e
         for e in er.async_entries_for_config_entry(registry, entry.entry_id)
-        if e.domain == "binary_sensor" and e.config_subentry_id
+        if e.domain == "binary_sensor"
+        and e.config_subentry_id
+        and not e.unique_id.endswith("_assignment_time")
     ]
 
 

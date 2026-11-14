@@ -650,6 +650,9 @@
       },
       "user_improper_position": {
         "name": "姿勢不正確"
+      },
+      "user_assignment_time": {
+        "name": "指派時間範圍"
       }
     },
     "button": {
