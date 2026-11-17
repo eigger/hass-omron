@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.omron.omron_ble.bls import _parse_bp_measurement
+from custom_components.omron.omron_ble.devices import get_device_config
 
 from .test_user_measurements import (
     CUFF,
@@ -457,3 +458,46 @@ async def test_every_path_reads_a_loose_cuff_as_on(
         hass, entry, _record("2026-09-21T07:30:00", 131, 84, 70, cuff_loose=loose)
     )
     assert _state(hass, entry, "bob", "binary_sensor", "cuff_fit").state == state
+
+
+# --- low battery of the HEM-7386T1 family (#276) --------------------------------------
+
+
+def _low_battery_values(entry, record: dict) -> list[bool]:
+    data = entry.runtime_data.device_data
+    data._update_measurement_sensors(record)
+    update = data._finish_update()
+    return [
+        value.native_value
+        for key, value in update.binary_entity_values.items()
+        if str(key.key).startswith("low_battery")
+    ]
+
+
+@pytest.mark.parametrize(("bit", "low"), [(1, True), (0, False)])
+async def test_the_7386_family_publishes_low_battery(
+    hass: HomeAssistant, enable_bluetooth: None, bit: int, low: bool
+) -> None:
+    entry = _entry(hass, "HEM-7386T1", [])
+    await _setup(hass, entry)
+    config = get_device_config("HEM-7386T1")
+    raw = bytes([100, 80, 70]) + bytes.fromhex(
+        "1a292ef5100000a50004012200" if bit else "1a292df51e0000970000011200"
+    )
+
+    record = config.parse_record(raw)
+
+    assert _low_battery_values(entry, record) == [low]
+
+
+async def test_other_classic_profiles_publish_no_low_battery(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, "HEM-7374T1", [])
+    await _setup(hass, entry)
+    config = get_device_config("HEM-7374T1")
+    raw = bytes([100, 80, 70]) + bytes.fromhex("1a292ef5100000a50004012200")
+
+    record = config.parse_record(raw)
+
+    assert _low_battery_values(entry, record) == []
