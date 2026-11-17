@@ -7,15 +7,22 @@ only the ones the model's records carry.
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.omron.omron_ble import parser as parser_module
+from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 from custom_components.omron.omron_ble.bls import _parse_bp_measurement
+from custom_components.omron.omron_ble.session_trace import SessionTrace
 from custom_components.omron.omron_ble.devices import get_device_config
+
+from tests.components.omron.poll_fakes import ADDRESS
 
 from .test_user_measurements import (
     CUFF,
@@ -501,26 +508,44 @@ async def test_the_7386_family_publishes_one_device_level_low_battery(
 
 
 @pytest.mark.parametrize(
-    ("tail1", "tail2", "low"),
-    [(LOW_TAIL, OK_TAIL, True), (OK_TAIL, LOW_TAIL, False)],
+    ("first", "second", "first_low", "second_low"),
+    [(LOW_TAIL, OK_TAIL, True, False), (OK_TAIL, LOW_TAIL, False, True)],
 )
-async def test_low_battery_comes_from_the_newest_record_across_users(
-    hass: HomeAssistant, enable_bluetooth: None, tail1: str, tail2: str, low: bool
+async def test_low_battery_comes_only_from_a_record_new_in_the_poll(
+    first: str, second: str, first_low: bool, second_low: bool
 ) -> None:
-    entry = _entry(hass, "HEM-7386T1", [])
-    await _setup(hass, entry)
+    """A user's old latest record comes back every poll and must not touch it."""
     when = dt.datetime(2026, 11, 9, 9, 12)
-    newer = _7386_record(tail1, when)
-    older = _7386_record(tail2, when - dt.timedelta(days=90))
-    newer["_record_id"], older["_record_id"] = 0xA5, 0x94
-    latest = {1: newer, 2: older}
+    old = {**_7386_record(first, when), "user": 2}
+    new = {**_7386_record(second, when + dt.timedelta(days=1)), "user": 1}
+    data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+    data._driver.write_user_profile = AsyncMock()
+    data._driver.complete_measurement_readout = AsyncMock()
+    session = MagicMock()
+    session.trace = SessionTrace()
+    session._pairing_session = False
+    client = MagicMock()
+    client.services.get_characteristic.return_value = None
 
-    data = entry.runtime_data.device_data
-    values = {}
-    for user in data._users_oldest_record_first(latest):
-        values = _low_battery_values(entry, latest[user], user=user)
+    async def poll(latest: dict) -> list[bool]:
+        data._driver.get_latest_records_per_user = AsyncMock(return_value=latest)
+        with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
+            await data._poll_device_readout(
+                session,
+                client,
+                SimpleNamespace(address=ADDRESS),
+                memory_session_active=True,
+            )
+        update = data._finish_update()
+        return [
+            v.native_value
+            for k, v in update.binary_entity_values.items()
+            if str(k.key) == "low_battery"
+        ]
 
-    assert values == {"low_battery": low}
+    assert await poll({2: dict(old)}) == [first_low]
+    assert await poll({1: dict(new), 2: dict(old)}) == [second_low]
+    assert await poll({1: dict(new), 2: dict(old)}) == [second_low]
 
 
 async def test_low_battery_follows_the_last_record_when_the_clock_goes_back(
