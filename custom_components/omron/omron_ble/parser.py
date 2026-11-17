@@ -1241,6 +1241,22 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             if multi_user_mode:
                 if latest_by_user:
+                    # Low battery comes from the newest of the new records (#276).
+                    fresh = [
+                        u
+                        for u, r in latest_by_user.items()
+                        if self._build_record_signature(r)
+                        != self._last_record_signatures_by_user.get(u)
+                    ]
+                    battery_user = max(
+                        fresh,
+                        key=lambda u: (
+                            isinstance(latest_by_user[u].get("datetime"), dt.datetime),
+                            latest_by_user[u].get("datetime") or dt.datetime.min,
+                            u,
+                        ),
+                        default=None,
+                    )
                     for user in sorted(latest_by_user):
                         user_record = latest_by_user[user]
                         if self._device_config.is_blood_pressure:
@@ -1261,12 +1277,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                             )
                         signature = self._build_record_signature(user_record)
                         previous = self._last_record_signatures_by_user.get(user)
-                        # Low battery only from a record new to this poll (#276).
                         self._update_measurement_sensors(
                             user_record,
                             user=user,
                             multi_user=True,
-                            low_battery=signature != previous,
+                            low_battery=user == battery_user,
                         )
                         if signature != previous:
                             self._last_record_signatures_by_user[user] = signature

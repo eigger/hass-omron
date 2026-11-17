@@ -507,6 +507,31 @@ async def test_the_7386_family_publishes_one_device_level_low_battery(
     assert _low_battery_values(entry, fresh, user=2) == {"low_battery": False}
 
 
+async def _poll_low_battery(data, latest: dict) -> list[bool]:
+    """One real readout loop over ``latest``; the low_battery values published."""
+    data._driver.write_user_profile = AsyncMock()
+    data._driver.complete_measurement_readout = AsyncMock()
+    data._driver.get_latest_records_per_user = AsyncMock(return_value=latest)
+    session = MagicMock()
+    session.trace = SessionTrace()
+    session._pairing_session = False
+    client = MagicMock()
+    client.services.get_characteristic.return_value = None
+    with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
+        await data._poll_device_readout(
+            session,
+            client,
+            SimpleNamespace(address=ADDRESS),
+            memory_session_active=True,
+        )
+    update = data._finish_update()
+    return [
+        v.native_value
+        for k, v in update.binary_entity_values.items()
+        if str(k.key) == "low_battery"
+    ]
+
+
 @pytest.mark.parametrize(
     ("first", "second", "first_low", "second_low"),
     [(LOW_TAIL, OK_TAIL, True, False), (OK_TAIL, LOW_TAIL, False, True)],
@@ -519,33 +544,30 @@ async def test_low_battery_comes_only_from_a_record_new_in_the_poll(
     old = {**_7386_record(first, when), "user": 2}
     new = {**_7386_record(second, when + dt.timedelta(days=1)), "user": 1}
     data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
-    data._driver.write_user_profile = AsyncMock()
-    data._driver.complete_measurement_readout = AsyncMock()
-    session = MagicMock()
-    session.trace = SessionTrace()
-    session._pairing_session = False
-    client = MagicMock()
-    client.services.get_characteristic.return_value = None
 
-    async def poll(latest: dict) -> list[bool]:
-        data._driver.get_latest_records_per_user = AsyncMock(return_value=latest)
-        with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
-            await data._poll_device_readout(
-                session,
-                client,
-                SimpleNamespace(address=ADDRESS),
-                memory_session_active=True,
-            )
-        update = data._finish_update()
-        return [
-            v.native_value
-            for k, v in update.binary_entity_values.items()
-            if str(k.key) == "low_battery"
-        ]
+    assert await _poll_low_battery(data, {2: dict(old)}) == [first_low]
+    both = {1: dict(new), 2: dict(old)}
+    assert await _poll_low_battery(data, both) == [second_low]
+    assert await _poll_low_battery(data, both) == [second_low]
 
-    assert await poll({2: dict(old)}) == [first_low]
-    assert await poll({1: dict(new), 2: dict(old)}) == [second_low]
-    assert await poll({1: dict(new), 2: dict(old)}) == [second_low]
+
+@pytest.mark.parametrize(
+    ("fresh_tail", "stale_tail", "low"),
+    [
+        (OK_TAIL, LOW_TAIL, False),
+        (LOW_TAIL, OK_TAIL, True),
+    ],
+)
+async def test_after_a_restart_the_newest_dated_record_decides(
+    fresh_tail: str, stale_tail: str, low: bool
+) -> None:
+    """With no signatures yet both records are new; user 2 must not win by number."""
+    when = dt.datetime(2026, 11, 9, 9, 12)
+    one = {**_7386_record(fresh_tail, when), "user": 1}
+    two = {**_7386_record(stale_tail, when - dt.timedelta(days=90)), "user": 2}
+    data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+
+    assert await _poll_low_battery(data, {1: one, 2: two}) == [low]
 
 
 async def test_low_battery_follows_the_last_record_when_the_clock_goes_back(
