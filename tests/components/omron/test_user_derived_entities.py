@@ -498,8 +498,20 @@ async def test_the_7386_family_publishes_one_device_level_low_battery(
     # User 2 measures later, after a battery swap: the one entity follows.
     fresh = _7386_record(OK_TAIL, t2)
     assert _low_battery_values(entry, fresh, user=2) == {"low_battery": False}
-    # An older record read afterwards does not bring the flag back.
-    assert _low_battery_values(entry, low, user=1) == {"low_battery": False}
+
+
+async def test_low_battery_follows_the_last_record_when_the_clock_goes_back(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, "HEM-7386T1", [])
+    await _setup(hass, entry)
+    when = dt.datetime(2026, 11, 9, 9, 12)
+
+    low = _7386_record(LOW_TAIL, when)
+    assert _low_battery_values(entry, low, user=1) == {"low_battery": True}
+    # A battery swap resets the cuff clock: the clear record is dated earlier.
+    clear = _7386_record(OK_TAIL, when - dt.timedelta(days=300))
+    assert _low_battery_values(entry, clear, user=1) == {"low_battery": False}
 
 
 async def test_other_classic_profiles_publish_no_low_battery(

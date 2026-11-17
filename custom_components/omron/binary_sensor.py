@@ -56,7 +56,7 @@ from .entity_helpers import (
 )
 from .data import signal_user_updated
 from .entity import OmronEntity, user_device_info
-from .omron_ble.devices import get_device_config
+from .omron_ble.devices import RecordParser, get_device_config
 from .omron_ble.record_parsers import recorded_pressure_flags
 from .types import OmronConfigEntry
 from .users import user_subentries
@@ -288,6 +288,11 @@ async def async_setup_entry(
             continue
         key = reg_entry.unique_id[len(uid_prefix) :]
         if key in _RESTORE_DEVICE_FLAG_KEYS:
+            if (
+                get_device_config(runtime.model).record_parser
+                != RecordParser.CLASSIC_VITAL_14_7386_FAMILY
+            ):
+                continue
             base = key
         else:
             base = next(

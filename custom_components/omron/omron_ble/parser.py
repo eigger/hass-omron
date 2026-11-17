@@ -113,7 +113,6 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
-        self._low_battery_at: dt.datetime | None = None
         self._last_readout_at: dt.datetime | None = None
         # The stage breakdown of the last BLE session this object ran (poll,
         # pairing or time sync), success or not; the diagnostic sensors
@@ -837,22 +836,11 @@ class OmronBluetoothDeviceData(BluetoothData):
                     )
 
     def _publish_low_battery(self, record: dict[str, Any]) -> None:
-        """Publish the device-level low-battery flag from the newest record."""
+        """Publish the device-level low-battery flag; the last record processed wins."""
         if "low_battery" not in record:
             return
         from .const import ExtendedBinarySensorDeviceClass
 
-        stamp = record.get("datetime")
-        if not isinstance(stamp, dt.datetime):
-            stamp = None
-        if stamp is not None:
-            if self._low_battery_at is not None:
-                try:
-                    if stamp < self._low_battery_at:
-                        return
-                except TypeError:
-                    pass
-            self._low_battery_at = stamp
         self.update_binary_sensor(
             "low_battery",
             bool(record["low_battery"]),

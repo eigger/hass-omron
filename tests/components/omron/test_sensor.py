@@ -521,6 +521,21 @@ async def test_the_device_level_low_battery_is_restored(
     await _unload(hass, entry)
 
 
+async def test_low_battery_is_not_restored_on_other_models(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(BP_MODEL)
+    uid = "hem_7155t_eeff_none_low_battery"
+    _preregister(hass, entry, "binary_sensor", uid)
+
+    await _setup(hass, entry)
+
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id("binary_sensor", DOMAIN, uid)
+    assert hass.states.get(entity_id) is None
+    await _unload(hass, entry)
+
+
 async def test_registry_entries_of_other_domains_platforms_or_devices_are_ignored(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
