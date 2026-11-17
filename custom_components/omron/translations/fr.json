@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "Mauvaise position ({user})"
       },
-      "low_battery_user": {
-        "name": "Batterie faible (expérimental) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "Pouls irrégulier"
       },

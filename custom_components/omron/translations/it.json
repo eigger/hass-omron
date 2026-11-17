@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "Postura errata ({user})"
       },
-      "low_battery_user": {
-        "name": "Batteria scarica (sperimentale) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "Pulsazioni irregolari"
       },

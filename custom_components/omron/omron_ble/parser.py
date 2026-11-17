@@ -113,6 +113,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         self._driver = OmronDeviceDriver(self._device_config)
         self._user_aliases: dict[int, str] = _normalize_user_aliases(user_aliases)
         self._last_record_signature: tuple[Any, ...] | None = None
+        self._low_battery_at: dt.datetime | None = None
         self._last_readout_at: dt.datetime | None = None
         # The stage breakdown of the last BLE session this object ran (poll,
         # pairing or time sync), success or not; the diagnostic sensors
@@ -812,8 +813,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
-        if "low_battery" in record and "low_battery" not in status_flags:
-            status_flags["low_battery"] = bool(record["low_battery"])
+
+        self._publish_low_battery(record)
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
@@ -826,7 +827,6 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "improper_position",
                     ExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
                 ),
-                ("low_battery", ExtendedBinarySensorDeviceClass.LOW_BATTERY),
             ]:
                 if flag_key in status_flags:
                     self.update_binary_sensor(
@@ -835,6 +835,30 @@ class OmronBluetoothDeviceData(BluetoothData):
                         class_name,
                         f"{flag_key.replace('_', ' ').title()}{name_suffix}",
                     )
+
+    def _publish_low_battery(self, record: dict[str, Any]) -> None:
+        """Publish the device-level low-battery flag from the newest record."""
+        if "low_battery" not in record:
+            return
+        from .const import ExtendedBinarySensorDeviceClass
+
+        stamp = record.get("datetime")
+        if not isinstance(stamp, dt.datetime):
+            stamp = None
+        if stamp is not None:
+            if self._low_battery_at is not None:
+                try:
+                    if stamp < self._low_battery_at:
+                        return
+                except TypeError:
+                    pass
+            self._low_battery_at = stamp
+        self.update_binary_sensor(
+            "low_battery",
+            bool(record["low_battery"]),
+            ExtendedBinarySensorDeviceClass.LOW_BATTERY,
+            "Low Battery",
+        )
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""

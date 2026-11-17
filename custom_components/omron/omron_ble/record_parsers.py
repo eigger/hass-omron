@@ -162,7 +162,8 @@ def parse_classic_vital_14_7386_family(
 ) -> dict[str, Any]:
     """HEM-7386T1 family: the classic 14-byte layout plus the low-battery bit."""
     record = parse_classic_vital_14(data, endianness)
-    # HEM-7386T1 family: byte 12 bit 2 matches the low-battery symbol (#276).
+    # HEM-7386T1 family: byte 12 bit 2 was set on records taken with the low-battery
+    # symbol showing (#276).
     if len(data) >= 13:
         record["low_battery"] = (data[12] >> 2) & 0x01
     return record

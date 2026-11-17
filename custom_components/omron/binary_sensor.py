@@ -108,8 +108,9 @@ _RESTORE_STATUS_FLAG_BASES = (
     OmronExtendedBinarySensorDeviceClass.CUFF_FIT.value,
     OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE.value,
     OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION.value,
-    OmronExtendedBinarySensorDeviceClass.LOW_BATTERY.value,
 )
+# Device-level flags: one entity, no per-user suffix.
+_RESTORE_DEVICE_FLAG_KEYS = (OmronExtendedBinarySensorDeviceClass.LOW_BATTERY.value,)
 
 ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {
     OmronExtendedBinarySensorDeviceClass.FORCED_TRANSFER: BinarySensorEntityDescription(
@@ -286,9 +287,14 @@ async def async_setup_entry(
         if reg_entry.disabled or not reg_entry.unique_id.startswith(uid_prefix):
             continue
         key = reg_entry.unique_id[len(uid_prefix) :]
-        base = next((b for b in _RESTORE_STATUS_FLAG_BASES if key.startswith(b)), None)
-        if base is None or key[len(base) :] not in valid_suffixes:
-            continue
+        if key in _RESTORE_DEVICE_FLAG_KEYS:
+            base = key
+        else:
+            base = next(
+                (b for b in _RESTORE_STATUS_FLAG_BASES if key.startswith(b)), None
+            )
+            if base is None or key[len(base) :] not in valid_suffixes:
+                continue
         device_key = DeviceKey(key=key, device_id=None)
         entity_key = device_key_entity_id_suffix(device_key)
         if entity_key in known_entity_keys:

@@ -463,31 +463,43 @@ async def test_every_path_reads_a_loose_cuff_as_on(
 # --- low battery of the HEM-7386T1 family (#276) --------------------------------------
 
 
-def _low_battery_values(entry, record: dict) -> list[bool]:
+def _low_battery_values(entry, record: dict, user: int | None = None) -> dict:
     data = entry.runtime_data.device_data
-    data._update_measurement_sensors(record)
+    data._update_measurement_sensors(record, user=user, multi_user=user is not None)
     update = data._finish_update()
-    return [
-        value.native_value
+    return {
+        str(key.key): value.native_value
         for key, value in update.binary_entity_values.items()
-        if str(key.key).startswith("low_battery")
-    ]
+        if "low_battery" in str(key.key)
+    }
 
 
-@pytest.mark.parametrize(("bit", "low"), [(1, True), (0, False)])
-async def test_the_7386_family_publishes_low_battery(
-    hass: HomeAssistant, enable_bluetooth: None, bit: int, low: bool
+def _7386_record(tail: str, when: dt.datetime) -> dict:
+    config = get_device_config("HEM-7386T1")
+    record = config.parse_record(bytes([100, 80, 70]) + bytes.fromhex(tail))
+    record["datetime"] = when
+    return record
+
+
+LOW_TAIL = "1a292ef5100000a50004012200"
+OK_TAIL = "1a292df51e0000970000011200"
+
+
+async def test_the_7386_family_publishes_one_device_level_low_battery(
+    hass: HomeAssistant, enable_bluetooth: None
 ) -> None:
     entry = _entry(hass, "HEM-7386T1", [])
     await _setup(hass, entry)
-    config = get_device_config("HEM-7386T1")
-    raw = bytes([100, 80, 70]) + bytes.fromhex(
-        "1a292ef5100000a50004012200" if bit else "1a292df51e0000970000011200"
-    )
+    t1 = dt.datetime(2026, 11, 9, 9, 12)
+    t2 = t1 + dt.timedelta(days=1)
 
-    record = config.parse_record(raw)
-
-    assert _low_battery_values(entry, record) == [low]
+    low = _7386_record(LOW_TAIL, t1)
+    assert _low_battery_values(entry, low, user=1) == {"low_battery": True}
+    # User 2 measures later, after a battery swap: the one entity follows.
+    fresh = _7386_record(OK_TAIL, t2)
+    assert _low_battery_values(entry, fresh, user=2) == {"low_battery": False}
+    # An older record read afterwards does not bring the flag back.
+    assert _low_battery_values(entry, low, user=1) == {"low_battery": False}
 
 
 async def test_other_classic_profiles_publish_no_low_battery(
@@ -500,4 +512,4 @@ async def test_other_classic_profiles_publish_no_low_battery(
 
     record = config.parse_record(raw)
 
-    assert _low_battery_values(entry, record) == []
+    assert _low_battery_values(entry, record) == {}

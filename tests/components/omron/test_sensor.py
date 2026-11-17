@@ -489,7 +489,6 @@ async def test_advertisement_flag_in_the_registry_does_not_break_setup(
         "cuff_fit",
         "irregular_pulse",
         "improper_position",
-        "low_battery",
     ],
 )
 async def test_every_status_flag_is_restored(
@@ -498,6 +497,21 @@ async def test_every_status_flag_is_restored(
     entry = _entry(BP_MODEL)
     entity_id = _preregister(
         hass, entry, "binary_sensor", f"hem_7155t_eeff_none_{flag}_user1"
+    )
+    mock_restore_cache(hass, [State(entity_id, "on")])
+
+    await _setup(hass, entry)
+
+    assert hass.states.get(entity_id).state == "on"
+    await _unload(hass, entry)
+
+
+async def test_the_device_level_low_battery_is_restored(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry("HEM-7386T1")
+    entity_id = _preregister(
+        hass, entry, "binary_sensor", "hem_7386t1_eeff_none_low_battery"
     )
     mock_restore_cache(hass, [State(entity_id, "on")])
 

@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "姿勢不良 ({user})"
       },
-      "low_battery_user": {
-        "name": "電池残量低下（実験的） ({user})"
-      },
       "user_irregular_pulse": {
         "name": "不規則脈"
       },

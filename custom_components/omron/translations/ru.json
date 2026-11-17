@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "Неправильное положение ({user})"
       },
-      "low_battery_user": {
-        "name": "Низкий заряд батареи (экспериментально) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "Нерегулярный пульс"
       },

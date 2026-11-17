@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "姿势不当 ({user})"
       },
-      "low_battery_user": {
-        "name": "电量低（实验性） ({user})"
-      },
       "user_irregular_pulse": {
         "name": "不规则脉搏"
       },

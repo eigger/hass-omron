@@ -69,7 +69,6 @@ _USER_NAME_BASES = frozenset(
         "measurement_timestamp",
         "improper_position",
         "irregular_pulse",
-        "low_battery",
         "pulse_pressure",
         "body_movement",
         "shock_index",

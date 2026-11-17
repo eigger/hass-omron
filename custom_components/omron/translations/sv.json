@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "Fel ställning ({user})"
       },
-      "low_battery_user": {
-        "name": "Lågt batteri (experimentell) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "Oregelbunden puls"
       },

@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "자세 불량 ({user})"
       },
-      "low_battery_user": {
-        "name": "배터리 부족 (실험적) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "불규칙 맥박"
       },

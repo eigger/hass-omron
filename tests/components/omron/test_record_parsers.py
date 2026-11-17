@@ -223,7 +223,6 @@ def test_flags2_bit_13_is_not_decoded():
 _LOW_BATTERY_TAILS = {
     "flashing_1": ("1aea2c091a000094000401f700", True),
     "flashing_2": ("1a292ef5100000a50004012200", True),
-    "ambiguous": ("1a292d01130000960004013500", True),
     "clear_1": ("1a292df51e0000970000011200", False),
     "clear_2": ("1a2a2d47100000980000015700", False),
     "clear_3": ("1a2a2de51400009a0000010400", False),

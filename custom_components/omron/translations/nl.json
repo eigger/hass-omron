@@ -642,9 +642,6 @@
       "improper_position_user": {
         "name": "Verkeerde houding ({user})"
       },
-      "low_battery_user": {
-        "name": "Batterij bijna leeg (experimenteel) ({user})"
-      },
       "user_irregular_pulse": {
         "name": "Onregelmatige pols"
       },
