@@ -500,6 +500,29 @@ async def test_the_7386_family_publishes_one_device_level_low_battery(
     assert _low_battery_values(entry, fresh, user=2) == {"low_battery": False}
 
 
+@pytest.mark.parametrize(
+    ("tail1", "tail2", "low"),
+    [(LOW_TAIL, OK_TAIL, True), (OK_TAIL, LOW_TAIL, False)],
+)
+async def test_low_battery_comes_from_the_newest_record_across_users(
+    hass: HomeAssistant, enable_bluetooth: None, tail1: str, tail2: str, low: bool
+) -> None:
+    entry = _entry(hass, "HEM-7386T1", [])
+    await _setup(hass, entry)
+    when = dt.datetime(2026, 11, 9, 9, 12)
+    newer = _7386_record(tail1, when)
+    older = _7386_record(tail2, when - dt.timedelta(days=90))
+    newer["_record_id"], older["_record_id"] = 0xA5, 0x94
+    latest = {1: newer, 2: older}
+
+    data = entry.runtime_data.device_data
+    values = {}
+    for user in data._users_oldest_record_first(latest):
+        values = _low_battery_values(entry, latest[user], user=user)
+
+    assert values == {"low_battery": low}
+
+
 async def test_low_battery_follows_the_last_record_when_the_clock_goes_back(
     hass: HomeAssistant, enable_bluetooth: None
 ) -> None:

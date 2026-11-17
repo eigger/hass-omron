@@ -835,6 +835,21 @@ class OmronBluetoothDeviceData(BluetoothData):
                         f"{flag_key.replace('_', ' ').title()}{name_suffix}",
                     )
 
+    @staticmethod
+    def _users_oldest_record_first(
+        latest_by_user: dict[int, dict[str, Any]],
+    ) -> list[int]:
+        """Users in the order their latest records were stored.
+
+        The device-level low-battery flag follows the last record processed, so
+        the newest record across users must come last. Without a sequence
+        number on every record the order is by user.
+        """
+        users = sorted(latest_by_user)
+        if all(isinstance(latest_by_user[u].get("_record_id"), int) for u in users):
+            users.sort(key=lambda u: latest_by_user[u]["_record_id"])
+        return users
+
     def _publish_low_battery(self, record: dict[str, Any]) -> None:
         """Publish the device-level low-battery flag; the last record processed wins."""
         if "low_battery" not in record:
@@ -1239,7 +1254,7 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             if multi_user_mode:
                 if latest_by_user:
-                    for user in sorted(latest_by_user):
+                    for user in self._users_oldest_record_first(latest_by_user):
                         user_record = latest_by_user[user]
                         if self._device_config.is_blood_pressure:
                             _LOGGER.debug(
