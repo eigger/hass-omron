@@ -96,6 +96,10 @@ POLL_BINARY_SENSOR_DESCRIPTIONS = {
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:seat-recline-normal",
     ),
+    OmronExtendedBinarySensorDeviceClass.LOW_BATTERY: BinarySensorEntityDescription(
+        key=OmronExtendedBinarySensorDeviceClass.LOW_BATTERY,
+        device_class=BinarySensorDeviceClass.BATTERY,
+    ),
 }
 
 # Per-user status flags a readout can set; the ones restored from the registry.
@@ -104,6 +108,7 @@ _RESTORE_STATUS_FLAG_BASES = (
     OmronExtendedBinarySensorDeviceClass.CUFF_FIT.value,
     OmronExtendedBinarySensorDeviceClass.IRREGULAR_PULSE.value,
     OmronExtendedBinarySensorDeviceClass.IMPROPER_POSITION.value,
+    OmronExtendedBinarySensorDeviceClass.LOW_BATTERY.value,
 )
 
 ADVERTISEMENT_BINARY_SENSOR_DESCRIPTIONS = {

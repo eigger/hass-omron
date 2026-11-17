@@ -483,7 +483,14 @@ async def test_advertisement_flag_in_the_registry_does_not_break_setup(
 
 
 @pytest.mark.parametrize(
-    "flag", ["body_movement", "cuff_fit", "irregular_pulse", "improper_position"]
+    "flag",
+    [
+        "body_movement",
+        "cuff_fit",
+        "irregular_pulse",
+        "improper_position",
+        "low_battery",
+    ],
 )
 async def test_every_status_flag_is_restored(
     hass: HomeAssistant, enable_bluetooth: None, flag: str

@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "姿勢不正確"
       },
+      "low_battery": {
+        "name": "電量低（實驗性）"
+      },
       "forced_transfer": {
         "name": "等待傳輸"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "姿勢不正確 ({user})"
+      },
+      "low_battery_user": {
+        "name": "電量低（實驗性） ({user})"
       },
       "user_irregular_pulse": {
         "name": "不規則脈搏"

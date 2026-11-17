@@ -21,6 +21,7 @@ from .model_aliases import AMBIGUOUS_MODEL_NAMES, MODEL_NUMBER_ALIASES
 from .record_parsers import (
     parse_classic_vital_14,
     parse_classic_vital_14_6232_family,
+    parse_classic_vital_14_7386_family,
     parse_classic_vital_14_bitpacked,
     parse_classic_vital_16_6401_family,
     parse_classic_vital_24_heartguide,
@@ -89,6 +90,7 @@ class RecordParser(StrEnum):
     CLASSIC_VITAL_16_6401_FAMILY = "classic_vital_16_6401_family"
     CLASSIC_VITAL_14_BITPACKED = "classic_vital_14_bitpacked"
     CLASSIC_VITAL_14_6232_FAMILY = "classic_vital_14_6232_family"
+    CLASSIC_VITAL_14_7386_FAMILY = "classic_vital_14_7386_family"
     CLASSIC_VITAL_24_HEARTGUIDE = "classic_vital_24_heartguide"
     WEIGHT_16 = "weight_16"
     HBF_32 = "hbf_32"
@@ -525,6 +527,7 @@ class DeviceConfig:
             RecordParser.CLASSIC_VITAL_16_6401_FAMILY: parse_classic_vital_16_6401_family,
             RecordParser.CLASSIC_VITAL_14_BITPACKED: parse_classic_vital_14_bitpacked,
             RecordParser.CLASSIC_VITAL_14_6232_FAMILY: parse_classic_vital_14_6232_family,
+            RecordParser.CLASSIC_VITAL_14_7386_FAMILY: parse_classic_vital_14_7386_family,
             RecordParser.CLASSIC_VITAL_24_HEARTGUIDE: parse_classic_vital_24_heartguide,
             RecordParser.WEIGHT_16: parse_weight_16,
             RecordParser.HBF_32: parse_hbf_32,

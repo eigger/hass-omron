@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Verkeerde houding"
       },
+      "low_battery": {
+        "name": "Batterij bijna leeg (experimenteel)"
+      },
       "forced_transfer": {
         "name": "Gegevens in wachtrij"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "Verkeerde houding ({user})"
+      },
+      "low_battery_user": {
+        "name": "Batterij bijna leeg (experimenteel) ({user})"
       },
       "user_irregular_pulse": {
         "name": "Onregelmatige pols"

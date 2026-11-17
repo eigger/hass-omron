@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "姿勢不良"
       },
+      "low_battery": {
+        "name": "電池残量低下（実験的）"
+      },
       "forced_transfer": {
         "name": "転送待ち"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "姿勢不良 ({user})"
+      },
+      "low_battery_user": {
+        "name": "電池残量低下（実験的） ({user})"
       },
       "user_irregular_pulse": {
         "name": "不規則脈"

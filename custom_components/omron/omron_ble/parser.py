@@ -812,6 +812,8 @@ class OmronBluetoothDeviceData(BluetoothData):
             status_flags["cuff_fit"] = not bool(record["cuff"])
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
+        if "low_battery" in record and "low_battery" not in status_flags:
+            status_flags["low_battery"] = bool(record["low_battery"])
 
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
@@ -824,6 +826,7 @@ class OmronBluetoothDeviceData(BluetoothData):
                     "improper_position",
                     ExtendedBinarySensorDeviceClass.IMPROPER_POSITION,
                 ),
+                ("low_battery", ExtendedBinarySensorDeviceClass.LOW_BATTERY),
             ]:
                 if flag_key in status_flags:
                     self.update_binary_sensor(

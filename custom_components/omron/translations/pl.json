@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Nieprawidłowa pozycja"
       },
+      "low_battery": {
+        "name": "Niski poziom baterii (eksperymentalne)"
+      },
       "forced_transfer": {
         "name": "Dane oczekują"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "Nieprawidłowa pozycja ({user})"
+      },
+      "low_battery_user": {
+        "name": "Niski poziom baterii (eksperymentalne) ({user})"
       },
       "user_irregular_pulse": {
         "name": "Nieregularne tętno"

@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "자세 불량"
       },
+      "low_battery": {
+        "name": "배터리 부족 (실험적)"
+      },
       "forced_transfer": {
         "name": "전송 대기"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "자세 불량 ({user})"
+      },
+      "low_battery_user": {
+        "name": "배터리 부족 (실험적) ({user})"
       },
       "user_irregular_pulse": {
         "name": "불규칙 맥박"

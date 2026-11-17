@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Posição incorreta"
       },
+      "low_battery": {
+        "name": "Bateria fraca (experimental)"
+      },
       "forced_transfer": {
         "name": "Dados pendentes"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "Posição incorreta ({user})"
+      },
+      "low_battery_user": {
+        "name": "Bateria fraca (experimental) ({user})"
       },
       "user_irregular_pulse": {
         "name": "Pulso irregular"

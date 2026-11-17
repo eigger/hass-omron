@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Mauvaise position"
       },
+      "low_battery": {
+        "name": "Batterie faible (expérimental)"
+      },
       "forced_transfer": {
         "name": "Données en attente"
       },
@@ -638,6 +641,9 @@
       },
       "improper_position_user": {
         "name": "Mauvaise position ({user})"
+      },
+      "low_battery_user": {
+        "name": "Batterie faible (expérimental) ({user})"
       },
       "user_irregular_pulse": {
         "name": "Pouls irrégulier"

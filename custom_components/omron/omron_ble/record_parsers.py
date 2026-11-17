@@ -121,7 +121,8 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     # every real record captured so far has it clear, so nothing observed
     # distinguishes the candidates.
     #
-    # There is no battery field to look for elsewhere either. The OMRON connect
+    # No battery field is known elsewhere in this layout (the HEM-7386T1 family's
+    # byte 12 is the one experimental exception, #276). The OMRON connect
     # app shows no battery state for blood pressure monitors -- no such string,
     # no such key in its BLE library, nothing in its measurement model -- and
     # the standard Blood Pressure Measurement Status this layout mirrors has no
@@ -153,6 +154,17 @@ def parse_classic_vital_14(data: bytes | bytearray, endianness: str) -> dict[str
     except ValueError:
         # Keep record usable for slot-based latest selection.
         record["datetime"] = None
+    return record
+
+
+def parse_classic_vital_14_7386_family(
+    data: bytes | bytearray, endianness: str
+) -> dict[str, Any]:
+    """HEM-7386T1 family: the classic 14-byte layout plus the low-battery bit."""
+    record = parse_classic_vital_14(data, endianness)
+    # HEM-7386T1 family: byte 12 bit 2 matches the low-battery symbol (#276).
+    if len(data) >= 13:
+        record["low_battery"] = (data[12] >> 2) & 0x01
     return record
 
 
@@ -368,6 +380,7 @@ _PRESSURE_FLAGS_BY_PARSER: dict[str, tuple[str, ...]] = {
     "classic_vital_14": _PRESSURE_FLAGS_ALL,
     "classic_vital_14_bitpacked": _PRESSURE_FLAGS_ALL,
     "classic_vital_14_6232_family": _PRESSURE_FLAGS_ALL,
+    "classic_vital_14_7386_family": _PRESSURE_FLAGS_ALL,
     "classic_vital_24_heartguide": _PRESSURE_FLAGS_ALL,
     "classic_vital_16_6401_family": ("irregular_pulse", "body_movement"),
 }
