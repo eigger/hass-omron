@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Postura incorrecta"
       },
+      "low_battery": {
+        "name": "Batería baja (experimental)"
+      },
       "forced_transfer": {
         "name": "Datos pendientes"
       },

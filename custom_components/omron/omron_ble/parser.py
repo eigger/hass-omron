@@ -690,6 +690,7 @@ class OmronBluetoothDeviceData(BluetoothData):
         *,
         user: int | None = None,
         multi_user: bool = False,
+        low_battery: bool = True,
     ) -> None:
         """Publish measurement-derived sensors for one record."""
         from .const import ExtendedSensorDeviceClass
@@ -813,6 +814,9 @@ class OmronBluetoothDeviceData(BluetoothData):
         if "pos" in record and "improper_position" not in status_flags:
             status_flags["improper_position"] = bool(record["pos"])
 
+        if low_battery:
+            self._publish_low_battery(record)
+
         if status_flags:
             from .const import ExtendedBinarySensorDeviceClass
 
@@ -832,6 +836,19 @@ class OmronBluetoothDeviceData(BluetoothData):
                         class_name,
                         f"{flag_key.replace('_', ' ').title()}{name_suffix}",
                     )
+
+    def _publish_low_battery(self, record: dict[str, Any]) -> None:
+        """Publish the device-level low-battery flag; the last record processed wins."""
+        if "low_battery" not in record:
+            return
+        from .const import ExtendedBinarySensorDeviceClass
+
+        self.update_binary_sensor(
+            "low_battery",
+            bool(record["low_battery"]),
+            ExtendedBinarySensorDeviceClass.LOW_BATTERY,
+            "Low Battery",
+        )
 
     def _ensure_aware_datetime(self, value: Any) -> Any:
         """Convert naive datetime to timezone-aware datetime for HA timestamp sensors."""
@@ -1224,6 +1241,22 @@ class OmronBluetoothDeviceData(BluetoothData):
 
             if multi_user_mode:
                 if latest_by_user:
+                    # Low battery comes from the newest of the new records (#276).
+                    fresh = [
+                        u
+                        for u, r in latest_by_user.items()
+                        if self._build_record_signature(r)
+                        != self._last_record_signatures_by_user.get(u)
+                    ]
+                    battery_user = max(
+                        fresh,
+                        key=lambda u: (
+                            isinstance(latest_by_user[u].get("datetime"), dt.datetime),
+                            latest_by_user[u].get("datetime") or dt.datetime.min,
+                            u,
+                        ),
+                        default=None,
+                    )
                     for user in sorted(latest_by_user):
                         user_record = latest_by_user[user]
                         if self._device_config.is_blood_pressure:
@@ -1242,13 +1275,14 @@ class OmronBluetoothDeviceData(BluetoothData):
                                 user_record.get("datetime"),
                                 user_record.get("weight"),
                             )
+                        signature = self._build_record_signature(user_record)
+                        previous = self._last_record_signatures_by_user.get(user)
                         self._update_measurement_sensors(
                             user_record,
                             user=user,
                             multi_user=True,
+                            low_battery=user == battery_user,
                         )
-                        signature = self._build_record_signature(user_record)
-                        previous = self._last_record_signatures_by_user.get(user)
                         if signature != previous:
                             self._last_record_signatures_by_user[user] = signature
             elif record:

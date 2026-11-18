@@ -89,6 +89,7 @@ class ExtendedBinarySensorDeviceClass(BaseDeviceClass):
     CUFF_FIT = "cuff_fit"
     IRREGULAR_PULSE = "irregular_pulse"
     IMPROPER_POSITION = "improper_position"
+    LOW_BATTERY = "low_battery"
     FORCED_TRANSFER = "forced_transfer"
     INVALID_TIME = "invalid_time"
     PAIRING_MODE = "pairing_mode"

@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "姿勢不正確"
       },
+      "low_battery": {
+        "name": "電量低（實驗性）"
+      },
       "forced_transfer": {
         "name": "等待傳輸"
       },

@@ -47,6 +47,7 @@ _TRANSLATED_NAME_BASES: tuple[str, ...] = (
     "pairing_mode",
     "invalid_time",
     "shock_index",
+    "low_battery",
     "heart_rate",
     "body_composition_bmi",
     "basal_metabolic_rate",

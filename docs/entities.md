@@ -28,6 +28,8 @@ Moved from the main README (detailed reference).
   - **Body Movement**: `On` indicates that movement was detected during the measurement.
   - **Irregular Pulse**: `On` indicates that an irregular heart rhythm was detected.
   - **Improper Position**: `On` indicates the device was not at heart level (wrist models).
+  - **Low Battery (experimental)**: HEM-7386T1 family only (HEM-7381T1-AZ, HEM-7382T1, HEM-7382T1-AZAZ, HEM-7386T1, HEM-7386T1-AJF3, HEM-7388T1-AJF3). `On` indicates the low-battery bit was set in the newest stored record.
+    The bit is undocumented and unconfirmed (#276). One sensor for the cuff, updated whenever any user's measurement is read.
   - **Connection**: `On` while Home Assistant is actively communicating with the monitor.
 - **Scales** get the same diagnostic sensors, plus:
   - **Weight (kg)** and **Measurement Timestamp**

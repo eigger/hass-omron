@@ -217,3 +217,80 @@ def test_flags2_bit_13_is_not_decoded():
     assert record["pos"] == 0
     assert "battery" not in record
     assert not any("batt" in k.lower() for k in record), sorted(record)
+
+
+# HEM-7386T1 family stored records (#276): bytes 3..15 of the 16-byte slot.
+_LOW_BATTERY_TAILS = {
+    "flashing_1": ("1aea2c091a000094000401f700", True),
+    "flashing_2": ("1a292ef5100000a50004012200", True),
+    "clear_1": ("1a292df51e0000970000011200", False),
+    "clear_2": ("1a2a2d47100000980000015700", False),
+    "clear_3": ("1a2a2de51400009a0000010400", False),
+    "clear_4": ("1a292eb3170000a7000001e200", False),
+}
+
+
+def _record_16(tail: str) -> bytes:
+    return bytes([100, 80, 70]) + bytes.fromhex(tail)
+
+
+@pytest.mark.parametrize(("tail", "low"), _LOW_BATTERY_TAILS.values())
+def test_hem7386_family_reads_low_battery_from_byte_12_bit_2(tail, low):
+    from custom_components.omron.omron_ble.devices import get_device_config
+
+    raw = _record_16(tail)
+    assert len(raw) == 16
+
+    record = get_device_config("HEM-7386T1").parse_record(raw)
+
+    assert record["low_battery"] == int(low)
+    assert record["sys"] == 125
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "HEM-7386T1",
+        "HEM-7386T1-AJF3",
+        "HEM-7388T1-AJF3",
+        "HEM-7381T1-AZ",
+        "HEM-7382T1",
+        "HEM-7382T1-AZAZ",
+    ],
+)
+def test_hem7386_family_models_share_the_parser(model):
+    from custom_components.omron.omron_ble.devices import (
+        RecordParser,
+        get_device_config,
+    )
+
+    config = get_device_config(model)
+    assert config.record_parser == RecordParser.CLASSIC_VITAL_14_7386_FAMILY
+
+
+def test_hem7386_family_needs_byte_12():
+    from custom_components.omron.omron_ble.record_parsers import (
+        parse_classic_vital_14_7386_family,
+    )
+
+    raw = _record_16(_LOW_BATTERY_TAILS["flashing_2"][0])
+
+    assert "low_battery" not in parse_classic_vital_14_7386_family(raw[:12], "little")
+    assert parse_classic_vital_14_7386_family(raw[:13], "little")["low_battery"] == 1
+
+
+def test_other_classic_vital_14_profiles_have_no_low_battery():
+    from custom_components.omron.omron_ble.devices import (
+        CANONICAL_DEVICE_PROFILES,
+        RecordParser,
+    )
+
+    raw = _record_16(_LOW_BATTERY_TAILS["flashing_2"][0])
+    profiles = [
+        config
+        for config in CANONICAL_DEVICE_PROFILES.values()
+        if config.record_parser == RecordParser.CLASSIC_VITAL_14
+    ]
+    assert profiles
+    for config in profiles:
+        assert "low_battery" not in config.parse_record(raw), config.model

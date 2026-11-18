@@ -615,6 +615,9 @@
       "improper_position": {
         "name": "Verkeerde houding"
       },
+      "low_battery": {
+        "name": "Batterij bijna leeg (experimenteel)"
+      },
       "forced_transfer": {
         "name": "Gegevens in wachtrij"
       },

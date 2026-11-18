@@ -7,14 +7,22 @@ only the ones the model's records carry.
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.omron.omron_ble import parser as parser_module
+from custom_components.omron.omron_ble import OmronBluetoothDeviceData
 from custom_components.omron.omron_ble.bls import _parse_bp_measurement
+from custom_components.omron.omron_ble.session_trace import SessionTrace
+from custom_components.omron.omron_ble.devices import get_device_config
+
+from tests.components.omron.poll_fakes import ADDRESS
 
 from .test_user_measurements import (
     CUFF,
@@ -457,3 +465,133 @@ async def test_every_path_reads_a_loose_cuff_as_on(
         hass, entry, _record("2026-09-21T07:30:00", 131, 84, 70, cuff_loose=loose)
     )
     assert _state(hass, entry, "bob", "binary_sensor", "cuff_fit").state == state
+
+
+# --- low battery of the HEM-7386T1 family (#276) --------------------------------------
+
+
+def _low_battery_values(entry, record: dict, user: int | None = None) -> dict:
+    data = entry.runtime_data.device_data
+    data._update_measurement_sensors(record, user=user, multi_user=user is not None)
+    update = data._finish_update()
+    return {
+        str(key.key): value.native_value
+        for key, value in update.binary_entity_values.items()
+        if "low_battery" in str(key.key)
+    }
+
+
+def _7386_record(tail: str, when: dt.datetime) -> dict:
+    config = get_device_config("HEM-7386T1")
+    record = config.parse_record(bytes([100, 80, 70]) + bytes.fromhex(tail))
+    record["datetime"] = when
+    return record
+
+
+LOW_TAIL = "1a292ef5100000a50004012200"
+OK_TAIL = "1a292df51e0000970000011200"
+
+
+async def test_the_7386_family_publishes_one_device_level_low_battery(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, "HEM-7386T1", [])
+    await _setup(hass, entry)
+    t1 = dt.datetime(2026, 11, 9, 9, 12)
+    t2 = t1 + dt.timedelta(days=1)
+
+    low = _7386_record(LOW_TAIL, t1)
+    assert _low_battery_values(entry, low, user=1) == {"low_battery": True}
+    # User 2 measures later, after a battery swap: the one entity follows.
+    fresh = _7386_record(OK_TAIL, t2)
+    assert _low_battery_values(entry, fresh, user=2) == {"low_battery": False}
+
+
+async def _poll_low_battery(data, latest: dict) -> list[bool]:
+    """One real readout loop over ``latest``; the low_battery values published."""
+    data._driver.write_user_profile = AsyncMock()
+    data._driver.complete_measurement_readout = AsyncMock()
+    data._driver.get_latest_records_per_user = AsyncMock(return_value=latest)
+    session = MagicMock()
+    session.trace = SessionTrace()
+    session._pairing_session = False
+    client = MagicMock()
+    client.services.get_characteristic.return_value = None
+    with patch.object(parser_module, "async_sync_eeprom_time", AsyncMock()):
+        await data._poll_device_readout(
+            session,
+            client,
+            SimpleNamespace(address=ADDRESS),
+            memory_session_active=True,
+        )
+    update = data._finish_update()
+    return [
+        v.native_value
+        for k, v in update.binary_entity_values.items()
+        if str(k.key) == "low_battery"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "first_low", "second_low"),
+    [(LOW_TAIL, OK_TAIL, True, False), (OK_TAIL, LOW_TAIL, False, True)],
+)
+async def test_low_battery_comes_only_from_a_record_new_in_the_poll(
+    first: str, second: str, first_low: bool, second_low: bool
+) -> None:
+    """A user's old latest record comes back every poll and must not touch it."""
+    when = dt.datetime(2026, 11, 9, 9, 12)
+    old = {**_7386_record(first, when), "user": 2}
+    new = {**_7386_record(second, when + dt.timedelta(days=1)), "user": 1}
+    data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+
+    assert await _poll_low_battery(data, {2: dict(old)}) == [first_low]
+    both = {1: dict(new), 2: dict(old)}
+    assert await _poll_low_battery(data, both) == [second_low]
+    assert await _poll_low_battery(data, both) == [second_low]
+
+
+@pytest.mark.parametrize(
+    ("fresh_tail", "stale_tail", "low"),
+    [
+        (OK_TAIL, LOW_TAIL, False),
+        (LOW_TAIL, OK_TAIL, True),
+    ],
+)
+async def test_after_a_restart_the_newest_dated_record_decides(
+    fresh_tail: str, stale_tail: str, low: bool
+) -> None:
+    """With no signatures yet both records are new; user 2 must not win by number."""
+    when = dt.datetime(2026, 11, 9, 9, 12)
+    one = {**_7386_record(fresh_tail, when), "user": 1}
+    two = {**_7386_record(stale_tail, when - dt.timedelta(days=90)), "user": 2}
+    data = OmronBluetoothDeviceData(device_model="HEM-7386T1")
+
+    assert await _poll_low_battery(data, {1: one, 2: two}) == [low]
+
+
+async def test_low_battery_follows_the_last_record_when_the_clock_goes_back(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, "HEM-7386T1", [])
+    await _setup(hass, entry)
+    when = dt.datetime(2026, 11, 9, 9, 12)
+
+    low = _7386_record(LOW_TAIL, when)
+    assert _low_battery_values(entry, low, user=1) == {"low_battery": True}
+    # A battery swap resets the cuff clock: the clear record is dated earlier.
+    clear = _7386_record(OK_TAIL, when - dt.timedelta(days=300))
+    assert _low_battery_values(entry, clear, user=1) == {"low_battery": False}
+
+
+async def test_other_classic_profiles_publish_no_low_battery(
+    hass: HomeAssistant, enable_bluetooth: None
+) -> None:
+    entry = _entry(hass, "HEM-7374T1", [])
+    await _setup(hass, entry)
+    config = get_device_config("HEM-7374T1")
+    raw = bytes([100, 80, 70]) + bytes.fromhex("1a292ef5100000a50004012200")
+
+    record = config.parse_record(raw)
+
+    assert _low_battery_values(entry, record) == {}
